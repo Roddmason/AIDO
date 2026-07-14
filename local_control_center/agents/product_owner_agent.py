@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -47,11 +48,16 @@ from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_ID,
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
     PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
+    PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
     product_owner_agent_contract,
     product_owner_agent_readiness,
 )
 from .repository import AgentsRepository
-from .runtime_registry import RuntimeCommandUnavailableError, build_product_owner_agent_argv
+from .runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_product_owner_agent_argv,
+    isolated_product_owner_codex_environment,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
@@ -95,6 +101,10 @@ def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
     return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
 
 
+def _runtime_provider_family(runtime: dict[str, Any]) -> str:
+    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
+
+
 def _runtime_mode(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
@@ -109,16 +119,32 @@ def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
+    completed = tool_call.get("status") == "completed"
+    return_code = execution_result.get("returnCode")
+    timed_out = bool(execution_result.get("timedOut", False))
+    blocked = bool(execution_result.get("blocked", False))
+    reason = str(execution_result.get("reason") or "").strip()
+    if not reason and timed_out:
+        reason = "ProductOwnerAgent runtime execution timed out."
+    elif not reason and blocked:
+        reason = "ProductOwnerAgent runtime execution was blocked."
+    elif not reason and not completed and return_code not in {None, 0, "0"}:
+        reason = f"ProductOwnerAgent runtime process exited with return code {return_code}."
+    elif not reason and not completed:
+        reason = "ProductOwnerAgent runtime execution failed."
+    elif not reason:
+        reason = str(payload.get("decisionReason") or "").strip()
     return {
-        "status": "completed" if tool_call.get("status") == "completed" else "failed",
+        "status": "completed" if completed else "failed",
         "toolCallId": tool_call.get("id"),
         "execution": payload.get("execution"),
-        "returnCode": execution_result.get("returnCode"),
-        "timedOut": bool(execution_result.get("timedOut", False)),
-        "blocked": bool(execution_result.get("blocked", False)),
-        "reason": execution_result.get("reason") or payload.get("decisionReason"),
+        "returnCode": return_code,
+        "timedOut": timed_out,
+        "blocked": blocked,
+        "reason": reason,
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
+        "stderrArtifactId": execution_result.get("stderrArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
     }
 
@@ -635,7 +661,8 @@ class ProductOwnerAgentRunner:
     def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
         runtime_id = str(runtime.get("id") or "")
         ollama_runtime = _is_ollama_runtime(runtime)
-        remote_runtime = runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES or str(
+        provider_family = _runtime_provider_family(runtime)
+        remote_runtime = provider_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES or str(
             runtime.get("kind") or ""
         ) in {"api", "gateway"}
         return self.agents.upsert_agent_profile(
@@ -650,7 +677,7 @@ class ProductOwnerAgentRunner:
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
                 "allowRemote": remote_runtime,
                 "allowCli": runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES or ollama_runtime,
+                "allowApi": provider_family in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": product_owner_agent_contract()["outputSchema"],
             }
         )
@@ -757,15 +784,22 @@ class ProductOwnerAgentRunner:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
         ollama_runtime = _is_ollama_runtime(runtime)
+        provider_family = _runtime_provider_family(runtime)
         if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        resource_decision = (
+            metadata.get("resourceSelection")
+            if isinstance(metadata.get("resourceSelection"), dict)
+            else None
+        )
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
             agent_run_id=agent_run["id"],
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": "ollama" if ollama_runtime else runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -778,14 +812,20 @@ class ProductOwnerAgentRunner:
                     "messages": messages,
                     "temperature": 0.1,
                 },
-                "networkRequired": runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES
-                or str(runtime.get("kind") or "") in {"api", "gateway"},
+                # Provider transport is broker-owned. ProductOwnerAgent receives no independent
+                # network or secret capability beyond that selected adapter invocation.
+                "networkRequired": False,
                 # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
+                "providerTransportRequired": True,
+                "workspaceReadRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
+                "resourceDecisionId": (resource_decision or {}).get("routingDecisionId"),
                 "execute": True,
-                "timeoutSeconds": 900,
+                "timeoutSeconds": PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
             },
+            trusted_operation="product_owner_model_call",
+            trusted_resource_decision=resource_decision,
         )
         return _execution_result_from_tool_call(model_eval["toolCall"])
 
@@ -801,34 +841,78 @@ class ProductOwnerAgentRunner:
         broker: ToolBroker,
         prompt: str,
     ) -> dict[str, Any]:
-        runtime_argv = build_product_owner_agent_argv(
-            runtime=runtime,
-            workspace_id=workspace["id"],
-            workspace_path=workspace["path"],
-            prompt=prompt,
-            agent_id=PRODUCT_OWNER_AGENT_ID,
-            connection=self.connection,
+        execution_workspace = workspace
+        ephemeral_prompt_workspace: dict[str, Any] | None = None
+        if str(runtime.get("id") or "") in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+            ephemeral_prompt_workspace = self.workspaces.allocate_prompt_workspace(
+                project_id=str(payload["projectId"]),
+                task_id=f"{workspace['taskId']}:product-owner-cli-prompt:{agent_run['id']}",
+                agent_id=PRODUCT_OWNER_AGENT_ID,
+                source_workspace_id=workspace["id"],
+                reason="Isolated prompt-only cwd for ProductOwnerAgent CLI execution.",
+                workflow_run_id=agent_run.get("workflowRunId"),
+                workflow_step_id=agent_run.get("workflowStepId"),
+            )
+            execution_workspace = ephemeral_prompt_workspace
+
+        environment_context = (
+            isolated_product_owner_codex_environment()
+            if str(runtime.get("id") or "") == "codex_cli"
+            else nullcontext(None)
         )
-        runtime_eval = broker.evaluate_tool_call(
-            project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": "shell",
-                "command": " ".join(runtime_argv),
-                "argv": runtime_argv,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "product_owner_runtime",
-                "runtimeId": runtime["id"],
-                "capability": "code_edit",
-                "execute": True,
-                "timeoutSeconds": 900,
-            },
-        )
-        return _execution_result_from_tool_call(runtime_eval["toolCall"])
+        try:
+            with environment_context as subprocess_environment:
+                runtime_argv = build_product_owner_agent_argv(
+                    runtime=runtime,
+                    workspace_id=execution_workspace["id"],
+                    workspace_path=execution_workspace["path"],
+                    prompt=prompt,
+                    model=payload.get("model"),
+                    agent_id=PRODUCT_OWNER_AGENT_ID,
+                    connection=self.connection,
+                )
+                metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+                resource_decision = (
+                    metadata.get("resourceSelection")
+                    if isinstance(metadata.get("resourceSelection"), dict)
+                    else None
+                )
+                runtime_eval = broker.evaluate_tool_call(
+                    project_id=payload["projectId"],
+                    agent_run_id=agent_run["id"],
+                    agent_profile=profile,
+                    job_id=job["id"],
+                    tool_call={
+                        "tool": "shell",
+                        "command": " ".join(runtime_argv),
+                        "argv": runtime_argv,
+                        "workspaceId": execution_workspace["id"],
+                        "workspacePath": execution_workspace["path"],
+                        "path": execution_workspace["path"],
+                        "operation": "product_owner_runtime",
+                        "runtimeId": runtime["id"],
+                        "model": payload.get("model"),
+                        "capability": "chat",
+                        "providerTransportRequired": True,
+                        "workspaceReadRequired": False,
+                        "networkRequired": False,
+                        "secretsRequired": False,
+                        "execute": True,
+                        "timeoutSeconds": PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
+                        "captureStdoutArtifact": True,
+                        "resourceDecisionId": (resource_decision or {}).get("routingDecisionId"),
+                    },
+                    trusted_operation="product_owner_runtime",
+                    trusted_resource_decision=resource_decision,
+                    trusted_subprocess_environment=subprocess_environment,
+                )
+                return _execution_result_from_tool_call(runtime_eval["toolCall"])
+        finally:
+            if ephemeral_prompt_workspace is not None:
+                self.workspaces.archive_workspace(
+                    ephemeral_prompt_workspace["id"],
+                    reason="ProductOwnerAgent CLI prompt workspace released after execution.",
+                )
 
     def _persist_initiative(
         self, *, project_id: str, assessment: dict[str, Any], brief: dict[str, Any]

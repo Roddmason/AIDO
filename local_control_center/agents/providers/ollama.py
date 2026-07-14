@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import os
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.runtime_provider_config import (
@@ -32,10 +32,11 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
+from .http_transport import urlopen_fail_closed
 
 
 def _public_error(error: BaseException) -> str:
-    return str(redact_secrets(f"{error.__class__.__name__}: {error}"))
+    return str(redact_secrets(f"{error.__class__.__name__}: provider request failed"))
 
 
 class OllamaProvider(ModelProvider):
@@ -43,8 +44,17 @@ class OllamaProvider(ModelProvider):
 
     provider_id = "ollama"
 
-    def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
-        runtime_configuration = runtime_provider_configuration("ollama")
+    def __init__(
+        self,
+        *,
+        provider_id: str = "ollama",
+        base_url: str | None = None,
+        credential_ref: str | None = None,
+    ):
+        is_legacy_provider = provider_id in {"ollama", "local_ollama"}
+        runtime_configuration = (
+            runtime_provider_configuration("ollama") if is_legacy_provider else None
+        )
         resolved_base_url = (
             base_url
             if base_url is not None
@@ -53,8 +63,11 @@ class OllamaProvider(ModelProvider):
                 or os.environ.get("OLLAMA_BASE_URL")
                 or os.environ.get("OLLAMA_HOST")
                 or DEFAULT_OLLAMA_BASE_URL
+                if is_legacy_provider
+                else ""
             )
         )
+        self.provider_id = provider_id
         self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
         self.credential_ref = credential_ref or ""
         self.credential_resolver = CredentialResolver()
@@ -100,7 +113,7 @@ class OllamaProvider(ModelProvider):
             )
         try:
             request = Request(f"{self.base_url}/api/tags", headers=headers, method="GET")
-            with urlopen(request, timeout=2):
+            with urlopen_fail_closed(request, timeout=2):
                 pass
         except (OSError, TimeoutError, URLError) as error:
             return ProviderHealth(
@@ -125,7 +138,7 @@ class OllamaProvider(ModelProvider):
             return []
         try:
             request = Request(f"{self.base_url}/api/tags", headers=headers, method="GET")
-            with urlopen(request, timeout=2) as response:
+            with urlopen_fail_closed(request, timeout=2) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, TimeoutError, URLError, json.JSONDecodeError):
             return []
@@ -169,7 +182,7 @@ class OllamaProvider(ModelProvider):
             },
             method="POST",
         )
-        with urlopen(http_request, timeout=60) as response:
+        with urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         message = raw.get("message") if isinstance(raw, dict) else {}
         content = str((message or {}).get("content") or "")

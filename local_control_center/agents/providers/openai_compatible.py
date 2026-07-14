@@ -30,6 +30,7 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
+from .http_transport import urlopen_fail_closed
 
 USAGE_TOKEN_KEYS = (
     "prompt_tokens",
@@ -57,21 +58,37 @@ class OpenAICompatibleProvider(ModelProvider):
         provider_id: str = "openai_compatible",
         base_url: str | None = None,
         credential_ref: str | None = None,
+        credential_required: bool = True,
+        use_legacy_fallbacks: bool = True,
     ):
-        runtime_configuration = runtime_provider_configuration(provider_id)
-        self.provider_id = provider_id
-        self.base_url = (
-            base_url
-            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-            or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
-            or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
-            or ""
-        ).rstrip("/")
-        self.credential_ref = (
-            credential_ref
-            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
-            or ""
+        runtime_configuration = (
+            runtime_provider_configuration(provider_id) if use_legacy_fallbacks else None
         )
+        resolved_base_url = (
+            base_url
+            if base_url is not None
+            else (
+                (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+                or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
+                or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
+                or ""
+                if use_legacy_fallbacks
+                else ""
+            )
+        )
+        resolved_credential_ref = (
+            credential_ref
+            if credential_ref is not None
+            else (
+                runtime_configuration.configured_env_ref("apiKey")
+                if runtime_configuration
+                else ""
+            )
+        )
+        self.provider_id = provider_id
+        self.base_url = resolved_base_url.rstrip("/")
+        self.credential_ref = resolved_credential_ref
+        self.credential_required = credential_required
         self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:
@@ -83,7 +100,8 @@ class OpenAICompatibleProvider(ModelProvider):
         Punto de extensión: las variantes con otro esquema (p. ej. Azure OpenAI con `api-key`)
         sobreescriben este método sin duplicar el resto del transporte.
         """
-        return {"Authorization": f"Bearer {self._credential()}"}
+        credential = self._credential()
+        return {"Authorization": f"Bearer {credential}"} if credential else {}
 
     def health_check(self) -> ProviderHealth:
         """Valida config/credencial y prueba `/models`; la política runtime se aplica aguas arriba."""
@@ -94,20 +112,28 @@ class OpenAICompatibleProvider(ModelProvider):
                 healthStatus="misconfigured",
                 message="Base URL is not configured",
             )
-        credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
-        if credential.status == "invalid":
+        if self.credential_ref:
+            credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
+            if credential.status == "invalid":
+                return ProviderHealth(
+                    providerId=self.provider_id,
+                    status="misconfigured",
+                    healthStatus="misconfigured",
+                    message=credential.message,
+                )
+            if credential.status in {"missing", "unsupported", "unknown"}:
+                return ProviderHealth(
+                    providerId=self.provider_id,
+                    status="misconfigured",
+                    healthStatus="misconfigured",
+                    message=f"Credential ref {self.credential_ref} is {credential.status}",
+                )
+        elif self.credential_required:
             return ProviderHealth(
                 providerId=self.provider_id,
                 status="misconfigured",
                 healthStatus="misconfigured",
-                message=credential.message,
-            )
-        if credential.status in {"missing", "unsupported", "unknown"}:
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="misconfigured",
-                healthStatus="misconfigured",
-                message=f"Credential ref {self.credential_ref} is {credential.status}",
+                message="Credential ref is not configured",
             )
         request = urllib.request.Request(
             f"{self.base_url}/models",
@@ -115,7 +141,7 @@ class OpenAICompatibleProvider(ModelProvider):
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urlopen_fail_closed(request, timeout=10) as response:
                 json.loads(response.read().decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return ProviderHealth(
@@ -141,7 +167,7 @@ class OpenAICompatibleProvider(ModelProvider):
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urlopen_fail_closed(request, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError):
             return []
@@ -159,7 +185,10 @@ class OpenAICompatibleProvider(ModelProvider):
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
         """Postea a `/chat/completions` y normaliza la respuesta. Raises si falta credencial/URL."""
-        if not self.base_url or not self._credential():
+        credential = self._credential()
+        if not self.base_url or (self.credential_required and not credential) or (
+            self.credential_ref and not credential
+        ):
             raise RuntimeError("Provider is missing base_url or credential_ref")
         payload = json.dumps(request.model_dump(by_alias=True, exclude_none=True)).encode("utf-8")
         http_request = urllib.request.Request(
@@ -172,7 +201,7 @@ class OpenAICompatibleProvider(ModelProvider):
             },
             method="POST",
         )
-        with urllib.request.urlopen(http_request, timeout=60) as response:
+        with urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         content = ""
         choices = raw.get("choices") if isinstance(raw, dict) else None

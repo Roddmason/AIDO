@@ -247,9 +247,9 @@ def test_developer_agent_status_reports_contract_and_no_executable_runtime(
 
 def test_developer_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
     ]
 
     readiness = developer_agent_readiness(statuses, preferred_runtime="nvidia_nim")

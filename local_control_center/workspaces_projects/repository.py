@@ -11,8 +11,10 @@ actualiza ``workspaces``, libera ``workspace_allocations`` y archiva la rama git
 
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,7 @@ COPY_IGNORED_PARTS = {
 }
 COPY_MAX_FILES = 5000
 COPY_MAX_BYTES = 100 * 1024 * 1024
+EPHEMERAL_PROMPT_WORKSPACE_DIR = ("aido", "prompt-workspaces")
 
 
 def row_to_workspace(row: sqlite3.Row) -> dict[str, Any]:
@@ -104,6 +107,15 @@ def _copy_project_source(source_path: Path, workspace_path: Path) -> dict[str, A
         "bytesCopied": bytes_copied,
         "skippedSymlinks": skipped_symlinks,
     }
+
+
+def _ephemeral_prompt_workspace_root() -> Path:
+    temp_root = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
+    return Path(temp_root, *EPHEMERAL_PROMPT_WORKSPACE_DIR).resolve(strict=False)
+
+
+def _is_strict_descendant(path: Path, root: Path) -> bool:
+    return path != root and root in path.parents
 
 
 class WorkspacesRepository:
@@ -252,6 +264,120 @@ class WorkspacesRepository:
         )
         return self.get_workspace(workspace_id)
 
+    def allocate_prompt_workspace(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        agent_id: str,
+        source_workspace_id: str,
+        reason: str,
+        workflow_run_id: str | None = None,
+        workflow_step_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra un cwd efímero y vacío para un runtime de análisis sin acceso al proyecto.
+
+        La ruta vive bajo ``%TEMP%/aido/prompt-workspaces`` y no copia ningún archivo del
+        proyecto. El registro y allocation permiten que ToolBroker aplique el mismo límite de
+        workspace que a cualquier otro proceso, mientras el cwd separado impide que el runtime
+        descubra ``AGENTS.md`` o skills locales del repositorio por recorrido de ancestros.
+        """
+        source_workspace = self.get_workspace(source_workspace_id)
+        if source_workspace["projectId"] != project_id:
+            raise WorkspaceIsolationError(
+                "Prompt workspace source must belong to the requested project."
+            )
+
+        project_path = self._project_path(project_id).resolve(strict=False)
+        source_path = Path(source_workspace["path"]).resolve(strict=False)
+        controlled_root = _ephemeral_prompt_workspace_root()
+        if _is_strict_descendant(controlled_root, project_path) or controlled_root == project_path:
+            raise WorkspaceIsolationError(
+                "Ephemeral prompt workspace root must be outside the project tree."
+            )
+
+        workspace_uuid = str(uuid.uuid4())
+        workspace_id = f"workspace-{workspace_uuid}"
+        workspace_path = (controlled_root / workspace_uuid).resolve(strict=False)
+        if not _is_strict_descendant(workspace_path, controlled_root):
+            raise WorkspaceIsolationError(
+                "Ephemeral prompt workspace path escaped its controlled root."
+            )
+        if workspace_path == source_path or _is_strict_descendant(workspace_path, source_path):
+            raise WorkspaceIsolationError(
+                "Ephemeral prompt workspace must be outside the source workspace tree."
+            )
+
+        controlled_root.mkdir(parents=True, exist_ok=True)
+        workspace_path.mkdir(exist_ok=False)
+        timestamp = utc_now()
+        metadata = {
+            "reason": reason,
+            "ephemeralPromptWorkspace": {
+                "purpose": "product_owner_cli_runtime",
+                "controlledRoot": str(controlled_root),
+                "sourceWorkspaceId": source_workspace_id,
+                "projectInstructionsExcluded": True,
+            },
+            "workspaceManifest": {
+                "kind": "workspace_manifest",
+                "version": 1,
+                "workspaceId": workspace_id,
+                "projectId": project_id,
+                "taskId": task_id,
+                "ownerAgentId": agent_id,
+                "sourcePath": None,
+                "workspacePath": str(workspace_path),
+                "isolationType": "directory",
+                "createdAt": timestamp,
+                "promptOnly": True,
+                "fileManifest": capture_workspace_snapshot(workspace_path),
+            },
+        }
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO workspaces
+                    (id, project_id, task_id, owner_agent_id, path, status, isolation_type,
+                     metadata, created_at, updated_at, archived_at, workflow_run_id, workflow_step_id)
+                VALUES (?, ?, ?, ?, ?, 'ready', 'directory', ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    workspace_id,
+                    project_id,
+                    task_id,
+                    agent_id,
+                    str(workspace_path),
+                    json_dumps(metadata),
+                    timestamp,
+                    timestamp,
+                    workflow_run_id,
+                    workflow_step_id,
+                ),
+            )
+            self.connection.execute(
+                """
+                INSERT INTO workspace_allocations
+                    (id, workspace_id, project_id, task_id, agent_id, status, reason, created_at, released_at)
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
+                """,
+                (
+                    f"workspace-allocation-{uuid.uuid4()}",
+                    workspace_id,
+                    project_id,
+                    task_id,
+                    agent_id,
+                    reason,
+                    timestamp,
+                ),
+            )
+        except sqlite3.Error:
+            self.connection.execute("DELETE FROM workspace_allocations WHERE workspace_id = ?", (workspace_id,))
+            self.connection.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
+            shutil.rmtree(workspace_path, ignore_errors=True)
+            raise
+        return self.get_workspace(workspace_id)
+
     def _write_workspace_manifest(
         self,
         *,
@@ -352,6 +478,37 @@ class WorkspacesRepository:
         metadata = dict(workspace["metadata"] or {})
         if reason:
             metadata["archiveReason"] = reason
+        prompt_workspace = metadata.get("ephemeralPromptWorkspace")
+        if isinstance(prompt_workspace, dict):
+            controlled_root = _ephemeral_prompt_workspace_root()
+            recorded_root = Path(str(prompt_workspace.get("controlledRoot") or "")).resolve(
+                strict=False
+            )
+            workspace_path = Path(workspace["path"]).resolve(strict=False)
+            cleanup: dict[str, Any] = {
+                "kind": "ephemeral_prompt_workspace_cleanup",
+                "controlledRoot": str(controlled_root),
+                "path": str(workspace_path),
+            }
+            if recorded_root != controlled_root:
+                cleanup.update(
+                    status="refused",
+                    reason="Recorded prompt workspace root does not match the controlled temp root.",
+                )
+            elif not _is_strict_descendant(workspace_path, controlled_root):
+                cleanup.update(
+                    status="refused",
+                    reason="Prompt workspace path is outside the controlled temp root.",
+                )
+            elif not workspace_path.exists():
+                cleanup["status"] = "missing"
+            else:
+                try:
+                    shutil.rmtree(workspace_path)
+                    cleanup["status"] = "removed"
+                except OSError as error:
+                    cleanup.update(status="failed", reason=str(error))
+            metadata["ephemeralPromptWorkspaceCleanup"] = cleanup
         if workspace["isolationType"] == "git_worktree":
             cleanup = remove_git_worktree(
                 repo_path=self._project_path(workspace["projectId"]),

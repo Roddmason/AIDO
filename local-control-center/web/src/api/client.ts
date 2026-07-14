@@ -41,10 +41,26 @@ export type ModelGatewayBenchmarkOutcomeRequest =
 	MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type ModelGatewayProviderPatchRequest =
 	MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
+export type ModelGatewayProviderLimitUpsertRequest =
+	MutationBody<'create_provider_limit_api_v1_model_gateway_provider_limits_post'>;
+export type ModelGatewayProviderLimitPatchRequest =
+	MutationBody<'patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch'>;
+export type ModelGatewayAIExecutionRequest =
+	MutationBody<'execute_ai_execution_api_v1_model_gateway_ai_executions_post'>;
+export type ModelGatewayProviderLimitStatusQuery = {
+	providerId: string;
+	model: string;
+	requestTokens?: number;
+	estimatedCostUsd?: number;
+};
 export type ModelGatewayTestPromptRequest =
 	MutationBody<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
 export type ModelGatewayTestPromptResponse =
 	OperationResponse<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type ModelGatewayModelCreateRequest =
+	MutationBody<'create_model_api_v1_model_gateway_models_post'>;
+export type ModelGatewayPricingSnapshotCreateRequest =
+	MutationBody<'create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post'>;
 export type ProviderCatalogResponse =
 	OperationResponse<'list_catalog_api_v1_providers_catalog_get'>;
 export type ProviderAccountFromCatalogRequest =
@@ -1646,6 +1662,26 @@ export function getModelGatewayModels(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_models_api_v1_model_gateway_models_get', { signal });
 }
 
+export function createModelGatewayModel(token: string, body: ModelGatewayModelCreateRequest) {
+	return requestGeneratedOperation('create_model_api_v1_model_gateway_models_post', {
+		token,
+		body,
+	});
+}
+
+export function createModelGatewayPricingSnapshot(
+	token: string,
+	body: ModelGatewayPricingSnapshotCreateRequest,
+) {
+	return requestGeneratedOperation(
+		'create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post',
+		{
+			token,
+			body,
+		},
+	);
+}
+
 export function getOllamaEndpoints(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_endpoints_api_v1_ollama_endpoints_get'>(
 		'list_endpoints_api_v1_ollama_endpoints_get',
@@ -1717,6 +1753,58 @@ export function getModelGatewayProviderLimits(signal?: AbortSignal) {
 		'list_provider_limits_api_v1_model_gateway_provider_limits_get',
 		{ signal },
 	);
+}
+
+export function getNvidiaNimPreflight(profileId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation('local_preflight_api_v1_nvidia_nim_preflight_get', {
+		query: { profileId },
+		signal,
+	});
+}
+
+export function getModelGatewayProviderLimitStatus(
+	query: ModelGatewayProviderLimitStatusQuery,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation(
+		'provider_limit_status_api_v1_model_gateway_provider_limits_status_get',
+		{ query, signal },
+	);
+}
+
+export function createModelGatewayProviderLimit(
+	token: string,
+	body: ModelGatewayProviderLimitUpsertRequest,
+) {
+	return requestGeneratedOperation(
+		'create_provider_limit_api_v1_model_gateway_provider_limits_post',
+		{ token, body },
+	);
+}
+
+export function patchModelGatewayProviderLimit(
+	token: string,
+	limitId: string,
+	body: ModelGatewayProviderLimitPatchRequest,
+) {
+	return requestGeneratedOperation(
+		'patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch',
+		{
+			token,
+			pathParams: { limit_id: limitId },
+			body,
+		},
+	);
+}
+
+export function executeModelGatewayAIExecution(
+	token: string,
+	body: ModelGatewayAIExecutionRequest,
+) {
+	return requestGeneratedOperation('execute_ai_execution_api_v1_model_gateway_ai_executions_post', {
+		token,
+		body,
+	});
 }
 
 export function getModelGatewayBudgetRules(signal?: AbortSignal) {

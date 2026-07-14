@@ -13,7 +13,7 @@ import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.runtime_integrations.config import resolve_executable
@@ -22,6 +22,8 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
+from .ai_execution import AIExecutionProjectNotFoundError, AIExecutionService
+from .ai_execution_models import AIExecutionPlan, AIExecutionResponse
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
 from .model_gateway import ModelGateway, _provider_usage_reported, provider_instance
@@ -50,10 +52,20 @@ from .model_gateway_models import (
     ProviderAccountResponse,
     ProviderAccountsListResponse,
     ProviderAccountUpsertRequest,
+    ProviderEmbeddingRequest,
+    ProviderEmbeddingResponse,
     ProviderHealthResponse,
+    ProviderImageEditingRequest,
+    ProviderImageEditingResponse,
+    ProviderImageGenerationRequest,
+    ProviderImageGenerationResponse,
     ProviderLimitPatchRequest,
     ProviderLimitResponse,
     ProviderLimitsListResponse,
+    ProviderLimitStatusResponse,
+    ProviderLimitUpsertRequest,
+    ProviderRerankRequest,
+    ProviderRerankResponse,
     RolePoliciesListResponse,
     RolePolicyPatchRequest,
     RolePolicyResponse,
@@ -75,6 +87,23 @@ from .model_gateway_models import (
 )
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
+from .providers.capabilities import (
+    EmbeddingProvider,
+    ImageEditingProvider,
+    ImageGenerationProvider,
+    RerankProvider,
+)
+from .providers.factory import (
+    AdapterProfileRequiredError,
+    ProviderAdapterFactory,
+    ProviderAdapterResolutionError,
+    UnsupportedProviderCapabilityError,
+    provider_account_policy_kind,
+    provider_account_requires_credential,
+    provider_account_requires_explicit_model_manifest,
+)
+from .providers.image_artifacts import DurableImageArtifactStore, ImageArtifactError
+from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
@@ -82,6 +111,14 @@ from .usage_ledger import UsageLedger
 
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
 SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
+PRESERVABLE_PROVIDER_FIELD_ALIASES = {
+    "provider_family": "providerFamily",
+    "deployment_mode": "deploymentMode",
+    "api_family": "apiFamily",
+    "adapter_profile": "adapterProfile",
+    "terms_mode": "termsMode",
+    "pricing_mode": "pricingMode",
+}
 
 
 def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
@@ -92,21 +129,26 @@ def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
 
 def _provider_client_payload(body: Any) -> dict[str, Any]:
     payload = _payload(body)
+    explicitly_set = getattr(body, "model_fields_set", None)
+    if explicitly_set is not None:
+        for field_name, alias in PRESERVABLE_PROVIDER_FIELD_ALIASES.items():
+            if field_name not in explicitly_set:
+                payload.pop(alias, None)
     for field in SERVER_OWNED_PROVIDER_HEALTH_FIELDS:
         payload.pop(field, None)
     return payload
 
 
 def _provider_instance(provider_id: str, *, connection: Any):
-    return provider_instance(provider_id, connection=connection)
+    return ProviderAdapterFactory(connection).resolve(provider_id)
 
 
 def _requires_credential_for_real_discovery(account: dict[str, Any]) -> bool:
-    return str(account.get("providerType") or "") in {"api", "gateway"}
+    return provider_account_requires_credential(account)
 
 
 def _requires_remote_provider_call(account: dict[str, Any]) -> bool:
-    return str(account.get("providerType") or "") in {"api", "gateway"}
+    return provider_account_policy_kind(account) in {"api", "gateway"}
 
 
 def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
@@ -144,7 +186,13 @@ def _resolve_test_prompt_model(
     )
 
 
-def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) -> dict[str, Any]:
+def _run_provider_test_prompt(
+    provider_id: str,
+    model: str,
+    *,
+    connection: Any,
+    provider: Any | None = None,
+) -> dict[str, Any]:
     """Ejecuta una completion corta contra el proveedor y devuelve un resultado redactado con latencia.
 
     Cualquier fallo del proveedor se captura y se reporta como ``ok=False`` con el error saneado, para
@@ -154,8 +202,8 @@ def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) 
 
     started = time.monotonic()
     try:
-        provider = provider_instance(provider_id, connection=connection)
-        response = provider.chat_completion(
+        resolved_provider = provider or provider_instance(provider_id, connection=connection)
+        response = resolved_provider.chat_completion(
             ModelRequest.model_validate(
                 {
                     "model": model,
@@ -177,6 +225,28 @@ def _run_provider_test_prompt(provider_id: str, model: str, *, connection: Any) 
             "totalTokens": int(getattr(usage, "total_tokens", 0) or 0) if usage_reported else None,
             "usageSource": usage_source,
             "error": None,
+        }
+    except UnsupportedProviderCapabilityError as error:
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": None,
+            "usageSource": "unknown",
+            "error": error.public_code,
+        }
+    except NvidiaNimCapabilityError as error:
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": None,
+            "usageSource": "unknown",
+            "error": error.code,
         }
     except Exception as error:
         # Any provider/network failure is surfaced as a redacted test result, never raised, so the
@@ -268,6 +338,78 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     def audit(action: str, target: str, payload: dict[str, Any] | None = None) -> None:
         EventBus(platform.connection).record_audit(action=action, target=target, payload=payload or {})
+
+    def capability_provider(provider_id: str, *, expected_family: str) -> Any:
+        """Resolve one typed endpoint after enabled/policy/credential preconditions."""
+        try:
+            account = providers().get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if not account.get("enabled"):
+            raise HTTPException(status_code=409, detail="provider_account_disabled")
+        if (
+            str(account.get("providerFamily") or "") != "nvidia_nim"
+            or str(account.get("apiFamily") or "") != expected_family
+        ):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(status_code=409, detail="runtime_policy_denied")
+        credential_ref = str(account.get("credentialRef") or "")
+        if provider_account_requires_credential(account) and not credential_ref:
+            raise HTTPException(status_code=409, detail="credential_missing")
+        if credential_ref:
+            credential = CredentialResolver().resolve(credential_ref, fetch=False)
+            if credential.status not in {"configured", "unverified"}:
+                raise HTTPException(status_code=409, detail="credential_missing")
+        try:
+            return ProviderAdapterFactory(
+                platform.connection,
+                image_artifact_store=DurableImageArtifactStore(
+                    platform.connection,
+                    root=platform.cwd,
+                ),
+            ).resolve_for_execution(provider_id)
+        except (UnsupportedProviderCapabilityError, AdapterProfileRequiredError) as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except ProviderAdapterResolutionError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+
+    def require_capability_model(
+        provider_id: str,
+        *,
+        model: str,
+        expected_family: str,
+    ) -> dict[str, Any]:
+        """Require an enabled endpoint-scoped operator/discovery model manifest."""
+        manifest = next(
+            (
+                item
+                for item in providers().list_models(provider_id)
+                if str(item.get("model") or "") == model
+            ),
+            None,
+        )
+        if manifest is None:
+            raise HTTPException(status_code=409, detail="model_manifest_required")
+        if not manifest.get("enabled"):
+            raise HTTPException(status_code=409, detail="model_disabled")
+        if str(manifest.get("apiFamily") or "") != expected_family:
+            raise HTTPException(status_code=409, detail="model_api_family_mismatch")
+        capability_field = {
+            "embeddings": "supportsEmbeddings",
+            "rerank": "supportsRerank",
+            "image_generation": "supportsImageGeneration",
+            "image_editing": "supportsImageEditing",
+        }.get(expected_family)
+        if capability_field and not manifest.get(capability_field):
+            raise HTTPException(status_code=409, detail="model_capability_mismatch")
+        return manifest
 
     def cli_runtime_command(runtime_id: str) -> str | None:
         try:
@@ -380,7 +522,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         try:
             provider = providers().upsert_provider_account(_provider_client_payload(body))
         except ValueError as error:
-            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
+            raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         audit(
             "model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]}
         )
@@ -403,7 +545,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         try:
             provider = providers().patch_provider_account(provider_id, _provider_client_payload(body))
         except ValueError as error:
-            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
+            raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.provider.updated", provider_id, {"providerId": provider_id})
@@ -444,22 +586,45 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 status_code=403,
                 detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.",
             )
+        if provider_account_requires_explicit_model_manifest(account):
+            raise HTTPException(status_code=409, detail="explicit_model_manifest_required")
         if _requires_remote_provider_call(account):
             policy_decision = runtimes().runtime_policy_decision(
-                provider_id=provider_id, kind=str(account.get("providerType") or "")
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
             )
             if not policy_decision.get("allowed"):
                 raise HTTPException(
                     status_code=403,
                     detail=str(policy_decision.get("reason") or "Remote provider discovery is disabled."),
                 )
+        try:
+            provider = _provider_instance(provider_id, connection=platform.connection)
+        except ProviderAdapterResolutionError as error:
+            detail = getattr(error, "public_code", error.code)
+            raise HTTPException(status_code=409, detail=detail) from error
         _validate_real_discovery_credentials(account)
-        discovered = [
-            item.model_dump(by_alias=True)
-            for item in _provider_instance(provider_id, connection=platform.connection).list_models()
-        ]
+        try:
+            discovered = [
+                item.model_dump(by_alias=True)
+                for item in provider.list_models()
+            ]
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        api_family = str(account.get("apiFamily") or "")
         stored = [
-            providers().upsert_model({**item, "providerId": provider_id, "enabled": True})
+            providers().upsert_model(
+                {
+                    **item,
+                    "providerId": provider_id,
+                    "apiFamily": api_family,
+                    "supportsEmbeddings": api_family == "embeddings",
+                    "supportsRerank": api_family == "rerank",
+                    "enabled": True,
+                }
+            )
             for item in discovered
         ]
         audit(
@@ -468,6 +633,160 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             {"count": len(stored), "source": "provider"},
         )
         return {"models": stored}
+
+    @router.post(
+        "/providers/{provider_id}/embeddings",
+        response_model=ProviderEmbeddingResponse,
+    )
+    async def execute_provider_embedding(
+        provider_id: str,
+        body: ProviderEmbeddingRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute a typed embedding request against one endpoint-scoped provider."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="embeddings")
+        if not isinstance(provider, EmbeddingProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="embeddings",
+        )
+        try:
+            result = provider.embed(body)
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        audit(
+            "model_gateway.provider.embedding",
+            provider_id,
+            {"model": body.model, "vectorCount": len(result.data)},
+        )
+        return {"embedding": result}
+
+    @router.post(
+        "/providers/{provider_id}/rerank",
+        response_model=ProviderRerankResponse,
+    )
+    async def execute_provider_rerank(
+        provider_id: str,
+        body: ProviderRerankRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute a typed rerank request against one endpoint-scoped provider."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="rerank")
+        if not isinstance(provider, RerankProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="rerank",
+        )
+        try:
+            result = provider.rerank(body)
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        audit(
+            "model_gateway.provider.rerank",
+            provider_id,
+            {"model": body.model, "rankingCount": len(result.rankings)},
+        )
+        return {"rerank": result}
+
+    @router.post(
+        "/providers/{provider_id}/images/generations",
+        response_model=ProviderImageGenerationResponse,
+    )
+    async def execute_provider_image_generation(
+        provider_id: str,
+        body: ProviderImageGenerationRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Generate one image through an explicit NVIDIA profile and persist its artifact."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="image_generation")
+        if not isinstance(provider, ImageGenerationProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="image_generation",
+        )
+        try:
+            result = provider.generate_image(body)
+        except ImageArtifactError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        artifact_ids = [artifact.artifact_id for artifact in result.artifacts]
+        audit(
+            "model_gateway.provider.image_generated",
+            provider_id,
+            {"model": body.model, "artifactIds": artifact_ids, "artifactCount": len(artifact_ids)},
+        )
+        return {"imageGeneration": result}
+
+    @router.post(
+        "/providers/{provider_id}/images/edits",
+        response_model=ProviderImageEditingResponse,
+    )
+    async def execute_provider_image_editing(
+        provider_id: str,
+        body: ProviderImageEditingRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Edit one project-owned image and persist the resulting artifact."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="image_editing")
+        if not isinstance(provider, ImageEditingProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="image_editing",
+        )
+        try:
+            result = provider.edit_image(body)
+        except ImageArtifactError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        artifact_ids = [artifact.artifact_id for artifact in result.artifacts]
+        audit(
+            "model_gateway.provider.image_edited",
+            provider_id,
+            {"model": body.model, "artifactIds": artifact_ids, "artifactCount": len(artifact_ids)},
+        )
+        return {"imageEditing": result}
+
+    @router.post("/ai-executions", response_model=AIExecutionResponse)
+    def execute_ai_execution(
+        body: AIExecutionPlan,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute one or more explicit chat branches under atomic quota admission."""
+        require_write(request)
+        try:
+            result = AIExecutionService(platform.connection).execute(body)
+        except AIExecutionProjectNotFoundError as error:
+            raise HTTPException(status_code=404, detail="project_not_found") from error
+        audit(
+            "model_gateway.ai_execution.completed",
+            result.execution_id,
+            {
+                "executionId": result.execution_id,
+                "strategy": result.strategy,
+                "status": result.status,
+                "successfulBranches": result.successful_branches,
+                "failedBranches": result.failed_branches,
+            },
+        )
+        return {"execution": result}
 
     @router.post("/providers/{provider_id}/test-prompt", response_model=TestPromptResponse)
     async def test_prompt(provider_id: str, body: TestPromptRequest, request: Request) -> dict[str, Any]:
@@ -494,16 +813,44 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             )
         if _requires_remote_provider_call(account):
             policy_decision = runtimes().runtime_policy_decision(
-                provider_id=provider_id, kind=str(account.get("providerType") or "")
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
             )
             if not policy_decision.get("allowed"):
                 raise HTTPException(
                     status_code=403,
                     detail=str(policy_decision.get("reason") or "Remote provider calls are disabled."),
                 )
+        try:
+            provider = provider_instance(provider_id, connection=platform.connection)
+        except ProviderAdapterResolutionError as error:
+            model = str(body.model or "")
+            detail = getattr(error, "public_code", error.code)
+            result = {
+                "providerId": provider_id,
+                "model": model,
+                "ok": False,
+                "latencyMs": 0,
+                "sample": "",
+                "totalTokens": None,
+                "usageSource": "unknown",
+                "error": detail,
+            }
+            audit(
+                "model_gateway.provider.test_prompt",
+                provider_id,
+                {"model": model, "ok": False},
+            )
+            return {"test": result}
         _validate_real_discovery_credentials(account)
         model = _resolve_test_prompt_model(providers(), provider_id, requested=body.model)
-        result = _run_provider_test_prompt(provider_id, model, connection=platform.connection)
+        result = _run_provider_test_prompt(
+            provider_id,
+            model,
+            connection=platform.connection,
+            provider=provider,
+        )
         audit("model_gateway.provider.test_prompt", provider_id, {"model": model, "ok": result["ok"]})
         return {"test": result}
 
@@ -759,6 +1106,50 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Lista los límites configurados por proveedor."""
         return {"providerLimits": routing().list_provider_limits()}
 
+    @router.post("/provider-limits", status_code=201, response_model=ProviderLimitResponse)
+    async def create_provider_limit(
+        body: ProviderLimitUpsertRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Crea una política endpoint/modelo sin aceptar contadores operacionales."""
+        require_write(request)
+        try:
+            provider_limit = routing().create_provider_limit(_payload(body))
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        audit(
+            "model_gateway.provider_limit.created",
+            provider_limit["providerId"],
+            {"limitId": provider_limit["id"], "model": provider_limit["model"]},
+        )
+        return {"providerLimit": provider_limit}
+
+    @router.get("/provider-limits/status", response_model=ProviderLimitStatusResponse)
+    async def provider_limit_status(
+        provider_id: str = Query(
+            alias="providerId",
+            min_length=2,
+            max_length=96,
+            pattern=CATALOG_ID_RE.pattern,
+        ),
+        model: str = Query(min_length=1, max_length=256, pattern=r"^[^\r\n]+$"),
+        request_tokens: int = Query(default=0, alias="requestTokens", ge=0),
+        estimated_cost_usd: float | None = Query(
+            default=None,
+            alias="estimatedCostUsd",
+            ge=0,
+        ),
+    ) -> dict[str, Any]:
+        """Previsualiza política y ventanas sin reservar ni avanzar contadores."""
+        return {
+            "status": QuotaManager(platform.connection).status(
+                provider_id=provider_id,
+                model=model,
+                request_tokens=request_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+            )
+        }
+
     @router.patch("/provider-limits/{limit_id}", response_model=ProviderLimitResponse)
     async def patch_provider_limit(
         limit_id: str, body: ProviderLimitPatchRequest, request: Request
@@ -766,7 +1157,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Actualiza parcialmente los límites de un proveedor."""
         require_write(request)
         try:
-            return {"providerLimit": routing().patch_provider_limit(limit_id, _payload(body))}
+            payload = body.model_dump(by_alias=True, exclude_unset=True)
+            return {"providerLimit": routing().patch_provider_limit(limit_id, payload)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

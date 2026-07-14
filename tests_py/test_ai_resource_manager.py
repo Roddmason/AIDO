@@ -8,6 +8,7 @@ from local_control_center.agents.ai_resource_manager import AIResourceManager, A
 from local_control_center.agents.model_router import ModelRouter, RoutingRequest
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.routing_profiles import RoutingProfileStore
+from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -17,7 +18,15 @@ from local_control_center.shared.time import utc_now
 def open_initialized_connection(tmp_path: Path):
     connection = open_sqlite_connection(tmp_path / "platform.sqlite")
     initialize_platform_schema(connection)
+    connection.execute("UPDATE model_catalog SET enabled = 0")
     return connection
+
+
+def enable_catalog_provider(connection, provider_id: str) -> None:
+    connection.execute(
+        "UPDATE model_catalog SET enabled = 1 WHERE provider_id = ?",
+        (provider_id,),
+    )
 
 
 def register_model(
@@ -129,6 +138,30 @@ def configure_remote_provider_for_selection(
     )
 
 
+def advertise_executable_runtimes(
+    monkeypatch: pytest.MonkeyPatch,
+    *provider_ids: str,
+    kind: str = "local",
+) -> None:
+    statuses = [
+        {
+            "id": provider_id,
+            "kind": kind,
+            "configured": True,
+            "available": True,
+            "executable": True,
+            "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+            "reason": "Controlled executable runtime.",
+        }
+        for provider_id in provider_ids
+    ]
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        lambda _service, *, project_id=None: statuses,
+    )
+
+
 def test_phase44_schema_adds_ai_resource_manager_tables(tmp_path: Path) -> None:
     with open_initialized_connection(tmp_path) as connection:
         tables = {
@@ -139,11 +172,27 @@ def test_phase44_schema_adds_ai_resource_manager_tables(tmp_path: Path) -> None:
             row[0] for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
         }
         cost_columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(ai_cost_observations)").fetchall()
+            row["name"] for row in connection.execute("PRAGMA table_info(ai_cost_observations)").fetchall()
         }
+        performance_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(ai_model_performance)").fetchall()
+        }
+        review_capabilities = {
+            (row["runtime"], row["capability"])
+            for row in connection.execute(
+                """
+                SELECT runtime, capability
+                FROM runtime_capabilities
+                WHERE runtime IN ('codex_cli', 'claude_code_cli')
+                  AND capability = 'review'
+                  AND enabled = 1
+                """
+            ).fetchall()
+        }
+        product_owner_policy = RoutingProfileStore(connection).get_role_policy("product_owner")
 
     assert 44 in migrations
+    assert 51 in migrations
     assert {
         "ai_model_performance",
         "ai_routing_decisions",
@@ -152,9 +201,576 @@ def test_phase44_schema_adds_ai_resource_manager_tables(tmp_path: Path) -> None:
         "ai_context_summaries",
     } <= tables
     assert {"estimated_cost_usd", "actual_cost_usd", "token_status", "usage_source"} <= cost_columns
+    assert "profile_source" in performance_columns
+    assert review_capabilities == {
+        ("codex_cli", "review"),
+        ("claude_code_cli", "review"),
+    }
+    assert product_owner_policy["allowCli"] is True
 
 
-def test_low_risk_prefers_cheap_local_without_reviewer(tmp_path: Path) -> None:
+def test_phase51_preserves_explicit_product_owner_cli_denial(tmp_path: Path) -> None:
+    with open_initialized_connection(tmp_path) as connection:
+        policies = RoutingProfileStore(connection)
+        policies.patch_role_policy("product_owner", {"allowCli": False})
+
+        initialize_platform_schema(connection)
+
+        assert policies.get_role_policy("product_owner")["allowCli"] is False
+
+
+def test_catalogued_executable_cli_is_selectable_without_performance_observations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def executable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch"],
+                "reason": "Controlled executable CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", executable_cli_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        assert connection.execute("SELECT COUNT(*) FROM ai_model_performance").fetchone()[0] == 0
+
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+        performance_rows = connection.execute("SELECT COUNT(*) FROM ai_model_performance").fetchone()[0]
+
+    assert decision["selected"]["providerId"] == "codex_cli"
+    assert decision["selected"]["runtime"] == "cli"
+    assert decision["selected"]["qualityScore"] is None
+    assert decision["selected"]["observedSuccessRate"] is None
+    assert decision["selected"]["reworkRate"] is None
+    assert decision["selected"]["performanceStatus"] == "unobserved_prior"
+    assert decision["candidates"]
+    assert decision["policyResult"]["candidateInventory"] == ("model_catalog_with_performance_overlay")
+    assert performance_rows == 0
+
+
+def test_provider_preference_breaks_equal_scores_deterministically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(
+        monkeypatch,
+        "codex_cli",
+        "claude_code_cli",
+        kind="cli",
+    )
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        enable_catalog_provider(connection, "claude_code_cli")
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allowed_provider_ids=["codex_cli", "claude_code_cli"],
+                preferred_provider_ids=["codex_cli", "claude_code_cli"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "codex_cli"
+    assert decision["policyResult"]["providerPreferenceOrder"] == [
+        "codex_cli",
+        "claude_code_cli",
+    ]
+    assert decision["policyResult"]["selectionOrder"] == (
+        "score_desc_provider_preference_asc_identity_asc"
+    )
+
+
+@pytest.mark.parametrize(
+    ("runtime_capabilities", "required_capability"),
+    [
+        (["code_edit"], "chat"),
+        (["chat"], "review"),
+        (["code_edit"], "review"),
+        (["chat"], "tools"),
+    ],
+)
+def test_catalogued_runtime_does_not_invent_unadvertised_capabilities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_capabilities: list[str],
+    required_capability: str,
+) -> None:
+    def limited_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": runtime_capabilities,
+                "reason": "Controlled limited CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", limited_cli_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="capability_contract",
+                required_capabilities=[required_capability],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+
+    assert decision["selected"] is None
+    assert any(
+        item["providerId"] == "codex_cli"
+        and item["reason"] == f"missing_capabilities:{required_capability}"
+        for item in decision["rejected"]
+    )
+
+
+def test_remote_ollama_endpoint_cannot_satisfy_local_private_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def remote_ollama_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "ollama_remote",
+                "kind": "local",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat"],
+                "reason": "Controlled remote Ollama endpoint.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", remote_ollama_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "ollama_remote",
+                "displayName": "Remote Ollama",
+                "providerType": "local",
+                "apiFormat": "ollama",
+                "baseUrl": "https://ollama.example.test",
+                "enabled": True,
+                "metadata": {"endpointKind": "remote"},
+            }
+        )
+        store.upsert_model(
+            {
+                "providerId": "ollama_remote",
+                "model": "qwen-remote",
+                "displayName": "Qwen Remote",
+                "contextWindow": 32768,
+                "maxOutputTokens": 4096,
+                "inputPricePerMtok": 0.0,
+                "outputPricePerMtok": 0.0,
+                "enabled": True,
+                "source": "test",
+            }
+        )
+
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="private_analysis",
+                required_capabilities=["chat"],
+                privacy_level="local_private",
+            ),
+            record=False,
+        )
+
+    assert decision["selected"] is None
+    rejected = next(
+        item for item in decision["rejected"] if item["providerId"] == "ollama_remote"
+    )
+    assert rejected["reason"] == "privacy_blocks_remote"
+
+
+def test_local_ollama_selection_rejects_stale_catalog_model_not_reported_by_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def local_ollama_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "ollama",
+                "kind": "local",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat"],
+                "models": ["qwen3:14b"],
+                "reason": "Controlled local Ollama endpoint.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", local_ollama_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "ollama",
+                "displayName": "Local Ollama",
+                "providerType": "local",
+                "apiFormat": "ollama",
+                "baseUrl": "http://127.0.0.1:11434",
+                "enabled": True,
+                "metadata": {"endpointKind": "local"},
+            }
+        )
+        for model in ("local_default", "qwen3:14b"):
+            store.upsert_model(
+                {
+                    "providerId": "ollama",
+                    "model": model,
+                    "displayName": model,
+                    "modelFamily": "ollama",
+                    "enabled": True,
+                    "source": "test",
+                }
+            )
+
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                privacy_level="local_private",
+                allowed_provider_ids=["ollama"],
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "ollama"
+    assert decision["selected"]["model"] == "qwen3:14b"
+    stale = next(item for item in decision["rejected"] if item["model"] == "local_default")
+    assert stale["reason"].startswith("runtime_model_not_available:")
+
+
+def test_legacy_performance_profile_does_not_hide_catalogued_executable_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def mixed_runtime_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch"],
+                "reason": "Controlled executable CLI runtime.",
+            },
+            {
+                "id": "nvidia_nim",
+                "kind": "api",
+                "configured": False,
+                "available": False,
+                "executable": False,
+                "capabilities": ["chat"],
+                "reason": "Controlled unavailable API runtime.",
+            },
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", mixed_runtime_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="nvidia_nim",
+            model="legacy-profile",
+            runtime="api",
+            locality="remote",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.95,
+            success_rate=0.95,
+            capabilities=["chat"],
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "codex_cli"
+    assert decision["policyResult"]["candidateInventory"] == (
+        "model_catalog_with_performance_overlay"
+    )
+    assert any(item["providerId"] == "nvidia_nim" for item in decision["rejected"])
+
+
+def test_resource_request_rejects_provider_outside_agent_runtime_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def executable_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": provider_id,
+                "kind": "cli" if provider_id == "codex_cli" else "api",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit"]
+                if provider_id == "codex_cli"
+                else ["chat"],
+                "reason": "Controlled executable runtime.",
+            }
+            for provider_id in ("codex_cli", "unsupported_chat")
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", executable_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "unsupported_chat",
+                "displayName": "Unsupported chat runtime",
+                "providerType": "api",
+                "baseUrl": "https://unsupported.example.test/v1",
+                "enabled": True,
+            }
+        )
+        store.upsert_model(
+            {
+                "providerId": "unsupported_chat",
+                "model": "free-chat",
+                "contextWindow": 1_000_000,
+                "maxOutputTokens": 32768,
+                "inputPricePerMtok": 0.0,
+                "outputPricePerMtok": 0.0,
+                "enabled": True,
+                "source": "test",
+            }
+        )
+
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allowed_provider_ids=["codex_cli"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "codex_cli"
+    rogue = next(
+        item for item in decision["rejected"] if item["providerId"] == "unsupported_chat"
+    )
+    assert rogue["reason"] == "provider_not_allowed_for_agent"
+
+
+def test_first_catalogued_runtime_outcome_materializes_observed_performance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status_calls = 0
+
+    def executable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        nonlocal status_calls
+        status_calls += 1
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch"],
+                "reason": "Controlled executable CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", executable_cli_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        manager = AIResourceManager(connection)
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+        manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+        selected = decision["selected"]
+
+        observed = manager.record_outcome(
+            provider_id=selected["providerId"],
+            model=selected["model"],
+            runtime=selected["runtime"],
+            success=True,
+            rework=False,
+            quality_score=0.9,
+            latency_ms=750,
+            evidence_ref="evidence-product-owner-first-outcome",
+        )
+        stored_count = connection.execute("SELECT COUNT(*) FROM ai_model_performance").fetchone()[0]
+
+    assert stored_count == 1
+    assert observed["observedSuccessRate"] == 1.0
+    assert observed["reworkRate"] == 0.0
+    assert observed["qualityScore"] == 0.9
+    assert observed["profileSource"] == "model_catalog"
+    assert status_calls == 1
+    assert {item["kind"] for item in observed["evidence"]} == {
+        "model_catalog_baseline",
+        "outcome",
+    }
+
+
+def test_first_failed_catalogued_runtime_outcome_preserves_zero_success_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def executable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch"],
+                "reason": "Controlled executable CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", executable_cli_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        manager = AIResourceManager(connection)
+        selected = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )["selected"]
+
+        observed = manager.record_outcome(
+            provider_id=selected["providerId"],
+            model=selected["model"],
+            runtime=selected["runtime"],
+            success=False,
+            rework=True,
+            quality_score=0.1,
+            latency_ms=900,
+            evidence_ref="evidence-product-owner-first-failed-outcome",
+        )
+        rescored = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )
+        failed_candidate = next(
+            item
+            for item in rescored["candidates"]
+            if item["providerId"] == selected["providerId"]
+            and item["model"] == selected["model"]
+        )
+
+    assert observed["observedSuccessRate"] == 0.0
+    assert observed["reworkRate"] == 1.0
+    assert observed["qualityScore"] == 0.1
+    assert failed_candidate["performanceStatus"] == "observed"
+    assert failed_candidate["scoreBreakdown"]["observedSuccessScore"] == 0.0
+    assert failed_candidate["scoreBreakdown"]["reworkRateScore"] == 0.0
+
+
+def test_low_risk_prefers_cheap_local_without_reviewer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(monkeypatch, "ollama")
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
         register_model(
@@ -193,6 +809,8 @@ def test_low_risk_prefers_cheap_local_without_reviewer(tmp_path: Path) -> None:
 
     assert decision["selected"]["providerId"] == "ollama"
     assert decision["selected"]["locality"] == "local"
+    assert decision["selected"]["performanceStatus"] == "configured_prior"
+    assert decision["selected"]["performanceSampleCount"] == 0
     assert decision["costTier"] == "cheap"
     assert decision["reviewerSelection"] is None
     assert decision["multiModelQuorum"] is False
@@ -270,7 +888,11 @@ def test_high_risk_prefers_strong_model_and_requires_reviewer(
     assert decision["policyResult"]["scoring"] == "deterministic_explainable"
 
 
-def test_score_breakdown_exposes_all_required_routing_factors(tmp_path: Path) -> None:
+def test_score_breakdown_exposes_all_required_routing_factors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(monkeypatch, "ollama")
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
         register_model(
@@ -355,8 +977,10 @@ def test_economy_policy_rejects_unknown_remote_cost(tmp_path: Path, monkeypatch:
 @pytest.mark.parametrize("routing_policy", ["economy", "balanced", "critical", "maximum"])
 def test_named_routing_policies_are_accepted_and_reported(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     routing_policy: str,
 ) -> None:
+    advertise_executable_runtimes(monkeypatch, "ollama")
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
         register_model(
@@ -551,8 +1175,10 @@ def test_unknown_cost_is_never_treated_as_cheap_enough_to_pass_the_premium_gate(
 
 def test_local_model_under_threshold_never_trips_the_premium_gate(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """El modo Force local es la salida barata: un modelo local sin costo no exige aprobación."""
+    advertise_executable_runtimes(monkeypatch, "ollama_local")
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
         register_model(
@@ -610,6 +1236,94 @@ def test_remote_api_provider_must_be_executable_before_selection(tmp_path: Path)
     assert decision["rejected"]
     assert decision["rejected"][0]["providerId"] == "nvidia_nim"
     assert "credential" in decision["rejected"][0]["reason"].lower()
+
+
+@pytest.mark.parametrize(
+    ("runtime", "locality"),
+    [("cli", "remote"), ("codex_cli", "remote"), ("local", "local")],
+)
+def test_explicit_profile_must_exist_in_runtime_truth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime: str,
+    locality: str,
+) -> None:
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        lambda _service, *, project_id=None: [],
+    )
+
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="ghost_cli",
+            model="ghost-model",
+            runtime=runtime,
+            locality=locality,
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.99,
+            success_rate=0.99,
+            capabilities=["chat", "code", "review"],
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="implementation",
+                required_capabilities=["code"],
+            ),
+            record=False,
+        )
+
+    assert decision["selected"] is None
+    assert decision["rejected"] == [
+        {
+            "providerId": "ghost_cli",
+            "model": "ghost-model",
+            "runtime": runtime,
+            "profileSource": "explicit",
+            "reason": (
+                "runtime_not_executable: "
+                "Provider ghost_cli is not configured in runtime status."
+            ),
+        }
+    ]
+
+
+def test_role_execution_policy_blocks_cli_even_when_runtime_is_executable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(monkeypatch, "codex_cli", kind="cli")
+
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="codex_cli",
+            model="gpt-test",
+            runtime="cli",
+            locality="remote",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.90,
+            success_rate=0.90,
+            capabilities=["chat", "code"],
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_cli=False,
+            ),
+            record=False,
+        )
+
+    assert decision["selected"] is None
+    assert decision["rejected"][0]["reason"] == "role_blocks_cli"
 
 
 def test_observed_failure_with_evidence_lowers_model_score(
@@ -789,7 +1503,11 @@ def test_actual_cost_observations_adjust_future_selection(
     assert performance_row["total_observed_tokens"] == 11000
 
 
-def test_model_router_uses_ai_resource_manager_when_profiles_exist(tmp_path: Path) -> None:
+def test_model_router_uses_ai_resource_manager_when_profiles_exist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(monkeypatch, "ollama")
     with open_initialized_connection(tmp_path) as connection:
         manager = AIResourceManager(connection)
         register_model(
@@ -840,6 +1558,108 @@ def test_model_router_uses_ai_resource_manager_when_profiles_exist(tmp_path: Pat
     assert result["policyResult"]["opaqueMlUsed"] is False
     assert ai_decision_count == 1
     assert gateway_decision["selected_provider"] == "ollama"
+
+
+def test_catalog_outcome_does_not_bypass_classic_model_router_role_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def executable_cli_statuses(
+        _service: RuntimeStatusService,
+        *,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
+                "reason": "Controlled executable CLI runtime.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", executable_cli_statuses)
+
+    with open_initialized_connection(tmp_path) as connection:
+        enable_catalog_provider(connection, "codex_cli")
+        policies = RoutingProfileStore(connection)
+        policies.patch_role_policy("product_owner", {"allowCli": False})
+        role_policy = policies.get_role_policy("product_owner")
+        assert role_policy["allowCli"] is False
+
+        manager = AIResourceManager(connection)
+        selected = manager.select_resource(
+            AIResourceRequest(
+                task_type="product_owner.discovery",
+                required_capabilities=["chat"],
+                allow_unknown_cost=True,
+            ),
+            record=False,
+        )["selected"]
+        manager.record_outcome(
+            provider_id=selected["providerId"],
+            model=selected["model"],
+            runtime=selected["runtime"],
+            success=True,
+            rework=False,
+            quality_score=0.9,
+            latency_ms=700,
+            evidence_ref="evidence-catalog-outcome-role-policy",
+        )
+
+        routed = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="product_owner",
+                taskType="product_owner.discovery",
+                contextTokensEstimate=2000,
+            ),
+            record=False,
+        )
+
+    assert routed["selected"] is None
+    assert routed["policyResult"].get("source") != "ai_resource_manager"
+
+
+def test_model_router_ai_path_applies_mutable_role_execution_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    advertise_executable_runtimes(monkeypatch, "codex_cli", kind="cli")
+
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        register_model(
+            manager,
+            provider_id="codex_cli",
+            model="gpt-test",
+            runtime="cli",
+            locality="remote",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.90,
+            success_rate=0.90,
+            capabilities=["chat"],
+        )
+        RoutingProfileStore(connection).patch_role_policy(
+            "product_owner",
+            {"allowCli": False},
+        )
+
+        result = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="product_owner",
+                taskType="product_owner.discovery",
+            ),
+            record=False,
+        )
+
+    assert result["selected"] is None
+    assert result["rejected"][0]["reason"] == "role_blocks_cli"
+    assert result["policyResult"]["roleExecutionPolicy"]["allowCli"] is False
 
 
 def test_model_router_ai_path_still_honors_the_role_premium_threshold(

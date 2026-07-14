@@ -10,6 +10,8 @@ import type {
 	ActionRequestRecord,
 	AgentProfileRecord,
 	AgentProfileUpsertRequest,
+	AIExecutionPlan,
+	AIExecutionResult,
 	ArchitectureDecisionCreateRequest,
 	ArtifactRecord,
 	BudgetRuleRecord,
@@ -29,6 +31,7 @@ import type {
 	ModelGatewayOverviewRecord,
 	ModelProviderRecord,
 	NextStepCreateRequest,
+	NvidiaNimPreflightResponse,
 	OllamaEndpointRecord,
 	OverviewResponse,
 	PolicyRevisionRecord,
@@ -38,6 +41,8 @@ import type {
 	ProjectTemplateRecord,
 	ProviderAccountRecord,
 	ProviderLimitRecord,
+	ProviderLimitStatusRecord,
+	ProviderLimitUpsertRequest,
 	ProviderRecord,
 	RetrievalStatusResponse,
 	RiskCreateRequest,
@@ -108,6 +113,11 @@ export type ModelGatewayUsage = UsageLedgerRecord;
 export type ModelGatewayUsageSummary = UsageSummaryRecord;
 export type ModelGatewayRoutingDecision = RoutingDecisionRecord;
 export type ModelGatewayProviderLimit = ProviderLimitRecord;
+export type ModelGatewayProviderLimitStatus = ProviderLimitStatusRecord;
+export type ModelGatewayProviderLimitUpsert = ProviderLimitUpsertRequest;
+export type ModelGatewayAIExecutionPlan = AIExecutionPlan;
+export type ModelGatewayAIExecutionResult = AIExecutionResult;
+export type NvidiaNimPreflight = NvidiaNimPreflightResponse;
 export type ModelGatewayBudgetRule = BudgetRuleRecord;
 export type ModelGatewayCliRuntime = CliRuntimeRecord;
 export type ModelGatewayCliSession = CliSessionRecord;

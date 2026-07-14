@@ -44,6 +44,15 @@ def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
     return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
 
 
+def _developer_runtime_family(runtime: dict[str, Any]) -> str:
+    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
+
+
+def _developer_runtime_order_id(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    return runtime_id if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES else _developer_runtime_family(runtime)
+
+
 def developer_agent_contract() -> dict[str, Any]:
     """Describe el contrato del DeveloperAgent: esquemas I/O, tools permitidas y capacidades requeridas."""
     return {
@@ -95,13 +104,18 @@ def _developer_runtime_reason(runtime: dict[str, Any]) -> str:
 def is_developer_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime sirve como DeveloperAgent: CLI con code_edit o modelo con chat disponible."""
     runtime_id = str(runtime.get("id") or "")
-    if not runtime.get("executable"):
-        return False
+    runtime_family = _developer_runtime_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
-        return "code_edit" in capabilities
-    if runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES:
-        return "chat" in capabilities or not capabilities
+        return bool(
+            runtime.get("executable")
+            and runtime.get("canEditWorkspace", runtime.get("executable"))
+            and "code_edit" in capabilities
+        )
+    if not runtime.get("executable"):
+        return False
+    if runtime_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
     if _is_ollama_runtime(runtime):
         return bool("chat" in capabilities and runtime.get("models"))
     return False
@@ -122,8 +136,8 @@ def developer_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
-            DEVELOPER_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in DEVELOPER_AGENT_RUNTIME_ORDER
+            DEVELOPER_AGENT_RUNTIME_ORDER.index(_developer_runtime_order_id(item))
+            if _developer_runtime_order_id(item) in DEVELOPER_AGENT_RUNTIME_ORDER
             else len(DEVELOPER_AGENT_RUNTIME_ORDER)
         ),
     )

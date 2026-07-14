@@ -407,6 +407,8 @@ def test_architect_agent_model_call_policy_allows_only_scoped_model_runtime() ->
             "workspacePath": "H:\\workspace",
             "path": "H:\\workspace",
             "runtimeId": "openai_compatible",
+            "providerId": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "agentRunId": "agent-run-test",
         }
     )
@@ -459,6 +461,8 @@ def test_security_agent_model_call_policy_allows_only_scoped_model_runtime() -> 
             "workspacePath": "H:\\workspace",
             "path": "H:\\workspace",
             "runtimeId": "openai_compatible",
+            "providerId": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "agentRunId": "agent-run-test",
         }
     )
@@ -485,6 +489,7 @@ def test_model_agent_policies_allow_configured_remote_runtime_adapters() -> None
     cases = [
         ("developer_agent_model_call", "developer_agent", "dev_safe"),
         ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
         ("security_agent_model_call", "security_agent", "qa"),
     ]
     for operation, agent_id, permission_profile in cases:
@@ -499,11 +504,75 @@ def test_model_agent_policies_allow_configured_remote_runtime_adapters() -> None
                     "workspacePath": "H:\\workspace",
                     "path": "H:\\workspace",
                     "runtimeId": runtime_id,
+                    "providerId": runtime_id,
+                    "providerFamily": runtime_id,
                     "agentRunId": "agent-run-test",
                     "networkRequired": True,
                 }
             )
             assert decision["decision"] == "allow", (operation, runtime_id, decision)
+
+
+def test_model_agent_policies_bind_named_endpoint_identity_to_explicit_provider_family() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        common = {
+            "tool": "nvidia_nim",
+            "operation": operation,
+            "permissionProfile": permission_profile,
+            "agentId": agent_id,
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "nvidia-team-a",
+            "providerId": "nvidia-team-a",
+            "agentRunId": "agent-run-test",
+            "networkRequired": True,
+        }
+
+        allowed = evaluate_action({**common, "providerFamily": "nvidia_nim"})
+        missing_provider = evaluate_action(
+            {key: value for key, value in common.items() if key != "providerId"}
+            | {"providerFamily": "nvidia_nim"}
+        )
+        missing_family = evaluate_action({**common, "providerFamily": None})
+        mismatched_family = evaluate_action({**common, "providerFamily": "openrouter"})
+
+        assert allowed["decision"] == "allow", (operation, allowed)
+        assert missing_provider["decision"] == "deny", (operation, missing_provider)
+        assert missing_family["decision"] == "deny", (operation, missing_family)
+        assert mismatched_family["decision"] == "deny", (operation, mismatched_family)
+
+
+def test_model_agent_policies_reject_canonical_id_without_explicit_family_binding() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        decision = evaluate_action(
+            {
+                "tool": "nvidia_nim",
+                "operation": operation,
+                "permissionProfile": permission_profile,
+                "agentId": agent_id,
+                "workspaceId": "workspace-test",
+                "workspacePath": "H:\\workspace",
+                "path": "H:\\workspace",
+                "runtimeId": "nvidia_nim",
+                "providerId": "nvidia_nim",
+                "agentRunId": "agent-run-test",
+            }
+        )
+
+        assert decision["decision"] == "deny", (operation, decision)
 
 
 def test_product_owner_and_developer_policies_accept_only_verified_named_ollama_binding() -> None:

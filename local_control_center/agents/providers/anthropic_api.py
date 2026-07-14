@@ -30,6 +30,7 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
+from .http_transport import urlopen_fail_closed
 
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"
@@ -48,19 +49,45 @@ class AnthropicAPIProvider(ModelProvider):
 
     provider_id = "anthropic_api"
 
-    def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
-        runtime_configuration = runtime_provider_configuration(self.provider_id)
-        self.base_url = (
-            base_url
-            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-            or os.environ.get("AIDO_ANTHROPIC_BASE_URL")
-            or DEFAULT_ANTHROPIC_BASE_URL
-        ).rstrip("/")
-        self.credential_ref = (
-            credential_ref
-            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
-            or "env:AIDO_ANTHROPIC_API_KEY"
+    def __init__(
+        self,
+        *,
+        provider_id: str = "anthropic_api",
+        base_url: str | None = None,
+        credential_ref: str | None = None,
+    ):
+        is_legacy_provider = provider_id == "anthropic_api"
+        runtime_configuration = (
+            runtime_provider_configuration("anthropic_api") if is_legacy_provider else None
         )
+        resolved_base_url = (
+            base_url
+            if base_url is not None
+            else (
+                (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+                or os.environ.get("AIDO_ANTHROPIC_BASE_URL")
+                or DEFAULT_ANTHROPIC_BASE_URL
+                if is_legacy_provider
+                else ""
+            )
+        )
+        resolved_credential_ref = (
+            credential_ref
+            if credential_ref is not None
+            else (
+                (
+                    runtime_configuration.configured_env_ref("apiKey")
+                    if runtime_configuration
+                    else None
+                )
+                or "env:AIDO_ANTHROPIC_API_KEY"
+                if is_legacy_provider
+                else ""
+            )
+        )
+        self.provider_id = provider_id
+        self.base_url = resolved_base_url.rstrip("/")
+        self.credential_ref = resolved_credential_ref
         self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:
@@ -80,7 +107,7 @@ class AnthropicAPIProvider(ModelProvider):
             headers=self._headers(),
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urlopen_fail_closed(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return payload if isinstance(payload, dict) else {}
 
@@ -126,7 +153,10 @@ class AnthropicAPIProvider(ModelProvider):
 
     def list_models(self) -> list[ModelInfo]:
         """Descubre modelos via `/models`."""
-        payload = self._get_json("/models")
+        try:
+            payload = self._get_json("/models")
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError):
+            return []
         models = payload.get("data", []) if isinstance(payload, dict) else []
         return [
             ModelInfo(
@@ -150,7 +180,7 @@ class AnthropicAPIProvider(ModelProvider):
             headers=self._headers(),
             method="POST",
         )
-        with urllib.request.urlopen(http_request, timeout=60) as response:
+        with urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         return ModelResponse(
             providerId=self.provider_id,

@@ -12,8 +12,6 @@ El nombre del modelo es el del *deployment* de Azure y viaja en el cuerpo, como 
 
 from __future__ import annotations
 
-from local_control_center.agents.credentials import CredentialResolver
-
 from .openai_compatible import OpenAICompatibleProvider
 
 
@@ -29,10 +27,13 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
     ):
         # La base URL de Azure es específica del recurso; no hay default ni fallback por entorno
         # (a diferencia del proveedor OpenAI-compatible genérico), así que se resuelve solo del arg.
-        self.provider_id = provider_id
-        self.base_url = (base_url or "").rstrip("/")
-        self.credential_ref = credential_ref or ""
-        self.credential_resolver = CredentialResolver()
+        super().__init__(
+            provider_id=provider_id,
+            base_url=base_url or "",
+            credential_ref=credential_ref or "",
+            credential_required=True,
+            use_legacy_fallbacks=False,
+        )
 
     def _auth_headers(self) -> dict[str, str]:
         """Azure autentica la API key con la cabecera `api-key`, no con `Authorization: Bearer`."""

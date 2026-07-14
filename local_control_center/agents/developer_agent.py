@@ -59,13 +59,17 @@ def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
     return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
 
 
+def _runtime_provider_family(runtime: dict[str, Any]) -> str:
+    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
+
+
 def _runtime_mode(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     if _is_ollama_runtime(runtime):
         return "ollama"
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "cli"
-    if runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES:
+    if _runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
         return "api"
     return "hybrid"
 
@@ -310,7 +314,8 @@ class DeveloperAgentRunner:
     def _create_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
         runtime_id = str(runtime.get("id") or "")
         ollama_runtime = _is_ollama_runtime(runtime)
-        remote_runtime = runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES or str(
+        provider_family = _runtime_provider_family(runtime)
+        remote_runtime = provider_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES or str(
             runtime.get("kind") or ""
         ) in {"api", "gateway"}
         return self.agents.upsert_agent_profile(
@@ -325,7 +330,7 @@ class DeveloperAgentRunner:
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
                 "allowRemote": remote_runtime,
                 "allowCli": runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES or ollama_runtime,
+                "allowApi": provider_family in DEVELOPER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": developer_agent_readiness([])["contract"]["outputSchema"],
             }
         )
@@ -391,6 +396,7 @@ class DeveloperAgentRunner:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
         ollama_runtime = _is_ollama_runtime(runtime)
+        provider_family = _runtime_provider_family(runtime)
         if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
@@ -399,7 +405,7 @@ class DeveloperAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": "ollama" if ollama_runtime else runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -415,7 +421,7 @@ class DeveloperAgentRunner:
                     ),
                     "temperature": 0.2,
                 },
-                "networkRequired": runtime_id in DEVELOPER_AGENT_REMOTE_API_RUNTIMES
+                "networkRequired": provider_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES
                 or str(runtime.get("kind") or "") in {"api", "gateway"},
                 # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
@@ -529,7 +535,7 @@ class DeveloperAgentRunner:
                         profile=profile,
                         broker=broker,
                     )
-                elif str(runtime["id"]) in DEVELOPER_AGENT_MODEL_RUNTIMES or _is_ollama_runtime(runtime):
+                elif _runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
                     runtime_result = self._execute_model_runtime(
                         payload=payload,
                         runtime=runtime,

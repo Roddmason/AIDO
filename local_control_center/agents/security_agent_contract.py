@@ -38,6 +38,12 @@ SECURITY_AGENT_RUNTIME_ORDER = [
 SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
 
 
+def _security_runtime_family(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    provider_family = str(runtime.get("providerFamily") or "")
+    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
+
+
 def security_agent_contract() -> dict[str, Any]:
     """Return the SecurityAgent contract: I/O schema, allowed tools, and required guarantees."""
     return {
@@ -97,13 +103,13 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
     Requires an eligible runtime id with an executable, and (for Ollama) at least one
     available chat model.
     """
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
+    runtime_family = _security_runtime_family(runtime)
+    if runtime_family not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id in SECURITY_AGENT_REMOTE_API_RUNTIMES:
-        return "chat" in capabilities or not capabilities
-    if runtime_id == "ollama":
+    if runtime_family in SECURITY_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
+    if runtime_family == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))
     return False
 
@@ -118,14 +124,13 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
     model_candidates = [
         runtime
         for runtime in runtime_statuses
-        if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
-        and is_security_model_runtime(runtime)
+        if is_security_model_runtime(runtime)
     ]
     ordered = sorted(
         model_candidates,
         key=lambda item: (
-            SECURITY_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in SECURITY_AGENT_RUNTIME_ORDER
+            SECURITY_AGENT_RUNTIME_ORDER.index(_security_runtime_family(item))
+            if _security_runtime_family(item) in SECURITY_AGENT_RUNTIME_ORDER
             else len(SECURITY_AGENT_RUNTIME_ORDER)
         ),
     )

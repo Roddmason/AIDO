@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .model_gateway_models import ApiFamily, DeploymentMode, PricingMode, TermsMode
+
 
 @dataclass(frozen=True)
 class ProviderCatalogEntry:
@@ -30,6 +32,12 @@ class ProviderCatalogEntry:
     capabilities: tuple[str, ...]
     docs_url: str
     pricing_source: str
+    provider_family: str
+    deployment_mode: DeploymentMode = "custom"
+    api_family: ApiFamily = "chat_completions"
+    adapter_profile: str = "auto"
+    terms_mode: TermsMode = "unspecified"
+    pricing_mode: PricingMode = "unknown"
     aliases: tuple[str, ...] = ()
 
     def public_dict(self) -> dict[str, Any]:
@@ -48,11 +56,17 @@ class ProviderCatalogEntry:
             "capabilities": list(data["capabilities"]),
             "docsUrl": data["docs_url"],
             "pricingSource": data["pricing_source"],
+            "providerFamily": data["provider_family"],
+            "deploymentMode": data["deployment_mode"],
+            "apiFamily": data["api_family"],
+            "adapterProfile": data["adapter_profile"],
+            "termsMode": data["terms_mode"],
+            "pricingMode": data["pricing_mode"],
             "aliases": list(data["aliases"]),
         }
 
 
-PROVIDER_CATALOG_VERSION = "2026-07-09"
+PROVIDER_CATALOG_VERSION = "2026-07-13"
 OPENAI_COMPATIBLE_SYNC = {"strategy": "api_list_models", "endpoint": "/models"}
 
 PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
@@ -69,6 +83,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "responses", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://developers.openai.com/api/reference/overview/",
         pricing_source="https://developers.openai.com/api/docs/pricing",
+        provider_family="openai_api",
         aliases=("openai",),
     ),
     ProviderCatalogEntry(
@@ -84,6 +99,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "messages", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://docs.anthropic.com/en/api/messages",
         pricing_source="https://docs.anthropic.com/en/docs/about-claude/pricing",
+        provider_family="anthropic_api",
         aliases=("anthropic", "claude"),
     ),
     ProviderCatalogEntry(
@@ -99,6 +115,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "routing", "tools", "json", "vision", "streaming"),
         docs_url="https://openrouter.ai/docs/api/reference/overview",
         pricing_source="https://openrouter.ai/docs/guides/overview/models",
+        provider_family="openrouter",
     ),
     ProviderCatalogEntry(
         id="nvidia_nim",
@@ -113,6 +130,11 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools", "json", "vision", "streaming"),
         docs_url="https://docs.api.nvidia.com/nim/reference/llm-apis",
         pricing_source="https://build.nvidia.com/pricing",
+        provider_family="nvidia_nim",
+        deployment_mode="hosted_trial",
+        api_family="chat_completions",
+        terms_mode="evaluation",
+        pricing_mode="unknown",
         aliases=("nim",),
     ),
     ProviderCatalogEntry(
@@ -128,6 +150,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools", "json", "reasoning", "streaming"),
         docs_url="https://api-docs.deepseek.com/",
         pricing_source="https://api-docs.deepseek.com/quick_start/pricing",
+        provider_family="deepseek",
     ),
     ProviderCatalogEntry(
         id="kimi",
@@ -142,6 +165,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://platform.kimi.ai/docs/overview",
         pricing_source="https://platform.kimi.ai/",
+        provider_family="kimi",
         aliases=("moonshot", "moonshot_kimi"),
     ),
     ProviderCatalogEntry(
@@ -157,6 +181,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://docs.mistral.ai/api/",
         pricing_source="https://mistral.ai/pricing/api/",
+        provider_family="mistral",
     ),
     ProviderCatalogEntry(
         id="groq",
@@ -171,6 +196,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "responses", "tools", "json", "fast", "streaming"),
         docs_url="https://console.groq.com/docs/openai",
         pricing_source="https://console.groq.com/docs/models",
+        provider_family="groq",
     ),
     ProviderCatalogEntry(
         id="gemini",
@@ -185,6 +211,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://ai.google.dev/gemini-api/docs/openai",
         pricing_source="https://ai.google.dev/gemini-api/docs/pricing",
+        provider_family="gemini",
         aliases=("google_gemini", "google"),
     ),
     ProviderCatalogEntry(
@@ -200,6 +227,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "responses", "tools", "json", "vision", "enterprise", "streaming"),
         docs_url="https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat",
         pricing_source="https://azure.microsoft.com/en-us/pricing/details/azure-openai/",
+        provider_family="azure_openai",
         aliases=("azure",),
     ),
     ProviderCatalogEntry(
@@ -215,6 +243,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "local", "private", "streaming"),
         docs_url="https://docs.ollama.com/api/introduction",
         pricing_source="local_runtime_cost_only",
+        provider_family="ollama",
         aliases=("ollama_local",),
     ),
     ProviderCatalogEntry(
@@ -230,6 +259,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "self_hosted", "private_optional", "streaming"),
         docs_url="https://docs.ollama.com/api/tags",
         pricing_source="operator_managed_remote_runtime",
+        provider_family="ollama",
         aliases=("remote_ollama",),
     ),
     ProviderCatalogEntry(
@@ -245,6 +275,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         capabilities=("chat", "tools_optional", "json_optional", "streaming_optional"),
         docs_url="https://developers.openai.com/api/reference/overview/",
         pricing_source="operator_managed",
+        provider_family="openai_compatible",
         aliases=("custom", "custom_openai_compatible"),
     ),
 )

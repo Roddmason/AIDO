@@ -36,6 +36,12 @@ ARCHITECT_AGENT_RUNTIME_ORDER = [
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
 
 
+def _architect_runtime_family(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    provider_family = str(runtime.get("providerFamily") or "")
+    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
+
+
 def architect_agent_contract() -> dict[str, Any]:
     """Describe el contrato del ArchitectAgent: esquemas I/O, tools permitidas y fuente del veredicto."""
     return {
@@ -87,21 +93,20 @@ def architect_agent_contract() -> dict[str, Any]:
 
 
 def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id == "ollama" and not runtime.get("models"):
+    if _architect_runtime_family(runtime) == "ollama" and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ArchitectAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ArchitectAgent.")
 
 
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
+    runtime_family = _architect_runtime_family(runtime)
+    if runtime_family not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id in ARCHITECT_AGENT_REMOTE_API_RUNTIMES:
-        return "chat" in capabilities or not capabilities
-    if runtime_id == "ollama":
+    if runtime_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
+    if runtime_family == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))
     return False
 
@@ -121,8 +126,8 @@ def architect_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
-            ARCHITECT_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in ARCHITECT_AGENT_RUNTIME_ORDER
+            ARCHITECT_AGENT_RUNTIME_ORDER.index(_architect_runtime_family(item))
+            if _architect_runtime_family(item) in ARCHITECT_AGENT_RUNTIME_ORDER
             else len(ARCHITECT_AGENT_RUNTIME_ORDER)
         ),
     )

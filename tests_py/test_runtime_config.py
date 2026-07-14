@@ -683,6 +683,102 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
     assert codex["executable"] is True
 
 
+def test_chat_only_cli_with_mismatched_executable_fails_prompt_execution_closed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed" if runtime_id == "codex_cli" else "not_installed",
+            "executable": "C:/tools/python.exe" if runtime_id == "codex_cli" else None,
+            "version": "codex-cli 0.142.2" if runtime_id == "codex_cli" else None,
+            "message": "" if runtime_id == "codex_cli" else "not installed in test",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+        repo.upsert_installation(
+            {
+                "runtimeId": "codex_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/python.exe",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-07-13T12:00:00Z"},
+        )
+        connection.execute(
+            "UPDATE runtime_capabilities SET enabled = 0 WHERE runtime = 'codex_cli' AND capability = 'code_edit'"
+        )
+
+        codex = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "codex_cli"
+        )
+
+    assert "chat" in codex["capabilities"]
+    assert "code_edit" not in codex["capabilities"]
+    assert codex["canRunPrompt"] is False
+    assert codex["executable"] is False
+    assert codex["productOwnerExecutable"] is False
+    assert "does not match" in codex["reason"]
+
+
+def test_stale_persisted_codex_version_cannot_authorize_product_owner(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed" if runtime_id == "codex_cli" else "not_installed",
+            "executable": executable if runtime_id == "codex_cli" else None,
+            "version": None,
+            "message": "version probe timed out" if runtime_id == "codex_cli" else "not installed in test",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+        repo.upsert_installation(
+            {
+                "runtimeId": "codex_cli",
+                "kind": "cli",
+                "executablePath": "C:/tools/codex.exe",
+                "detectedVersion": "codex-cli 0.142.2",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
+        repo.update_runtime_account(
+            account["id"],
+            {"healthStatus": "healthy", "lastValidationAt": "2026-07-13T12:00:00Z"},
+        )
+
+        codex = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "codex_cli"
+        )
+
+    assert codex["version"] == "codex-cli 0.142.2"
+    assert codex["canRunPrompt"] is True
+    assert codex["canRunVersionCheck"] is False
+    assert codex["versionVerified"] is False
+    assert codex["productOwnerExecutable"] is False
+    assert any("fresh" in warning for warning in codex["configurationWarnings"])
+
+
 def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.cached_ollama_status",
@@ -707,6 +803,7 @@ def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, 
     assert ollama["executable"] is True
     assert ollama["canRunPrompt"] is True
     assert ollama["canEditWorkspace"] is False
+    assert ollama["productOwnerExecutable"] is True
     assert ollama["models"] == ["llama3.1:8b"]
 
 

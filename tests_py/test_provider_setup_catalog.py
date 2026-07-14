@@ -152,6 +152,7 @@ def test_backend_provider_catalog_declares_required_fields_without_manual_base_u
     assert "baseUrl" not in catalog["deepseek"]["requiredFields"]
     assert "baseUrl" not in catalog["kimi"]["requiredFields"]
     assert "baseUrl" in catalog["ollama_remote"]["requiredFields"]
+    assert catalog["ollama_remote"]["providerFamily"] == "ollama"
     assert "baseUrl" in catalog["openai_compatible"]["requiredFields"]
     assert catalog["deepseek"]["defaultBaseUrl"] == "https://api.deepseek.com"
     assert catalog["kimi"]["defaultBaseUrl"] == "https://api.moonshot.ai/v1"

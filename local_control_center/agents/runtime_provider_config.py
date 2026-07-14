@@ -292,6 +292,23 @@ def runtime_provider_configuration(
     return RuntimeProviderConfiguration(spec=spec, variables=variables)
 
 
+def runtime_provider_configuration_for_account(
+    account: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> RuntimeProviderConfiguration | None:
+    """Resolve legacy env configuration only for the canonical provider account.
+
+    Endpoint-scoped accounts carry their own persisted base URL and credential reference;
+    they must not inherit a provider family's process-global configuration.
+    """
+    provider_id = str(account.get("providerId") or "").strip()
+    provider_family = str(account.get("providerFamily") or "").strip()
+    if not provider_id or provider_id != provider_family:
+        return None
+    return runtime_provider_configuration(provider_id, environ=environ)
+
+
 def list_runtime_provider_configurations(
     *,
     environ: Mapping[str, str] | None = None,

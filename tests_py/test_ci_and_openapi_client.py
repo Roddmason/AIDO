@@ -516,10 +516,15 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"qaVerdict"?: string' not in evidence_create
 
     artifact = _generated_type_line(content, "ArtifactRecord")
-    assert (
-        '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"'
-        in artifact
-    )
+    for artifact_kind in (
+        "execution_log",
+        "screenshot",
+        "test_report",
+        "qa_report",
+        "generic_artifact",
+        "generated_image",
+    ):
+        assert f'"{artifact_kind}"' in artifact
     assert '"kind": string' not in artifact
 
     job = _generated_type_line(content, "JobRecord")

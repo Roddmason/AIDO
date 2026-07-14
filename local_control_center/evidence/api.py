@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, get_args
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from ..agents.model_benchmarks import ModelBenchmarkStore
 from ..governance.signals import record_governance_risk
@@ -33,6 +33,7 @@ from .artifacts import (
     write_binary_artifact,
     write_text_artifact,
 )
+from .image_validation import ImageValidationError, read_validated_image
 from .models import (
     ArtifactCleanupRequest,
     ArtifactCleanupResponse,
@@ -69,6 +70,58 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
+
+    def artifact_file_response(
+        artifact: dict[str, Any],
+        *,
+        generated_image_only: bool = False,
+    ) -> Response:
+        """Build a hash-verified, root-confined artifact response."""
+        artifact_root = resolved_artifact_root(platform.cwd)
+        artifact_path = Path(artifact["path"]).resolve(strict=False)
+        try:
+            artifact_path.relative_to(artifact_root)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=403,
+                detail="Artifact path is outside the evidence artifact root.",
+            ) from error
+        if not artifact_path.exists() or not artifact_path.is_file():
+            raise HTTPException(status_code=404, detail="Artifact file is missing.")
+        if generated_image_only:
+            try:
+                content, detected_media_type, _suffix, _width, _height = read_validated_image(
+                    artifact_path
+                )
+            except ImageValidationError as error:
+                raise HTTPException(status_code=409, detail=error.code) from error
+        else:
+            content = artifact_path.read_bytes()
+            detected_media_type = None
+        expected_hash = artifact.get("hash")
+        if generated_image_only and not expected_hash:
+            raise HTTPException(status_code=409, detail="Generated image has no recorded hash.")
+        if expected_hash and hashlib.sha256(content).hexdigest() != expected_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="Artifact hash does not match the recorded metadata.",
+            )
+
+        metadata = artifact.get("metadata") or {}
+        media_type = str(metadata.get("mimeType") or "text/plain")
+        if generated_image_only and (
+            artifact.get("kind") != "generated_image" or media_type != detected_media_type
+        ):
+            raise HTTPException(status_code=409, detail="Artifact is not a valid generated image.")
+        filename = str(metadata.get("name") or artifact_path.name)
+        response: Response
+        if generated_image_only:
+            response = Response(content=content, media_type=media_type)
+        else:
+            response = FileResponse(path=artifact_path, media_type=media_type, filename=filename)
+        response.headers["X-AIDO-Artifact-Id"] = artifact["id"]
+        response.headers["X-AIDO-Artifact-Hash"] = expected_hash or ""
+        return response
 
     @router.get("/api/v1/evidence", response_model=EvidenceListResponse)
     async def list_evidence() -> dict[str, Any]:
@@ -539,30 +592,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-        artifact_root = resolved_artifact_root(platform.cwd)
-        artifact_path = Path(artifact["path"]).resolve(strict=False)
-        try:
-            artifact_path.relative_to(artifact_root)
-        except ValueError as error:
-            raise HTTPException(
-                status_code=403, detail="Artifact path is outside the evidence artifact root."
-            ) from error
-        if not artifact_path.exists() or not artifact_path.is_file():
-            raise HTTPException(status_code=404, detail="Artifact file is missing.")
-        expected_hash = artifact.get("hash")
-        if expected_hash:
-            actual_hash = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-            if actual_hash != expected_hash:
-                raise HTTPException(
-                    status_code=409, detail="Artifact hash does not match the recorded metadata."
-                )
+        return artifact_file_response(artifact)
 
-        metadata = artifact.get("metadata") or {}
-        media_type = str(metadata.get("mimeType") or "text/plain")
-        filename = str(metadata.get("name") or artifact_path.name)
-        response = FileResponse(path=artifact_path, media_type=media_type, filename=filename)
-        response.headers["X-AIDO-Artifact-Id"] = artifact["id"]
-        response.headers["X-AIDO-Artifact-Hash"] = expected_hash or ""
-        return response
+    @router.get("/api/v1/projects/{project_id}/artifacts/{artifact_id}")
+    async def get_project_generated_image(
+        project_id: str,
+        artifact_id: str,
+        request: Request,
+    ) -> Response:
+        """Download one generated image owned by the exact requested project."""
+        require_write(request)
+        try:
+            artifact = repository().get_project_artifact(
+                project_id=project_id,
+                artifact_id=artifact_id,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return artifact_file_response(artifact, generated_image_only=True)
 
     return router

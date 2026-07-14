@@ -16,11 +16,14 @@ the premium gate — it is escalated by the unknown-cost policy instead.
 
 from __future__ import annotations
 
+import ipaddress
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -48,6 +51,10 @@ TOKEN_KEYS = {
     "tool": ("tool_tokens",),
     "total": ("total_tokens",),
 }
+MODEL_CATALOG_BASELINE_EVIDENCE_KIND = "model_catalog_baseline"
+MODEL_CATALOG_CANDIDATE_INVENTORY = "model_catalog_with_performance_overlay"
+PERFORMANCE_PROFILE_CANDIDATE_INVENTORY = "ai_model_performance"
+UNOBSERVED_PERFORMANCE_PRIOR = 0.5
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,15 @@ class AIResourceRequest:
     risk_level: str = "medium"
     context_tokens_estimate: int = 0
     required_capabilities: list[str] = field(default_factory=list)
+    allowed_provider_ids: list[str] | None = None
+    preferred_provider_ids: list[str] = field(default_factory=list)
+    blocked_resources: list[dict[str, Any]] = field(default_factory=list)
+    context_token_limit: int | None = None
+    role_policy_id: str | None = None
+    allow_remote: bool = True
+    allow_local: bool = True
+    allow_cli: bool = True
+    allow_api: bool = True
     privacy_level: str = "remote_allowed"
     budget_remaining_usd: float | None = None
     max_tokens: int | None = None
@@ -83,6 +99,12 @@ def _float_or_none(value: Any) -> float | None:
     return float(value)
 
 
+def _float_or_default(value: Any, default: float) -> float:
+    if value is None or value == "":
+        return default
+    return float(value)
+
+
 def _int_or_none(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -96,7 +118,41 @@ def _camel_payload_value(payload: dict[str, Any], *keys: str, default: Any = Non
     return default
 
 
+def _performance_evidence_summary(evidence: list[Any]) -> tuple[str, int]:
+    outcome_count = sum(
+        1
+        for item in evidence
+        if isinstance(item, dict) and str(item.get("kind") or "") == "outcome"
+    )
+    if outcome_count:
+        return "observed", outcome_count
+    if any(
+        isinstance(item, dict)
+        and str(item.get("kind") or "") == MODEL_CATALOG_BASELINE_EVIDENCE_KIND
+        for item in evidence
+    ):
+        return "unobserved_prior", 0
+    return "configured_prior", 0
+
+
+def _catalog_provider_locality(provider: dict[str, Any] | None) -> str:
+    if not provider:
+        return "remote"
+    metadata = provider.get("metadata") if isinstance(provider.get("metadata"), dict) else {}
+    if str(metadata.get("endpointKind") or "").strip().lower() == "remote":
+        return "remote"
+    host = (urlparse(str(provider.get("baseUrl") or "")).hostname or "").lower()
+    if host == "localhost":
+        return "local"
+    try:
+        return "local" if ipaddress.ip_address(host).is_loopback else "remote"
+    except ValueError:
+        return "remote"
+
+
 def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:
+    evidence = json_loads(row["evidence_json"], [])
+    performance_status, performance_sample_count = _performance_evidence_summary(evidence)
     return {
         "id": row["id"],
         "providerId": row["provider_id"],
@@ -116,7 +172,10 @@ def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:
         "qualityScore": row["quality_score"],
         "locality": row["locality"],
         "privacyLevel": row["privacy_level"],
-        "evidence": json_loads(row["evidence_json"], []),
+        "profileSource": row["profile_source"],
+        "evidence": evidence,
+        "performanceStatus": performance_status,
+        "performanceSampleCount": performance_sample_count,
         "enabled": _bool(row["enabled"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -213,6 +272,10 @@ class AIResourceManager:
 
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
+        self._runtime_status_cache: dict[
+            str | None,
+            dict[str, dict[str, Any]],
+        ] = {}
 
     def upsert_model_performance(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Insert or update one provider/model/runtime performance profile."""
@@ -228,9 +291,9 @@ class AIResourceManager:
                 (id, provider_id, model, runtime, capabilities_json, context_window, max_output_tokens,
                  input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
                  reasoning_price_per_mtok, observed_latency_ms, observed_success_rate, rework_rate,
-                 total_observed_tokens, quality_score, locality, privacy_level, evidence_json,
-                 enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 total_observed_tokens, quality_score, locality, privacy_level, profile_source,
+                 evidence_json, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id, model, runtime) DO UPDATE SET
                 capabilities_json = excluded.capabilities_json,
                 context_window = excluded.context_window,
@@ -246,6 +309,7 @@ class AIResourceManager:
                 quality_score = excluded.quality_score,
                 locality = excluded.locality,
                 privacy_level = excluded.privacy_level,
+                profile_source = excluded.profile_source,
                 evidence_json = excluded.evidence_json,
                 enabled = excluded.enabled,
                 updated_at = excluded.updated_at
@@ -258,9 +322,7 @@ class AIResourceManager:
                 json_dumps(capabilities),
                 int(_camel_payload_value(payload, "contextWindow", "context_window", default=0) or 0),
                 int(_camel_payload_value(payload, "maxOutputTokens", "max_output_tokens", default=0) or 0),
-                _float_or_none(
-                    _camel_payload_value(payload, "inputPricePerMtok", "input_price_per_mtok")
-                ),
+                _float_or_none(_camel_payload_value(payload, "inputPricePerMtok", "input_price_per_mtok")),
                 _float_or_none(
                     _camel_payload_value(
                         payload,
@@ -268,27 +330,42 @@ class AIResourceManager:
                         "cached_input_price_per_mtok",
                     )
                 ),
-                _float_or_none(
-                    _camel_payload_value(payload, "outputPricePerMtok", "output_price_per_mtok")
-                ),
+                _float_or_none(_camel_payload_value(payload, "outputPricePerMtok", "output_price_per_mtok")),
                 _float_or_none(
                     _camel_payload_value(payload, "reasoningPricePerMtok", "reasoning_price_per_mtok")
                 ),
                 _int_or_none(_camel_payload_value(payload, "observedLatencyMs", "observed_latency_ms")),
-                float(
+                _float_or_default(
                     _camel_payload_value(
                         payload,
                         "observedSuccessRate",
                         "observed_success_rate",
                         default=0.5,
-                    )
-                    or 0.5
+                    ),
+                    0.5,
                 ),
-                float(_camel_payload_value(payload, "reworkRate", "rework_rate", default=0.0) or 0.0),
+                _float_or_default(
+                    _camel_payload_value(
+                        payload,
+                        "reworkRate",
+                        "rework_rate",
+                        default=0.0,
+                    ),
+                    0.0,
+                ),
                 _int_or_none(_camel_payload_value(payload, "totalObservedTokens", "total_observed_tokens")),
-                float(_camel_payload_value(payload, "qualityScore", "quality_score", default=0.5) or 0.5),
+                _float_or_default(
+                    _camel_payload_value(
+                        payload,
+                        "qualityScore",
+                        "quality_score",
+                        default=0.5,
+                    ),
+                    0.5,
+                ),
                 str(_camel_payload_value(payload, "locality", default="remote")),
                 str(_camel_payload_value(payload, "privacyLevel", "privacy_level", default="remote_allowed")),
+                str(_camel_payload_value(payload, "profileSource", "profile_source", default="explicit")),
                 json_dumps(evidence),
                 1 if _camel_payload_value(payload, "enabled", default=True) else 0,
                 now,
@@ -305,27 +382,36 @@ class AIResourceManager:
         policy_mode = _normalized_policy(request.routing_policy)
         effective_risk = "critical" if policy_mode == "critical" else risk
         budget_stop = False
-        runtime_statuses: dict[str, dict[str, Any]] | None = None
+        models, runtime_statuses, candidate_inventory = self._selection_models(project_id=request.project_id)
         unknown_cost_policy: dict[str, Any] = {
             "action": "not_applicable",
             "reason": "cost_known_or_local",
             "mode": policy_mode,
         }
-        for model in self._list_enabled_models():
+        for model in models:
             rejection = self._hard_reject_reason(model, request)
             if rejection:
                 rejected.append(self._rejected(model, rejection))
                 continue
-            if self._requires_runtime_executable_gate(model):
-                if runtime_statuses is None:
-                    runtime_statuses = self._runtime_statuses_by_provider(project_id=request.project_id)
-                runtime_rejection = self._runtime_executable_reject_reason(
-                    model=model,
-                    runtime_statuses=runtime_statuses,
-                )
-                if runtime_rejection:
-                    rejected.append(self._rejected(model, runtime_rejection))
-                    continue
+            if runtime_statuses is None:
+                runtime_statuses = self._runtime_statuses_by_provider(project_id=request.project_id)
+            runtime_status = runtime_statuses.get(str(model.get("providerId") or ""))
+            policy_rejection = self._role_execution_policy_reject_reason(
+                model=model,
+                request=request,
+                runtime_status=runtime_status,
+            )
+            if policy_rejection:
+                rejected.append(self._rejected(model, policy_rejection))
+                continue
+            runtime_rejection = self._runtime_executable_reject_reason(
+                model=model,
+                runtime_statuses=runtime_statuses,
+                request=request,
+            )
+            if runtime_rejection:
+                rejected.append(self._rejected(model, runtime_rejection))
+                continue
             estimate = self._estimate_cost(model, request)
             policy = self._unknown_cost_policy(model, request, estimate, policy_mode)
             if policy["action"] == "reject":
@@ -343,7 +429,12 @@ class AIResourceManager:
             candidate = self._candidate(model, request, effective_risk, policy_mode, estimate, policy)
             candidates.append(candidate)
 
-        selected = max(candidates, key=lambda item: item["score"], default=None)
+        provider_preference = self._provider_preference(request.preferred_provider_ids)
+        selected = min(
+            candidates,
+            key=lambda item: self._selection_sort_key(item, provider_preference),
+            default=None,
+        )
         if selected and selected.get("unknownCostPolicy", {}).get("action") != "not_applicable":
             unknown_cost_policy = selected["unknownCostPolicy"]
         reviewer = self._select_reviewer(candidates, selected, effective_risk)
@@ -367,6 +458,7 @@ class AIResourceManager:
             or (effective_risk == "high" and selected is not None and selected["score"] < 0.72)
         )
         decision = {
+            "routingDecisionId": f"ai-routing-{uuid.uuid4()}" if record else None,
             "selected": self._public_selection(selected),
             "reviewerSelection": self._public_selection(reviewer),
             "localVsRemote": selected["locality"] if selected else None,
@@ -392,6 +484,18 @@ class AIResourceManager:
                 "premiumApproval": premium_approval,
                 "scoring": "deterministic_explainable",
                 "opaqueMlUsed": False,
+                "candidateInventory": candidate_inventory,
+                "roleExecutionPolicy": {
+                    "rolePolicyId": request.role_policy_id,
+                    "allowRemote": request.allow_remote,
+                    "allowLocal": request.allow_local,
+                    "allowCli": request.allow_cli,
+                    "allowApi": request.allow_api,
+                    "blockedResourceCount": len(request.blocked_resources),
+                    "contextTokenLimit": request.context_token_limit,
+                },
+                "providerPreferenceOrder": provider_preference,
+                "selectionOrder": "score_desc_provider_preference_asc_identity_asc",
             },
         }
         if record:
@@ -432,6 +536,14 @@ class AIResourceManager:
         if not evidence_ref:
             raise ValueError("AI outcome learning requires evidence_ref.")
         existing = self._find_model(provider_id=provider_id, model=model, runtime=runtime)
+        materialized_from_catalog = False
+        if existing is None:
+            existing = self._materialize_catalog_model_performance(
+                provider_id=provider_id,
+                model=model,
+                runtime=runtime,
+            )
+            materialized_from_catalog = existing is not None
         if existing is None:
             raise KeyError(f"AI model performance row not found: {provider_id}/{model}")
         evidence = list(existing.get("evidence") or [])
@@ -444,16 +556,25 @@ class AIResourceManager:
                 "qualityScore": float(quality_score),
             }
         )
-        updated_success = self._weighted_update(existing["observedSuccessRate"], 1.0 if success else 0.0)
-        updated_rework = self._weighted_update(existing["reworkRate"], 1.0 if rework else 0.0)
-        updated_quality = self._weighted_update(existing["qualityScore"], float(quality_score), weight=0.60)
+        if materialized_from_catalog:
+            updated_success = 1.0 if success else 0.0
+            updated_rework = 1.0 if rework else 0.0
+            updated_quality = self._bounded(float(quality_score))
+        else:
+            updated_success = self._weighted_update(existing["observedSuccessRate"], 1.0 if success else 0.0)
+            updated_rework = self._weighted_update(existing["reworkRate"], 1.0 if rework else 0.0)
+            updated_quality = self._weighted_update(
+                existing["qualityScore"], float(quality_score), weight=0.60
+            )
         return self.upsert_model_performance(
             {
                 **existing,
                 "observedSuccessRate": updated_success,
                 "reworkRate": updated_rework,
                 "qualityScore": updated_quality,
-                "observedLatencyMs": latency_ms or existing.get("observedLatencyMs"),
+                "observedLatencyMs": (
+                    latency_ms if latency_ms is not None else existing.get("observedLatencyMs")
+                ),
                 "evidence": evidence,
             }
         )
@@ -475,10 +596,18 @@ class AIResourceManager:
         if not evidence_ref:
             raise ValueError("Cost observations require evidence_ref.")
         token_values = self._token_values(provider_usage)
-        usage_reported = provider_usage is not None and any(value is not None for value in token_values.values())
+        usage_reported = provider_usage is not None and any(
+            value is not None for value in token_values.values()
+        )
         token_status = "actual" if usage_reported else "unknown"
         usage_source = "actual" if usage_reported else "unknown"
-        cost_status = "actual" if actual_cost_usd is not None else "estimated" if estimated_cost_usd is not None else "unknown"
+        cost_status = (
+            "actual"
+            if actual_cost_usd is not None
+            else "estimated"
+            if estimated_cost_usd is not None
+            else "unknown"
+        )
         observation_id = f"ai-cost-{uuid.uuid4()}"
         self.connection.execute(
             """
@@ -605,6 +734,229 @@ class AIResourceManager:
         ).fetchall()
         return [_row_to_model(row) for row in rows]
 
+    def _selection_models(
+        self,
+        *,
+        project_id: str | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]] | None, str]:
+        performance_models = self._list_enabled_models()
+        runtime_statuses = self._runtime_statuses_by_provider(project_id=project_id)
+        catalog_models = self._catalog_models_with_performance_overlay(
+            performance_models=performance_models,
+            runtime_statuses=runtime_statuses,
+        )
+        catalog_keys = {self._model_profile_key(model) for model in catalog_models}
+        explicit_models = [
+            model
+            for model in performance_models
+            if self._model_profile_key(model) not in catalog_keys
+        ]
+        if not catalog_models:
+            return explicit_models, runtime_statuses, PERFORMANCE_PROFILE_CANDIDATE_INVENTORY
+        return (
+            [*explicit_models, *catalog_models],
+            runtime_statuses,
+            MODEL_CATALOG_CANDIDATE_INVENTORY,
+        )
+
+    @staticmethod
+    def _model_profile_key(model: dict[str, Any]) -> tuple[str, str, str]:
+        return (
+            str(model.get("providerId") or ""),
+            str(model.get("model") or ""),
+            str(model.get("runtime") or ""),
+        )
+
+    def _catalog_models_with_performance_overlay(
+        self,
+        *,
+        performance_models: list[dict[str, Any]],
+        runtime_statuses: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        store = ProviderAccountStore(self.connection)
+        providers = {
+            str(provider.get("providerId") or ""): provider for provider in store.list_provider_accounts()
+        }
+        performance_by_model = {
+            self._model_profile_key(item): item for item in performance_models
+        }
+        profiles: list[dict[str, Any]] = []
+        for catalog_model in store.list_models():
+            if not bool(catalog_model.get("enabled")):
+                continue
+            provider_id = str(catalog_model.get("providerId") or "")
+            profile = self._catalog_model_profile(
+                catalog_model=catalog_model,
+                provider=providers.get(provider_id),
+                runtime_status=runtime_statuses.get(provider_id),
+            )
+            performance = performance_by_model.get(self._model_profile_key(profile))
+            if performance is not None:
+                profile = self._overlay_catalog_performance(profile, performance)
+            profiles.append(profile)
+        return profiles
+
+    def _catalog_model_profile(
+        self,
+        *,
+        catalog_model: dict[str, Any],
+        provider: dict[str, Any] | None,
+        runtime_status: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        provider_id = str(catalog_model.get("providerId") or "")
+        provider_type = (
+            str((provider or {}).get("providerType") or (runtime_status or {}).get("kind") or "api")
+            .strip()
+            .lower()
+        )
+        runtime = (
+            provider_type if provider_type in {"api", "cli", "gateway", "local", "manual"} else provider_id
+        )
+        locality = _catalog_provider_locality(provider)
+        catalog_id = str(catalog_model.get("id") or f"{provider_id}:{catalog_model.get('model')}")
+        return {
+            "id": f"catalog-profile:{catalog_id}",
+            "providerId": provider_id,
+            "model": str(catalog_model.get("model") or ""),
+            "runtime": runtime,
+            "capabilities": self._catalog_capabilities(catalog_model, runtime_status),
+            "contextWindow": int(catalog_model.get("contextWindow") or 0),
+            "maxOutputTokens": int(catalog_model.get("maxOutputTokens") or 0),
+            "inputPricePerMtok": catalog_model.get("inputPricePerMtok"),
+            "cachedInputPricePerMtok": catalog_model.get("cachedInputPricePerMtok"),
+            "outputPricePerMtok": catalog_model.get("outputPricePerMtok"),
+            "reasoningPricePerMtok": catalog_model.get("reasoningPricePerMtok"),
+            "observedLatencyMs": None,
+            "observedSuccessRate": None,
+            "reworkRate": None,
+            "totalObservedTokens": None,
+            "qualityScore": None,
+            "locality": locality,
+            "privacyLevel": "local_private" if locality == "local" else "remote_allowed",
+            "evidence": [
+                {
+                    "id": catalog_id,
+                    "kind": MODEL_CATALOG_BASELINE_EVIDENCE_KIND,
+                    "source": str(catalog_model.get("source") or "model_catalog"),
+                }
+            ],
+            "enabled": True,
+            "createdAt": catalog_model.get("createdAt"),
+            "updatedAt": catalog_model.get("updatedAt"),
+            "profileSource": "model_catalog",
+            "performanceStatus": "unobserved_prior",
+            "performanceSampleCount": 0,
+        }
+
+    @staticmethod
+    def _catalog_capabilities(
+        catalog_model: dict[str, Any],
+        runtime_status: dict[str, Any] | None,
+    ) -> list[str]:
+        runtime_capabilities = {
+            str(item).strip().lower()
+            for item in (runtime_status or {}).get("capabilities") or []
+            if str(item).strip()
+        }
+        capabilities = runtime_capabilities & {"chat", "search"}
+        if runtime_capabilities & {"code_edit", "issue_to_patch", "code"}:
+            capabilities.add("code")
+        if runtime_capabilities & {"code_review", "review"}:
+            capabilities.add("review")
+        end_to_end_capabilities = (
+            ("supportsTools", "tools", {"tools", "issue_to_patch"}),
+            ("supportsJson", "json", {"json"}),
+            ("supportsVision", "vision", {"vision"}),
+            ("supportsEmbeddings", "embeddings", {"embeddings"}),
+            ("supportsRerank", "rerank", {"rerank"}),
+            ("supportsReasoning", "reasoning", {"reasoning"}),
+            ("supportsThinking", "reasoning", {"reasoning"}),
+        )
+        capabilities.update(
+            capability
+            for flag, capability, runtime_signals in end_to_end_capabilities
+            if bool(catalog_model.get(flag)) and runtime_capabilities & runtime_signals
+        )
+        return sorted(capabilities)
+
+    @staticmethod
+    def _overlay_catalog_performance(
+        catalog_profile: dict[str, Any],
+        performance: dict[str, Any],
+    ) -> dict[str, Any]:
+        evidence = list(catalog_profile["evidence"])
+        evidence_ids = {
+            str(item.get("id") or "") for item in evidence if isinstance(item, dict)
+        }
+        evidence.extend(
+            item
+            for item in performance.get("evidence") or []
+            if not isinstance(item, dict)
+            or not str(item.get("id") or "")
+            or str(item.get("id") or "") not in evidence_ids
+        )
+        performance_status, performance_sample_count = _performance_evidence_summary(
+            list(performance.get("evidence") or [])
+        )
+        catalog_backed = performance.get("profileSource") == "model_catalog"
+        legacy_overrides = (
+            {}
+            if catalog_backed
+            else {
+                key: performance.get(key)
+                for key in (
+                    "capabilities",
+                    "contextWindow",
+                    "maxOutputTokens",
+                    "inputPricePerMtok",
+                    "cachedInputPricePerMtok",
+                    "outputPricePerMtok",
+                    "reasoningPricePerMtok",
+                )
+            }
+        )
+        return {
+            **catalog_profile,
+            **legacy_overrides,
+            "id": performance["id"],
+            "observedLatencyMs": performance.get("observedLatencyMs"),
+            "observedSuccessRate": performance.get("observedSuccessRate"),
+            "reworkRate": performance.get("reworkRate"),
+            "totalObservedTokens": performance.get("totalObservedTokens"),
+            "qualityScore": performance.get("qualityScore"),
+            "evidence": evidence,
+            "createdAt": performance.get("createdAt"),
+            "performanceStatus": performance_status,
+            "performanceSampleCount": performance_sample_count,
+        }
+
+    def _materialize_catalog_model_performance(
+        self,
+        *,
+        provider_id: str,
+        model: str,
+        runtime: str | None,
+    ) -> dict[str, Any] | None:
+        profile = next(
+            (
+                item
+                for item in self._catalog_models_with_performance_overlay(
+                    performance_models=[],
+                    runtime_statuses={},
+                )
+                if item["providerId"] == provider_id and item["model"] == model
+            ),
+            None,
+        )
+        if profile is None:
+            return None
+        return self.upsert_model_performance(
+            {
+                **profile,
+                "runtime": runtime or profile["runtime"],
+            }
+        )
+
     def _get_model(self, *, provider_id: str, model: str, runtime: str) -> dict[str, Any]:
         row = self.connection.execute(
             """
@@ -621,7 +973,14 @@ class AIResourceManager:
         self, *, provider_id: str, model: str, runtime: str | None = None
     ) -> dict[str, Any] | None:
         if runtime:
-            return self._get_model(provider_id=provider_id, model=model, runtime=runtime)
+            row = self.connection.execute(
+                """
+                SELECT * FROM ai_model_performance
+                WHERE provider_id = ? AND model = ? AND runtime = ?
+                """,
+                (provider_id, model, runtime),
+            ).fetchone()
+            return _row_to_model(row) if row else None
         row = self.connection.execute(
             """
             SELECT * FROM ai_model_performance
@@ -651,38 +1010,114 @@ class AIResourceManager:
             (int(total_tokens), utc_now(), provider_id, model, runtime),
         )
 
-    @staticmethod
-    def _requires_runtime_executable_gate(model: dict[str, Any]) -> bool:
-        return (
-            model["locality"] in REMOTE_LOCALITIES
-            and str(model.get("runtime") or "").strip().lower() in {"api", "gateway"}
-        )
-
     def _runtime_statuses_by_provider(self, *, project_id: str | None) -> dict[str, dict[str, Any]]:
-        return {
-            str(status.get("id") or ""): status
-            for status in RuntimeStatusService(self.connection).list_provider_statuses(
-                project_id=project_id
-            )
-            if str(status.get("id") or "").strip()
-        }
+        if project_id not in self._runtime_status_cache:
+            self._runtime_status_cache[project_id] = {
+                str(status.get("id") or ""): status
+                for status in RuntimeStatusService(self.connection).list_provider_statuses(
+                    project_id=project_id
+                )
+                if str(status.get("id") or "").strip()
+            }
+        return self._runtime_status_cache[project_id]
 
     @staticmethod
     def _runtime_executable_reject_reason(
         *,
         model: dict[str, Any],
         runtime_statuses: dict[str, dict[str, Any]],
+        request: AIResourceRequest,
     ) -> str | None:
         provider_id = str(model.get("providerId") or "").strip()
         status = runtime_statuses.get(provider_id)
         if status is None:
-            return f"Provider {provider_id} is not configured in runtime status."
-        if status.get("executable") is True:
-            return None
-        reason = str(status.get("reason") or "").strip()
-        return reason or f"Provider {provider_id} is not executable."
+            return (
+                "runtime_not_executable: "
+                f"Provider {provider_id} is not configured in runtime status."
+            )
+        if (
+            request.agent_id == "product_owner_agent"
+            and status.get("productOwnerExecutable") is False
+        ):
+            return (
+                "runtime_not_executable: ProductOwnerAgent-specific CLI safety verification failed."
+            )
+        if status.get("executable") is not True:
+            reason = str(status.get("reason") or "").strip()
+            detail = reason or f"Provider {provider_id} is not executable."
+            return f"runtime_not_executable: {detail}"
+        advertised_models = status.get("models")
+        if isinstance(advertised_models, list) and advertised_models:
+            model_id = str(model.get("model") or "").strip()
+            available_models = {
+                str(item).strip() for item in advertised_models if str(item).strip()
+            }
+            if model_id and model_id not in available_models:
+                return (
+                    "runtime_model_not_available: "
+                    f"Provider {provider_id} does not currently report model {model_id}."
+                )
+        return None
+
+    @staticmethod
+    def _role_execution_policy_reject_reason(
+        *,
+        model: dict[str, Any],
+        request: AIResourceRequest,
+        runtime_status: dict[str, Any] | None,
+    ) -> str | None:
+        runtime_kind = str((runtime_status or {}).get("kind") or model.get("runtime") or "").lower()
+        if runtime_kind == "cli":
+            return None if request.allow_cli else "role_blocks_cli"
+        if runtime_kind in {"api", "gateway"} and not request.allow_api:
+            return "role_blocks_api"
+        locality = str(model.get("locality") or "remote").lower()
+        if locality == "local":
+            return None if request.allow_local else "role_blocks_local"
+        return None if request.allow_remote else "role_blocks_remote"
+
+    @staticmethod
+    def _provider_preference(provider_ids: list[str]) -> list[str]:
+        ordered: list[str] = []
+        for provider_id in provider_ids:
+            normalized = str(provider_id).strip()
+            if normalized and normalized not in ordered:
+                ordered.append(normalized)
+        return ordered
+
+    @staticmethod
+    def _selection_sort_key(
+        candidate: dict[str, Any],
+        provider_preference: list[str],
+    ) -> tuple[float, int, str, str, str]:
+        provider_id = str(candidate.get("providerId") or "")
+        try:
+            preference_rank = provider_preference.index(provider_id)
+        except ValueError:
+            preference_rank = len(provider_preference)
+        return (
+            -float(candidate["score"]),
+            preference_rank,
+            provider_id,
+            str(candidate.get("model") or ""),
+            str(candidate.get("runtime") or ""),
+        )
 
     def _hard_reject_reason(self, model: dict[str, Any], request: AIResourceRequest) -> str | None:
+        if request.allowed_provider_ids is not None and model["providerId"] not in {
+            str(provider_id).strip()
+            for provider_id in request.allowed_provider_ids
+            if str(provider_id).strip()
+        }:
+            return "provider_not_allowed_for_agent"
+        if self._blocked_by_role_policy(model, request.blocked_resources):
+            return "role_blocks_candidate"
+        if (
+            request.context_token_limit is not None
+            and request.context_token_limit > 0
+            and request.context_tokens_estimate > request.context_token_limit
+        ):
+            return "role_token_limit_exceeded"
         missing = _required_capabilities_missing(request.required_capabilities, model["capabilities"])
         if missing:
             return f"missing_capabilities:{','.join(missing)}"
@@ -692,6 +1127,23 @@ class AIResourceManager:
         if context_window and request.context_tokens_estimate > context_window * 2:
             return "context_window_too_small"
         return None
+
+    @staticmethod
+    def _blocked_by_role_policy(
+        model: dict[str, Any],
+        blocked_resources: list[dict[str, Any]],
+    ) -> bool:
+        for item in blocked_resources:
+            if not isinstance(item, dict):
+                continue
+            provider_id = item.get("provider")
+            model_id = item.get("model")
+            if provider_id not in {None, "*", model["providerId"]}:
+                continue
+            if model_id not in {None, "*", "auto", model["model"]}:
+                continue
+            return True
+        return False
 
     def _estimate_cost(self, model: dict[str, Any], request: AIResourceRequest) -> dict[str, Any]:
         output_tokens = self._estimated_output_tokens(model, request)
@@ -853,9 +1305,13 @@ class AIResourceManager:
     ) -> dict[str, float]:
         weights = self._weights_for_policy(policy_mode, risk)
         capability_match = self._capability_match(request.required_capabilities, model["capabilities"])
-        quality = self._bounded(float(model["qualityScore"] or 0.5))
-        success = self._bounded(float(model["observedSuccessRate"] or 0.5))
-        rework = self._bounded(float(model["reworkRate"] or 0.0))
+        quality = self._performance_value(model, "qualityScore", UNOBSERVED_PERFORMANCE_PRIOR)
+        success = self._performance_value(
+            model,
+            "observedSuccessRate",
+            UNOBSERVED_PERFORMANCE_PRIOR,
+        )
+        rework = self._performance_value(model, "reworkRate", UNOBSERVED_PERFORMANCE_PRIOR)
         rework_rate_score = 1.0 - rework
         cost_efficiency = self._cost_efficiency(estimate["estimatedCostUsd"], request.budget_remaining_usd)
         cost_known = self._cost_known_score(model, estimate)
@@ -1003,9 +1459,17 @@ class AIResourceManager:
         return 0.75
 
     def _task_risk_fit(self, model: dict[str, Any], risk: str) -> float:
-        quality = self._bounded(float(model["qualityScore"] or 0.5))
-        success = self._bounded(float(model["observedSuccessRate"] or 0.5))
-        rework_fit = 1.0 - self._bounded(float(model["reworkRate"] or 0.0))
+        quality = self._performance_value(model, "qualityScore", UNOBSERVED_PERFORMANCE_PRIOR)
+        success = self._performance_value(
+            model,
+            "observedSuccessRate",
+            UNOBSERVED_PERFORMANCE_PRIOR,
+        )
+        rework_fit = 1.0 - self._performance_value(
+            model,
+            "reworkRate",
+            UNOBSERVED_PERFORMANCE_PRIOR,
+        )
         if risk in {"high", "critical"}:
             return self._bounded((quality * 0.45) + (success * 0.45) + (rework_fit * 0.10))
         if risk == "low":
@@ -1155,7 +1619,7 @@ class AIResourceManager:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                f"ai-routing-{uuid.uuid4()}",
+                decision.get("routingDecisionId") or f"ai-routing-{uuid.uuid4()}",
                 request.project_id,
                 request.task_type,
                 request.risk_level,
@@ -1235,6 +1699,9 @@ class AIResourceManager:
             "qualityScore": candidate["qualityScore"],
             "observedSuccessRate": candidate["observedSuccessRate"],
             "reworkRate": candidate["reworkRate"],
+            "profileSource": candidate.get("profileSource", "explicit"),
+            "performanceStatus": candidate.get("performanceStatus", "configured_prior"),
+            "performanceSampleCount": int(candidate.get("performanceSampleCount") or 0),
         }
 
     def _rejected(self, model: dict[str, Any], reason: str) -> dict[str, Any]:
@@ -1242,12 +1709,22 @@ class AIResourceManager:
             "providerId": model["providerId"],
             "model": model["model"],
             "runtime": model["runtime"],
+            "profileSource": model.get("profileSource", "explicit"),
             "reason": reason,
         }
 
     def _weighted_update(self, current: float | None, observed: float, *, weight: float = 0.45) -> float:
         base = float(current if current is not None else 0.5)
         return round(self._bounded(base * (1.0 - weight) + observed * weight), 6)
+
+    def _performance_value(
+        self,
+        model: dict[str, Any],
+        key: str,
+        default: float,
+    ) -> float:
+        value = model.get(key)
+        return self._bounded(default if value is None else float(value))
 
     def _bounded(self, value: float) -> float:
         return max(0.0, min(value, 1.0))

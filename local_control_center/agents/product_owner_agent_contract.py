@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .autonomy_profiles import REVERSIBILITIES
+
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
 PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = [
     "shell",
@@ -38,10 +40,24 @@ PRODUCT_OWNER_AGENT_RUNTIME_ORDER = [
     "nvidia_nim",
     "anthropic_api",
 ]
+PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS = 240
 
 
 def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
     return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
+
+
+def _product_owner_runtime_family(runtime: dict[str, Any]) -> str:
+    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
+
+
+def _product_owner_runtime_order_id(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    return (
+        runtime_id
+        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
+        else _product_owner_runtime_family(runtime)
+    )
 
 
 def product_owner_agent_contract() -> dict[str, Any]:
@@ -96,8 +112,61 @@ def product_owner_agent_contract() -> dict[str, Any]:
                 },
                 "summary": {"type": "string"},
                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-                "questions": {"type": "array", "items": {"type": "object"}},
-                "assumptions": {"type": "array", "items": {"type": "object"}},
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "category",
+                            "question",
+                            "whyItMatters",
+                            "blocking",
+                            "options",
+                            "recommendation",
+                            "defaultDecision",
+                            "confidence",
+                        ],
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "scope",
+                                    "users",
+                                    "data",
+                                    "integration",
+                                    "compliance",
+                                    "nonfunctional",
+                                    "ux",
+                                    "risk",
+                                    "delivery",
+                                ],
+                            },
+                            "question": {"type": "string", "minLength": 1},
+                            "whyItMatters": {"type": "string", "minLength": 1},
+                            "blocking": {"type": "boolean"},
+                            "options": {
+                                "type": "array",
+                                "minItems": 2,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                            "recommendation": {"type": "string", "minLength": 1},
+                            "defaultDecision": {"type": "string", "minLength": 1},
+                            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                        },
+                    },
+                },
+                "assumptions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["statement"],
+                        "properties": {
+                            "statement": {"type": "string", "minLength": 1},
+                            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                            "validation": {"type": "string"},
+                        },
+                    },
+                },
                 "decisions": {
                     "type": "array",
                     "items": {
@@ -121,16 +190,79 @@ def product_owner_agent_contract() -> dict[str, Any]:
                             "requiresResearch": {"type": "boolean"},
                             "reversibility": {
                                 "type": "string",
-                                "enum": ["reversible", "difficult", "irreversible"],
+                                "enum": sorted(REVERSIBILITIES),
                             },
                             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                         },
                     },
                 },
-                "productBriefPatch": {"type": "object"},
-                "epics": {"type": "array", "items": {"type": "object"}},
-                "userStories": {"type": "array", "items": {"type": "object"}},
-                "risks": {"type": "array", "items": {"type": "object"}},
+                "productBriefPatch": {
+                    "type": "object",
+                    "required": ["title"],
+                    "properties": {
+                        "title": {"type": "string", "minLength": 1},
+                        "summary": {"type": "string"},
+                        "problemStatement": {"type": "string"},
+                        "goals": {"type": "array", "items": {"type": "string"}},
+                        "targetUsers": {"type": "array", "items": {"type": "string"}},
+                        "successMetrics": {"type": "array", "items": {"type": "string"}},
+                        "scope": {"type": "string"},
+                        "outOfScope": {"type": "string"},
+                    },
+                },
+                "epics": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["title"],
+                        "properties": {
+                            "title": {"type": "string", "minLength": 1},
+                            "description": {"type": "string"},
+                        },
+                    },
+                },
+                "userStories": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "epicTitle",
+                            "title",
+                            "asA",
+                            "iWant",
+                            "soThat",
+                            "acceptanceCriteria",
+                        ],
+                        "properties": {
+                            "epicTitle": {"type": "string", "minLength": 1},
+                            "title": {"type": "string", "minLength": 1},
+                            "asA": {"type": "string", "minLength": 1},
+                            "iWant": {"type": "string", "minLength": 1},
+                            "soThat": {"type": "string", "minLength": 1},
+                            "businessValue": {"type": "string", "enum": ["low", "medium", "high"]},
+                            "acceptanceCriteria": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                        },
+                    },
+                },
+                "risks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["description"],
+                        "properties": {
+                            "severity": {
+                                "type": "string",
+                                "enum": ["low", "medium", "high", "critical"],
+                            },
+                            "description": {"type": "string", "minLength": 1},
+                            "mitigation": {"type": "string"},
+                        },
+                    },
+                },
                 "recommendedNextAction": {"type": "string"},
             },
         },
@@ -145,8 +277,17 @@ def product_owner_agent_contract() -> dict[str, Any]:
 def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and "code_edit" not in capabilities:
-        return "CLI runtime does not advertise an executable capability for ProductOwnerAgent."
+    if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and runtime.get(
+        "productOwnerExecutable"
+    ) is False:
+        return str(
+            runtime.get("reason")
+            or "CLI runtime has not passed the ProductOwnerAgent-specific safety contract."
+        )
+    if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and (
+        "chat" not in capabilities or runtime.get("canRunPrompt") is False
+    ):
+        return "CLI runtime does not advertise the chat prompt capability required by ProductOwnerAgent."
     if _is_ollama_runtime(runtime) and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ProductOwnerAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ProductOwnerAgent.")
@@ -155,13 +296,20 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
 def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime sirve como ProductOwnerAgent: CLI real ejecutable o modelo con chat disponible."""
     runtime_id = str(runtime.get("id") or "")
-    if not runtime.get("executable"):
-        return False
+    runtime_family = _product_owner_runtime_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
-        return "code_edit" in capabilities
-    if runtime_id in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES:
-        return "chat" in capabilities or not capabilities
+        product_owner_executable = runtime.get("productOwnerExecutable")
+        prompt_executable = (
+            bool(product_owner_executable)
+            if product_owner_executable is not None
+            else bool(runtime.get("canRunPrompt", runtime.get("executable")))
+        )
+        return prompt_executable and "chat" in capabilities
+    if not runtime.get("executable"):
+        return False
+    if runtime_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
     if _is_ollama_runtime(runtime):
         return bool("chat" in capabilities and runtime.get("models"))
     return False
@@ -185,8 +333,8 @@ def product_owner_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
-            PRODUCT_OWNER_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in PRODUCT_OWNER_AGENT_RUNTIME_ORDER
+            PRODUCT_OWNER_AGENT_RUNTIME_ORDER.index(_product_owner_runtime_order_id(item))
+            if _product_owner_runtime_order_id(item) in PRODUCT_OWNER_AGENT_RUNTIME_ORDER
             else len(PRODUCT_OWNER_AGENT_RUNTIME_ORDER)
         ),
     )

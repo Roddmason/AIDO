@@ -89,6 +89,11 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase48_schema(connection)
     init_phase49_schema(connection)
     init_phase50_schema(connection)
+    init_phase51_schema(connection)
+    init_phase52_schema(connection)
+    init_phase53_schema(connection)
+    init_phase54_schema(connection)
+    init_phase55_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -2057,7 +2062,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             0,
             1,
             1,
-            0,
+            1,
             1,
         ),
         (
@@ -3563,13 +3568,13 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
         (
             "codex_cli",
             "cli",
-            ["code_edit", "issue_to_patch", "chat"],
+            ["code_edit", "issue_to_patch", "chat", "review"],
             ["developer", "implementer", "technical_lead"],
         ),
         (
             "claude_code_cli",
             "cli",
-            ["code_edit", "issue_to_patch", "chat"],
+            ["code_edit", "issue_to_patch", "chat", "review"],
             ["developer", "technical_lead", "product_owner"],
         ),
         ("openhands", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
@@ -4641,6 +4646,7 @@ def init_phase44_schema(connection: sqlite3.Connection) -> None:
             quality_score REAL NOT NULL,
             locality TEXT NOT NULL,
             privacy_level TEXT NOT NULL,
+            profile_source TEXT NOT NULL DEFAULT 'explicit',
             evidence_json TEXT NOT NULL,
             enabled INTEGER NOT NULL,
             created_at TEXT NOT NULL,
@@ -4737,6 +4743,26 @@ def init_phase44_schema(connection: sqlite3.Connection) -> None:
             ON ai_context_summaries(project_id, created_at);
         """
     )
+    _add_column_if_missing(
+        connection,
+        "ai_model_performance",
+        "profile_source",
+        "profile_source TEXT NOT NULL DEFAULT 'explicit'",
+    )
+    rows = connection.execute(
+        "SELECT id, evidence_json FROM ai_model_performance WHERE profile_source = 'explicit'"
+    ).fetchall()
+    for row in rows:
+        evidence = json_loads(row["evidence_json"], [])
+        if any(
+            isinstance(item, dict)
+            and str(item.get("kind") or "") == "model_catalog_baseline"
+            for item in evidence
+        ):
+            connection.execute(
+                "UPDATE ai_model_performance SET profile_source = 'model_catalog' WHERE id = ?",
+                (row["id"],),
+            )
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (44, utc_now()),
@@ -5116,6 +5142,343 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
         ]
     )
     _execute_atomic_statements(connection, statements)
+
+
+def init_phase51_schema(connection: sqlite3.Connection) -> None:
+    """Fase 51: alinea la política Product Owner no personalizada con su contrato CLI real."""
+    now = utc_now()
+    connection.execute(
+        """
+        UPDATE role_model_policies
+        SET allow_cli = 1, updated_at = ?
+        WHERE id = 'product_owner'
+          AND allow_cli = 0
+          AND created_at = updated_at
+        """,
+        (now,),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (51, now),
+    )
+
+
+def init_phase52_schema(connection: sqlite3.Connection) -> None:
+    """Fase 52: agrega identidad de familia/modo por endpoint y capacidades visuales."""
+    already_applied = connection.execute("SELECT 1 FROM schema_migrations WHERE version = 52").fetchone()
+    savepoint = "aido_phase52_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "provider_family",
+            "provider_family TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "deployment_mode",
+            "deployment_mode TEXT NOT NULL DEFAULT 'custom'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "api_family",
+            "api_family TEXT NOT NULL DEFAULT 'chat_completions'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "terms_mode",
+            "terms_mode TEXT NOT NULL DEFAULT 'unspecified'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "pricing_mode",
+            "pricing_mode TEXT NOT NULL DEFAULT 'unknown'",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "api_family",
+            "api_family TEXT NOT NULL DEFAULT 'chat_completions'",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "supports_image_generation",
+            "supports_image_generation INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "supports_image_editing",
+            "supports_image_editing INTEGER NOT NULL DEFAULT 0",
+        )
+        if not already_applied:
+            connection.execute(
+                """
+                UPDATE provider_accounts
+                SET provider_family = CASE
+                        WHEN api_format = 'ollama' THEN 'ollama'
+                        ELSE provider_id
+                    END,
+                    deployment_mode = CASE
+                        WHEN provider_id = 'nvidia_nim' THEN 'hosted_trial'
+                        ELSE 'custom'
+                    END,
+                    api_family = 'chat_completions',
+                    terms_mode = CASE
+                        WHEN provider_id = 'nvidia_nim' THEN 'evaluation'
+                        ELSE 'unspecified'
+                    END,
+                    pricing_mode = 'unknown'
+                """
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (52, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase53_schema(connection: sqlite3.Connection) -> None:
+    """Fase 53: persiste el perfil de contrato por endpoint sin alterar fase 52."""
+    savepoint = "aido_phase53_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "adapter_profile",
+            "adapter_profile TEXT NOT NULL DEFAULT 'auto'",
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (53, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase54_schema(connection: sqlite3.Connection) -> None:
+    """Fase 54: agrega políticas y leases atómicos para cuotas de proveedores."""
+    savepoint = "aido_phase54_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_concurrency",
+            "max_concurrency INTEGER CHECK (max_concurrency IS NULL OR max_concurrency > 0)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "window_timezone",
+            "window_timezone TEXT NOT NULL DEFAULT 'UTC'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "enabled",
+            "enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "fallback_retry_after_seconds",
+            "fallback_retry_after_seconds INTEGER NOT NULL DEFAULT 300 "
+            "CHECK (fallback_retry_after_seconds BETWEEN 0 AND 86400)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_cost_per_request_usd",
+            "max_cost_per_request_usd REAL "
+            "CHECK (max_cost_per_request_usd IS NULL OR max_cost_per_request_usd >= 0)",
+        )
+        quota_ddl = (
+            """
+            CREATE TABLE IF NOT EXISTS provider_limit_windows (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT NOT NULL,
+                window_kind TEXT NOT NULL CHECK (window_kind IN ('minute', 'day', 'month')),
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                committed_requests INTEGER NOT NULL DEFAULT 0 CHECK (committed_requests >= 0),
+                reserved_requests INTEGER NOT NULL DEFAULT 0 CHECK (reserved_requests >= 0),
+                committed_tokens INTEGER NOT NULL DEFAULT 0 CHECK (committed_tokens >= 0),
+                unverified_tokens INTEGER NOT NULL DEFAULT 0 CHECK (unverified_tokens >= 0),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                known_cost_usd REAL NOT NULL DEFAULT 0 CHECK (known_cost_usd >= 0),
+                unverified_cost_usd REAL NOT NULL DEFAULT 0 CHECK (unverified_cost_usd >= 0),
+                reserved_cost_usd REAL NOT NULL DEFAULT 0 CHECK (reserved_cost_usd >= 0),
+                unknown_usage_count INTEGER NOT NULL DEFAULT 0 CHECK (unknown_usage_count >= 0),
+                unknown_cost_count INTEGER NOT NULL DEFAULT 0 CHECK (unknown_cost_count >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(limit_id, window_kind, window_start),
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS provider_execution_leases (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                state TEXT NOT NULL
+                    CHECK (state IN ('active', 'dispatched', 'committed', 'released', 'expired')),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                reserved_cost_usd REAL CHECK (reserved_cost_usd IS NULL OR reserved_cost_usd >= 0),
+                actual_tokens INTEGER CHECK (actual_tokens IS NULL OR actual_tokens >= 0),
+                actual_cost_usd REAL CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                usage_known INTEGER CHECK (usage_known IS NULL OR usage_known IN (0, 1)),
+                cost_known INTEGER CHECK (cost_known IS NULL OR cost_known IN (0, 1)),
+                expires_at TEXT NOT NULL,
+                execution_id TEXT,
+                branch_id TEXT,
+                dispatched_at TEXT,
+                released_at TEXT,
+                release_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE SET NULL
+            );
+            CREATE TABLE IF NOT EXISTS provider_execution_lease_windows (
+                lease_id TEXT NOT NULL,
+                window_id TEXT NOT NULL,
+                reserved_requests INTEGER NOT NULL DEFAULT 1 CHECK (reserved_requests >= 0),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                reserved_cost_usd REAL NOT NULL DEFAULT 0 CHECK (reserved_cost_usd >= 0),
+                PRIMARY KEY(lease_id, window_id),
+                FOREIGN KEY(lease_id) REFERENCES provider_execution_leases(id) ON DELETE CASCADE,
+                FOREIGN KEY(window_id) REFERENCES provider_limit_windows(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS provider_limit_observations (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                retry_after_at TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_provider_limit_windows_effective
+                ON provider_limit_windows(limit_id, window_kind, window_start);
+            CREATE INDEX IF NOT EXISTS idx_provider_execution_leases_active
+                ON provider_execution_leases(limit_id, state, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_provider_execution_leases_execution
+                ON provider_execution_leases(execution_id, branch_id);
+            CREATE INDEX IF NOT EXISTS idx_provider_limit_observations_provider
+                ON provider_limit_observations(provider_id, model, observed_at);
+            """
+        )
+        for statement in quota_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (54, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase55_schema(connection: sqlite3.Connection) -> None:
+    """Fase 55: persiste identidad y settlement seguro de ejecuciones chat multmodelo."""
+    savepoint = "aido_phase55_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        execution_ddl = (
+            """
+            CREATE TABLE IF NOT EXISTS ai_executions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                capability TEXT NOT NULL CHECK (capability = 'chat_completions'),
+                strategy TEXT NOT NULL CHECK (strategy IN ('single', 'parallel_compare', 'quorum')),
+                status TEXT NOT NULL CHECK (
+                    status IN ('planned', 'running', 'blocked', 'completed', 'partial', 'failed')
+                ),
+                min_successful INTEGER NOT NULL CHECK (min_successful > 0),
+                max_parallelism INTEGER NOT NULL CHECK (max_parallelism > 0),
+                branch_count INTEGER NOT NULL CHECK (branch_count > 0),
+                successful_branches INTEGER NOT NULL DEFAULT 0 CHECK (successful_branches >= 0),
+                failed_branches INTEGER NOT NULL DEFAULT 0 CHECK (failed_branches >= 0),
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE IF NOT EXISTS ai_execution_branches (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (
+                    status IN ('planned', 'admitted', 'running', 'blocked', 'completed', 'failed')
+                ),
+                lease_id TEXT,
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                estimated_cost_usd REAL CHECK (
+                    estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+                ),
+                pricing_source TEXT NOT NULL DEFAULT 'unknown',
+                input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                total_tokens INTEGER CHECK (total_tokens IS NULL OR total_tokens >= 0),
+                actual_cost_usd REAL CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                usage_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+                    usage_status IN ('actual', 'unknown')
+                ),
+                cost_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+                    cost_status IN ('actual', 'free', 'unknown')
+                ),
+                latency_ms INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
+                error_code TEXT,
+                content_sha256 TEXT,
+                content_bytes INTEGER CHECK (content_bytes IS NULL OR content_bytes >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(execution_id, ordinal),
+                FOREIGN KEY(execution_id) REFERENCES ai_executions(id) ON DELETE CASCADE,
+                FOREIGN KEY(lease_id) REFERENCES provider_execution_leases(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_executions_project_created
+                ON ai_executions(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_ai_execution_branches_execution
+                ON ai_execution_branches(execution_id, ordinal);
+            CREATE INDEX IF NOT EXISTS idx_ai_execution_branches_provider
+                ON ai_execution_branches(provider_id, model, created_at);
+            """
+        )
+        for statement in execution_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (55, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
 
 
 def _legacy_thread_id(record_id: str) -> str:

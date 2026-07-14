@@ -32,7 +32,7 @@ from .runtime_provider_config import (
     RuntimeProviderConfiguration,
     runtime_provider_configuration,
 )
-from .runtime_registry import RuntimeRegistry
+from .runtime_registry import PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS, RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
@@ -267,6 +267,11 @@ def _api_provider_status(
     available = configured and healthy
     installation_enabled = _runtime_installation_enabled(runtime_installation)
     has_prompt_capability = "chat" in set(capabilities)
+    api_family = str(account.get("apiFamily") or "")
+    unsupported_nvidia_chat_family = (
+        str(account.get("providerFamily") or "") == "nvidia_nim"
+        and api_family != "chat_completions"
+    )
     policy_allowed = bool(policy_decision.get("allowed"))
     executable = (
         available
@@ -277,7 +282,12 @@ def _api_provider_status(
         and has_prompt_capability
     )
     can_run_prompt = executable
-    if not has_credential:
+    if unsupported_nvidia_chat_family:
+        reason = (
+            f"NVIDIA NIM API family {api_family or 'unspecified'} is not supported "
+            "for chat execution."
+        )
+    elif not has_credential:
         credential_message = str(account_configuration.get("credentialMessage") or "").strip()
         message_suffix = f" ({credential_message})" if credential_message else ""
         reason = (
@@ -303,7 +313,7 @@ def _api_provider_status(
         reason = "Runtime does not advertise the chat capability required for prompt execution."
     else:
         reason = "Provider is configured, health checked, and executable."
-    return _status_payload(
+    payload = _status_payload(
         provider_id=provider_id,
         kind=str(account["providerType"]),
         display_name=str(account["displayName"]),
@@ -324,8 +334,16 @@ def _api_provider_status(
         capabilities=capabilities or ["chat"],
         required_configuration=required_configuration,
         configuration_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
-        requires_approval=True,
+        # Approval is contextual (resource/cost/risk policy), not an intrinsic provider property.
+        requires_approval=False,
     )
+    payload["providerFamily"] = str(account.get("providerFamily") or "")
+    payload["apiFamily"] = str(account.get("apiFamily") or "")
+    payload["deploymentMode"] = str(account.get("deploymentMode") or "")
+    payload["termsMode"] = str(account.get("termsMode") or "")
+    payload["pricingMode"] = str(account.get("pricingMode") or "")
+    payload["productOwnerExecutable"] = can_run_prompt
+    return payload
 
 
 def _cli_provider_status(
@@ -345,7 +363,8 @@ def _cli_provider_status(
     has_prompt_capability = "chat" in set(capabilities)
     can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
-    version = detection.get("version") if detected else None
+    fresh_version = str(detection.get("version") or "").strip() if detected else ""
+    version = fresh_version or None
     if detected and not version:
         # El binario sigue presente pero el probe de versión no respondió (p. ej. timeout bajo
         # carga): usa la última versión persistida en vez de declarar el runtime no disponible.
@@ -359,10 +378,8 @@ def _cli_provider_status(
         and runtime_account.get("healthStatus") == "healthy"
         and runtime_account.get("lastValidationAt")
     )
-    can_run_version_check = bool(detected and version)
-    command_matches_provider = (
-        _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
-    )
+    can_run_version_check = bool(detected and fresh_version)
+    command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection)
     can_run_prompt = bool(
         available
         and installation_enabled
@@ -370,11 +387,14 @@ def _cli_provider_status(
         and authenticated
         and policy_allowed
         and has_prompt_capability
+        and command_matches_provider
     )
     can_edit_workspace = bool(
         can_run_prompt and can_code_edit and issue_to_patch_argv_error is None and command_matches_provider
     )
-    executable = can_edit_workspace
+    # ``executable`` means the provider can execute a prompt. Mutation is a separate capability:
+    # DeveloperAgent must additionally require ``canEditWorkspace``/``code_edit``.
+    executable = can_run_prompt
     if not configured and configuration is not None:
         reason = (
             f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
@@ -399,12 +419,15 @@ def _cli_provider_status(
         reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
     elif not has_prompt_capability:
         reason = "Runtime does not advertise the chat capability required for prompt execution."
-    elif issue_to_patch_argv_error:
-        reason = issue_to_patch_argv_error
-    elif not can_code_edit:
-        reason = "Runtime does not advertise the code_edit capability required by DeveloperAgent."
     elif not command_matches_provider:
         reason = "Runtime detected executable does not match the declared runtime command."
+    elif issue_to_patch_argv_error:
+        reason = f"Runtime can execute prompts, but DeveloperAgent is unavailable: {issue_to_patch_argv_error}"
+    elif not can_code_edit:
+        reason = (
+            "Runtime can execute prompts; workspace editing is unavailable because the code_edit "
+            "capability is not advertised."
+        )
     else:
         reason = "CLI runtime is detected, authenticated, policy enabled, and executable."
     payload = _status_payload(
@@ -433,12 +456,27 @@ def _cli_provider_status(
             executable_source=executable_source,
             policy_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
         ),
-        requires_approval=True,
+        # Approval is contextual (resource/cost/risk policy), not an intrinsic provider property.
+        requires_approval=False,
     )
     if issue_to_patch_argv is not None:
         payload["issueToPatchArgv"] = issue_to_patch_argv
     if issue_to_patch_argv_error:
         payload["lastError"] = issue_to_patch_argv_error
+    payload["versionVerified"] = bool(fresh_version)
+    payload["productOwnerExecutable"] = bool(
+        can_run_prompt
+        and (
+            str(account["providerId"]) != "codex_cli"
+            or fresh_version in PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS
+        )
+    )
+    if str(account["providerId"]) == "codex_cli" and can_run_prompt and not payload[
+        "productOwnerExecutable"
+    ]:
+        payload["configurationWarnings"].append(
+            "ProductOwnerAgent requires a fresh, explicitly reviewed Codex CLI version probe."
+        )
     return payload
 
 
@@ -526,6 +564,7 @@ def _ollama_provider_status(
     payload["models"] = status.get("models") or []
     payload["providerFamily"] = "ollama"
     payload["credentialStatus"] = str(account.get("credentialStatus") or "unknown")
+    payload["productOwnerExecutable"] = can_run_prompt
     return payload
 
 
@@ -673,13 +712,26 @@ class RuntimeStatusService:
         statuses: list[dict[str, Any]] = []
         for account in self.accounts.list_provider_accounts():
             provider_id = str(account["providerId"])
-            provider_capabilities = capabilities.get(provider_id, [])
+            provider_family = str(account.get("providerFamily") or "")
+            provider_capabilities = capabilities.get(provider_id, []) or capabilities.get(
+                provider_family, []
+            )
+            api_family = str(account.get("apiFamily") or "")
+            if provider_family == "nvidia_nim" and api_family != "chat_completions":
+                provider_capabilities = [
+                    capability for capability in provider_capabilities if capability != "chat"
+                ]
+                if api_family and api_family not in provider_capabilities:
+                    provider_capabilities.append(api_family)
             provider_type = str(account.get("providerType") or "")
             api_format = str(account.get("apiFormat") or "")
             if api_format == "ollama" and not provider_capabilities:
                 provider_capabilities = capabilities.get("ollama", ["chat"])
             policy_decision = runtime_repo.runtime_policy_decision(
-                provider_id=provider_id, kind=provider_type, project_id=project_id
+                provider_id=provider_id,
+                provider_family=provider_family,
+                kind=provider_type,
+                project_id=project_id,
             )
             if provider_id == "ollama" or api_format == "ollama":
                 ollama_installation = runtime_installations.get(provider_id) or runtime_installations.get(

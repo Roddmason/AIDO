@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.architect_agent_contract import architect_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -82,6 +83,7 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
     return [
         {
             "id": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "kind": "api",
             "displayName": "Controlled OpenAI-compatible runtime",
             "detected": True,
@@ -108,6 +110,10 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
 def enable_openai_runtime_policy(store: ControlPlaneFixture) -> None:
     runtime_settings = RuntimeConfigRepository(store.connection)
     runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+    ProviderAccountStore(store.connection).patch_provider_account(
+        "openai_compatible",
+        {"enabled": True},
+    )
     store.connection.execute(
         "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
     )
@@ -195,9 +201,9 @@ def architect_request(
 
 def test_architect_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
     ]
 
     readiness = architect_agent_readiness(statuses, preferred_runtime="openrouter")

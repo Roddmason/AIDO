@@ -50,8 +50,14 @@ class ArchitectOutputValidationError(ValueError):
     """Se lanza cuando la salida del modelo no cumple el esquema o cita evidencia no permitida."""
 
 
-def _runtime_mode(runtime_id: str) -> str:
-    return "ollama" if runtime_id == "ollama" else "api"
+def _runtime_provider_family(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    provider_family = str(runtime.get("providerFamily") or "")
+    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
+
+
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    return "ollama" if _runtime_provider_family(runtime) == "ollama" else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -351,20 +357,23 @@ class ArchitectAgentRunner:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _ensure_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        provider_family = _runtime_provider_family(runtime)
+        model_runtime = provider_family in ARCHITECT_AGENT_MODEL_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
                 "id": ARCHITECT_AGENT_ID,
                 "name": "AIDO Architect Agent",
                 "role": "technical_lead",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "plan",
                 "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,
-                "allowedProviders": [runtime_id] if runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES else [],
-                "allowedRuntimes": [runtime_id] if runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES else [],
-                "allowRemote": runtime_id in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
+                "allowedProviders": [runtime_id] if model_runtime else [],
+                "allowedRuntimes": [runtime_id] if model_runtime else [],
+                "allowRemote": provider_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
                 "allowCli": False,
-                "allowApi": runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES,
+                "allowApi": model_runtime,
                 "outputSchema": architect_agent_contract()["outputSchema"],
             }
         )
@@ -435,8 +444,9 @@ class ArchitectAgentRunner:
         diff_text: str,
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
+        provider_family = _runtime_provider_family(runtime)
         model = payload.get("model")
-        if runtime_id == "ollama":
+        if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -444,7 +454,7 @@ class ArchitectAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -452,11 +462,12 @@ class ArchitectAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {
+                    "providerId": runtime_id,
                     "model": model,
                     "messages": self._messages(payload=payload, diff_text=diff_text),
                     "temperature": 0.1,
                 },
-                "networkRequired": runtime_id in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
+                "networkRequired": provider_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -543,7 +554,7 @@ class ArchitectAgentRunner:
             "capabilities": [],
         }
         runtime_id = str(runtime.get("id") or "unresolved")
-        profile = self._ensure_profile(runtime_id)
+        profile = self._ensure_profile(runtime)
         workflow_context = payload.get("workflowContext") or {}
         job_result = self.jobs.create_job(
             project_id=project_id,

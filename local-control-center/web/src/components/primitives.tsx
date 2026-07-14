@@ -1,6 +1,6 @@
 /**
  * Presentational primitives not (yet) part of the typed component library: the status
- * dot, content surface, page header, data table and progress bar.
+ * dot, content surface, page header and data table.
  *
  * The library-equivalent primitives live in `components/ui` and are re-exported here so
  * existing `import { Badge, EmptyState, Skeleton, Drawer, Modal } from '../primitives'`
@@ -113,44 +113,6 @@ export function DataTable<T>({
 					))}
 				</tbody>
 			</table>
-		</div>
-	);
-}
-
-/**
- * Animated progress bar that eases its fill width to `value` (0–100, clamped).
- *
- * Width is animated declaratively via `m.div`; reduced-motion is honored by
- * `MotionConfig reducedMotion="user"` (the easing collapses to an instant set).
- * Exposes the WAI-ARIA `progressbar` role with current/min/max values.
- */
-export function Progress({
-	value,
-	label,
-	className,
-}: {
-	/** Completion percentage; clamped to the 0–100 range. */
-	value: number;
-	/** Accessible name for the progress bar. */
-	label: string;
-	className?: string;
-}) {
-	const clamped = Math.min(100, Math.max(0, value));
-	return (
-		<div
-			className={className ? `progress ${className}` : 'progress'}
-			role="progressbar"
-			aria-label={label}
-			aria-valuenow={clamped}
-			aria-valuemin={0}
-			aria-valuemax={100}
-		>
-			<m.div
-				className="progress-fill"
-				initial={false}
-				animate={{ width: `${clamped}%` }}
-				transition={{ duration: 0.3, ease: EASE_OUT }}
-			/>
 		</div>
 	);
 }

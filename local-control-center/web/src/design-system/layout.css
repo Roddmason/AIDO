@@ -846,12 +846,6 @@
 /* In the resizable layout the group sizes each pane, so the rail and pane content
    fill their box instead of being sticky/full-viewport (the stacked layout keeps
    the original flow). */
-.ide-body > .activity-bar {
-	position: static;
-	height: 100%;
-}
-
-.ide-pane > .explorer-panel,
 .ide-pane > .inspector-panel,
 .ide-pane > .workbench,
 .ide-pane > .main-area,
@@ -923,167 +917,6 @@
 	padding: var(--space-4);
 }
 
-/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
-.activity-bar {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-sticky);
-	height: 100vh;
-	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
-	height: 100dvh;
-	display: grid;
-	grid-template-rows: auto 1fr auto;
-	gap: var(--space-3);
-	padding: var(--space-2) var(--space-1);
-	justify-items: center;
-	background: var(--color-surface-shell);
-	border-right: 1px solid var(--color-border-subtle);
-}
-
-.activity-bar-item {
-	width: var(--control-height);
-	height: var(--control-height);
-	display: inline-grid;
-	place-items: center;
-	border: 1px solid transparent;
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--color-text-muted);
-}
-
-.activity-bar-item:hover,
-.activity-bar-item[aria-current="page"],
-.activity-bar-item[aria-pressed="true"] {
-	background: var(--color-surface-panel);
-	border-color: var(--color-border-default);
-	color: var(--color-text-primary);
-}
-
-/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
-.explorer-panel {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-raised);
-	height: 100vh;
-	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
-	height: 100dvh;
-	min-width: 0;
-	display: grid;
-	grid-template-rows: auto minmax(0, 1fr) auto;
-	gap: var(--space-4);
-	padding: var(--space-4);
-	background: var(--color-surface-rail);
-	border-right: 1px solid var(--color-border-subtle);
-	color: var(--color-text-primary);
-	overflow: auto;
-}
-
-.brand-orb {
-	width: 2.5rem;
-	height: 2.5rem;
-	flex: 0 0 auto;
-	display: grid;
-	place-items: center;
-	border: 1px solid var(--color-border-default);
-	border-radius: var(--radius-lg);
-	background: var(--color-surface-panel);
-	box-shadow: var(--shadow-xs);
-}
-
-.brand-orb span {
-	width: 1rem;
-	height: 1rem;
-	display: block;
-	border-radius: var(--radius-xs);
-	background: var(--color-accent);
-}
-
-.nav-list {
-	min-height: 0;
-	overflow: auto;
-	display: grid;
-	gap: var(--space-4);
-	align-content: start;
-	padding-right: var(--space-1);
-}
-
-.nav-section {
-	display: grid;
-	gap: var(--space-2);
-}
-
-.nav-sublist {
-	display: grid;
-	gap: var(--space-1);
-}
-
-.nav-section-label {
-	padding: 0 var(--space-2);
-	color: var(--color-text-muted);
-	font-size: var(--font-size-xs);
-	font-weight: var(--weight-semibold);
-}
-
-.nav-item,
-.nav-group-trigger {
-	width: 100%;
-	min-height: 2.75rem;
-	display: grid;
-	grid-template-columns: 1.1rem minmax(0, 1fr);
-	align-items: center;
-	gap: var(--space-3);
-	padding: var(--space-2) var(--space-3);
-	border: 1px solid transparent;
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--color-text-secondary);
-	text-align: left;
-}
-
-.nav-group-trigger {
-	background: var(--color-surface-panel);
-	border-color: var(--color-border-subtle);
-	color: var(--color-text-primary);
-	font-weight: var(--weight-semibold);
-}
-
-.nav-item span {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.nav-item-meta {
-	grid-column: 2;
-	margin-top: -0.35rem;
-	color: var(--color-text-muted);
-	font-size: var(--font-size-xs);
-	font-weight: var(--weight-medium);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.nav-item svg,
-.nav-group-trigger svg {
-	width: 1rem;
-	height: 1rem;
-	flex: 0 0 auto;
-}
-
-.nav-item:hover,
-.nav-item[aria-current="page"],
-.nav-group-trigger:hover {
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-border-default);
-	color: var(--color-text-primary);
-}
-
-.nav-item[aria-current="page"] {
-	box-shadow: inset 3px 0 0 var(--color-accent);
-}
-
 /* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .main-area` scoped override is more specific by design and wins regardless of source order */
 .main-area,
 /* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .workbench` scoped override is more specific by design and wins regardless of source order */
@@ -1104,34 +937,6 @@
 	grid-template-rows: auto minmax(0, 1fr);
 }
 
-.topbar {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-sticky);
-	display: grid;
-	gap: var(--space-3);
-	padding: var(--space-4) var(--space-6);
-	background: color-mix(in oklch, var(--color-surface-workbench) 94%, transparent);
-	backdrop-filter: blur(14px);
-	border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.topbar-primary {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-4);
-}
-
-.topbar-title {
-	margin: 0;
-	font-family: var(--font-display);
-	font-size: var(--font-size-xl);
-	line-height: var(--line-tight);
-	letter-spacing: 0;
-}
-
-.topbar-actions,
 .status-strip {
 	display: flex;
 	flex-wrap: wrap;
@@ -1546,6 +1351,7 @@
 /* Threads route: the chat/execution surface owns its own internal scroll and fixed composer
    dock (see `.thread-live-layout`), so the frame must span full width (no padding) and never
    scroll itself (single scroll region, no double scrollbar). */
+/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
 .content-frame.content-frame--full-bleed {
 	grid-template-rows: minmax(0, 1fr);
 	gap: 0;
@@ -2383,6 +2189,7 @@
 	color: var(--color-text-muted);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
 .thread-console-body {
 	display: grid;
 	gap: var(--space-1);
@@ -2466,25 +2273,26 @@
 	}
 
 	.thread-row-content,
+	/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
 	.thread-console-body {
 		grid-column: 1 / -1;
 	}
 }
 
 /* Tone is carried by the full border colour, never a side stripe. */
-.thread-message[data-kind="aido_lead"] {
+.thread-chat-row[data-kind="aido_lead"] {
 	border-color: color-mix(in oklch, var(--color-status-success) 36%, var(--color-border-subtle));
 }
 
-.thread-message[data-kind="decision_request"] {
+.thread-chat-row[data-kind="decision_request"] {
 	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
 }
 
-.thread-message[data-kind="error"] {
+.thread-chat-row[data-kind="error"] {
 	border-color: color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
 }
 
-.thread-message[data-kind="system_event"] {
+.thread-chat-row[data-kind="system_event"] {
 	background: var(--color-surface-inset);
 }
 
@@ -2494,15 +2302,6 @@
 	color: var(--color-text-muted);
 }
 
-.thread-decision {
-	display: grid;
-	gap: var(--space-2);
-	padding: var(--space-3);
-	border: 1px solid color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
-	border-radius: var(--radius-md);
-	background: color-mix(in oklch, var(--color-status-warning) 8%, var(--color-surface-card));
-}
-
 .thread-decision-head {
 	display: inline-flex;
 	align-items: center;
@@ -2510,7 +2309,7 @@
 	color: var(--color-text-primary);
 }
 
-.thread-decision p {
+.thread-decision-console p {
 	margin: 0;
 	color: var(--color-text-secondary);
 }
@@ -3428,31 +3227,6 @@
 	}
 }
 
-/* Secondary loop actions: a subdued row of ghost buttons for advanced loop commands. */
-.shell-chat-secondary {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-	padding-top: var(--space-1);
-	border-top: 1px solid var(--color-border-subtle);
-}
-
-.shell-chat-secondary .button {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-	color: var(--color-text-muted);
-	border-color: transparent;
-	background: transparent;
-}
-
-.shell-chat-secondary .button:hover {
-	color: var(--color-text-secondary);
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-border-subtle);
-}
-
 /* Inspector blocker cards (the only consumer now the delivery timeline uses WorkflowTimeline). */
 .delivery-step {
 	display: grid;
@@ -3485,66 +3259,6 @@
 	font-family: var(--font-display);
 	font-size: var(--font-size-2xl);
 	line-height: var(--line-tight);
-}
-
-.team-grid {
-	display: grid;
-	gap: var(--space-2);
-}
-
-.team-card {
-	display: grid;
-	gap: var(--space-2);
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
-}
-
-.team-card-header {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	gap: var(--space-2);
-	align-items: start;
-}
-
-.team-card-header > div {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-1);
-}
-
-.team-card-header strong {
-	overflow-wrap: anywhere;
-}
-
-.team-card-header span:not(.team-icon):not(.badge),
-.team-card p,
-.team-card-meta {
-	color: var(--color-text-muted);
-}
-
-.team-icon {
-	width: 1.85rem;
-	height: 1.85rem;
-	display: inline-grid;
-	place-items: center;
-	border: 1px solid
-		color-mix(in oklch, var(--color-accent-secondary) 38%, var(--color-border-default));
-	border-radius: var(--radius-md);
-	color: var(--color-accent-secondary);
-	background: color-mix(in oklch, var(--color-accent-secondary) 10%, var(--color-surface-card));
-}
-
-.team-card p {
-	margin: 0;
-	line-height: var(--line-snug);
-}
-
-.team-card-meta {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
 }
 
 /* ---- Team Activity board (drawer): live per-agent work ---- */
@@ -3752,116 +3466,6 @@
 	min-width: 0;
 }
 
-/* ---- IDE shell pieces (ActivityBar / Explorer / Inspector / StatusBar) ---- */
-.activity-bar-nav {
-	display: grid;
-	gap: var(--space-2);
-	justify-items: center;
-	align-content: start;
-}
-
-.explorer-header {
-	min-width: 0;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-}
-
-.explorer-title {
-	color: var(--color-text-secondary);
-	font-size: var(--font-size-sm);
-	font-weight: var(--weight-semibold);
-}
-
-.explorer-action {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-}
-
-.explorer-panel .nav-list {
-	gap: var(--space-1);
-}
-
-.explorer-section {
-	display: grid;
-	gap: var(--space-1);
-	margin-top: var(--space-2);
-}
-
-/* IDE project region: pinned identity + actions above the scrolling nav list. */
-.explorer-top {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-3);
-}
-
-.explorer-project {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-3);
-}
-
-.explorer-actions {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: var(--space-2);
-}
-
-.explorer-actions .button {
-	min-width: 0;
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-}
-
-/* Collapsible section header: caret · title · count. */
-.nav-group-trigger {
-	grid-template-columns: 1.1rem minmax(0, 1fr) auto;
-}
-
-.nav-group-caret {
-	transition: transform var(--duration-fast) var(--ease-standard);
-}
-
-.nav-group-trigger[aria-expanded="true"] .nav-group-caret {
-	transform: rotate(90deg);
-}
-
-.nav-group-count {
-	min-height: 1.5rem;
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-xs);
-}
-
-/* Two classes so it beats the single-class responsive `.nav-sublist` rules. */
-.nav-sublist.nav-sublist--collapsed {
-	display: none;
-}
-
-/* EmptyState composed with a call-to-action button beneath it. */
-.empty-state-action {
-	display: grid;
-	gap: var(--space-2);
-	justify-items: start;
-}
-
-.topbar-heading {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-1);
-}
-
-.brand-wordmark {
-	margin: 0;
-	font-family: var(--font-display);
-	font-size: var(--font-size-sm);
-	font-weight: var(--weight-semibold);
-	color: var(--color-text-muted);
-	letter-spacing: 0.01em;
-}
-
 .inspector-header {
 	display: flex;
 	align-items: center;
@@ -3904,48 +3508,6 @@
 }
 
 @media (max-width: 980px) {
-	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
-	.activity-bar,
-	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
-	.explorer-panel {
-		position: relative;
-		height: auto;
-		grid-template-rows: auto auto auto;
-		padding: var(--space-4);
-	}
-
-	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-body > .activity-bar` scoped override is more specific by design and wins regardless of source order */
-	.activity-bar {
-		display: flex;
-		align-items: center;
-		overflow-x: auto;
-	}
-
-	.nav-section,
-	.nav-sublist {
-		display: flex;
-		gap: var(--space-1);
-	}
-
-	.nav-sublist {
-		overflow-x: auto;
-		padding-left: 0;
-		border-left: 0;
-	}
-
-	.nav-section-label {
-		display: none;
-	}
-
-	.nav-item,
-	.nav-group-trigger {
-		white-space: nowrap;
-	}
-
-	.nav-item-meta {
-		display: none;
-	}
-
 	/* `.workbench-layout` / `.workbench-side` are absent here on purpose: they collapse from their own
 	   `@container workbench` query, which already fires at every viewport this block covers. */
 	.grid.two,
@@ -3971,46 +3533,8 @@
 }
 
 @media (max-width: 560px) {
-	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.ide-pane > .explorer-panel` scoped override is more specific by design and wins regardless of source order */
-	.explorer-panel {
-		padding-inline: var(--space-3);
-	}
-
-	.nav-list {
-		gap: var(--space-3);
-	}
-
-	.nav-section,
-	.nav-sublist {
-		display: grid;
-	}
-
-	.nav-sublist {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		overflow: visible;
-	}
-
-	.nav-item,
-	.nav-group-trigger {
-		min-height: 3rem;
-		white-space: normal;
-	}
-
-	.nav-item span {
-		overflow: visible;
-		text-overflow: clip;
-		white-space: normal;
-		overflow-wrap: anywhere;
-	}
-
-	.topbar-primary {
-		align-items: flex-start;
-		flex-direction: column;
-	}
-
 	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 	.content-frame,
-	.topbar,
 	.status-strip,
 	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .status-bar` scoped override is more specific by design and wins regardless of source order */
 	.status-bar {
@@ -4021,12 +3545,10 @@
 		font-size: var(--font-size-2xl);
 	}
 
-	.signal-grid,
-	.team-card-header {
+	.signal-grid {
 		grid-template-columns: 1fr;
 	}
 
-	.chat-composer-actions .button,
 	.workspace-context .button {
 		width: 100%;
 	}
@@ -4763,6 +4285,7 @@
 }
 
 .review-column-title {
+	margin: 0;
 	font-size: var(--font-size-sm);
 	font-weight: var(--weight-semibold);
 	color: var(--color-text-primary);

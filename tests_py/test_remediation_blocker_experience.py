@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.contracts import BLOCKER_TYPES, REMEDIATION_ACTION_TYPES
 from local_control_center.remediations.service import BlockerRemediationService
@@ -47,6 +48,252 @@ def _project_and_thread(connection, tmp_path: Path, name: str) -> tuple[dict, di
         title=f"{name} thread",
     )
     return project, thread
+
+
+def test_terminal_loop_resolves_its_pending_actions_without_hiding_loopless_recovery(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "terminal-remediation-lifecycle")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        loop = coordinator.start(project_id=project["id"], title="Terminal remediation lifecycle")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        loop_actions = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="workspace_check",
+            reason="Project root is required.",
+            details={"status": "configuration_required"},
+        )
+        loopless = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="",
+            stage="thread_intake",
+            blocker_type="thread_intake_decision_required",
+            title="Answer intake question",
+            description="Choose how this thread should proceed.",
+            action_type="answer_question",
+            payload={"decisionId": "thread-decision-loopless"},
+        )
+        row_count_before = connection.execute(
+            "SELECT COUNT(*) AS total FROM remediation_actions WHERE thread_id = ?",
+            (thread["id"],),
+        ).fetchone()["total"]
+        assert service.repository.resolve_pending_for_loop(loop["id"]) == []
+        assert all(service.repository.get(action["id"])["status"] == "pending" for action in loop_actions)
+
+        coordinator.cancel(loop["id"], reason="Superseded by a newer Product Loop attempt.")
+
+        terminal_actions = [service.repository.get(action["id"]) for action in loop_actions]
+        assert all(action["status"] == "resolved" for action in terminal_actions)
+        assert all(action["resolvedAt"] is not None for action in terminal_actions)
+        assert service.repository.get(loopless["id"])["status"] == "pending"
+        assert connection.execute(
+            "SELECT COUNT(*) AS total FROM remediation_actions WHERE thread_id = ?",
+            (thread["id"],),
+        ).fetchone()["total"] == row_count_before
+
+        legacy_pending = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="workspace_check",
+            blocker_type="workspace_root_missing",
+            title="Legacy stale action",
+            description="Simulates a pending action persisted before lifecycle reconciliation.",
+            action_type="open_settings_section",
+            payload={"section": "workspaces", "legacy": True},
+        )
+        assert legacy_pending["status"] == "pending"
+
+        service.list_for_thread(thread_id=thread["id"])
+
+        repaired = service.repository.get(legacy_pending["id"])
+        assert repaired["status"] == "resolved"
+        assert repaired["resolvedAt"] is not None
+        assert service.repository.get(loopless["id"])["status"] == "pending"
+
+
+def test_po_needs_input_persists_one_idempotent_action_per_decision(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "multiple-product-decisions")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        details = {
+            "status": "needs_input",
+            "pendingDecisions": [
+                {
+                    "decisionId": "thread-decision-one",
+                    "title": "Choose JDK target",
+                    "prompt": "Which JDK should the upgrade target?",
+                    "options": ["current JDK", "latest LTS"],
+                },
+                {
+                    "decisionId": "thread-decision-two",
+                    "title": "Choose migration strategy",
+                    "prompt": "Should the frontend migration be incremental?",
+                    "options": ["incremental", "full rewrite"],
+                },
+            ],
+        }
+
+        first = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="product-loop-needs-input",
+            stage="product_owner",
+            reason="Product decisions are required.",
+            details=details,
+        )
+        second = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="product-loop-needs-input",
+            stage="product_owner",
+            reason="Product decisions are required.",
+            details=details,
+        )
+
+        actions = [
+            action
+            for action in service.repository.list_for_thread(thread["id"])
+            if action["status"] == "pending" and action["actionType"] == "answer_question"
+        ]
+        assert len(actions) == 2
+        assert {action["payload"]["decisionId"] for action in actions} == {
+            "thread-decision-one",
+            "thread-decision-two",
+        }
+        assert len({action["id"] for action in first + second}) == 2
+
+
+def test_list_backfills_missing_actions_for_current_awaiting_user_decisions(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "awaiting-user-backfill")
+        ThreadsRepository(connection).set_status(thread["id"], "waiting_decision")
+        threads = ThreadsRepository(connection)
+        decision_specs = [
+            (
+                "Choose JDK target",
+                "Which JDK should the upgrade target?",
+                ["current JDK", "latest LTS"],
+            ),
+            (
+                "Choose migration strategy",
+                "Should the frontend migration be incremental?",
+                ["incremental", "full rewrite"],
+            ),
+        ]
+        pending_decisions = []
+        for title, prompt, options in decision_specs:
+            decision = threads.create_decision(
+                thread_id=thread["id"],
+                title=title,
+                prompt=prompt,
+                options=options,
+            )
+            pending_decisions.append(
+                {
+                    "decisionId": decision["id"],
+                    "title": title,
+                    "prompt": prompt,
+                    "options": options,
+                }
+            )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        loop = coordinator.start(
+            project_id=project["id"],
+            title="Awaiting product decisions",
+            context={
+                "durableRun": {
+                    "status": "awaiting_user",
+                    "thread": {"projectThreadId": thread["id"]},
+                    "productOwner": {
+                        "status": "needs_input",
+                        "reason": "Product decisions are required.",
+                        "pendingThreadDecisions": pending_decisions,
+                    },
+                }
+            },
+        )
+        coordinator.transition(loop["id"], to_state="discovery")
+        coordinator.transition(loop["id"], to_state="awaiting_user")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="product_owner",
+            blocker_type="po_needs_input",
+            title="Choose JDK target",
+            description="Provide the missing product decision or clarification.",
+            action_type="answer_question",
+            payload=pending_decisions[0],
+        )
+
+        actions = service.list_for_thread(thread_id=thread["id"])
+
+        current_answers = [
+            action
+            for action in actions
+            if action["loopId"] == loop["id"]
+            and action["status"] == "pending"
+            and action["actionType"] == "answer_question"
+        ]
+        assert {action["payload"]["decisionId"] for action in current_answers} == {
+            decision["decisionId"] for decision in pending_decisions
+        }
+        assert not any(
+            action["loopId"] == loop["id"] and action["actionType"] == "retry_loop"
+            for action in actions
+        )
+        dismissed = next(
+            action
+            for action in current_answers
+            if action["payload"]["decisionId"] == pending_decisions[0]["decisionId"]
+        )
+        service.repository.mark_status(dismissed["id"], "dismissed")
+
+        after_dismiss = service.list_for_thread(thread_id=thread["id"])
+
+        same_decision_actions = [
+            action
+            for action in after_dismiss
+            if action["loopId"] == loop["id"]
+            and action["actionType"] == "answer_question"
+            and action["payload"].get("decisionId") == pending_decisions[0]["decisionId"]
+        ]
+        assert len(same_decision_actions) == 1
+        assert same_decision_actions[0]["status"] == "dismissed"
+
+
+def test_execute_rejects_non_pending_remediation(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "non-pending-execution")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        action = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="product-loop-old",
+            stage="runtime",
+            blocker_type="runtime_not_executable",
+            title="Open runtime settings",
+            description="Review runtime settings.",
+            action_type="open_settings_section",
+            payload={"section": "providers-cli"},
+        )
+        service.repository.mark_status(action["id"], "resolved")
+
+        result = service.execute(action["id"], platform=object())
+
+        assert result["execution"]["status"] == "blocked"
+        assert result["execution"]["remediationStatus"] == "resolved"
+        assert result["remediation"]["status"] == "resolved"
 
 
 def test_all_contract_blocker_types_have_specific_repair_actions(tmp_path: Path) -> None:
@@ -569,6 +816,128 @@ def test_resource_manager_missing_api_key_opens_credentials_remediation(tmp_path
         assert retry["payload"]["providerSetup"] == open_settings["payload"]["providerSetup"]
 
 
+def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_review(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "resource-privacy-blocked")
+        service = BlockerRemediationService(connection, root=tmp_path)
+
+        created = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="loop-resource-privacy-blocked",
+            stage="resource_manager",
+            reason="No AI resource satisfied policy and capability filters.",
+            details={
+                "resourceBlockers": [
+                    {
+                        "role": "product_owner",
+                        "taskId": "product-owner-1",
+                        "decision": {
+                            "selected": None,
+                            "decisionReason": (
+                                "Remote resources are blocked by the project privacy policy."
+                            ),
+                            "rejected": [
+                                {
+                                    "providerId": "codex_cli",
+                                    "model": "gpt-5-codex",
+                                    "runtime": "cli",
+                                    "reason": "privacy_blocks_remote",
+                                },
+                                {
+                                    "providerId": "claude_code_cli",
+                                    "model": "claude-opus-4-1",
+                                    "runtime": "cli",
+                                    "reason": "privacy_blocks_remote",
+                                },
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+
+        assert {action["blockerType"] for action in created} == {
+            "resource_manager_privacy_blocked"
+        }
+        assert [action["actionType"] for action in created] == [
+            "open_settings_section",
+            "open_settings_section",
+            "retry_loop",
+        ]
+        provider_settings, routing_settings, retry = created
+        assert provider_settings["id"] != routing_settings["id"]
+        assert provider_settings["primary"] is True
+        assert provider_settings["payload"]["section"] == "providers-cli"
+        assert routing_settings["primary"] is False
+        assert routing_settings["payload"]["section"] == "routing"
+        assert retry["primary"] is False
+        assert retry["payload"]["retryTarget"] == "resource_manager"
+        assert "disable" not in " ".join(
+            action["description"].lower() for action in created
+        )
+
+
+def test_resource_manager_privacy_blocked_requires_nonempty_rejections(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        service = BlockerRemediationService(connection, root=tmp_path)
+
+        blocker_type = service._blocker_type(
+            stage="resource_manager",
+            reason="No AI resource satisfied policy and capability filters.",
+            details={
+                "resourceBlockers": [
+                    {
+                        "decision": {
+                            "selected": None,
+                            "rejected": [],
+                        }
+                    }
+                ]
+            },
+        )
+
+        assert blocker_type == "resource_manager_unconfigured"
+
+
+def test_resource_manager_privacy_blocked_preserves_credential_precedence(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        service = BlockerRemediationService(connection, root=tmp_path)
+
+        blocker_type = service._blocker_type(
+            stage="resource_manager",
+            reason="No AI resource satisfied policy and capability filters.",
+            details={
+                "resourceBlockers": [
+                    {
+                        "decision": {
+                            "selected": None,
+                            "rejected": [
+                                {
+                                    "providerId": "codex_cli",
+                                    "reason": "privacy_blocks_remote",
+                                },
+                                {
+                                    "providerId": "nvidia_nim",
+                                    "reason": "Provider API key credential is missing.",
+                                },
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+
+        assert blocker_type == "provider_missing_credentials"
+
+
 def test_resource_manager_unconfigured_remediation_carries_blocked_role_context(
     tmp_path: Path,
 ) -> None:
@@ -625,7 +994,8 @@ def test_resource_manager_unconfigured_remediation_carries_blocked_role_context(
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "resource_manager_unconfigured"
-        assert open_settings["payload"]["section"] == "routing"
+        assert open_settings["payload"]["section"] == "providers-cli"
+        assert "AI resource profile" not in open_settings["description"]
         assert open_settings["payload"]["blockedRoles"] == ["backend_engineer"]
         assert open_settings["payload"]["agentTaskIds"] == ["agent_task_1"]
         assert open_settings["payload"]["teamScheduleSummary"] == {
@@ -720,7 +1090,7 @@ def test_resource_manager_runtime_mapping_block_does_not_offer_approval(
 
         assert "approve_resource_decision" not in action_types
         assert open_settings["blockerType"] == "resource_manager_unconfigured"
-        assert open_settings["payload"]["section"] == "routing"
+        assert open_settings["payload"]["section"] == "providers-cli"
         assert open_settings["payload"]["blockedRoles"] == ["backend_engineer"]
         assert open_settings["payload"]["agentTaskIds"] == ["agent_task_1"]
         assert open_settings["payload"]["teamScheduleSummary"] == {

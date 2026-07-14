@@ -10,9 +10,15 @@ stays inside the allocated workspace and never commits, pushes, or touches secre
 
 from __future__ import annotations
 
+import os
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +36,214 @@ CLI_EXECUTABLE_TOKENS = {
     "swe_agent": ("swe", "agent"),
 }
 
+PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS = frozenset({"codex-cli 0.142.2"})
+PRODUCT_OWNER_CODEX_EXTRA_ARGS = [
+    "--ephemeral",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--strict-config",
+    "--config",
+    "tools.web_search=false",
+    "--config",
+    "mcp_servers={}",
+    "--config",
+    "skills.config=[]",
+    "--config",
+    "skills.include_instructions=false",
+    "--config",
+    "project_doc_max_bytes=0",
+    "--config",
+    "project_root_markers=[]",
+    "--config",
+    'shell_environment_policy.inherit="none"',
+    "--config",
+    "shell_environment_policy.experimental_use_profile=false",
+    "--config",
+    "allow_login_shell=false",
+    "--skip-git-repo-check",
+    "--disable",
+    "shell_tool",
+    "--disable",
+    "unified_exec",
+    "--disable",
+    "apps",
+    "--disable",
+    "browser_use",
+    "--disable",
+    "browser_use_external",
+    "--disable",
+    "browser_use_full_cdp_access",
+    "--disable",
+    "computer_use",
+    "--disable",
+    "image_generation",
+    "--disable",
+    "in_app_browser",
+    "--disable",
+    "goals",
+    "--disable",
+    "hooks",
+    "--disable",
+    "memories",
+    "--disable",
+    "multi_agent",
+    "--disable",
+    "plugin_sharing",
+    "--disable",
+    "plugins",
+    "--disable",
+    "shell_snapshot",
+    "--disable",
+    "skill_mcp_dependency_install",
+    "--disable",
+    "tool_call_mcp_elicitation",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "workspace_dependencies",
+]
+PRODUCT_OWNER_CLAUDE_EXTRA_ARGS = [
+    "--safe-mode",
+    "--no-session-persistence",
+    "--tools=",
+]
+
+PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS = frozenset(
+    {
+        "APPDATA",
+        "COMSPEC",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LC_ALL",
+        "LOCALAPPDATA",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+        "PATH",
+        "PATHEXT",
+        "PROCESSOR_ARCHITECTURE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    }
+)
+PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS = PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS | {
+    "CODEX_HOME",
+    "OPENAI_API_KEY",
+    "OPENAI_ORG_ID",
+    "OPENAI_PROJECT_ID",
+}
+
 
 class RuntimeCommandUnavailableError(RuntimeError):
     """Raised when no safe workspace-bound command can be built for the requested runtime."""
+
+
+def _codex_source_home() -> Path:
+    configured = str(os.environ.get("CODEX_HOME") or "").strip()
+    return (
+        Path(configured).expanduser().resolve(strict=False)
+        if configured
+        else (Path.home() / ".codex").resolve(strict=False)
+    )
+
+
+def _product_owner_codex_home_root() -> Path:
+    base = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    root = Path(base) if base else Path(tempfile.gettempdir())
+    return (root / "AIDO" / "product-owner-codex-homes").resolve(strict=False)
+
+
+def _strict_descendant(path: Path, root: Path) -> bool:
+    return path != root and root in path.parents
+
+
+def _product_owner_codex_environment(runtime_home: Path, *, native_auth_copied: bool) -> dict[str, str]:
+    environment = {
+        key: value
+        for key in PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS
+        if (value := os.environ.get(key)) is not None
+    }
+    environment["CODEX_HOME"] = str(runtime_home)
+    if not native_auth_copied:
+        for key in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
+            value = os.environ.get(key)
+            if value:
+                environment[key] = value
+    return environment
+
+
+def validate_product_owner_codex_environment(
+    environment: Any,
+    *,
+    workspace_path: str,
+) -> str | None:
+    """Validate the trusted, non-persisted environment for a ProductOwner Codex process."""
+    error = "ProductOwnerAgent Codex runtime requires a controlled, minimal subprocess environment."
+    if not isinstance(environment, dict) or not environment:
+        return error
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in environment.items()):
+        return error
+    if not set(environment).issubset(PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS):
+        return error
+
+    codex_home_value = environment.get("CODEX_HOME")
+    if not codex_home_value:
+        return error
+    codex_home = Path(codex_home_value).resolve(strict=False)
+    controlled_root = _product_owner_codex_home_root()
+    if not _strict_descendant(codex_home, controlled_root):
+        return error
+    if not codex_home.exists() or not codex_home.is_dir():
+        return error
+
+    workspace = Path(workspace_path).resolve(strict=False)
+    if codex_home == workspace or codex_home in workspace.parents or workspace in codex_home.parents:
+        return error
+    if any((codex_home / entry).exists() for entry in ("AGENTS.md", "config.toml", "skills", "plugins")):
+        return error
+    return None
+
+
+@contextmanager
+def isolated_product_owner_codex_environment() -> Iterator[dict[str, str]]:
+    """Yield a minimal Codex environment without operator AGENTS, skills, plugins, or config.
+
+    Native authentication is copied into the private per-run ``CODEX_HOME`` so Codex cannot mutate
+    the operator's credential file through a shared inode. The copy is mode-restricted and removed
+    with the runtime home after execution. Failure to create this boundary fails closed.
+    """
+    controlled_root = _product_owner_codex_home_root()
+    runtime_home = (controlled_root / str(uuid.uuid4())).resolve(strict=False)
+    if not _strict_descendant(runtime_home, controlled_root):
+        raise RuntimeCommandUnavailableError(
+            "ProductOwnerAgent Codex runtime home escaped its controlled root."
+        )
+    runtime_home.mkdir(parents=True, exist_ok=False)
+    native_auth_copied = False
+    try:
+        source_auth = (_codex_source_home() / "auth.json").resolve(strict=False)
+        if source_auth.exists() and source_auth.is_file():
+            target_auth = runtime_home / "auth.json"
+            try:
+                shutil.copyfile(source_auth, target_auth)
+                target_auth.chmod(0o600)
+            except OSError as error:
+                raise RuntimeCommandUnavailableError(
+                    "ProductOwnerAgent could not isolate the Codex native authentication file."
+                ) from error
+            native_auth_copied = True
+        yield _product_owner_codex_environment(
+            runtime_home,
+            native_auth_copied=native_auth_copied,
+        )
+    finally:
+        resolved_home = runtime_home.resolve(strict=False)
+        if _strict_descendant(resolved_home, controlled_root) and resolved_home.exists():
+            shutil.rmtree(resolved_home)
 
 
 def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
@@ -255,15 +466,72 @@ def build_developer_agent_argv(
         raise RuntimeCommandUnavailableError(str(error)) from error
 
 
-def _explicit_product_owner_agent_argv(runtime: dict[str, Any]) -> list[str] | None:
-    argv = runtime.get("productOwnerAgentArgv")
-    if argv is None:
-        return None
+def _matches_runtime_executable(runtime_id: str, executable: str) -> bool:
+    executable_name = Path(executable).name.lower()
+    required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
+    return bool(required_tokens) and all(token in executable_name for token in required_tokens)
+
+
+def _canonical_product_owner_argv_error() -> str:
+    return "ProductOwnerAgent runtime argv must match the canonical read-only command contract."
+
+
+def validate_product_owner_runtime_argv(
+    *,
+    runtime_id: str,
+    argv: Any,
+    workspace_path: str,
+) -> str | None:
+    """Validate the exact tool-isolated, read-only CLI shape used by ProductOwnerAgent.
+
+    This is intentionally stricter than the generic restricted-subprocess allowlist. It binds the
+    executable to the declared runtime, the CLI workspace to the allocated workspace, and rejects
+    duplicate/unknown flags instead of trying to infer whether they override an earlier safe flag.
+    """
+    error = _canonical_product_owner_argv_error()
     if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
-        raise RuntimeCommandUnavailableError(
-            "Runtime productOwnerAgentArgv must be a non-empty structured argv list."
-        )
-    return list(argv)
+        return error
+    if runtime_id not in {"codex_cli", "claude_code_cli"}:
+        return error
+    if not _matches_runtime_executable(runtime_id, argv[0]):
+        return error
+
+    workspace = str(Path(workspace_path).resolve(strict=False))
+    if runtime_id == "codex_cli":
+        required_prefix = [
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            workspace,
+        ]
+        required_extra_args = PRODUCT_OWNER_CODEX_EXTRA_ARGS
+    else:
+        required_prefix = [
+            "--print",
+            "--permission-mode",
+            "plan",
+            "--add-dir",
+            workspace,
+        ]
+        required_extra_args = PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
+
+    remaining = argv[1:]
+    if remaining[: len(required_prefix)] != required_prefix:
+        return error
+    remaining = remaining[len(required_prefix) :]
+    if remaining[:1] == ["--model"]:
+        if len(remaining) < 2 or not remaining[1] or remaining[1].startswith("-"):
+            return error
+        remaining = remaining[2:]
+    if remaining[: len(required_extra_args)] != required_extra_args:
+        return error
+    remaining = remaining[len(required_extra_args) :]
+    if len(remaining) != 2 or remaining[0] != "--" or not remaining[1]:
+        return error
+    return None
 
 
 def build_product_owner_agent_argv(
@@ -272,51 +540,81 @@ def build_product_owner_agent_argv(
     workspace_id: str,
     workspace_path: str,
     prompt: str,
+    model: str | None = None,
     agent_id: str,
     connection: sqlite3.Connection,
 ) -> list[str]:
     """Build the structured argv for a ProductOwnerAgent run (Codex or Claude Code CLI only).
 
-    Prefers the runtime's explicit `productOwnerAgentArgv`; otherwise validates the detected executable
-    and delegates to the runtime's command builder with the supplied analysis prompt.
+    Rejects runtime-specific argv overrides, validates the detected executable, and delegates to the
+    runtime's command builder with the supplied analysis prompt. The resulting argv is validated again
+    against the canonical read-only/tool-isolated contract before it can reach ToolBroker. Codex is
+    pinned to versions whose feature surface has been reviewed because its CLI has no global tools
+    allowlist; an unknown version fails closed instead of silently inheriting new built-in tools.
 
     Raises:
         RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
     """
-    explicit = _explicit_product_owner_agent_argv(runtime)
-    if explicit is not None:
-        return explicit
+    if runtime.get("productOwnerAgentArgv") is not None:
+        raise RuntimeCommandUnavailableError(
+            "Runtime productOwnerAgentArgv overrides are not supported for ProductOwnerAgent."
+        )
     runtime_id = str(runtime.get("id") or "")
     if runtime_id not in {"codex_cli", "claude_code_cli"}:
         raise RuntimeCommandUnavailableError(
             "Runtime provider does not expose a ProductOwnerAgent CLI executor."
         )
+    if runtime_id == "codex_cli":
+        version = str(runtime.get("version") or "").strip()
+        if runtime.get("versionVerified") is not True:
+            raise RuntimeCommandUnavailableError(
+                "Codex CLI version was not verified by the current runtime probe; "
+                "ProductOwnerAgent execution fails closed."
+            )
+        if version not in PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS:
+            supported = ", ".join(sorted(PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS))
+            raise RuntimeCommandUnavailableError(
+                "Codex CLI version is not approved for ProductOwnerAgent's tool-isolated contract "
+                f"(detected: {version or 'unknown'}; supported: {supported})."
+            )
     executable = str(runtime.get("detectedCommand") or "").strip()
     if not executable:
         raise RuntimeCommandUnavailableError("Runtime status did not provide a detected executable command.")
-    executable_name = Path(executable).name.lower()
-    required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
-    if required_tokens and not all(token in executable_name for token in required_tokens):
+    if not _matches_runtime_executable(runtime_id, executable):
         raise RuntimeCommandUnavailableError(
             "Runtime detected executable does not match the declared runtime command."
         )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
+    extra_args = (
+        PRODUCT_OWNER_CODEX_EXTRA_ARGS
+        if runtime_id == "codex_cli"
+        else PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
+    )
     request = RuntimeRequest.model_validate(
         {
             "runtime": runtime_id,
             "workspaceId": workspace_id,
             "workspacePath": workspace_path,
             "prompt": prompt,
+            "model": model,
             "envPolicy": {"permissionProfile": "plan", "network": False, "secrets": False},
-            "extraArgs": [],
+            "extraArgs": extra_args,
             "role": "product_owner",
             "agentId": agent_id,
         }
     )
     try:
-        return cli_runtime.build_command(request)
+        command = cli_runtime.build_command(request)
     except ValueError as error:
         raise RuntimeCommandUnavailableError(str(error)) from error
+    validation_error = validate_product_owner_runtime_argv(
+        runtime_id=runtime_id,
+        argv=command,
+        workspace_path=workspace_path,
+    )
+    if validation_error:
+        raise RuntimeCommandUnavailableError(validation_error)
+    return command
 
 
 def runtime_for(

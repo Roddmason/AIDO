@@ -1,7 +1,7 @@
 """Adaptador del runtime Codex CLI: traduce una request al argv de `codex exec`.
 
 Resuelve el binario por env vars (AIDO_CODEX_COMMAND / CODEX_CLI_PATH), mapea perfiles a modelo
-y esfuerzo de razonamiento, y arma el comando con sandbox workspace-write y aprobación on-request.
+y esfuerzo de razonamiento, y arma el comando con sandbox acorde al perfil y aprobación no interactiva.
 La ejecución bajo el sandbox de subprocesos y el registro del resultado los hereda de CliRuntime.
 
 @author Rodrigo Mason
@@ -54,20 +54,22 @@ class CodexCliRuntime(CliRuntime):
         profile = CODEX_PROFILES.get(request.profile or "", {})
         model = request.model or profile.get("model")
         effort = request.effort or profile.get("effort")
+        plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
+        sandbox_mode = "read-only" if plan_only else "workspace-write"
         command = [
             self.executable,
+            "--ask-for-approval",
+            "never",
             "exec",
             "--sandbox",
-            "workspace-write",
-            "--ask-for-approval",
-            "on-request",
+            sandbox_mode,
             "--cd",
             str(workspace),
         ]
         if model:
             command.extend(["--model", str(model)])
         if effort:
-            command.extend(["--model-reasoning-effort", str(effort)])
+            command.extend(["--config", f'model_reasoning_effort="{effort}"'])
         command.extend(request.extra_args)
-        command.append(request.prompt)
+        command.extend(["--", request.prompt])
         return command

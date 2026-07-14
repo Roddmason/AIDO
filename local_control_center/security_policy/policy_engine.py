@@ -63,16 +63,20 @@ GIT_CHECKOUT_BLOCKED_FLAGS = {"-f", "--force", "--orphan", "--detach", "-B", "-b
 GIT_WORKTREE_LIST_FLAGS = {"--porcelain"}
 MODEL_RUNTIME_TOOLS = {"ollama", "openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
 MODEL_RUNTIME_REASON = "configured Ollama, OpenAI-compatible, OpenRouter, NVIDIA NIM or Anthropic adapters"
+PLAN_EXECUTION_ADAPTER_TOOLS = {
+    *MODEL_RUNTIME_TOOLS,
+    "openhands",
+    "swe_agent",
+    "workspace_patch",
+}
 
 
 def _model_runtime_binding_is_valid(input_payload: dict[str, Any], tool: str) -> bool:
     runtime_id = str(input_payload.get("runtimeId") or "")
-    provider_id = str(input_payload.get("providerId") or runtime_id)
+    provider_id = str(input_payload.get("providerId") or "")
     if tool not in MODEL_RUNTIME_TOOLS or not runtime_id or provider_id != runtime_id:
         return False
-    if runtime_id == tool:
-        return True
-    return tool == "ollama" and input_payload.get("providerFamily") == "ollama"
+    return input_payload.get("providerFamily") == tool
 
 
 def _is_safe_git_arg(value: str | None) -> bool:
@@ -952,7 +956,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ArchitectAgent model execution requires the plan permission profile.",
                 "categories": categories,
             }
-        if tool not in MODEL_RUNTIME_TOOLS or input_payload.get("runtimeId") != tool:
+        if not _model_runtime_binding_is_valid(input_payload, tool):
             categories.append("architect_agent_model_runtime_denied")
             return {
                 "decision": "deny",
@@ -1079,7 +1083,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "SecurityAgent optional model analysis requires the qa permission profile.",
                 "categories": categories,
             }
-        if tool not in MODEL_RUNTIME_TOOLS or input_payload.get("runtimeId") != tool:
+        if not _model_runtime_binding_is_valid(input_payload, tool):
             categories.append("security_agent_model_runtime_denied")
             return {
                 "decision": "deny",
@@ -1235,18 +1239,18 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
 
-    if (
-        tool in {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"}
-        and command
-    ):
-        if permission_profile == "plan":
-            categories.append("profile_runtime_adapter_denied")
-            return {
-                "decision": "deny",
-                "riskLevel": "medium",
-                "reason": "Plan profile cannot execute runtime adapter commands.",
-                "categories": categories,
-            }
+    if permission_profile == "plan" and tool in PLAN_EXECUTION_ADAPTER_TOOLS:
+        categories.append("profile_runtime_adapter_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "medium",
+            "reason": (
+                "Plan profile cannot execute an unscoped runtime adapter; a recognized internal "
+                "operation is required."
+            ),
+            "categories": categories,
+        }
+    if tool in {"mcp", *PLAN_EXECUTION_ADAPTER_TOOLS} and command:
         if classification["riskLevel"] == "critical":
             return {
                 "decision": "requires_human",

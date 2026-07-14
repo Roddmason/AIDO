@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.security_policy.git_command_runner import git_available, run_git
@@ -1288,6 +1289,186 @@ def test_resolve_decision_queues_thread_execution(tmp_path: Path) -> None:
         assert "decision_resolved" in event_types
         assert event_types[-1] == "run_queued"
         assert events.json()["running"] is True
+    finally:
+        runtime.close()
+
+
+def test_resolve_product_owner_decision_defers_run_until_batch_is_complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id, title="Product decision batch")
+        threads = ThreadsRepository(runtime.connection)
+        source_message = threads.append_message(
+            thread_id=thread["id"],
+            kind="user",
+            author="user",
+            content="Upgrade Spring Boot and migrate the frontend.",
+            metadata={"teamMode": "balanced", "risk": "medium"},
+        )
+        decision_specs = [
+            ("JDK target", "Which JDK should the upgrade target?", ["current JDK", "latest LTS"]),
+            (
+                "Migration strategy",
+                "Should the frontend migration be incremental?",
+                ["incremental", "full rewrite"],
+            ),
+        ]
+        pending_decisions = []
+        decisions = []
+        for title, prompt, options in decision_specs:
+            decision = threads.create_decision(
+                thread_id=thread["id"],
+                title=title,
+                prompt=prompt,
+                options=options,
+                metadata={
+                    "sourceMessageId": source_message["id"],
+                    "intents": ["migration"],
+                    "risk": "medium",
+                    "requiredRoles": ["product_owner", "technical_lead"],
+                    "requiredGates": ["implementation_plan"],
+                },
+            )
+            decisions.append(decision)
+            pending_decisions.append(
+                {
+                    "decisionId": decision["id"],
+                    "title": title,
+                    "prompt": prompt,
+                    "options": options,
+                }
+            )
+        threads.set_status(thread["id"], "waiting_decision")
+        coordinator = ProductLoopCoordinator(runtime.connection, root=tmp_path)
+        loop = coordinator.start(
+            project_id=project_id,
+            title="Product decision batch",
+            context={
+                "durableRun": {
+                    "status": "awaiting_user",
+                    "message": source_message["content"],
+                    "requestMeta": {"messageId": source_message["id"]},
+                    "thread": {
+                        "projectThreadId": thread["id"],
+                        "messageId": source_message["id"],
+                    },
+                    "productOwner": {
+                        "status": "needs_input",
+                        "reason": "Product decisions are required.",
+                        "pendingThreadDecisions": pending_decisions,
+                    },
+                }
+            },
+        )
+        coordinator.transition(loop["id"], to_state="discovery")
+        coordinator.transition(loop["id"], to_state="awaiting_user")
+        remediation = BlockerRemediationService(runtime.connection, root=tmp_path)
+        remediation.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="product_owner",
+            reason="Product decisions are required.",
+            details={"status": "needs_input", "pendingDecisions": pending_decisions},
+        )
+        runtime.connection.execute(
+            "DELETE FROM remediation_actions WHERE loop_id = ?",
+            (loop["id"],),
+        )
+        original_create_for_blocked_run = BlockerRemediationService.create_for_blocked_run
+
+        def crash_remediation_backfill(*args, **kwargs):
+            raise RuntimeError("controlled ProductOwner remediation backfill failure")
+
+        monkeypatch.setattr(
+            BlockerRemediationService,
+            "create_for_blocked_run",
+            crash_remediation_backfill,
+        )
+
+        missing_remediation = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decisions[0]['id']}/resolve",
+            headers=headers,
+            json={"resolution": "current JDK", "decidedBy": "user"},
+        )
+
+        assert missing_remediation.status_code == 422
+        assert "remediation" in missing_remediation.text.lower()
+        assert coordinator.get(loop["id"])["state"] == "awaiting_user"
+        assert threads.get_thread(thread["id"])["status"] == "waiting_decision"
+        assert all(threads.get_decision(decision["id"])["status"] == "pending" for decision in decisions)
+        assert JobsRepository(runtime.connection).list_jobs(project_id) == []
+
+        monkeypatch.setattr(
+            BlockerRemediationService,
+            "create_for_blocked_run",
+            original_create_for_blocked_run,
+        )
+        remediation.create_for_blocked_run(
+            project_id=project_id,
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="product_owner",
+            reason="Product decisions are required.",
+            details={"status": "needs_input", "pendingDecisions": pending_decisions},
+        )
+        first_action = next(
+            action
+            for action in remediation.repository.list_for_thread(thread["id"])
+            if (action.get("payload") or {}).get("decisionId") == decisions[0]["id"]
+        )
+        remediation.repository.mark_status(first_action["id"], "dismissed")
+
+        first = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decisions[0]['id']}/resolve",
+            headers=headers,
+            json={"resolution": "current JDK", "decidedBy": "user"},
+        )
+
+        assert first.status_code == 200, first.text
+        assert first.json()["decision"]["status"] == "resolved"
+        assert first.json()["thread"]["status"] == "waiting_decision"
+        assert coordinator.get(loop["id"])["state"] == "awaiting_user"
+        assert JobsRepository(runtime.connection).list_jobs(project_id) == []
+        answer_actions = [
+            action
+            for action in BlockerRemediationService(
+                runtime.connection,
+                root=tmp_path,
+            ).repository.list_for_thread(thread["id"])
+            if action["actionType"] == "answer_question"
+        ]
+        assert [threads.get_decision(decision["id"])["status"] for decision in decisions] == [
+            "resolved",
+            "pending",
+        ]
+        assert sorted(action["status"] for action in answer_actions) == ["pending", "resolved"]
+
+        second = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decisions[1]['id']}/resolve",
+            headers=headers,
+            json={"resolution": "incremental", "decidedBy": "user"},
+        )
+
+        jobs = JobsRepository(runtime.connection).list_jobs(project_id)
+        assert second.status_code == 200, second.text
+        assert second.json()["decision"]["status"] == "resolved"
+        assert second.json()["thread"]["status"] == "queued"
+        assert coordinator.get(loop["id"])["state"] == "cancelled"
+        assert len([job for job in jobs if job["kind"] == "thread.product_loop.run"]) == 1
+        assert all(
+            action["status"] == "resolved"
+            for action in BlockerRemediationService(
+                runtime.connection,
+                root=tmp_path,
+            ).repository.list_for_thread(thread["id"])
+            if action["actionType"] == "answer_question"
+        )
     finally:
         runtime.close()
 

@@ -414,6 +414,8 @@ class RuntimeProviderStatus(BaseModel):
     requires_approval: bool = Field(default=True, alias="requiresApproval")
     reason: str
     version: str | None = None
+    version_verified: bool = Field(default=False, alias="versionVerified")
+    product_owner_executable: bool = Field(default=False, alias="productOwnerExecutable")
     detected_command: str | None = Field(default=None, alias="detectedCommand")
     health_status: str = Field(default="unknown", alias="healthStatus")
     health_checked_at: str | None = Field(default=None, alias="healthCheckedAt")

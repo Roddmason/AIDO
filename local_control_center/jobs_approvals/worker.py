@@ -462,6 +462,8 @@ def _execute_thread_research_job(
 def _thread_status_for_product_loop_result(status: str) -> str:
     if status == "awaiting_approval":
         return "awaiting_approval"
+    if status == "awaiting_user":
+        return "waiting_decision"
     if status == "plan_ready":
         return "open"
     if status in {"completed", "delivered"}:
@@ -474,6 +476,8 @@ def _thread_status_for_product_loop_result(status: str) -> str:
 def _thread_terminal_event_for_product_loop_result(status: str) -> str:
     if status == "awaiting_approval":
         return "approval_required"
+    if status == "awaiting_user":
+        return "decision_required"
     if status == "plan_ready":
         return "plan_ready"
     if status in {"completed", "delivered"}:

@@ -86,16 +86,18 @@ class ClaudeCodeCliRuntime(CliRuntime):
         self._validate_safe_args(request)
         profile = CLAUDE_PROFILES.get(request.profile or "", {})
         model = request.model or profile.get("model")
+        plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
+        permission_mode = "plan" if plan_only else "acceptEdits"
         command = [
             self.executable,
             "--print",
             "--permission-mode",
-            "acceptEdits",
+            permission_mode,
             "--add-dir",
             str(workspace),
         ]
         if model:
             command.extend(["--model", str(model)])
         command.extend(request.extra_args)
-        command.append(request.prompt)
+        command.extend(["--", request.prompt])
         return command

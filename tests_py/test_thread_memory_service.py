@@ -126,6 +126,43 @@ def test_reindex_thread_memory_persists_resolved_functionality(tmp_path: Path) -
         ]
 
 
+def test_reindex_existing_functionality_updates_changed_fingerprint_without_id_collision(
+    tmp_path: Path,
+) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Runtime provider routing",
+            summary="Delivered deterministic runtime routing.",
+        )
+        repo.set_status(thread["id"], "resolved")
+        service = ThreadMemoryService(connection)
+        first = service.reindex_thread_memory(thread["id"])["functionality"]
+
+        repo.append_message(
+            thread_id=thread["id"],
+            kind="agent_summary",
+            author="aido_lead",
+            content="Added durable provider selection evidence after the first memory index.",
+        )
+        second = service.reindex_thread_memory(thread["id"])["functionality"]
+        rows = connection.execute(
+            "SELECT id, fingerprint FROM functionality_registry WHERE source_thread_id = ?",
+            (thread["id"],),
+        ).fetchall()
+
+        assert second["id"] == first["id"]
+        assert second["fingerprint"] != first["fingerprint"]
+        assert [(row["id"], row["fingerprint"]) for row in rows] == [
+            (second["id"], second["fingerprint"])
+        ]
+
+
 def test_reindex_thread_memory_extracts_file_paths_from_artifacts_and_decisions(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

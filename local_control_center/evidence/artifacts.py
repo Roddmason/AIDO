@@ -277,11 +277,13 @@ def promote_execution_result_outputs(
     *,
     root: Path,
     execution_result: dict[str, Any],
+    force_streams: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Redacta stdout/stderr de una ejecución y promueve a artefacto los streams demasiado grandes.
 
     Mantiene los streams cortos inline; los largos se sacan del dict y se sustituyen por
-    referencias (`<stream>ArtifactId/SizeBytes/Hash/Truncated`).
+    referencias (`<stream>ArtifactId/SizeBytes/Hash/Truncated`). `Truncated` refleja pérdida real
+    durante la captura, no el hecho de haber movido contenido completo a un artefacto.
 
     Returns:
         El resultado de ejecución ajustado y las specs de artefacto generadas, en ese orden.
@@ -295,7 +297,11 @@ def promote_execution_result_outputs(
         content = str(redact_secrets(content))
         promoted_result[stream] = content
         size = len(content.encode("utf-8"))
-        if size <= INLINE_LOG_LIMIT_BYTES:
+        capture_truncated = bool(
+            promoted_result.get(f"{stream}CaptureTruncated", False)
+            or promoted_result.get(f"{stream}Truncated", False)
+        )
+        if size <= INLINE_LOG_LIMIT_BYTES and stream not in (force_streams or set()):
             continue
         artifact_id = f"artifact-{uuid.uuid4()}"
         artifact = write_text_artifact(
@@ -307,7 +313,7 @@ def promote_execution_result_outputs(
                 f"{stream}ArtifactId": artifact_id,
                 f"{stream}SizeBytes": artifact["sizeBytes"],
                 f"{stream}Hash": artifact["hash"],
-                f"{stream}Truncated": True,
+                f"{stream}Truncated": capture_truncated,
             }
         )
         artifact_specs.append(
@@ -320,6 +326,7 @@ def promote_execution_result_outputs(
                     "sizeBytes": artifact["sizeBytes"],
                     "source": "agent_tool_execution",
                     "stream": stream,
+                    "truncated": capture_truncated,
                 },
             }
         )

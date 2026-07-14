@@ -389,7 +389,7 @@ class ThreadDecisionResolveRequest(BaseModel):
 
 
 class ThreadDecisionResolveResponse(BaseModel):
-    """Resultado de resolver una decisión: el hilo reabierto y la decisión resuelta."""
+    """Resultado de resolver una decisión y el estado vigente del hilo."""
 
     thread: ThreadRecord
     decision: ThreadDecisionRecord

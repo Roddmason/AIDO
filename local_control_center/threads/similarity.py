@@ -247,6 +247,17 @@ class ThreadSimilarityService:
                 (id, project_id, name, summary, normalized_name, fingerprint, source_thread_id, status,
                  file_paths_json, performance_notes_json, metadata, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                summary = excluded.summary,
+                normalized_name = excluded.normalized_name,
+                fingerprint = excluded.fingerprint,
+                source_thread_id = excluded.source_thread_id,
+                status = excluded.status,
+                file_paths_json = excluded.file_paths_json,
+                performance_notes_json = excluded.performance_notes_json,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
             ON CONFLICT(project_id, fingerprint) DO UPDATE SET
                 name = excluded.name,
                 summary = excluded.summary,

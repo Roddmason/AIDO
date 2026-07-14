@@ -27,6 +27,7 @@ from local_control_center.product_loop.metadata import strip_untrusted_resource_
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
@@ -157,13 +158,92 @@ class BlockerRemediationService:
         worker_status: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """List remediations, materializing worker recovery and blocked-thread backfill on demand."""
+        self.repository.resolve_pending_from_terminal_loops(thread_id)
         if worker_status is not None:
             actions = self.ensure_worker_remediation(thread_id=thread_id, worker_status=worker_status)
         else:
             actions = self.repository.list_for_thread(thread_id)
+        actions = self.ensure_awaiting_user_remediations(thread_id=thread_id, existing=actions)
         if any(action.get("status") == "pending" for action in actions):
             return actions
         return self.ensure_blocked_thread_remediation(thread_id=thread_id, existing=actions)
+
+    def ensure_awaiting_user_remediations(
+        self,
+        *,
+        thread_id: str,
+        existing: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Backfill one actionable remediation per still-pending ProductOwner decision."""
+        actions = existing if existing is not None else self.repository.list_for_thread(thread_id)
+        thread = ThreadsRepository(self.connection).get_thread(thread_id)
+        loop = self._awaiting_user_loop_for_thread(
+            thread_id=thread_id,
+            project_id=thread["projectId"],
+        )
+        if loop is None:
+            return actions
+
+        durable = dict((loop.get("context") or {}).get("durableRun") or {})
+        product_owner = (
+            durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
+        )
+        pending_decisions = product_owner.get("pendingThreadDecisions")
+        if not isinstance(pending_decisions, list):
+            return actions
+        existing_decision_ids = {
+            str((action.get("payload") or {}).get("decisionId") or "").strip()
+            for action in actions
+            if action.get("loopId") == loop["id"] and action.get("actionType") == "answer_question"
+        }
+        threads = ThreadsRepository(self.connection)
+        missing_decisions: list[dict[str, Any]] = []
+        for item in pending_decisions:
+            if not isinstance(item, dict):
+                continue
+            decision_id = str(item.get("decisionId") or "").strip()
+            options = [str(option).strip() for option in item.get("options") or [] if str(option).strip()]
+            if not decision_id or decision_id in existing_decision_ids or len(options) < 2:
+                continue
+            with suppress(KeyError):
+                decision = threads.get_decision(decision_id)
+                if decision["threadId"] == thread_id and decision["status"] == "pending":
+                    missing_decisions.append({**item, "options": options})
+        if not missing_decisions:
+            return actions
+
+        with suppress(Exception):
+            self.create_for_blocked_run(
+                project_id=thread["projectId"],
+                thread_id=thread_id,
+                loop_id=loop["id"],
+                stage="product_owner",
+                reason=str(product_owner.get("reason") or "Product decisions are required."),
+                details={
+                    **product_owner,
+                    "status": "needs_input",
+                    "pendingDecisions": missing_decisions,
+                },
+            )
+        return self.repository.list_for_thread(thread_id)
+
+    def _awaiting_user_loop_for_thread(
+        self,
+        *,
+        thread_id: str,
+        project_id: str,
+    ) -> dict[str, Any] | None:
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        for loop in coordinator.list_loops(project_id):
+            if str(loop.get("state") or "") != "awaiting_user":
+                continue
+            durable = dict((loop.get("context") or {}).get("durableRun") or {})
+            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+            if str(thread_ref.get("projectThreadId") or "") == thread_id:
+                return loop
+        return None
 
     def ensure_blocked_thread_remediation(
         self,
@@ -325,6 +405,16 @@ class BlockerRemediationService:
     ) -> dict[str, Any]:
         """Execute a supported remediation action and resolve it only on a successful side effect."""
         action = self.repository.get(action_id)
+        if action["status"] != "pending":
+            return {
+                "remediation": action,
+                "execution": {
+                    "status": "blocked",
+                    "action": action["actionType"],
+                    "remediationStatus": action["status"],
+                    "reason": "Only pending remediation actions can be executed.",
+                },
+            }
         execution_payload = {**action["payload"], **redact_secrets(payload or {})}
         action_type = action["actionType"]
         if self._requires_confirmation(action) and not self._confirmation_acknowledged(payload or {}):
@@ -437,10 +527,132 @@ class BlockerRemediationService:
             execution = {"status": "blocked", "action": action_type, "reason": "Unsupported remediation action."}
 
         if self._should_resolve(action_type=action_type, execution=execution):
-            remediation = self.repository.mark_status(action_id, "resolved")
+            current_action = self.repository.get(action_id)
+            remediation = (
+                current_action
+                if current_action["status"] == "resolved"
+                else self.repository.mark_status(action_id, "resolved")
+            )
         else:
             remediation = self.repository.get(action_id)
         return {"remediation": remediation, "execution": redact_secrets(execution)}
+
+    def resolve_thread_decision(
+        self,
+        *,
+        thread_id: str,
+        decision_id: str,
+        resolution: str,
+        decided_by: str | None,
+        platform: Any,
+    ) -> dict[str, Any]:
+        """Resolve a thread decision through its durable remediation when one exists."""
+        threads = ThreadsRepository(self.connection)
+        decision = threads.get_decision(decision_id)
+        if decision["threadId"] != thread_id:
+            raise KeyError(f"Decision not found: {decision_id}")
+        matching_actions = [
+            action
+            for action in self.list_for_thread(thread_id=thread_id)
+            if action.get("actionType") == "answer_question"
+            and str((action.get("payload") or {}).get("decisionId") or "").strip() == decision_id
+        ]
+        pending_actions = [action for action in matching_actions if action.get("status") == "pending"]
+        if pending_actions:
+            outcome = self.execute(
+                pending_actions[-1]["id"],
+                platform=platform,
+                payload={
+                    "threadId": thread_id,
+                    "decisionId": decision_id,
+                    "resolution": resolution,
+                    "decidedBy": decided_by or "user",
+                },
+            )
+            execution = outcome["execution"]
+            if execution.get("status") != "completed":
+                raise ValueError(str(execution.get("reason") or "Decision resolution was blocked."))
+            result = {
+                "thread": execution["thread"],
+                "decision": execution["decision"],
+            }
+            if isinstance(execution.get("job"), dict):
+                result["job"] = execution["job"]
+            return result
+        dismissed_actions = [action for action in matching_actions if action.get("status") == "dismissed"]
+        if dismissed_actions:
+            execution = self._answer_question(
+                action=dismissed_actions[-1],
+                payload={
+                    "threadId": thread_id,
+                    "decisionId": decision_id,
+                    "resolution": resolution,
+                    "decidedBy": decided_by or "user",
+                },
+                allow_dismissed=True,
+            )
+            if execution.get("status") != "completed":
+                raise ValueError(str(execution.get("reason") or "Decision resolution was blocked."))
+            result = {
+                "thread": execution["thread"],
+                "decision": execution["decision"],
+            }
+            if isinstance(execution.get("job"), dict):
+                result["job"] = execution["job"]
+            return result
+        if matching_actions:
+            raise ValueError("Decision remediation is no longer pending.")
+        thread = threads.get_thread(thread_id)
+        if self._decision_requires_product_loop_remediation(
+            thread_id=thread_id,
+            project_id=thread["projectId"],
+            decision_id=decision_id,
+        ):
+            raise ValueError(
+                "Product Loop decision remediation is unavailable; resolution is blocked to avoid "
+                "starting an incomplete decision batch."
+            )
+
+        from local_control_center.threads.coordinator import ThreadCoordinator
+
+        return ThreadCoordinator(self.connection, root=self.root).resolve_decision(
+            thread_id=thread_id,
+            decision_id=decision_id,
+            resolution=resolution,
+            decided_by=decided_by,
+        )
+
+    def _decision_requires_product_loop_remediation(
+        self,
+        *,
+        thread_id: str,
+        project_id: str,
+        decision_id: str,
+    ) -> bool:
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+        for loop in ProductLoopCoordinator(self.connection, root=self.root).list_loops(project_id):
+            durable = dict((loop.get("context") or {}).get("durableRun") or {})
+            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+            if str(thread_ref.get("projectThreadId") or "") != thread_id:
+                continue
+            product_owner = (
+                durable.get("productOwner")
+                if isinstance(durable.get("productOwner"), dict)
+                else {}
+            )
+            if loop.get("state") == "awaiting_user" and any(
+                isinstance(item, dict) and item.get("decisionId") == decision_id
+                for item in product_owner.get("pendingThreadDecisions") or []
+            ):
+                return True
+            if (
+                loop.get("state") == "blocked"
+                and durable.get("blockedStage") == "functionality_memory"
+                and durable.get("decisionId") == decision_id
+            ):
+                return True
+        return False
 
     def _should_resolve(self, *, action_type: str, execution: dict[str, Any]) -> bool:
         if execution.get("status") not in {"completed", "queued", "awaiting_approval"}:
@@ -738,192 +950,250 @@ class BlockerRemediationService:
         from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 
         coordinator = ProductLoopCoordinator(self.connection, root=self.root)
-        loop = coordinator.get(loop_id)
-        if loop["state"] != "blocked":
-            return {"status": "blocked", "action": "retry_loop", "reason": "Product Loop is not blocked."}
-
-        durable = dict((loop.get("context") or {}).get("durableRun") or {})
-        remediation_stage = str(action.get("stage") or "").strip()
-        blocked_stage = str(durable.get("blockedStage") or "").strip()
-        if remediation_stage and blocked_stage and remediation_stage != blocked_stage:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": "Remediation stage no longer matches the current Product Loop blocker.",
-                "remediationStage": remediation_stage,
-                "blockedStage": blocked_stage,
-            }
-        thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
-        request_meta = (
-            strip_untrusted_resource_cost_policy_metadata(durable.get("requestMeta"))
-            if isinstance(durable.get("requestMeta"), dict)
-            else {}
-        )
-        thread_id = str(action.get("threadId") or thread_ref.get("projectThreadId") or "").strip()
-        if not thread_id:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": "Blocked Product Loop does not reference a project thread.",
-            }
-
         threads = ThreadsRepository(self.connection)
-        thread = threads.get_thread(thread_id)
-        if thread["projectId"] != loop["projectId"]:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": "Thread project does not match the blocked Product Loop project.",
-            }
-        if thread["status"] in {"queued", "running"}:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": f"Thread is already {thread['status']}; retry would create concurrent execution.",
-            }
-        if durable.get("blockedStage") == "approval":
-            return self._retry_delivery_approval(
-                action=action,
-                coordinator=coordinator,
-                loop=loop,
-                durable=durable,
-                thread_id=thread_id,
-                threads=threads,
-            )
-        if durable.get("blockedStage") == "resource_learning" and self._has_delivery_resource_learning_evidence(
-            durable
-        ):
-            return self._retry_resource_learning_approval(
-                action=action,
-                coordinator=coordinator,
-                loop=loop,
-                durable=durable,
-                thread_id=thread_id,
-                threads=threads,
-            )
-
-        functionality_decision_mode: str | None = None
-        if durable.get("blockedStage") == "functionality_memory":
-            functionality_decision_mode = self._resolved_similarity_decision_mode(
-                threads=threads, decision_id=str(durable.get("decisionId") or "")
-            )
-            if functionality_decision_mode is None:
+        jobs = JobsRepository(self.connection)
+        with immediate_transaction(self.connection):
+            current_action = self.repository.get(action["id"])
+            if current_action["status"] != "pending":
                 return {
                     "status": "blocked",
                     "action": "retry_loop",
-                    "reason": "Resolve the existing-functionality decision on this thread before retrying the loop.",
-                    "decisionId": durable.get("decisionId"),
+                    "remediationStatus": current_action["status"],
+                    "reason": "Only pending remediation actions can be executed.",
+                }
+            loop = coordinator.get(loop_id)
+            if loop["state"] != "blocked":
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Product Loop is not blocked.",
+                }
+            if (
+                current_action.get("loopId") != loop_id
+                or current_action.get("projectId") != loop["projectId"]
+                or current_action.get("actionType") != "retry_loop"
+            ):
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Remediation action no longer matches the blocked Product Loop.",
                 }
 
-        message_id = str(thread_ref.get("messageId") or request_meta.get("messageId") or "").strip()
-        message = str(durable.get("message") or "").strip()
-        source_message = self._source_retry_message(threads=threads, thread_id=thread_id, message_id=message_id)
-        if source_message is not None:
-            message_id = source_message["id"]
-            message = message or str(source_message["content"] or "").strip()
-        if not message_id or not message:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": "Blocked Product Loop is missing the original thread message.",
-            }
-
-        root = self._retry_root(loop["projectId"])
-        if not root:
-            return {
-                "status": "blocked",
-                "action": "retry_loop",
-                "reason": "Project root is required to queue a real Product Loop retry.",
-            }
-
-        plan_only = bool(durable.get("planOnly") or request_meta.get("planOnly") or request_meta.get("plan_only"))
-        approved_resource_selections = self._approved_resource_selections_from_durable(durable)
-        retry_metadata = {
-            **request_meta,
-            "messageId": message_id,
-            "planOnly": plan_only,
-            "approvedResourceSelections": approved_resource_selections,
-            "retryOfLoopId": loop_id,
-            "retryStage": durable.get("blockedStage"),
-            "retryReason": durable.get("blockedReason"),
-            "remediationActionId": action["id"],
-        }
-        if functionality_decision_mode:
-            # Sin la elección resuelta el rerun volvería a bloquearse en el gate de memoria de
-            # funcionalidad con el mismo mensaje, en un ciclo sin salida para el operador.
-            retry_metadata["functionalityDecision"] = functionality_decision_mode
-        jobs = JobsRepository(self.connection)
-        existing_job = self._existing_retry_job(
-            jobs=jobs,
-            project_id=loop["projectId"],
-            loop_id=loop_id,
-            action_id=action["id"],
-        )
-        if existing_job is None:
-            queued_at = utc_now()
-            retry_metadata["retryQueuedAt"] = queued_at
-            created = jobs.create_job(
-                project_id=loop["projectId"],
-                kind="thread.product_loop.run",
-                payload={
-                    "threadId": thread_id,
-                    "messageId": message_id,
-                    "projectId": loop["projectId"],
-                    "message": message,
-                    "title": thread["title"] or loop["title"],
-                    "root": root,
-                    "decision": request_meta.get("decision"),
-                    "teamPlan": request_meta.get("teamPlan"),
-                    "planOnly": plan_only,
-                    "approvedResourceSelections": approved_resource_selections,
-                    "runMetadata": retry_metadata,
-                    "retryOfLoopId": loop_id,
-                    "retryStage": durable.get("blockedStage"),
-                    "retryReason": durable.get("blockedReason"),
-                    "remediationActionId": action["id"],
-                    "retryQueuedAt": queued_at,
-                },
-                idempotency_key=f"product-loop-retry:{loop_id}:{action['id']}",
+            durable = dict((loop.get("context") or {}).get("durableRun") or {})
+            remediation_stage = str(current_action.get("stage") or "").strip()
+            blocked_stage = str(durable.get("blockedStage") or "").strip()
+            if remediation_stage and blocked_stage and remediation_stage != blocked_stage:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Remediation stage no longer matches the current Product Loop blocker.",
+                    "remediationStage": remediation_stage,
+                    "blockedStage": blocked_stage,
+                }
+            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+            request_meta = (
+                strip_untrusted_resource_cost_policy_metadata(durable.get("requestMeta"))
+                if isinstance(durable.get("requestMeta"), dict)
+                else {}
             )
-            retry_job = created["job"]
-        else:
-            queued_at = utc_now()
-            retry_job = existing_job
+            action_thread_id = str(current_action.get("threadId") or "").strip()
+            durable_thread_id = str(thread_ref.get("projectThreadId") or "").strip()
+            if action_thread_id and durable_thread_id and action_thread_id != durable_thread_id:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Remediation thread no longer matches the blocked Product Loop thread.",
+                }
+            thread_id = action_thread_id or durable_thread_id
+            if not thread_id:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Blocked Product Loop does not reference a project thread.",
+                }
 
-        retry_ref = {
-            "status": "queued",
-            "jobId": retry_job["id"],
-            "threadId": thread_id,
-            "messageId": message_id,
-            "remediationActionId": action["id"],
-            "queuedAt": queued_at,
-        }
-        durable = {
-            **durable,
-            "status": "retry_queued",
-            "retry": retry_ref,
-            "updatedAt": queued_at,
-        }
-        superseded = coordinator.transition(
-            loop_id,
-            to_state="cancelled",
-            reason="Blocked Product Loop superseded by a queued retry job.",
-            actor="remediation",
-            trigger="retry_loop",
-            context_patch={"durableRun": durable},
-            metadata={"remediationActionId": action["id"], "retryJobId": retry_job["id"]},
-        )
-        thread, thread_status_update = self._mark_thread_run_queued_best_effort(
-            threads=threads,
-            thread_id=thread_id,
-            event_payload={
-                "jobId": retry_job["id"],
+            thread = threads.get_thread(thread_id)
+            if thread["projectId"] != loop["projectId"]:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Thread project does not match the blocked Product Loop project.",
+                }
+            retryable_thread_statuses = {"open", "blocked"}
+            if blocked_stage == "functionality_memory":
+                retryable_thread_statuses.add("waiting_decision")
+            if thread["status"] not in retryable_thread_statuses:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": (
+                        f"Thread status {thread['status']} cannot be superseded by a retry."
+                    ),
+                }
+
+            if blocked_stage == "approval":
+                return self._retry_delivery_approval(
+                    action=current_action,
+                    coordinator=coordinator,
+                    loop=loop,
+                    durable=durable,
+                    thread_id=thread_id,
+                    threads=threads,
+                )
+            if blocked_stage == "resource_learning" and self._has_delivery_resource_learning_evidence(
+                durable
+            ):
+                return self._retry_resource_learning_approval(
+                    action=current_action,
+                    coordinator=coordinator,
+                    loop=loop,
+                    durable=durable,
+                    thread_id=thread_id,
+                    threads=threads,
+                )
+
+            functionality_decision_mode: str | None = None
+            if blocked_stage == "functionality_memory":
+                functionality_decision_mode = self._resolved_similarity_decision_mode(
+                    threads=threads,
+                    decision_id=str(durable.get("decisionId") or ""),
+                )
+                if functionality_decision_mode is None:
+                    return {
+                        "status": "blocked",
+                        "action": "retry_loop",
+                        "reason": (
+                            "Resolve the existing-functionality decision on this thread before "
+                            "retrying the loop."
+                        ),
+                        "decisionId": durable.get("decisionId"),
+                    }
+
+            message_id = str(
+                thread_ref.get("messageId") or request_meta.get("messageId") or ""
+            ).strip()
+            message = str(durable.get("message") or "").strip()
+            source_message = self._source_retry_message(
+                threads=threads,
+                thread_id=thread_id,
+                message_id=message_id,
+            )
+            if source_message is not None:
+                message_id = source_message["id"]
+                message = message or str(source_message["content"] or "").strip()
+            if not message_id or not message:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Blocked Product Loop is missing the original thread message.",
+                }
+
+            root = self._retry_root(loop["projectId"])
+            if not root:
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "Project root is required to queue a real Product Loop retry.",
+                }
+
+            plan_only = bool(
+                durable.get("planOnly")
+                or request_meta.get("planOnly")
+                or request_meta.get("plan_only")
+            )
+            approved_resource_selections = self._approved_resource_selections_from_durable(durable)
+            retry_metadata = {
+                **request_meta,
                 "messageId": message_id,
-                "status": retry_job["status"],
+                "planOnly": plan_only,
+                "approvedResourceSelections": approved_resource_selections,
                 "retryOfLoopId": loop_id,
-                "remediationActionId": action["id"],
-            },
-        )
+                "retryStage": blocked_stage,
+                "retryReason": durable.get("blockedReason"),
+                "remediationActionId": current_action["id"],
+            }
+            if functionality_decision_mode:
+                # Sin la elección resuelta el rerun volvería a bloquearse en el gate de memoria de
+                # funcionalidad con el mismo mensaje, en un ciclo sin salida para el operador.
+                retry_metadata["functionalityDecision"] = functionality_decision_mode
+
+            existing_job = self._existing_retry_job(
+                jobs=jobs,
+                project_id=loop["projectId"],
+                loop_id=loop_id,
+                action_id=current_action["id"],
+            )
+            if existing_job is None:
+                queued_at = utc_now()
+                retry_metadata["retryQueuedAt"] = queued_at
+                created = jobs.create_job(
+                    project_id=loop["projectId"],
+                    kind="thread.product_loop.run",
+                    payload={
+                        "threadId": thread_id,
+                        "messageId": message_id,
+                        "projectId": loop["projectId"],
+                        "message": message,
+                        "title": thread["title"] or loop["title"],
+                        "root": root,
+                        "decision": request_meta.get("decision"),
+                        "teamPlan": request_meta.get("teamPlan"),
+                        "planOnly": plan_only,
+                        "approvedResourceSelections": approved_resource_selections,
+                        "runMetadata": retry_metadata,
+                        "retryOfLoopId": loop_id,
+                        "retryStage": durable.get("blockedStage"),
+                        "retryReason": durable.get("blockedReason"),
+                        "remediationActionId": current_action["id"],
+                        "retryQueuedAt": queued_at,
+                    },
+                    idempotency_key=f"product-loop-retry:{loop_id}:{current_action['id']}",
+                )
+                retry_job = created["job"]
+            else:
+                queued_at = utc_now()
+                retry_job = existing_job
+
+            retry_ref = {
+                "status": "queued",
+                "jobId": retry_job["id"],
+                "threadId": thread_id,
+                "messageId": message_id,
+                "remediationActionId": current_action["id"],
+                "queuedAt": queued_at,
+            }
+            durable = {
+                **durable,
+                "status": "retry_queued",
+                "retry": retry_ref,
+                "updatedAt": queued_at,
+            }
+            thread = threads.set_status(thread_id, "queued")
+            threads.record_event(
+                thread_id=thread_id,
+                type="run_queued",
+                agent_role="aido_lead",
+                payload={
+                    "jobId": retry_job["id"],
+                    "messageId": message_id,
+                    "status": retry_job["status"],
+                    "retryOfLoopId": loop_id,
+                    "remediationActionId": current_action["id"],
+                },
+            )
+            superseded = coordinator.transition_in_transaction(
+                loop_id,
+                to_state="cancelled",
+                reason="Blocked Product Loop superseded by a queued retry job.",
+                actor="remediation",
+                trigger="retry_loop",
+                context_patch={"durableRun": durable},
+                metadata={
+                    "remediationActionId": current_action["id"],
+                    "retryJobId": retry_job["id"],
+                },
+                expected_version=loop["version"],
+            )
         return {
             "status": "queued",
             "action": "retry_loop",
@@ -931,7 +1201,11 @@ class BlockerRemediationService:
             "job": retry_job,
             "loop": superseded,
             "thread": thread,
-            "threadStatusUpdate": thread_status_update,
+            "threadStatusUpdate": {
+                "status": "queued",
+                "thread": {"status": "queued"},
+                "event": {"status": "recorded"},
+            },
             "retryOfLoopId": loop_id,
             "threadId": thread_id,
             "messageId": message_id,
@@ -947,6 +1221,14 @@ class BlockerRemediationService:
         thread_id: str,
         threads: ThreadsRepository,
     ) -> dict[str, Any]:
+        if not self.connection.in_transaction:
+            raise RuntimeError("_retry_delivery_approval requires an active transaction.")
+        if action.get("stage") != "approval" or action.get("blockerType") != "approval_unavailable":
+            return {
+                "status": "blocked",
+                "action": "retry_loop",
+                "reason": "Remediation action does not match the delivery approval blocker.",
+            }
         approval = durable.get("approval") if isinstance(durable.get("approval"), dict) else {}
         evidence_refs = [str(item) for item in approval.get("evidenceRefs") or [] if str(item).strip()]
         diff_refs = [item for item in approval.get("diffRefs") or [] if item]
@@ -999,7 +1281,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "updatedAt": now,
         }
-        review_ready = coordinator.transition(
+        review_ready = coordinator.transition_in_transaction(
             loop["id"],
             to_state="review_ready",
             reason="Delivery approval was recreated from existing QA, gitleaks, and diff evidence.",
@@ -1007,6 +1289,7 @@ class BlockerRemediationService:
             trigger="retry_delivery_approval",
             context_patch={"durableRun": review_durable},
             metadata={"remediationActionId": action["id"], "approvalJobId": approval_job["id"]},
+            expected_version=loop["version"],
         )
         awaiting_durable = {
             **dict(review_ready["context"].get("durableRun") or {}),
@@ -1014,7 +1297,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "updatedAt": now,
         }
-        awaiting = coordinator.transition(
+        awaiting = coordinator.transition_in_transaction(
             loop["id"],
             to_state="awaiting_approval",
             reason="Evidence-backed Product Loop result awaits operator approval.",
@@ -1022,16 +1305,20 @@ class BlockerRemediationService:
             trigger="awaiting_approval",
             context_patch={"durableRun": awaiting_durable},
             metadata={"remediationActionId": action["id"], "approvalActionRequestId": approval_action["id"]},
+            expected_version=review_ready["version"],
         )
-        with suppress(Exception):
-            threads.set_status(thread_id, "awaiting_approval")
-        with suppress(Exception):
-            threads.record_event(
-                thread_id=thread_id,
-                type="approval_required",
-                agent_role="aido_lead",
-                payload={"loopId": awaiting["id"], **next_approval, "remediationActionId": action["id"]},
-            )
+        thread = threads.set_status(thread_id, "awaiting_approval")
+        threads.record_event(
+            thread_id=thread_id,
+            type="approval_required",
+            agent_role="aido_lead",
+            payload={"loopId": awaiting["id"], **next_approval, "remediationActionId": action["id"]},
+        )
+        self.repository.resolve_pending_for_blocker_in_transaction(
+            loop["id"],
+            stage="approval",
+            blocker_type="approval_unavailable",
+        )
         return {
             "status": "awaiting_approval",
             "action": "retry_loop",
@@ -1040,7 +1327,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "actionRequest": approval_action,
             "loop": awaiting,
-            "thread": threads.get_thread(thread_id),
+            "thread": thread,
             "retryOfLoopId": loop["id"],
             "threadId": thread_id,
         }
@@ -1329,6 +1616,17 @@ class BlockerRemediationService:
         thread_id: str,
         threads: ThreadsRepository,
     ) -> dict[str, Any]:
+        if not self.connection.in_transaction:
+            raise RuntimeError("_retry_resource_learning_approval requires an active transaction.")
+        if (
+            action.get("stage") != "resource_learning"
+            or action.get("blockerType") != "resource_learning_failed"
+        ):
+            return {
+                "status": "blocked",
+                "action": "retry_loop",
+                "reason": "Remediation action does not match the resource learning blocker.",
+            }
         from local_control_center.product_loop.coordinator import _diff_ref_from_review
 
         resource_details = (
@@ -1433,7 +1731,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "updatedAt": now,
         }
-        review_ready = coordinator.transition(
+        review_ready = coordinator.transition_in_transaction(
             loop["id"],
             to_state="review_ready",
             reason="AI resource learning was recorded from existing QA, gitleaks, and diff evidence.",
@@ -1441,6 +1739,7 @@ class BlockerRemediationService:
             trigger="retry_resource_learning",
             context_patch={"durableRun": review_durable},
             metadata={"remediationActionId": action["id"], "approvalJobId": approval_job["id"]},
+            expected_version=loop["version"],
         )
         awaiting_durable = {
             **dict(review_ready["context"].get("durableRun") or {}),
@@ -1449,7 +1748,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "updatedAt": now,
         }
-        awaiting = coordinator.transition(
+        awaiting = coordinator.transition_in_transaction(
             loop["id"],
             to_state="awaiting_approval",
             reason="Evidence-backed Product Loop result awaits operator approval.",
@@ -1457,21 +1756,25 @@ class BlockerRemediationService:
             trigger="awaiting_approval",
             context_patch={"durableRun": awaiting_durable},
             metadata={"remediationActionId": action["id"], "approvalActionRequestId": approval_action["id"]},
+            expected_version=review_ready["version"],
         )
-        with suppress(Exception):
-            threads.set_status(thread_id, "awaiting_approval")
-        with suppress(Exception):
-            threads.record_event(
-                thread_id=thread_id,
-                type="approval_required",
-                agent_role="aido_lead",
-                payload={
-                    "loopId": awaiting["id"],
-                    "resourceLearning": resource_learning,
-                    **next_approval,
-                    "remediationActionId": action["id"],
-                },
-            )
+        thread = threads.set_status(thread_id, "awaiting_approval")
+        threads.record_event(
+            thread_id=thread_id,
+            type="approval_required",
+            agent_role="aido_lead",
+            payload={
+                "loopId": awaiting["id"],
+                "resourceLearning": resource_learning,
+                **next_approval,
+                "remediationActionId": action["id"],
+            },
+        )
+        self.repository.resolve_pending_for_blocker_in_transaction(
+            loop["id"],
+            stage="resource_learning",
+            blocker_type="resource_learning_failed",
+        )
         return {
             "status": "awaiting_approval",
             "action": "retry_loop",
@@ -1481,7 +1784,7 @@ class BlockerRemediationService:
             "approval": next_approval,
             "actionRequest": approval_action,
             "loop": awaiting,
-            "thread": threads.get_thread(thread_id),
+            "thread": thread,
             "retryOfLoopId": loop["id"],
             "threadId": thread_id,
         }
@@ -1930,7 +2233,13 @@ class BlockerRemediationService:
             "payload": {"resourceApprovals": resource_approvals},
         }
 
-    def _answer_question(self, *, action: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    def _answer_question(
+        self,
+        *,
+        action: dict[str, Any],
+        payload: dict[str, Any],
+        allow_dismissed: bool = False,
+    ) -> dict[str, Any]:
         action_payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
         persisted_thread_id = str(action.get("threadId") or action_payload.get("threadId") or "").strip()
         payload_thread_id = str(payload.get("threadId") or "").strip()
@@ -1997,29 +2306,72 @@ class BlockerRemediationService:
             answer = matched_answer
         from local_control_center.threads.coordinator import ThreadCoordinator
 
-        result = ThreadCoordinator(self.connection, root=self.root).resolve_decision(
-            thread_id=thread_id,
-            decision_id=decision_id,
-            resolution=answer,
-            decided_by=str(payload.get("decidedBy") or "remediation"),
-        )
         clarification_payload = {
             **action_payload,
             "answer": answer,
             "resolution": answer,
             "decidedBy": str(payload.get("decidedBy") or "remediation"),
         }
-        clarification = self._record_clarification_answer(
-            decision=result.get("decision") or {},
-            payload=clarification_payload,
-            answer=answer,
-        )
-        loop_supersede = self._supersede_answered_decision_loop(
-            action=action,
-            result=result,
-            answer=answer,
-            decision_id=decision_id,
-        )
+        with immediate_transaction(self.connection):
+            current_action = self.repository.get(action["id"])
+            executable_statuses = {"pending", "dismissed"} if allow_dismissed else {"pending"}
+            if current_action["status"] not in executable_statuses:
+                return {
+                    "status": "blocked",
+                    "action": "answer_question",
+                    "remediationStatus": current_action["status"],
+                    "reason": "Only pending remediation actions can be executed.",
+                }
+            stale_loop_block = self._answer_question_loop_staleness(action=current_action)
+            if stale_loop_block:
+                return stale_loop_block
+            current_thread = threads.get_thread(thread_id)
+            current_thread_status = str(current_thread.get("status") or "").strip()
+            if current_thread_status in {"queued", "running"}:
+                return {
+                    "status": "blocked",
+                    "action": "answer_question",
+                    "threadId": thread_id,
+                    "decisionId": decision_id,
+                    "threadStatus": current_thread_status,
+                    "reason": (
+                        f"Thread is already {current_thread_status}; answer_question remediation "
+                        "cannot safely resolve this decision until the active run finishes."
+                    ),
+                }
+            remaining_decision_ids = self._remaining_product_owner_decision_ids(
+                action=current_action,
+                current_decision_id=decision_id,
+                threads=threads,
+            )
+            result = ThreadCoordinator(self.connection, root=self.root).resolve_decision_in_transaction(
+                thread_id=thread_id,
+                decision_id=decision_id,
+                resolution=answer,
+                decided_by=str(payload.get("decidedBy") or "remediation"),
+                defer_followup=bool(remaining_decision_ids),
+            )
+            clarification = self._record_clarification_answer(
+                decision=result.get("decision") or {},
+                payload=clarification_payload,
+                answer=answer,
+            )
+            if remaining_decision_ids:
+                loop_supersede = self._defer_answered_decision_batch_in_transaction(
+                    action=current_action,
+                    decision_id=decision_id,
+                    remaining_decision_ids=remaining_decision_ids,
+                    threads=threads,
+                )
+            else:
+                loop_supersede = self._supersede_answered_decision_loop_in_transaction(
+                    action=current_action,
+                    result=result,
+                    answer=answer,
+                    decision_id=decision_id,
+                )
+            if self.repository.get(current_action["id"])["status"] != "resolved":
+                self.repository.mark_status_in_transaction(current_action["id"], "resolved")
         return {
             "status": "completed",
             "action": "answer_question",
@@ -2062,7 +2414,132 @@ class BlockerRemediationService:
             }
         return None
 
-    def _supersede_answered_decision_loop(
+    def _remaining_product_owner_decision_ids(
+        self,
+        *,
+        action: dict[str, Any],
+        current_decision_id: str,
+        threads: ThreadsRepository,
+    ) -> list[str]:
+        if action.get("blockerType") != "po_needs_input":
+            return []
+        loop_id = str(action.get("loopId") or "").strip()
+        thread_id = str(action.get("threadId") or "").strip()
+        if not loop_id or not thread_id:
+            return []
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+        loop = ProductLoopCoordinator(self.connection, root=self.root).get(loop_id)
+        durable = dict((loop.get("context") or {}).get("durableRun") or {})
+        product_owner = (
+            durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
+        )
+        pending_specs = product_owner.get("pendingThreadDecisions")
+        candidate_ids = [
+            str(item.get("decisionId") or "").strip()
+            for item in pending_specs or []
+            if isinstance(item, dict) and str(item.get("decisionId") or "").strip()
+        ]
+        if not candidate_ids:
+            candidate_ids = [
+                str((item.get("payload") or {}).get("decisionId") or "").strip()
+                for item in self.repository.list_for_thread(thread_id)
+                if item.get("loopId") == loop_id
+                and item.get("blockerType") == "po_needs_input"
+                and item.get("actionType") == "answer_question"
+            ]
+        remaining: list[str] = []
+        for candidate_id in dict.fromkeys(candidate_ids):
+            if not candidate_id or candidate_id == current_decision_id:
+                continue
+            with suppress(KeyError):
+                decision = threads.get_decision(candidate_id)
+                if decision["threadId"] == thread_id and decision["status"] == "pending":
+                    remaining.append(candidate_id)
+        return remaining
+
+    def _defer_answered_decision_batch_in_transaction(
+        self,
+        *,
+        action: dict[str, Any],
+        decision_id: str,
+        remaining_decision_ids: list[str],
+        threads: ThreadsRepository,
+    ) -> dict[str, Any]:
+        if not self.connection.in_transaction:
+            raise RuntimeError(
+                "_defer_answered_decision_batch_in_transaction requires an active transaction."
+            )
+        loop_id = str(action.get("loopId") or "").strip()
+        thread_id = str(action.get("threadId") or "").strip()
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        loop = coordinator.get(loop_id)
+        durable = dict((loop.get("context") or {}).get("durableRun") or {})
+        product_owner = (
+            durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
+        )
+        remaining_set = set(remaining_decision_ids)
+        pending_specs = [
+            item
+            for item in product_owner.get("pendingThreadDecisions") or []
+            if isinstance(item, dict) and str(item.get("decisionId") or "") in remaining_set
+        ]
+        answered = [
+            item
+            for item in product_owner.get("answeredThreadDecisions") or []
+            if isinstance(item, dict) and item.get("decisionId") != decision_id
+        ]
+        answered_at = utc_now()
+        answered.append(
+            {
+                "decisionId": decision_id,
+                "remediationActionId": action["id"],
+                "answeredAt": answered_at,
+            }
+        )
+        updated_loop = coordinator.repository.update_loop_context(
+            loop_id,
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **durable,
+                    "status": "awaiting_user",
+                    "productOwner": {
+                        **product_owner,
+                        "status": "needs_input",
+                        "pendingThreadDecisions": pending_specs,
+                        "answeredThreadDecisions": answered,
+                    },
+                    "updatedAt": answered_at,
+                },
+            },
+        )
+        threads.record_event(
+            thread_id=thread_id,
+            type="decision_batch_progress",
+            agent_role="product_owner",
+            payload={
+                "loopId": loop_id,
+                "decisionId": decision_id,
+                "remainingDecisionIds": remaining_decision_ids,
+                "remainingDecisionCount": len(remaining_decision_ids),
+                "remediationActionId": action["id"],
+            },
+        )
+        self.repository.mark_status_in_transaction(action["id"], "resolved")
+        return {
+            "loop": updated_loop,
+            "loopSupersede": {
+                "status": "deferred",
+                "decisionId": decision_id,
+                "remainingDecisionIds": remaining_decision_ids,
+                "remainingDecisionCount": len(remaining_decision_ids),
+            },
+        }
+
+    def _supersede_answered_decision_loop_in_transaction(
         self,
         *,
         action: dict[str, Any],
@@ -2070,6 +2547,10 @@ class BlockerRemediationService:
         answer: str,
         decision_id: str,
     ) -> dict[str, Any]:
+        if not self.connection.in_transaction:
+            raise RuntimeError(
+                "_supersede_answered_decision_loop_in_transaction requires an active transaction."
+            )
         loop_id = str(action.get("loopId") or "").strip()
         queued_job = result.get("job") if isinstance(result.get("job"), dict) else None
         thread = result.get("thread") if isinstance(result.get("thread"), dict) else {}
@@ -2108,7 +2589,7 @@ class BlockerRemediationService:
             "decisionAnswer": decision_answer,
             "updatedAt": queued_at,
         }
-        superseded = coordinator.transition(
+        superseded = coordinator.transition_in_transaction(
             loop_id,
             to_state="cancelled",
             reason="Product Loop awaiting a decision was superseded by a queued answered-decision job.",
@@ -2120,6 +2601,7 @@ class BlockerRemediationService:
                 "decisionId": decision_id,
                 "queuedJobId": queued_job["id"],
             },
+            expected_version=loop["version"],
         )
         return {
             "loop": superseded,
@@ -2258,25 +2740,42 @@ class BlockerRemediationService:
             if details.get("executable") is False:
                 return "runtime_not_executable"
             return "runtime_output_invalid"
-        if "credential" in text or "api key" in text:
-            return "provider_missing_credentials"
-        if "provider" in text and ("health" in text or "unhealthy" in text):
-            return "provider_health_failed"
         if stage == "resource_manager":
             resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else None
-            if isinstance(resource_blockers, list) and any(
-                isinstance(item, dict)
-                and (item.get("decision") or {}).get("selected") is None
-                for item in resource_blockers
-            ):
+            blockers = [
+                item
+                for item in resource_blockers or []
+                if isinstance(item, dict) and isinstance(item.get("decision"), dict)
+            ]
+            if any(item["decision"].get("selected") is None for item in blockers):
+                rejected = [
+                    rejected_item
+                    for item in blockers
+                    for rejected_item in item["decision"].get("rejected") or []
+                    if isinstance(rejected_item, dict)
+                ]
+                explicit_rejected = [
+                    item for item in rejected if item.get("profileSource") == "explicit"
+                ]
+                relevant_rejected = explicit_rejected or rejected
+                rejection_text = f"{reason_text} {relevant_rejected}".lower()
+                if "credential" in rejection_text or "api key" in rejection_text:
+                    return "provider_missing_credentials"
+                if "runtime_not_executable:" in rejection_text:
+                    return "runtime_not_executable"
+                if "provider" in rejection_text and (
+                    "health" in rejection_text or "unhealthy" in rejection_text
+                ):
+                    return "provider_health_failed"
+                if relevant_rejected and all(
+                    item.get("reason") == "privacy_blocks_remote"
+                    for item in relevant_rejected
+                ):
+                    return "resource_manager_privacy_blocked"
                 return "resource_manager_unconfigured"
-            if "requires approval" in reason_text or (
-                isinstance(resource_blockers, list)
-                and any(
-                    isinstance(item, dict)
-                    and self._resource_decision_requires_approval(item.get("decision"))
-                    for item in resource_blockers
-                )
+            if "requires approval" in reason_text or any(
+                self._resource_decision_requires_approval(item["decision"])
+                for item in blockers
             ):
                 return "resource_manager_approval_required"
             return "resource_manager_unconfigured"
@@ -2286,8 +2785,6 @@ class BlockerRemediationService:
             return "technical_lead_planning_failed"
         if stage == "resource_learning":
             return "resource_learning_failed"
-        if "auth" in text or "login" in text or "not authenticated" in text:
-            return "runtime_auth_missing"
         if stage == "product_owner_runtime":
             return "runtime_not_executable"
         if stage == "git":
@@ -2330,6 +2827,12 @@ class BlockerRemediationService:
             return "thread_similarity_decision_required"
         if stage == "thread_intake":
             return "thread_intake_decision_required"
+        if "credential" in text or "api key" in text:
+            return "provider_missing_credentials"
+        if "provider" in text and ("health" in text or "unhealthy" in text):
+            return "provider_health_failed"
+        if "auth" in text or "login" in text or "not authenticated" in text:
+            return "runtime_auth_missing"
         return "runtime_output_invalid"
 
     @staticmethod
@@ -3351,15 +3854,45 @@ class BlockerRemediationService:
             "resource_manager_unconfigured": [
                 {
                     "actionType": "open_settings_section",
-                    "title": "Open AI resources settings",
-                    "description": "Configure at least one AI resource profile so ResourceManager can select a runtime.",
-                    "payload": resource_manager_settings_payload,
+                    "title": "Open provider and model settings",
+                    "description": "Enable a catalogued model with the capabilities required by the blocked role.",
+                    "payload": {**resource_manager_settings_payload, "section": "providers-cli"},
                 },
                 {
                     "actionType": "retry_loop",
                     "title": "Retry loop",
-                    "description": "Retry after configuring AI resource profiles.",
+                    "description": "Retry after enabling an eligible model and executable runtime.",
                     "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
+                },
+            ],
+            "resource_manager_privacy_blocked": [
+                {
+                    "actionType": "open_settings_section",
+                    "title": "Open local provider settings",
+                    "description": (
+                        "Configure and validate an executable local model while preserving "
+                        "the project's local-only privacy policy."
+                    ),
+                    "payload": {**resource_manager_settings_payload, "section": "providers-cli"},
+                    "primary": True,
+                },
+                {
+                    "actionType": "open_settings_section",
+                    "title": "Review AI routing privacy",
+                    "description": (
+                        "Review the local-only routing requirement and the rejected remote resources."
+                    ),
+                    "payload": {**resource_manager_settings_payload, "section": "routing"},
+                    "primary": False,
+                },
+                {
+                    "actionType": "retry_loop",
+                    "title": "Retry loop",
+                    "description": (
+                        "Retry after an eligible local model is executable and satisfies the routing policy."
+                    ),
+                    "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
+                    "primary": False,
                 },
             ],
             "resource_manager_approval_required": [

@@ -13,9 +13,7 @@
 .session-item,
 .command-item,
 .button,
-.icon-button,
-.nav-item,
-.activity-bar-item {
+.icon-button {
 	transition-duration: var(--duration-normal);
 	transition-timing-function: var(--ease-standard);
 }

@@ -103,5 +103,3 @@ export const skeletonShimmer: Variants = {
 export const HOVER_LIFT = { y: -2 } as const;
 export const TAP_SCALE = { scale: 0.98 } as const;
 export const HOVER_TAP_TRANSITION = { type: 'spring', stiffness: 400, damping: 30 } as const;
-
-export const INDICATOR_TRANSITION = { type: 'spring', stiffness: 520, damping: 40 } as const;

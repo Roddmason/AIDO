@@ -31,6 +31,10 @@ from local_control_center.workspaces_projects.repository import WorkspacesReposi
 
 OVERVIEW_EVENT_LIMIT = 250
 OVERVIEW_AUDIT_EVENT_LIMIT = 100
+OVERVIEW_PERMISSION_DECISION_LIMIT = 300
+OVERVIEW_AGENT_TOOL_CALL_LIMIT = 300
+OVERVIEW_AGENT_RUN_LIMIT = 200
+OVERVIEW_MODEL_CALL_LIMIT = 300
 
 
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
@@ -92,7 +96,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "workflowRuns": workflows.list_workflow_runs(),
         "workflowSteps": workflows.list_workflow_steps(),
         "workflowEvents": workflows.list_workflow_events(),
-        "permissionDecisions": security_policy.list_decisions(),
+        "permissionDecisions": security_policy.list_decisions(limit=OVERVIEW_PERMISSION_DECISION_LIMIT),
         "policyRevisions": security_policy.list_policy_revisions(),
         "permissionGrants": security_policy.list_grants(),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
@@ -100,11 +104,11 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "artifacts": evidence.list_all_artifacts(),
         "testResultRecords": evidence.list_all_test_results(),
         "agentProfiles": agents.list_agent_profiles(),
-        "agentRuns": agents.list_agent_runs(),
+        "agentRuns": agents.list_agent_runs(limit=OVERVIEW_AGENT_RUN_LIMIT),
         "modelPolicies": agents.list_model_policies(),
         "modelProviders": agents.list_model_providers(),
-        "agentToolCalls": agents.list_agent_tool_calls(),
-        "modelCalls": agents.list_model_calls(),
+        "agentToolCalls": agents.list_agent_tool_calls(limit=OVERVIEW_AGENT_TOOL_CALL_LIMIT),
+        "modelCalls": agents.list_model_calls(limit=OVERVIEW_MODEL_CALL_LIMIT),
         "costUsage": agents.list_cost_usage(),
         "runtimeWorkspaces": workspaces.list_workspaces(),
         "skills": skills.list_skills(),

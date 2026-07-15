@@ -676,9 +676,13 @@ class AgentsRepository:
             raise KeyError(f"Agent run not found: {run_id}")
         return row_to_agent_run(row)
 
-    def list_agent_runs(self) -> list[dict[str, Any]]:
-        """List all agent runs, newest first."""
-        rows = self.connection.execute("SELECT * FROM agent_runs ORDER BY created_at DESC").fetchall()
+    def list_agent_runs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """List agent runs, newest first; ``limit`` bounds the result to the most recent N."""
+        query = "SELECT * FROM agent_runs ORDER BY created_at DESC"
+        if limit is not None:
+            rows = self.connection.execute(f"{query} LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = self.connection.execute(query).fetchall()
         return [row_to_agent_run(row) for row in rows]
 
     def list_agent_runs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
@@ -692,14 +696,22 @@ class AgentsRepository:
         ).fetchall()
         return [row_to_agent_run(row) for row in rows]
 
-    def list_agent_tool_calls(self) -> list[dict[str, Any]]:
-        """List all recorded tool calls, newest first."""
-        rows = self.connection.execute("SELECT * FROM agent_tool_calls ORDER BY created_at DESC").fetchall()
+    def list_agent_tool_calls(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """List recorded tool calls, newest first; ``limit`` bounds the result to the most recent N."""
+        query = "SELECT * FROM agent_tool_calls ORDER BY created_at DESC"
+        if limit is not None:
+            rows = self.connection.execute(f"{query} LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = self.connection.execute(query).fetchall()
         return [row_to_agent_tool_call(row) for row in rows]
 
-    def list_model_calls(self) -> list[dict[str, Any]]:
-        """List all recorded model calls, newest first."""
-        rows = self.connection.execute("SELECT * FROM model_calls ORDER BY created_at DESC").fetchall()
+    def list_model_calls(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """List recorded model calls, newest first; ``limit`` bounds the result to the most recent N."""
+        query = "SELECT * FROM model_calls ORDER BY created_at DESC"
+        if limit is not None:
+            rows = self.connection.execute(f"{query} LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = self.connection.execute(query).fetchall()
         return [row_to_model_call(row) for row in rows]
 
     def list_cost_usage(self) -> list[dict[str, Any]]:

@@ -254,14 +254,6 @@
 	box-shadow: var(--shadow-focus);
 }
 
-.inspector-plan {
-	margin-top: var(--space-4);
-}
-
-.inspector-plan .surface-title {
-	margin-bottom: var(--space-2);
-}
-
 .inspector-list {
 	display: flex;
 	flex-direction: column;
@@ -332,8 +324,7 @@
 }
 
 .thread-workspace-head,
-.thread-row,
-.thread-add-workspace {
+.thread-row {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -355,14 +346,12 @@
 }
 
 .thread-workspace-head:hover,
-.thread-row:hover,
-.thread-add-workspace:hover {
+.thread-row:hover {
 	background: var(--color-surface-card-hover);
 }
 
 .thread-workspace-head:focus-visible,
-.thread-row:focus-visible,
-.thread-add-workspace:focus-visible {
+.thread-row:focus-visible {
 	outline: none;
 	box-shadow: var(--shadow-focus);
 }
@@ -735,68 +724,6 @@
 	color: var(--color-text-muted);
 	font-size: var(--font-size-2xs);
 	font-family: var(--font-data);
-}
-
-.thread-add-workspace {
-	margin-top: var(--space-2);
-	color: var(--color-accent);
-}
-
-.loop-list {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	margin: 0;
-	padding: var(--space-1);
-	list-style: none;
-}
-
-.loop-row {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	padding: var(--space-3);
-	background: var(--color-surface-card);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-lg);
-	color: var(--color-text-secondary);
-}
-
-.loop-row-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-}
-
-.loop-row-title {
-	overflow: hidden;
-	color: var(--color-text-primary);
-	font-weight: var(--weight-semibold);
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.loop-row-phase {
-	color: var(--color-text-muted);
-	font-size: var(--font-size-sm);
-}
-
-.loop-phase-bar {
-	display: flex;
-	gap: 3px;
-	margin-top: var(--space-1);
-}
-
-.loop-phase-seg {
-	flex: 1 1 0;
-	height: var(--space-1);
-	border-radius: var(--radius-pill);
-	background: var(--color-border-default);
-}
-
-.loop-phase-seg.is-filled {
-	background: var(--color-accent);
 }
 
 /* Desktop body row: the fixed activity rail plus the resizable pane group fill the
@@ -1644,13 +1571,6 @@
 	font-weight: var(--weight-medium);
 }
 
-.chat-composer-actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-}
-
 .session-list {
 	display: grid;
 	gap: var(--space-2);
@@ -1689,10 +1609,6 @@
 	color: var(--color-text-secondary);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-}
-
-.chat-textarea {
-	min-height: 8.5rem;
 }
 
 /* ---- Real thread conversation (threads route center) ---- */
@@ -2294,12 +2210,6 @@
 
 .thread-chat-row[data-kind="system_event"] {
 	background: var(--color-surface-inset);
-}
-
-.thread-message-seq {
-	margin-left: auto;
-	font-size: var(--font-size-xs);
-	color: var(--color-text-muted);
 }
 
 .thread-decision-head {

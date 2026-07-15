@@ -49,7 +49,6 @@ def test_validate_impact_question_normalizes_the_eight_fields() -> None:
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [
-        ({"category": "unknown"}, "category"),
         ({"confidence": "certain"}, "confidence"),
         ({"blocking": "yes"}, "blocking"),
         ({"options": ["only-one"]}, "options"),
@@ -61,6 +60,24 @@ def test_validate_impact_question_normalizes_the_eight_fields() -> None:
 def test_validate_impact_question_rejects_invalid_contracts(overrides: dict[str, Any], fragment: str) -> None:
     with pytest.raises(ImpactQuestionValidationError, match=fragment):
         validate_impact_question(question(**overrides))
+
+
+def test_validate_impact_question_coerces_known_category_synonyms() -> None:
+    assert validate_impact_question(question(category="Performance"))["category"] == "nonfunctional"
+    assert validate_impact_question(question(category="usability"))["category"] == "ux"
+    assert validate_impact_question(question(category="security"))["category"] == "risk"
+    assert validate_impact_question(question(category="timeline"))["category"] == "delivery"
+
+
+def test_validate_impact_question_defaults_unknown_category_and_audits(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        normalized = validate_impact_question(question(category="totally-made-up"))
+    assert normalized["category"] == "scope"
+    assert any("totally-made-up" in record.getMessage() for record in caplog.records)
 
 
 def test_impact_score_orders_blocking_then_low_confidence_then_category() -> None:
@@ -105,5 +122,5 @@ def test_engine_does_not_ask_data_already_detected_in_the_repository() -> None:
 
 
 def test_engine_validation_propagates_for_malformed_candidates() -> None:
-    with pytest.raises(ImpactQuestionValidationError, match=r"questions\[1\].category"):
-        ImpactQuestionEngine().select([question(), question(category="bogus")])
+    with pytest.raises(ImpactQuestionValidationError, match=r"questions\[1\].confidence"):
+        ImpactQuestionEngine().select([question(), question(confidence="bogus")])

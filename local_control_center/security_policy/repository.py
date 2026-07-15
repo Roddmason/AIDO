@@ -322,17 +322,24 @@ class SecurityPolicyRepository:
         record_policy_decision(self.connection, decision_record)
         return decision_record
 
-    def list_decisions(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista decisiones (de un proyecto si se indica) de la mas reciente a la mas antigua."""
+    def list_decisions(
+        self,
+        project_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lista decisiones (de un proyecto si se indica) de la mas reciente a la mas antigua.
+
+        ``limit`` acota el resultado a las N decisiones mas recientes.
+        """
+        query = "SELECT * FROM permission_decisions ORDER BY created_at DESC"
+        params: tuple[Any, ...] = ()
         if project_id:
-            rows = self.connection.execute(
-                "SELECT * FROM permission_decisions WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
-            ).fetchall()
-        else:
-            rows = self.connection.execute(
-                "SELECT * FROM permission_decisions ORDER BY created_at DESC"
-            ).fetchall()
+            query = "SELECT * FROM permission_decisions WHERE project_id = ? ORDER BY created_at DESC"
+            params = (project_id,)
+        if limit is not None:
+            query = f"{query} LIMIT ?"
+            params = (*params, limit)
+        rows = self.connection.execute(query, params).fetchall()
         return [row_to_decision(row) for row in rows]
 
     def upsert_sandbox_profile(self, body: dict[str, Any]) -> dict[str, Any]:

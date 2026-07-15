@@ -10,8 +10,11 @@ from fastapi.testclient import TestClient
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.app import create_app
 from local_control_center.control_plane.overview import (
+    OVERVIEW_AGENT_RUN_LIMIT,
+    OVERVIEW_AGENT_TOOL_CALL_LIMIT,
     OVERVIEW_AUDIT_EVENT_LIMIT,
     OVERVIEW_EVENT_LIMIT,
+    OVERVIEW_PERMISSION_DECISION_LIMIT,
 )
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -302,17 +305,77 @@ def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypa
     assert len(overview["events"]) == OVERVIEW_EVENT_LIMIT
     assert len(overview["auditEvents"]) == OVERVIEW_AUDIT_EVENT_LIMIT
     event_sequences = [
-        item["payload"].get("sequence")
-        for item in overview["events"]
-        if "sequence" in item["payload"]
+        item["payload"].get("sequence") for item in overview["events"] if "sequence" in item["payload"]
     ]
     assert max(event_sequences) == OVERVIEW_EVENT_LIMIT + 24
     audit_sequences = [
-        item["payload"].get("sequence")
-        for item in overview["auditEvents"]
-        if item["action"] == "audit.test"
+        item["payload"].get("sequence") for item in overview["auditEvents"] if item["action"] == "audit.test"
     ]
     assert max(audit_sequences) == OVERVIEW_AUDIT_EVENT_LIMIT + 9
+
+
+def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(
+        name="Overview History",
+        path=tmp_path / "overview-history",
+        template_id="other",
+    )
+    for index in range(OVERVIEW_PERMISSION_DECISION_LIMIT + 25):
+        store.security.record_decision(
+            project_id=project["id"],
+            workspace_id=None,
+            agent_id=None,
+            role=None,
+            tool="shell",
+            command=f"echo {index}",
+            path=None,
+            decision="allow",
+            risk_level="low",
+            reason=f"sequence-{index}",
+            payload={"sequence": index},
+        )
+    profile = store.agents.upsert_agent_profile(
+        {
+            "id": "overview_history_agent",
+            "name": "Overview History Agent",
+            "role": "developer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    run = None
+    for index in range(OVERVIEW_AGENT_RUN_LIMIT + 10):
+        run = store.agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id=f"overview-history-{index}",
+            input_payload={},
+            output_payload={},
+        )
+    assert run is not None
+    for index in range(OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15):
+        store.agents.record_agent_tool_call(
+            agent_run_id=run["id"],
+            tool_name="shell",
+            status="completed",
+            payload={"sequence": index},
+        )
+
+    assert len(store.security.list_decisions()) >= OVERVIEW_PERMISSION_DECISION_LIMIT + 25
+    assert len(store.agents.list_agent_runs()) == OVERVIEW_AGENT_RUN_LIMIT + 10
+    assert len(store.agents.list_agent_tool_calls()) == OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15
+
+    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["permissionDecisions"]) == OVERVIEW_PERMISSION_DECISION_LIMIT
+    assert len(overview["agentToolCalls"]) == OVERVIEW_AGENT_TOOL_CALL_LIMIT
+    assert len(overview["agentRuns"]) == OVERVIEW_AGENT_RUN_LIMIT
 
 
 def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
@@ -344,7 +407,12 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
     def request(path: str) -> int:
         return client.get(path).status_code
 
-    paths = ["/api/v1/overview", "/api/v1/legacy/sessions", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
+    paths = [
+        "/api/v1/overview",
+        "/api/v1/legacy/sessions",
+        "/api/v1/projects",
+        "/api/v1/retrieval/status",
+    ] * 4
     with ThreadPoolExecutor(max_workers=4) as executor:
         statuses = list(executor.map(request, paths))
 
@@ -461,11 +529,14 @@ def test_fastapi_covers_threads_and_legacy_read_only_cutover(tmp_path: Path, mon
     removed_state_path = "/api/" + "state"
     assert client.get(removed_state_path).status_code == 404
 
-    assert client.post(
-        "/api/v1/sessions",
-        json={"projectId": project["id"], "name": "Python Session"},
-        headers=headers,
-    ).status_code == 404
+    assert (
+        client.post(
+            "/api/v1/sessions",
+            json={"projectId": project["id"], "name": "Python Session"},
+            headers=headers,
+        ).status_code
+        == 404
+    )
     assert client.get("/api/v1/legacy/sessions").status_code == 200
 
     thread_response = client.post(

@@ -1,8 +1,9 @@
 """Contrato y readiness del ProductOwnerAgent: esquema I/O y selección de runtime real.
 
-Declara el id, las tools/runtimes elegibles del agente de producto y su orden de preferencia
-(CLIs reales codex_cli/claude_code_cli primero, luego modelos openai_compatible/ollama), y calcula
-si hay un runtime ejecutable para analizar una idea o assessment y emitir un brief y backlog en JSON.
+Declara el id, las tools/runtimes elegibles del agente de producto y su orden de preferencia:
+cuentas gratuitas declaradas por el operador y Ollama primero, luego CLIs reales y finalmente APIs
+pagadas.
+Tambien calcula si existe un runtime ejecutable para emitir el brief y backlog en JSON.
 
 @author Rodrigo Mason
 """
@@ -12,33 +13,29 @@ from __future__ import annotations
 from typing import Any
 
 from .autonomy_profiles import REVERSIBILITIES
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
 
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
-PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = [
-    "shell",
-    "ollama",
+PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(MODEL_PROVIDER_FAMILIES)]
+PRODUCT_OWNER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
+PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+PRODUCT_OWNER_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+PRODUCT_OWNER_AGENT_RUNTIMES = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+_LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
     "openrouter",
     "nvidia_nim",
     "anthropic_api",
 ]
-PRODUCT_OWNER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
-PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = {
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
-}
-PRODUCT_OWNER_AGENT_MODEL_RUNTIMES = PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
-PRODUCT_OWNER_AGENT_RUNTIMES = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
 PRODUCT_OWNER_AGENT_RUNTIME_ORDER = [
+    "gemini",
+    "ollama",
     "codex_cli",
     "claude_code_cli",
-    "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(
+        REMOTE_MODEL_PROVIDER_FAMILIES - {"gemini", *_LEGACY_REMOTE_RUNTIME_ORDER}
+    ),
 ]
 PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS = 240
 
@@ -58,6 +55,18 @@ def _product_owner_runtime_order_id(runtime: dict[str, Any]) -> str:
         if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
         else _product_owner_runtime_family(runtime)
     )
+
+
+def _product_owner_runtime_cost_rank(runtime: dict[str, Any]) -> int:
+    provider_family = _product_owner_runtime_family(runtime)
+    declared_free = str(runtime.get("pricingMode") or "") == "free" and (
+        provider_family != "gemini" or runtime.get("freeTierDeclaredByOperator") is True
+    )
+    if declared_free or _is_ollama_runtime(runtime):
+        return 0
+    if str(runtime.get("id") or "") in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+        return 1
+    return 2
 
 
 def product_owner_agent_contract() -> dict[str, Any]:
@@ -277,9 +286,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
 def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and runtime.get(
-        "productOwnerExecutable"
-    ) is False:
+    if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and runtime.get("productOwnerExecutable") is False:
         return str(
             runtime.get("reason")
             or "CLI runtime has not passed the ProductOwnerAgent-specific safety contract."
@@ -322,8 +329,8 @@ def product_owner_agent_readiness(
 ) -> dict[str, Any]:
     """Selecciona el runtime del ProductOwnerAgent (preferido si es válido, si no el de mayor prioridad).
 
-    Prioriza los runtimes CLI reales (codex_cli/claude_code_cli) y cae a modelos
-    (openai_compatible/ollama) como camino de ejecución que produce el JSON validable.
+    Prioriza cuentas free-tier declaradas por el operador y modelos locales; los demás runtimes quedan
+    disponibles como alternativas sujetas a la política de costo y aprobación.
 
     Returns:
         Estado de readiness con executable/status/reason, el runtime elegido, los candidatos y el contrato.
@@ -333,9 +340,10 @@ def product_owner_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
+            _product_owner_runtime_cost_rank(item),
             PRODUCT_OWNER_AGENT_RUNTIME_ORDER.index(_product_owner_runtime_order_id(item))
             if _product_owner_runtime_order_id(item) in PRODUCT_OWNER_AGENT_RUNTIME_ORDER
-            else len(PRODUCT_OWNER_AGENT_RUNTIME_ORDER)
+            else len(PRODUCT_OWNER_AGENT_RUNTIME_ORDER),
         ),
     )
     selected = None

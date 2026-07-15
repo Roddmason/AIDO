@@ -57,6 +57,7 @@ from .contracts import (
 from .developer_agent import DeveloperAgentRunner
 from .devops_agent import DevOpsAgentRunner
 from .product_owner_agent import ProductOwnerAgentRunner
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .research_agent import ResearchAgentRunner
@@ -100,20 +101,12 @@ VALID_AGENT_ROLES = {
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
-REMOTE_API_RUNTIMES = {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
-MODEL_AGENT_RUNTIMES = REMOTE_API_RUNTIMES | {"ollama"}
+REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+MODEL_AGENT_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
 DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
 ARCHITECT_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
 SECURITY_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
-PRODUCT_OWNER_AGENT_RUNTIMES = {
-    "codex_cli",
-    "claude_code_cli",
-    "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
-}
+PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -151,11 +144,13 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     ):
         raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
     if not isinstance(allowed_providers, list) or not all(
-        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_providers
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item))
+        for item in allowed_providers
     ):
         raise HTTPException(status_code=422, detail="Allowed providers must be compact catalog ids.")
     if not isinstance(allowed_runtimes, list) or not all(
-        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_runtimes
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item))
+        for item in allowed_runtimes
     ):
         raise HTTPException(status_code=422, detail="Allowed runtimes must be compact catalog ids.")
     for field in ("routingProfileId", "roleModelPolicyId"):
@@ -202,7 +197,9 @@ def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]
         if values is None:
             continue
         if not isinstance(values, list) or not all(
-            isinstance(item, str) and pattern.match(item) for item in values
+            isinstance(item, str)
+            and (item == "*" or pattern.match(item))
+            for item in values
         ):
             raise HTTPException(status_code=422, detail=f"{field} must contain compact catalog ids.")
     for field in ("defaultRuntimePolicy", "reviewerPolicy"):

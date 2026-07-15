@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from local_control_center.agents.provider_catalog import PROVIDER_CATALOG, PROVIDER_CATALOG_VERSION
 from local_control_center.security_policy.policy_engine import permission_profile_for
 
+# Versions the role-selection/scheduling algorithm. Provider/default-candidate changes are
+# independently traceable through PROVIDER_CATALOG_VERSION and persisted profile metadata.
 SCHEDULER_VERSION = 2
 
 CORE_ROLES = ("product_owner", "technical_lead")
@@ -182,9 +185,18 @@ _ROLE_REQUIRED_INPUT_ARTIFACTS = {
     "release_manager": ["release_candidate", "quality_evidence", "rollback_plan"],
 }
 
-_ROLE_PROVIDER_PREFERENCE = {
+_BASE_ROLE_PROVIDER_PREFERENCE = {
     "aido_lead": ["claude_code_cli", "codex_cli", "openai_compatible"],
-    "product_owner": ["claude_code_cli", "openai_compatible", "nvidia_nim"],
+    "product_owner": [
+        "gemini",
+        "ollama",
+        "codex_cli",
+        "claude_code_cli",
+        "openai_compatible",
+        "openrouter",
+        "nvidia_nim",
+        "anthropic_api",
+    ],
     "project_manager": ["openai_compatible", "ollama"],
     "scrum_master": ["openai_compatible", "ollama"],
     "architect": ["claude_code_cli", "openai_compatible", "nvidia_nim"],
@@ -201,6 +213,26 @@ _ROLE_PROVIDER_PREFERENCE = {
     "researcher": ["openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"],
     "release_manager": ["claude_code_cli", "codex_cli"],
 }
+
+# ``PROVIDER_CATALOG`` owns the API/local catalog. The remaining entries are technical runtimes
+# already catalogued by the control plane. Keeping them concrete here is intentional: wildcard
+# permission belongs in ``allowedProviders``; candidate selection must remain ordered and auditable.
+_TECHNICAL_PROVIDER_IDS = (
+    "codex_cli",
+    "claude_code_cli",
+    "openhands",
+    "swe_agent",
+    "manual",
+)
+_KNOWN_PROVIDER_IDS = tuple(
+    dict.fromkeys([*(entry.id for entry in PROVIDER_CATALOG), *_TECHNICAL_PROVIDER_IDS])
+)
+_ROLE_PROVIDER_PREFERENCE = {
+    role: list(dict.fromkeys([*preference, *_KNOWN_PROVIDER_IDS]))
+    for role, preference in _BASE_ROLE_PROVIDER_PREFERENCE.items()
+}
+
+_ALL_RUNTIME_SELECTORS = ["*"]
 
 _ROLE_RUNTIME_PREFERENCE = {role: ["cli", "api"] for role in ALL_ROLES}
 _ROLE_RUNTIME_PREFERENCE.update(
@@ -369,14 +401,16 @@ def _reviewer_policy(role: str, *, scope: set[str], risk: str, mode: str) -> dic
             "requiresDifferentModel": False,
             "reviewerModelTier": None,
         }
-    requires_different_model = mode in {"balanced", "critical", "maximum"} or _RISK_ORDER[risk] >= _RISK_ORDER[
-        "high"
-    ]
+    requires_different_model = (
+        mode in {"balanced", "critical", "maximum"} or _RISK_ORDER[risk] >= _RISK_ORDER["high"]
+    )
     return {
         "mode": MODE_TIERS[mode]["reviewDepth"],
         "reviewerRole": reviewer,
         "requiresDifferentModel": requires_different_model,
-        "reviewerModelTier": _REVIEWER_MODEL_TIER[mode] if requires_different_model else MODE_TIERS[mode]["modelTier"],
+        "reviewerModelTier": _REVIEWER_MODEL_TIER[mode]
+        if requires_different_model
+        else MODE_TIERS[mode]["modelTier"],
     }
 
 
@@ -403,8 +437,8 @@ def _default_role_record(role: str) -> dict[str, Any]:
         "name": _ROLE_NAMES[role],
         "role": role,
         "runtimeMode": _ROLE_RUNTIME_PREFERENCE[role][0],
-        "allowedProviders": list(_ROLE_PROVIDER_PREFERENCE[role]),
-        "allowedRuntimes": list(_ROLE_RUNTIME_PREFERENCE[role]),
+        "allowedProviders": ["*"],
+        "allowedRuntimes": list(_ALL_RUNTIME_SELECTORS),
         "allowedTools": profile["toolsAllowed"],
         "allowedSkills": profile["skills"],
         "permissionProfile": _permission_profile(role),
@@ -418,6 +452,7 @@ def _default_role_record(role: str) -> dict[str, Any]:
         "outputSchema": profile["outputArtifactSchema"],
         "metadata": {
             "schedulerVersion": SCHEDULER_VERSION,
+            "providerCatalogVersion": PROVIDER_CATALOG_VERSION,
             "capabilities": list(_ROLE_CAPABILITIES[role]),
             "requiredInputArtifacts": list(_ROLE_REQUIRED_INPUT_ARTIFACTS[role]),
             "providerPreference": list(_ROLE_PROVIDER_PREFERENCE[role]),
@@ -479,7 +514,9 @@ def select_roles(*, scope: set[str], risk: str, mode: str) -> set[str]:
         base.add("architect")
     if (scope & _SECURITY_SCOPES) or risk_level >= high or mode == "maximum":
         base.add("security_engineer")
-    if (scope & {"security", "pentest", "pentester"}) or (risk == "critical" and mode in {"critical", "maximum"}):
+    if (scope & {"security", "pentest", "pentester"}) or (
+        risk == "critical" and mode in {"critical", "maximum"}
+    ):
         base.add("pentester")
     if (scope & {"release", "deploy"}) or mode == "maximum":
         base.add("release_manager")

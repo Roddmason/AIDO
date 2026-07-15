@@ -13,6 +13,8 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
+
 STALE_AFTER_DAYS = 90
 
 
@@ -31,6 +33,7 @@ class PricingCatalog:
         cached_input_tokens: int = 0,
         output_tokens: int = 0,
         reasoning_tokens: int = 0,
+        pricing_mode: str | None = None,
     ) -> dict[str, Any]:
         """Estimate the USD cost of a call and report price provenance and freshness.
 
@@ -53,17 +56,30 @@ class PricingCatalog:
                 "staleness": "unknown",
                 "priceKnown": False,
                 "freeTier": False,
+                "freeTierEligible": False,
+                "pricingMode": str(pricing_mode or "unknown"),
             }
         source = str(row["source"] or "manual")
-        free_tier = bool(row["free_tier"])
+        free_tier_eligible = bool(row["free_tier"])
+        account = self._provider_pricing_context(
+            provider_id=provider_id,
+            pricing_mode=pricing_mode,
+        )
+        effective_pricing_mode = str(account.get("pricingMode") or "unknown")
+        provider_type = str(account.get("providerType") or "")
+        effectively_free = free_tier_eligible and (
+            provider_account_is_declared_free(account) or provider_type in {"local", "manual"}
+        )
         staleness = self._staleness(source=source, updated_at=row["updated_at"])
-        if free_tier:
+        if effectively_free:
             return {
                 "estimatedCostUsd": 0.0,
                 "source": f"{source}:free_tier",
                 "staleness": staleness,
                 "priceKnown": True,
                 "freeTier": True,
+                "freeTierEligible": True,
+                "pricingMode": effective_pricing_mode,
             }
         prices = {
             "input": row["input_price_per_mtok"],
@@ -78,6 +94,8 @@ class PricingCatalog:
                 "staleness": "unknown",
                 "priceKnown": False,
                 "freeTier": False,
+                "freeTierEligible": free_tier_eligible,
+                "pricingMode": effective_pricing_mode,
             }
         total = 0.0
         total += (float(prices["input"] or 0) * max(input_tokens - cached_input_tokens, 0)) / 1_000_000
@@ -90,6 +108,8 @@ class PricingCatalog:
             "staleness": staleness,
             "priceKnown": True,
             "freeTier": False,
+            "freeTierEligible": free_tier_eligible,
+            "pricingMode": effective_pricing_mode,
         }
 
     def estimate_cost(
@@ -101,6 +121,7 @@ class PricingCatalog:
         cached_input_tokens: int = 0,
         output_tokens: int = 0,
         reasoning_tokens: int = 0,
+        pricing_mode: str | None = None,
     ) -> tuple[float | None, str]:
         """Estimate cost as a `(cost_usd_or_none, source)` tuple for callers that skip metadata."""
         estimate = self.estimate(
@@ -110,8 +131,30 @@ class PricingCatalog:
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
+            pricing_mode=pricing_mode,
         )
         return estimate["estimatedCostUsd"], estimate["source"]
+
+    def _provider_pricing_context(
+        self,
+        *,
+        provider_id: str,
+        pricing_mode: str | None,
+    ) -> dict[str, Any]:
+        """Return account context without treating model eligibility as billing state."""
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            account = {
+                "providerId": provider_id,
+                "providerFamily": provider_id,
+                "providerType": "",
+                "pricingMode": "unknown",
+                "metadata": {},
+            }
+        if pricing_mode is not None:
+            account = {**account, "pricingMode": pricing_mode}
+        return account
 
     def _staleness(self, *, source: str, updated_at: str | None) -> str:
         if not updated_at or source == "manual_seed":

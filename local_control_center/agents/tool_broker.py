@@ -30,6 +30,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.telemetry import record_tool_call
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .repository import AgentsRepository
 from .runtime_adapters import (
     RUNTIME_ADAPTER_TOOLS,
@@ -42,13 +43,7 @@ from .runtime_registry import (
     validate_product_owner_runtime_argv,
 )
 
-MODEL_PROVIDER_TOOLS = {
-    "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
-}
+MODEL_PROVIDER_TOOLS = set(MODEL_PROVIDER_FAMILIES)
 PRODUCT_OWNER_INTERNAL_OPERATIONS = {"product_owner_runtime", "product_owner_model_call"}
 PRODUCT_OWNER_AGENT_PROFILE_ID = "product_owner_agent"
 
@@ -372,11 +367,7 @@ class ToolBroker:
             and bool(row["enabled"])
         ):
             return None, "ollama"
-        if (
-            row
-            and bool(row["enabled"])
-            and str(row["provider_family"] or "") == tool_name
-        ):
+        if row and bool(row["enabled"]) and str(row["provider_family"] or "") == tool_name:
             return None, str(row["provider_family"])
         return (
             {
@@ -429,7 +420,9 @@ class ToolBroker:
             if operation == "product_owner_runtime"
             else str(tool_input.get("model") or "").strip() or None
         )
-        expected_runtime = "cli" if operation == "product_owner_runtime" else str(selected.get("runtime") or "")
+        expected_runtime = (
+            "cli" if operation == "product_owner_runtime" else str(selected.get("runtime") or "")
+        )
         common_identity_matches = all(
             (
                 str(run_row["project_id"] or "") == project_id,
@@ -459,10 +452,8 @@ class ToolBroker:
                 str(routing_row["selected_model"] or "") == str(tool_model or ""),
                 str(routing_row["selected_runtime"] or "") == expected_runtime,
                 bool(str(routing_row["workflow_run_id"] or "").strip()),
-                str(routing_row["workflow_run_id"] or "")
-                == str(run_row["workflow_run_id"] or ""),
-                bool(routing_row["approval_required"])
-                == bool(resource_decision.get("approvalRequired")),
+                str(routing_row["workflow_run_id"] or "") == str(run_row["workflow_run_id"] or ""),
+                bool(routing_row["approval_required"]) == bool(resource_decision.get("approvalRequired")),
             )
         )
         if not routing_identity_matches:
@@ -835,9 +826,7 @@ class ToolBroker:
                     timeout_seconds=int(tool_call.get("timeoutSeconds") or 30),
                     truncate_output=not capture_stdout_artifact,
                     environment=(
-                        trusted_subprocess_environment
-                        if operation == "product_owner_runtime"
-                        else None
+                        trusted_subprocess_environment if operation == "product_owner_runtime" else None
                     ),
                 )
             if execution_result.get("blocked"):

@@ -1,5 +1,5 @@
 /**
- * Shared domain logic for the Providers & CLI setup catalog: the fixed 15-provider list, their
+ * Shared domain logic for the Providers & CLI setup catalog: the fixed provider list, their
  * presentation metadata (icon, group, preconfigured base URL, whether the operator must supply a
  * URL, and how they authenticate), the left-join of live runtime status with configuration, and the
  * rule that collapses the backend readiness booleans into one user-facing state. UI-agnostic so the
@@ -157,6 +157,19 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		authKind: 'api_key',
 		capabilities: ['chat', 'tools', 'routing'],
 		instructionsKey: 'app.runtime.instructions.openrouter',
+	},
+	{
+		id: 'litellm',
+		displayName: 'LiteLLM Proxy',
+		group: 'gateway',
+		Icon: Network,
+		providerType: 'gateway',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: null,
+		needsBaseUrl: true,
+		authKind: 'optional_api_key',
+		capabilities: ['chat', 'routing', 'tools', 'json'],
+		instructionsKey: 'app.runtime.instructions.litellm',
 	},
 	{
 		id: 'nvidia_nim',

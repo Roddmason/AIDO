@@ -460,6 +460,7 @@ class RoutingPolicyResult(BaseModel):
     """Resultado de política del ruteo: si requiere aprobación y la política de costo desconocido."""
 
     requires_approval: bool = Field(alias="requiresApproval")
+    free_tier_only: bool = Field(default=False, alias="freeTierOnly")
     role_policy_id: str = Field(alias="rolePolicyId")
     max_cost_per_task_usd: float | None = Field(default=None, alias="maxCostPerTaskUsd")
     allow_unknown_cost: bool = Field(default=True, alias="allowUnknownCost")

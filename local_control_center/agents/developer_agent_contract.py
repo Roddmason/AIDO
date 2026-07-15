@@ -11,32 +11,29 @@ from __future__ import annotations
 
 from typing import Any
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+
 DEVELOPER_AGENT_ID = "developer_agent"
 DEVELOPER_AGENT_ALLOWED_TOOLS = [
     "shell",
-    "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
+    *sorted(MODEL_PROVIDER_FAMILIES),
     "workspace_patch",
 ]
 DEVELOPER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
-DEVELOPER_AGENT_REMOTE_API_RUNTIMES = {
+DEVELOPER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+DEVELOPER_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+_LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
     "openrouter",
     "nvidia_nim",
     "anthropic_api",
-}
-DEVELOPER_AGENT_MODEL_RUNTIMES = DEVELOPER_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
+]
 DEVELOPER_AGENT_RUNTIME_ORDER = [
     "codex_cli",
     "claude_code_cli",
     "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
 ]
 
 

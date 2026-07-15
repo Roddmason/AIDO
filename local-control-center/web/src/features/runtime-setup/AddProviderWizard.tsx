@@ -10,7 +10,7 @@
  */
 
 import { CheckCircle2, CircleDollarSign, KeyRound, Link2, RefreshCw, XCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
 	createCredential,
@@ -41,6 +41,26 @@ const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate'
 
 type TestOutcome = { ok: boolean; latencyMs?: number; sample?: string; error?: string | null };
 type CredentialMode = 'none' | 'key' | 'ref';
+type GeminiPricingMode = 'free' | 'configured';
+const GEMINI_MODEL_PRIORITY = [
+	'gemini-3.5-flash',
+	'gemini-3.1-flash-lite',
+	'gemini-2.5-flash',
+	'gemini-2.5-flash-lite',
+	'gemini-2.5-pro',
+] as const;
+
+export function orderedRoleModels(providerId: string, models: string[]): string[] {
+	if (providerId !== 'gemini') return models;
+	const priority = new Map<string, number>(
+		GEMINI_MODEL_PRIORITY.map((model, index) => [model, index]),
+	);
+	return [...models].sort(
+		(left, right) =>
+			(priority.get(left) ?? GEMINI_MODEL_PRIORITY.length) -
+			(priority.get(right) ?? GEMINI_MODEL_PRIORITY.length),
+	);
+}
 
 /** Non-CLI providers the wizard can connect (CLI runtimes are set up via Detect & check on the card). */
 const WIZARD_PROVIDERS = PROVIDER_CATALOG.filter((entry) => entry.group !== 'cli');
@@ -79,12 +99,16 @@ export function AddProviderWizard({
 	open,
 	token,
 	initialProviderId,
+	initialPricingMode,
+	initialFreeTierAttested = false,
 	onClose,
 	onSaved,
 }: {
 	open: boolean;
 	token: string;
 	initialProviderId?: string | null;
+	initialPricingMode?: 'unknown' | GeminiPricingMode | null;
+	initialFreeTierAttested?: boolean;
 	onClose: () => void;
 	onSaved: () => void;
 }) {
@@ -94,6 +118,10 @@ export function AddProviderWizard({
 		initialProviderId ?? WIZARD_PROVIDERS[0]?.id ?? '',
 	);
 	const [credMode, setCredMode] = useState<CredentialMode>('key');
+	const [geminiPricingMode, setGeminiPricingMode] = useState<GeminiPricingMode>(
+		initialPricingMode === 'configured' ? 'configured' : 'free',
+	);
+	const [geminiFreeTierAttested, setGeminiFreeTierAttested] = useState(initialFreeTierAttested);
 	const [credentialRef, setCredentialRef] = useState('');
 	const [baseUrl, setBaseUrl] = useState('');
 	const [backends, setBackends] = useState<CredentialBackend[]>([]);
@@ -113,13 +141,12 @@ export function AddProviderWizard({
 	 */
 	const apiKeyRef = useRef<HTMLInputElement | null>(null);
 	const readApiKey = () => apiKeyRef.current?.value ?? '';
-	const clearApiKey = () => {
+	const clearApiKey = useCallback(() => {
 		if (apiKeyRef.current) apiKeyRef.current.value = '';
-	};
+	}, []);
 
 	const entry: ProviderCatalogEntry | undefined = catalogEntry(providerId);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-seed once per open; deriving from initialProviderId only.
 	useEffect(() => {
 		if (!open) return;
 		const first = initialProviderId ?? WIZARD_PROVIDERS[0]?.id ?? '';
@@ -127,6 +154,8 @@ export function AddProviderWizard({
 		setStep('provider');
 		setProviderId(first);
 		setCredMode(defaultCredentialMode(seedEntry));
+		setGeminiPricingMode(initialPricingMode === 'configured' ? 'configured' : 'free');
+		setGeminiFreeTierAttested(initialFreeTierAttested);
 		clearApiKey();
 		setCredentialRef('');
 		setBaseUrl(seedEntry?.defaultBaseUrl ?? '');
@@ -140,7 +169,7 @@ export function AddProviderWizard({
 		void getModelGatewayRolePolicies()
 			.then((payload) => setRolePolicies(payload.rolePolicies))
 			.catch(() => setRolePolicies([]));
-	}, [open, initialProviderId]);
+	}, [open, initialProviderId, initialPricingMode, initialFreeTierAttested, clearApiKey]);
 
 	const writableBackend = useMemo(
 		() =>
@@ -153,8 +182,12 @@ export function AddProviderWizard({
 
 	/** Model ids the operator kept — the only ones a role may be routed to. */
 	const selectedModels = useMemo(
-		() => discovered.filter((model) => selected.has(model.id)).map((model) => model.model),
-		[discovered, selected],
+		() =>
+			orderedRoleModels(
+				providerId,
+				discovered.filter((model) => selected.has(model.id)).map((model) => model.model),
+			),
+		[discovered, selected, providerId],
 	);
 
 	/** Pre-check the roles this provider already serves, and re-seed whenever the provider changes. */
@@ -189,8 +222,13 @@ export function AddProviderWizard({
 
 	const selectProvider = (id: string) => {
 		const selectedEntry = catalogEntry(id);
+		const restoresInitialAccount = id === initialProviderId;
 		setProviderId(id);
 		setCredMode(defaultCredentialMode(selectedEntry));
+		setGeminiPricingMode(
+			restoresInitialAccount && initialPricingMode === 'configured' ? 'configured' : 'free',
+		);
+		setGeminiFreeTierAttested(restoresInitialAccount && initialFreeTierAttested);
 		clearApiKey();
 		setCredentialRef('');
 		setBaseUrl(selectedEntry?.defaultBaseUrl ?? '');
@@ -203,6 +241,15 @@ export function AddProviderWizard({
 		setBusy(true);
 		setError('');
 		try {
+			if (entry.id === 'gemini' && geminiPricingMode === 'free' && !geminiFreeTierAttested) {
+				setError(
+					t(
+						'app.providers.wizard.errorGeminiFreeAttestation',
+						'Confirm that this Google project is on the Free tier before saving it as zero cost.',
+					),
+				);
+				return false;
+			}
 			if (entry.needsBaseUrl && !baseUrl.trim()) {
 				setError(t('app.providers.wizard.errorBaseUrl', 'Enter the provider base URL.'));
 				return false;
@@ -239,6 +286,14 @@ export function AddProviderWizard({
 			await createProviderAccountFromCatalog(token, {
 				providerId: entry.id,
 				enabled: true,
+				...(entry.id === 'gemini'
+					? {
+							pricingMode: geminiPricingMode,
+							metadata: {
+								freeTierDeclaredByOperator: geminiPricingMode === 'free' && geminiFreeTierAttested,
+							},
+						}
+					: {}),
 				...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
 				...(ref ? { credentialRef: ref } : {}),
 			});
@@ -434,6 +489,68 @@ export function AddProviderWizard({
 
 				{step === 'credential' ? (
 					<>
+						{entry.id === 'gemini' ? (
+							<>
+								<SegmentedControl
+									label={t('app.providers.wizard.geminiTier', 'Gemini billing tier')}
+									value={geminiPricingMode}
+									onChange={(value) => {
+										setGeminiPricingMode(value as GeminiPricingMode);
+										setGeminiFreeTierAttested(false);
+									}}
+									options={[
+										{
+											value: 'free',
+											label: t('app.providers.wizard.geminiTierFree', 'Free tier'),
+										},
+										{
+											value: 'configured',
+											label: t('app.providers.wizard.geminiTierPaid', 'Paid / configured'),
+										},
+									]}
+								/>
+								{geminiPricingMode === 'free' ? (
+									<section
+										className="stack compact"
+										aria-label={t(
+											'app.providers.wizard.geminiFreeNoticeAria',
+											'Gemini free tier notice',
+										)}
+									>
+										<Badge tone="warn">
+											{t('app.providers.wizard.geminiFreeNotice', 'Google Free tier')}
+										</Badge>
+										<p className="field-help">
+											{t(
+												'app.providers.wizard.geminiFreeDataUse',
+												'Google may use free-tier prompts and responses to improve its products. Do not send personal, sensitive, or confidential data.',
+											)}
+										</p>
+										<p className="field-help">
+											{t(
+												'app.providers.wizard.geminiContextNotice',
+												"1,048,576 tokens is Gemini 3.5 Flash's input context window per request, not a free quota. Free-tier limits vary by project and model.",
+											)}
+										</p>
+										<Checkbox
+											label={t(
+												'app.providers.wizard.geminiFreeAttestation',
+												'I verified in Google AI Studio that this project is on the Free tier. I understand AIDO cannot verify its billing state.',
+											)}
+											checked={geminiFreeTierAttested}
+											onChange={() => setGeminiFreeTierAttested((current) => !current)}
+										/>
+									</section>
+								) : (
+									<p className="field-help">
+										{t(
+											'app.providers.wizard.geminiPaidNotice',
+											'Use this option when billing is enabled for the Google AI project; configured paid rates may apply.',
+										)}
+									</p>
+								)}
+							</>
+						) : null}
 						{entry.authKind === 'api_key' ? (
 							<SegmentedControl
 								label={t('app.providers.wizard.credMode', 'Credential type')}

@@ -94,6 +94,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase53_schema(connection)
     init_phase54_schema(connection)
     init_phase55_schema(connection)
+    init_phase56_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -1523,7 +1524,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "gateway",
             "openai_compatible",
             "",
-            "LITELLM_API_KEY",
+            "",
             0,
             "manual",
             "unknown",
@@ -4755,8 +4756,7 @@ def init_phase44_schema(connection: sqlite3.Connection) -> None:
     for row in rows:
         evidence = json_loads(row["evidence_json"], [])
         if any(
-            isinstance(item, dict)
-            and str(item.get("kind") or "") == "model_catalog_baseline"
+            isinstance(item, dict) and str(item.get("kind") or "") == "model_catalog_baseline"
             for item in evidence
         ):
             connection.execute(
@@ -4897,7 +4897,8 @@ def init_phase47_schema(connection: sqlite3.Connection) -> None:
             connection,
             [
                 ("DROP TABLE IF EXISTS model_calls_cost_nullable", ()),
-                ("""CREATE TABLE model_calls_cost_nullable (
+                (
+                    """CREATE TABLE model_calls_cost_nullable (
                 id TEXT PRIMARY KEY,
                 project_id TEXT,
                 agent_run_id TEXT,
@@ -4910,13 +4911,18 @@ def init_phase47_schema(connection: sqlite3.Connection) -> None:
                 cost_usd REAL,
                 metadata TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            )""", ()),
-                ("""INSERT INTO model_calls_cost_nullable
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO model_calls_cost_nullable
                 (id, project_id, agent_run_id, model_policy_id, provider, model, status,
                  prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
             SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
                    prompt_tokens, completion_tokens, cost_usd, metadata, created_at
-            FROM model_calls""", ()),
+            FROM model_calls""",
+                    (),
+                ),
                 ("DROP TABLE model_calls", ()),
                 ("ALTER TABLE model_calls_cost_nullable RENAME TO model_calls", ()),
             ],
@@ -4989,7 +4995,8 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
         statements.extend(
             [
                 ("DROP TABLE IF EXISTS usage_ledger_tokens_nullable", ()),
-                ("""CREATE TABLE usage_ledger_tokens_nullable (
+                (
+                    """CREATE TABLE usage_ledger_tokens_nullable (
                 id TEXT PRIMARY KEY,
                 provider_id TEXT NOT NULL,
                 model TEXT NOT NULL,
@@ -5015,8 +5022,11 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
                 raw_usage_json TEXT NOT NULL,
                 usage_source TEXT NOT NULL DEFAULT 'estimated',
                 created_at TEXT NOT NULL
-            )""", ()),
-                ("""INSERT INTO usage_ledger_tokens_nullable
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO usage_ledger_tokens_nullable
                 (id, provider_id, model, runtime_type, agent_id, role, workflow_run_id,
                  workflow_step_id, job_id, task_id, request_id, session_id, input_tokens,
                  cached_input_tokens, output_tokens, reasoning_tokens, tool_tokens, total_tokens,
@@ -5032,11 +5042,16 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
                    CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN total_tokens END,
                    estimated_cost_usd, actual_cost_usd, currency, latency_ms, raw_usage_json,
                    usage_source, created_at
-            FROM usage_ledger""", ()),
+            FROM usage_ledger""",
+                    (),
+                ),
                 ("DROP TABLE usage_ledger", ()),
                 ("ALTER TABLE usage_ledger_tokens_nullable RENAME TO usage_ledger", ()),
-                ("""CREATE INDEX IF NOT EXISTS idx_usage_ledger_provider_created
-                ON usage_ledger(provider_id, created_at)""", ()),
+                (
+                    """CREATE INDEX IF NOT EXISTS idx_usage_ledger_provider_created
+                ON usage_ledger(provider_id, created_at)""",
+                    (),
+                ),
             ]
         )
     statements.append(
@@ -5066,7 +5081,8 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
         statements.extend(
             [
                 ("DROP TABLE IF EXISTS model_calls_tokens_nullable", ()),
-                ("""CREATE TABLE model_calls_tokens_nullable (
+                (
+                    """CREATE TABLE model_calls_tokens_nullable (
                 id TEXT PRIMARY KEY,
                 project_id TEXT,
                 agent_run_id TEXT,
@@ -5079,14 +5095,19 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
                 cost_usd REAL,
                 metadata TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            )""", ()),
-                ("""INSERT INTO model_calls_tokens_nullable
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO model_calls_tokens_nullable
                 (id, project_id, agent_run_id, model_policy_id, provider, model, status,
                  prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
             SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
                    prompt_tokens, completion_tokens,
                    cost_usd, metadata, created_at
-            FROM model_calls""", ()),
+            FROM model_calls""",
+                    (),
+                ),
                 ("DROP TABLE model_calls", ()),
                 ("ALTER TABLE model_calls_tokens_nullable RENAME TO model_calls", ()),
             ]
@@ -5307,8 +5328,7 @@ def init_phase54_schema(connection: sqlite3.Connection) -> None:
             "max_cost_per_request_usd REAL "
             "CHECK (max_cost_per_request_usd IS NULL OR max_cost_per_request_usd >= 0)",
         )
-        quota_ddl = (
-            """
+        quota_ddl = """
             CREATE TABLE IF NOT EXISTS provider_limit_windows (
                 id TEXT PRIMARY KEY,
                 limit_id TEXT NOT NULL,
@@ -5383,7 +5403,6 @@ def init_phase54_schema(connection: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_provider_limit_observations_provider
                 ON provider_limit_observations(provider_id, model, observed_at);
             """
-        )
         for statement in quota_ddl.split(";"):
             if statement.strip():
                 connection.execute(statement)
@@ -5403,8 +5422,7 @@ def init_phase55_schema(connection: sqlite3.Connection) -> None:
     savepoint = "aido_phase55_schema"
     connection.execute(f"SAVEPOINT {savepoint}")
     try:
-        execution_ddl = (
-            """
+        execution_ddl = """
             CREATE TABLE IF NOT EXISTS ai_executions (
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL,
@@ -5466,13 +5484,339 @@ def init_phase55_schema(connection: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_ai_execution_branches_provider
                 ON ai_execution_branches(provider_id, model, created_at);
             """
-        )
         for statement in execution_ddl.split(";"):
             if statement.strip():
                 connection.execute(statement)
         connection.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (55, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase56_schema(connection: sqlite3.Connection) -> None:
+    """Fase 56: integra Gemini y agrega ruteo free-tier estricto sin tocar overrides."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 56").fetchone():
+        return
+
+    from local_control_center.agents.provider_catalog import (
+        GEMINI_MODEL_MANIFEST,
+        PROVIDER_CATALOG,
+        PROVIDER_CATALOG_VERSION,
+    )
+    from local_control_center.team_scheduler.scheduler import team_member_defaults
+
+    savepoint = "aido_phase56_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        now = utc_now()
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET provider_family = 'gemini',
+                api_format = 'openai_compatible',
+                api_family = 'chat_completions',
+                base_url = CASE
+                    WHEN TRIM(COALESCE(base_url, '')) = ''
+                    THEN 'https://generativelanguage.googleapis.com/v1beta/openai'
+                    ELSE base_url
+                END,
+                quota_mode = CASE
+                    WHEN quota_mode = 'none' THEN 'provider_reported'
+                    ELSE quota_mode
+                END,
+                pricing_mode = CASE
+                    WHEN pricing_mode = 'free'
+                     AND COALESCE(
+                         CASE WHEN json_valid(metadata_json)
+                              THEN json_extract(metadata_json, '$.freeTierDeclaredByOperator')
+                              ELSE 0 END,
+                         0
+                     ) <> 1
+                    THEN 'unknown'
+                    ELSE pricing_mode
+                END,
+                updated_at = CASE
+                    WHEN provider_family <> 'gemini'
+                      OR api_format <> 'openai_compatible'
+                      OR api_family <> 'chat_completions'
+                      OR TRIM(COALESCE(base_url, '')) = ''
+                      OR quota_mode = 'none'
+                      OR (
+                          pricing_mode = 'free'
+                          AND COALESCE(
+                              CASE WHEN json_valid(metadata_json)
+                                   THEN json_extract(metadata_json, '$.freeTierDeclaredByOperator')
+                                   ELSE 0 END,
+                              0
+                          ) <> 1
+                      )
+                    THEN ? ELSE updated_at
+                END
+            WHERE provider_id = 'gemini'
+            """,
+            (now,),
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET credential_ref = '', updated_at = ?
+            WHERE provider_id = 'litellm'
+              AND credential_ref = 'LITELLM_API_KEY'
+            """,
+            (now,),
+        )
+
+        for model_id, manifest in GEMINI_MODEL_MANIFEST.items():
+            source = f"official_manifest:{PROVIDER_CATALOG_VERSION}"
+            values = (
+                f"gemini:{model_id}",
+                "gemini",
+                model_id,
+                str(manifest.get("displayName") or model_id),
+                str(manifest.get("modelFamily") or "gemini"),
+                "chat_completions",
+                int(manifest.get("contextWindow") or 0),
+                int(manifest.get("maxOutputTokens") or 0),
+                1 if manifest.get("supportsTools") else 0,
+                1 if manifest.get("supportsJson") else 0,
+                1 if manifest.get("supportsStreaming") else 0,
+                1 if manifest.get("supportsVision") else 0,
+                0,
+                0,
+                1 if manifest.get("supportsReasoning") else 0,
+                1 if manifest.get("supportsThinking") else 0,
+                0,
+                0,
+                json_dumps([]),
+                manifest.get("inputPricePerMtok"),
+                manifest.get("cachedInputPricePerMtok"),
+                manifest.get("outputPricePerMtok"),
+                manifest.get("reasoningPricePerMtok"),
+                1 if manifest.get("freeTier") else 0,
+                str(manifest.get("freeTierNotes") or ""),
+                1,
+                source,
+                now,
+                now,
+            )
+            connection.execute(
+                """
+                INSERT INTO model_catalog
+                    (id, provider_id, model, display_name, model_family, api_family,
+                     context_window, max_output_tokens, supports_tools, supports_json,
+                     supports_streaming, supports_vision, supports_embeddings, supports_rerank,
+                     supports_reasoning, supports_thinking, supports_image_generation,
+                     supports_image_editing, effort_levels_json, input_price_per_mtok,
+                     cached_input_price_per_mtok, output_price_per_mtok, reasoning_price_per_mtok,
+                     free_tier, free_tier_notes, enabled, source, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider_id, model) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    model_family = excluded.model_family,
+                    api_family = excluded.api_family,
+                    context_window = excluded.context_window,
+                    max_output_tokens = excluded.max_output_tokens,
+                    supports_tools = excluded.supports_tools,
+                    supports_json = excluded.supports_json,
+                    supports_streaming = excluded.supports_streaming,
+                    supports_vision = excluded.supports_vision,
+                    supports_reasoning = excluded.supports_reasoning,
+                    supports_thinking = excluded.supports_thinking,
+                    input_price_per_mtok = excluded.input_price_per_mtok,
+                    cached_input_price_per_mtok = excluded.cached_input_price_per_mtok,
+                    output_price_per_mtok = excluded.output_price_per_mtok,
+                    reasoning_price_per_mtok = excluded.reasoning_price_per_mtok,
+                    free_tier = excluded.free_tier,
+                    free_tier_notes = excluded.free_tier_notes,
+                    enabled = excluded.enabled,
+                    source = excluded.source,
+                    updated_at = excluded.updated_at
+                WHERE (
+                    model_catalog.created_at = model_catalog.updated_at
+                    AND (
+                        model_catalog.source = 'manual_seed'
+                        OR model_catalog.source LIKE 'provider_account_sync:%'
+                        OR model_catalog.source LIKE 'official_manifest:%'
+                    )
+                )
+                   OR (
+                       model_catalog.source LIKE 'provider_account_sync:%'
+                       AND model_catalog.enabled = 1
+                       AND model_catalog.context_window = 0
+                       AND model_catalog.max_output_tokens = 0
+                       AND model_catalog.free_tier = 0
+                       AND model_catalog.input_price_per_mtok IS NULL
+                       AND model_catalog.cached_input_price_per_mtok IS NULL
+                       AND model_catalog.output_price_per_mtok IS NULL
+                       AND model_catalog.reasoning_price_per_mtok IS NULL
+                   )
+                """,
+                values,
+            )
+
+        provider_families: dict[str, object] = {}
+        for entry in PROVIDER_CATALOG:
+            if entry.provider_type in {"api", "gateway", "local"}:
+                provider_families.setdefault(entry.provider_family, entry)
+        default_roles = [profile["role"] for profile in team_member_defaults()]
+        for provider_family, entry in provider_families.items():
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_installations
+                    (id, runtime_id, kind, executable_path, detected_version, enabled,
+                     capabilities, preferred_roles, health_status, last_validation_at,
+                     last_health_check_at, last_error, configuration_source, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, NULL, NULL, 1, ?, ?, 'unknown', NULL, NULL, NULL,
+                        'provider_catalog', '{}', ?, ?)
+                """,
+                (
+                    f"runtime-installation-{provider_family}",
+                    provider_family,
+                    entry.provider_type,
+                    json_dumps(list(entry.capabilities)),
+                    json_dumps(default_roles),
+                    now,
+                    now,
+                ),
+            )
+            for capability in entry.capabilities:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO runtime_capabilities
+                        (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, 1, ?, ?, ?)
+                    """,
+                    (
+                        f"{provider_family}:{capability}",
+                        provider_family,
+                        capability,
+                        json_dumps({"source": f"provider_catalog:{PROVIDER_CATALOG_VERSION}"}),
+                        now,
+                        now,
+                    ),
+                )
+
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO provider_limits
+                (id, provider_id, model, rpm, tpm, daily_requests, daily_tokens,
+                 monthly_requests, monthly_tokens, monthly_budget_usd, current_window_json,
+                 cooldown_until, last_429_at, last_limit_error_at, unknown_limit_strategy,
+                 created_at, updated_at, max_concurrency, window_timezone, enabled,
+                 fallback_retry_after_seconds, max_cost_per_request_usd)
+            VALUES (
+                'gemini:*', 'gemini', '*', NULL, NULL, NULL, NULL,
+                NULL, NULL, NULL, '{}', NULL, NULL, NULL, 'conservative',
+                ?, ?, NULL, 'America/Los_Angeles', 1, 300, NULL
+            )
+            """,
+            (now, now),
+        )
+        free_tier_rules = json_dumps(
+            {
+                "allowPaidFallback": False,
+                "maxCostUsd": 0,
+                "requireExplicitFreeAccount": True,
+                "requireOperatorAttestation": True,
+                "sensitiveDataPolicy": "local_only",
+            }
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO routing_profiles
+                (id, name, mode, objective, rules_json, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "free_tier",
+                "AIDO strict free tier",
+                "free_tier",
+                "use only operator-declared free-tier or local models",
+                free_tier_rules,
+                now,
+                now,
+            ),
+        )
+
+        old_product_owner_preferred = json_dumps(
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "openai_compatible", "model": "configured_model"},
+            ]
+        )
+        connection.execute(
+            """
+            UPDATE role_model_policies
+            SET routing_profile_id = 'free_tier',
+                preferred_json = ?,
+                fallback_json = ?,
+                max_cost_per_task_usd = 0,
+                requires_approval_over_usd = 0,
+                allow_unknown_cost = 0,
+                require_approval_for_unknown_cost = 0,
+                updated_at = ?
+            WHERE id = 'product_owner'
+              AND routing_profile_id = 'balanced_best_value'
+              AND preferred_json = ?
+              AND fallback_json = '[]'
+              AND escalation_json = '[]'
+              AND blocked_json = '[]'
+              AND max_cost_per_task_usd = 0.75
+              AND max_tokens_per_run = 128000
+              AND requires_approval_over_usd = 0.75
+              AND requires_approval_for_reasoning_max = 0
+              AND allow_remote = 1
+              AND allow_local = 1
+              AND allow_cli = 1
+              AND allow_api = 1
+              AND allow_unknown_cost = 1
+              AND require_approval_for_unknown_cost = 1
+              AND EXISTS (
+                  SELECT 1 FROM routing_profiles
+                  WHERE id = 'free_tier'
+                    AND mode = 'free_tier'
+                    AND rules_json = ?
+              )
+            """,
+            (
+                json_dumps(
+                    [
+                        {"provider": "gemini", "model": "gemini-3.5-flash"},
+                        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+                    ]
+                ),
+                json_dumps([{"provider": "ollama", "model": "local_default"}]),
+                now,
+                old_product_owner_preferred,
+                free_tier_rules,
+            ),
+        )
+        for profile in team_member_defaults():
+            connection.execute(
+                """
+                UPDATE agent_profiles
+                SET allowed_providers = ?, allowed_runtimes = ?,
+                    default_runtime_policy = ?, updated_at = ?
+                WHERE id = ? AND role = ? AND created_at = updated_at
+                """,
+                (
+                    json_dumps(["*"]),
+                    json_dumps(["*"]),
+                    json_dumps(profile["defaultRuntimePolicy"]),
+                    now,
+                    profile["id"],
+                    profile["role"],
+                ),
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (56, now),
         )
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
     except Exception:

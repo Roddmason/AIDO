@@ -381,6 +381,14 @@ export function RuntimeSetupPanel({
 				open={wizardOpen}
 				token={token}
 				initialProviderId={wizardProviderId}
+				initialPricingMode={
+					wizardProviderId ? accountById.get(wizardProviderId)?.pricingMode : undefined
+				}
+				initialFreeTierAttested={
+					wizardProviderId
+						? accountById.get(wizardProviderId)?.metadata?.freeTierDeclaredByOperator === true
+						: false
+				}
 				onClose={() => setWizardOpen(false)}
 				onSaved={() => void refreshHealth()}
 			/>

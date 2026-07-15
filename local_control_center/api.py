@@ -59,6 +59,7 @@ from .shared.telemetry import (
     elapsed_ms,
     external_telemetry_status,
     monotonic_ms,
+    prune_http_request_telemetry,
     record_http_request,
     resolve_correlation_id,
 )
@@ -97,6 +98,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        try:
+            deleted = await anyio.to_thread.run_sync(
+                lambda: prune_http_request_telemetry(platform.connection)
+            )
+            if deleted:
+                logger.info("Pruned %d telemetry.http.request events past retention.", deleted)
+        except Exception as error:  # pragma: no cover - la retención nunca debe impedir el arranque
+            logger.warning("HTTP telemetry pruning failed at startup: %s", error)
         worker_runtime.refresh_settings(platform.connection)
         if worker_runtime.settings.autostart:
             await anyio.to_thread.run_sync(worker_runtime.start)

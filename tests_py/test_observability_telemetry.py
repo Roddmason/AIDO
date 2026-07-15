@@ -273,36 +273,26 @@ def test_external_telemetry_exporter_is_optional_and_receives_redacted_events(
     assert "testsecret" not in str(exported)
 
 
-def test_http_request_telemetry_is_pruned_by_retention(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    fixture = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    fixture.init()
-    connection = fixture.connection
+def test_http_request_telemetry_is_pruned_by_retention(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
 
-    def seed_event(event_id: str, event_type: str, created_at: str) -> None:
-        connection.execute(
-            "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
-            " VALUES (?, NULL, NULL, ?, '{}', ?)",
-            (event_id, event_type, created_at),
-        )
+        def seed_event(event_id: str, event_type: str, created_at: str) -> None:
+            connection.execute(
+                "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+                " VALUES (?, NULL, NULL, ?, '{}', ?)",
+                (event_id, event_type, created_at),
+            )
 
-    seed_event("event-old-http", "telemetry.http.request", "2020-01-01T00:00:00.000Z")
-    seed_event("event-old-domain", "job.created", "2020-01-01T00:00:00.000Z")
-    seed_event("event-new-http", "telemetry.http.request", utc_now())
+        seed_event("event-old-http", "telemetry.http.request", "2020-01-01T00:00:00.000Z")
+        seed_event("event-old-domain", "job.created", "2020-01-01T00:00:00.000Z")
+        seed_event("event-new-http", "telemetry.http.request", utc_now())
 
-    deleted = telemetry.prune_http_request_telemetry(connection)
+        deleted = telemetry.prune_http_request_telemetry(connection)
 
-    assert deleted == 1
-    remaining = {
-        row["id"] for row in connection.execute("SELECT id FROM events WHERE id LIKE 'event-%'").fetchall()
-    }
-    assert remaining == {"event-old-domain", "event-new-http"}
-
-    seed_event("event-old-http-2", "telemetry.http.request", "2020-01-01T00:00:00.000Z")
-    with TestClient(create_app(runtime=fixture, static_dir=None)):
-        pass
-    survivors = {
-        row["id"] for row in connection.execute("SELECT id FROM events WHERE id LIKE 'event-%'").fetchall()
-    }
-    assert "event-old-http-2" not in survivors
-    assert {"event-old-domain", "event-new-http"} <= survivors
+        assert deleted == 1
+        remaining = {
+            row["id"]
+            for row in connection.execute("SELECT id FROM events WHERE id LIKE 'event-%'").fetchall()
+        }
+        assert remaining == {"event-old-domain", "event-new-http"}

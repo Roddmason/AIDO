@@ -378,6 +378,32 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
     assert len(overview["agentRuns"]) == OVERVIEW_AGENT_RUN_LIMIT
 
 
+def test_startup_lifespan_prunes_stale_http_request_telemetry(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    store.connection.execute(
+        "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+        " VALUES ('event-old-http', NULL, NULL, 'telemetry.http.request', '{}',"
+        " '2020-01-01T00:00:00.000Z')"
+    )
+    store.connection.execute(
+        "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+        " VALUES ('event-old-domain', NULL, NULL, 'job.created', '{}', '2020-01-01T00:00:00.000Z')"
+    )
+
+    with TestClient(create_app(runtime=store, static_dir=None)):
+        pass
+
+    survivors = {
+        row["id"]
+        for row in store.connection.execute(
+            "SELECT id FROM events WHERE id IN ('event-old-http', 'event-old-domain')"
+        ).fetchall()
+    }
+    assert survivors == {"event-old-domain"}
+
+
 def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
 

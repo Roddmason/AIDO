@@ -32,6 +32,7 @@ from local_control_center.product_discovery.repository import ProductDiscoveryRe
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.time import utc_now
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .assessment_runner import ProjectAssessmentRunner
@@ -87,6 +88,9 @@ PROMPT_TEXT_LIMIT_CHARS = 8_000
 PROMPT_COLLECTION_LIMIT = 20
 RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
 ASSESSMENT_SIGNAL_LIMIT = 5
+PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS = 2
+REPAIR_ERROR_LIMIT_CHARS = 2_000
+REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 4_000
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
@@ -375,9 +379,10 @@ class ProductOwnerAgent:
         idea: str,
         assessment: dict[str, Any],
         epic_expansion: dict[str, Any] | None = None,
+        repair: dict[str, Any] | None = None,
     ) -> list[dict[str, str]]:
         """Arma los mensajes system/user para el runtime de modelo, exigiendo solo JSON del esquema."""
-        return [
+        messages = [
             {"role": "system", "content": self._system_instruction(epic_expansion=bool(epic_expansion))},
             {
                 "role": "user",
@@ -390,6 +395,9 @@ class ProductOwnerAgent:
                 ),
             },
         ]
+        if repair:
+            messages.append({"role": "user", "content": self._repair_instruction(repair)})
+        return messages
 
     def cli_prompt(
         self,
@@ -397,6 +405,7 @@ class ProductOwnerAgent:
         idea: str,
         assessment: dict[str, Any],
         epic_expansion: dict[str, Any] | None = None,
+        repair: dict[str, Any] | None = None,
     ) -> str:
         """Arma el prompt de una sola pieza para un runtime CLI real, exigiendo solo JSON del esquema."""
         context = json_dumps(
@@ -405,7 +414,23 @@ class ProductOwnerAgent:
             )
         )
         instruction = self._system_instruction(epic_expansion=bool(epic_expansion))
-        return f"{instruction}\n\nInput context (JSON):\n{context}\n"
+        prompt = f"{instruction}\n\nInput context (JSON):\n{context}\n"
+        if repair:
+            prompt += self._repair_instruction(repair)
+        return prompt
+
+    def _repair_instruction(self, repair: dict[str, Any]) -> str:
+        """Instrucción de reparación: adjunta el error de validación previo y la salida inválida acotada."""
+        error = _bounded_text(repair.get("error"), limit=REPAIR_ERROR_LIMIT_CHARS)
+        previous = _bounded_text(repair.get("previousOutput"), limit=REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS)
+        return (
+            "\n\nYour previous response FAILED strict validation with this error: "
+            + error
+            + "\nPrevious output was:\n"
+            + previous
+            + "\nReturn corrected JSON ONLY (no markdown fences), fixing exactly that error "
+            "and keeping every other field valid."
+        )
 
     def _system_instruction(self, *, epic_expansion: bool = False) -> str:
         if epic_expansion:
@@ -862,9 +887,7 @@ class ProductOwnerAgentRunner:
             model = model or next(iter(runtime.get("models") or []), None)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         resource_decision = (
-            metadata.get("resourceSelection")
-            if isinstance(metadata.get("resourceSelection"), dict)
-            else None
+            metadata.get("resourceSelection") if isinstance(metadata.get("resourceSelection"), dict) else None
         )
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -1313,6 +1336,146 @@ class ProductOwnerAgentRunner:
             result=result,
         )
 
+    def _mint_repair_resource_decision(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Acuña una decisión de ruteo hermana para autorizar un intento de reparación.
+
+        La frontera anti-replay del ToolBroker consume cada decisión de ruteo exactamente una vez;
+        el intento de reparación es una invocación adicional legítima del mismo run (misma
+        selección de proveedor/modelo/runtime y mismo workflow), así que se registra una decisión
+        nueva auditada como reparación en vez de debilitar el invariante de un solo uso.
+        """
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        selection = metadata.get("resourceSelection")
+        if not isinstance(selection, dict):
+            return None
+        original_id = str(selection.get("routingDecisionId") or "").strip()
+        if not original_id:
+            return None
+        row = self.connection.execute(
+            "SELECT * FROM ai_routing_decisions WHERE id = ?", (original_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        record["id"] = f"ai-routing-{uuid.uuid4()}"
+        record["usage_status"] = "not_executed"
+        record["actual_cost_usd"] = None
+        record["decision_reason"] = f"Repair attempt re-authorization of routing decision {original_id}."
+        record["created_at"] = utc_now()
+        columns = ", ".join(record.keys())
+        placeholders = ", ".join(["?"] * len(record))
+        self.connection.execute(
+            f"INSERT INTO ai_routing_decisions ({columns}) VALUES ({placeholders})",
+            tuple(record.values()),
+        )
+        return {
+            **selection,
+            "routingDecisionId": record["id"],
+            "usageStatus": "not_executed",
+            "decisionReason": record["decision_reason"],
+        }
+
+    def _execute_once(
+        self,
+        *,
+        payload: dict[str, Any],
+        runtime: dict[str, Any],
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        broker: ToolBroker,
+        assessment: dict[str, Any],
+        detected_facts: set[str],
+        epic: dict[str, Any] | None,
+        epic_expansion: dict[str, Any] | None,
+        repair: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Ejecuta el runtime una vez y valida su salida contra el contrato estricto.
+
+        Returns:
+            ``{"kind": "ok", output, selection, runtimeResult, outputArtifactId}`` en éxito;
+            ``{"kind": "invalid", reason, runtimeResult, outputText, outputArtifactId}`` si la
+            salida no valida (candidata a reparación); ``{"kind": "infra_failed", reason,
+            runtimeResult}`` si el runtime no completó (la reparación no aplica).
+        """
+        runtime_id = str(runtime["id"])
+        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+            try:
+                runtime_result = self._execute_cli_runtime(
+                    payload=payload,
+                    runtime=runtime,
+                    workspace=workspace,
+                    agent_run=agent_run,
+                    job=job,
+                    profile=profile,
+                    broker=broker,
+                    prompt=self.agent.cli_prompt(
+                        idea=assessment["idea"],
+                        assessment=assessment,
+                        epic_expansion=epic_expansion,
+                        repair=repair,
+                    ),
+                )
+            except RuntimeCommandUnavailableError as error:
+                return {
+                    "kind": "infra_failed",
+                    "reason": str(error),
+                    "runtimeResult": {"status": "failed", "reason": str(error)},
+                }
+        else:
+            runtime_result = self._execute_model_runtime(
+                payload=payload,
+                runtime=runtime,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+                broker=broker,
+                messages=self.agent.model_messages(
+                    idea=assessment["idea"],
+                    assessment=assessment,
+                    epic_expansion=epic_expansion,
+                    repair=repair,
+                ),
+            )
+        if runtime_result["status"] != "completed":
+            return {
+                "kind": "infra_failed",
+                "reason": str(runtime_result.get("reason") or "ProductOwnerAgent runtime execution failed."),
+                "runtimeResult": runtime_result,
+            }
+        try:
+            runtime_output = self._runtime_output_text(runtime_result)
+        except ProductOwnerOutputValidationError as error:
+            return {
+                "kind": "invalid",
+                "reason": str(error),
+                "runtimeResult": runtime_result,
+                "outputText": "",
+                "outputArtifactId": None,
+            }
+        try:
+            output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
+            if epic:
+                self.agent.validate_epic_expansion_output(output, epic_title=epic["title"])
+            selection = ImpactQuestionEngine().select(output["questions"], detected_facts=detected_facts)
+        except (ProductOwnerOutputValidationError, ImpactQuestionValidationError) as error:
+            return {
+                "kind": "invalid",
+                "reason": str(error),
+                "runtimeResult": runtime_result,
+                "outputText": runtime_output["text"],
+                "outputArtifactId": runtime_output["artifactId"],
+            }
+        return {
+            "kind": "ok",
+            "output": output,
+            "selection": selection,
+            "runtimeResult": runtime_result,
+            "outputArtifactId": runtime_output["artifactId"],
+        }
+
     def _execute_and_persist(
         self,
         *,
@@ -1347,63 +1510,52 @@ class ProductOwnerAgentRunner:
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_id = str(runtime["id"])
         epic_expansion = self._epic_expansion_context(epic) if epic else None
-        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
-            try:
-                runtime_result = self._execute_cli_runtime(
-                    payload=payload,
-                    runtime=runtime,
-                    workspace=workspace,
-                    agent_run=agent_run,
-                    job=job,
-                    profile=profile,
-                    broker=broker,
-                    prompt=self.agent.cli_prompt(
-                        idea=assessment["idea"], assessment=assessment, epic_expansion=epic_expansion
-                    ),
-                )
-            except RuntimeCommandUnavailableError as error:
-                result["status"] = "failed"
-                result["reason"] = str(error)
-                result["runtimeResult"] = {"status": "failed", "reason": str(error)}
-                return result
-        else:
-            runtime_result = self._execute_model_runtime(
-                payload=payload,
+        detected_facts = detected_facts_from_assessment(
+            brief=assessment.get("brief"),
+            existing_questions=assessment.get("openQuestions"),
+        )
+        repair: dict[str, Any] | None = None
+        attempt_payload = payload
+        attempt_result: dict[str, Any] = {}
+        for _attempt in range(PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS):
+            attempt_result = self._execute_once(
+                payload=attempt_payload,
                 runtime=runtime,
                 workspace=workspace,
                 agent_run=agent_run,
                 job=job,
                 profile=profile,
                 broker=broker,
-                messages=self.agent.model_messages(
-                    idea=assessment["idea"], assessment=assessment, epic_expansion=epic_expansion
-                ),
+                assessment=assessment,
+                detected_facts=detected_facts,
+                epic=epic,
+                epic_expansion=epic_expansion,
+                repair=repair,
             )
-        result["runtimeResult"] = runtime_result
-        if runtime_result["status"] != "completed":
-            result["status"] = "failed"
-            result["reason"] = str(
-                runtime_result.get("reason") or "ProductOwnerAgent runtime execution failed."
-            )
-            return result
-
-        try:
-            runtime_output = self._runtime_output_text(runtime_result)
-            result["outputArtifactId"] = runtime_output["artifactId"]
-            output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
-            if epic:
-                self.agent.validate_epic_expansion_output(output, epic_title=epic["title"])
-            selection = ImpactQuestionEngine().select(
-                output["questions"],
-                detected_facts=detected_facts_from_assessment(
-                    brief=assessment.get("brief"),
-                    existing_questions=assessment.get("openQuestions"),
-                ),
-            )
-        except (ProductOwnerOutputValidationError, ImpactQuestionValidationError) as error:
+            result["runtimeResult"] = attempt_result["runtimeResult"]
+            if attempt_result.get("outputArtifactId"):
+                result["outputArtifactId"] = attempt_result["outputArtifactId"]
+            if attempt_result["kind"] == "ok":
+                break
+            if attempt_result["kind"] == "infra_failed":
+                result["status"] = "failed"
+                result["reason"] = attempt_result["reason"]
+                return result
+            repair = {
+                "error": attempt_result["reason"],
+                "previousOutput": attempt_result.get("outputText", ""),
+            }
+            repair_selection = self._mint_repair_resource_decision(payload)
+            if repair_selection is not None:
+                attempt_metadata = dict(payload.get("metadata") or {})
+                attempt_metadata["resourceSelection"] = repair_selection
+                attempt_payload = {**payload, "metadata": attempt_metadata}
+        if attempt_result["kind"] != "ok":
             result["status"] = FAILED_VALIDATION_STATUS
-            result["reason"] = str(error)
+            result["reason"] = attempt_result["reason"]
             return result
+        output = attempt_result["output"]
+        selection = attempt_result["selection"]
         output["questions"] = selection["turn"]
         output["deferredQuestions"] = selection["deferred"]
         output["suppressedQuestions"] = selection["suppressed"]

@@ -1,4 +1,7 @@
-"""Credential-safe urllib transport primitives shared by model providers."""
+"""Credential-safe urllib transport primitives shared by model providers.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

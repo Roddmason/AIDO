@@ -1,4 +1,7 @@
-"""Strict public contracts for bounded one-or-many chat execution."""
+"""Strict public contracts for bounded one-or-many chat execution.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

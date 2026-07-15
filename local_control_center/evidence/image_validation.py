@@ -1,4 +1,7 @@
-"""Dependency-neutral PNG/JPEG header validation shared by artifact write and download paths."""
+"""Dependency-neutral PNG/JPEG header validation shared by artifact write and download paths.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

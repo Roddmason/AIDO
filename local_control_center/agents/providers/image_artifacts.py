@@ -1,4 +1,7 @@
-"""Durable, project-scoped artifact boundary for generated NVIDIA images."""
+"""Durable, project-scoped artifact boundary for generated NVIDIA images.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

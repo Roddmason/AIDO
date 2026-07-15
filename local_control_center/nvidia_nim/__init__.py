@@ -1,1 +1,4 @@
-"""NVIDIA NIM local-runtime discovery and compatibility boundaries."""
+"""NVIDIA NIM local-runtime discovery and compatibility boundaries.
+
+@author Rodrigo Mason
+"""

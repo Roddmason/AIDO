@@ -1,4 +1,7 @@
-"""Typed contracts for read-only NVIDIA NIM local preflight."""
+"""Typed contracts for read-only NVIDIA NIM local preflight.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

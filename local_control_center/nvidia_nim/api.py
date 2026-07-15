@@ -1,4 +1,7 @@
-"""Read-only NVIDIA NIM local-runtime API."""
+"""Read-only NVIDIA NIM local-runtime API.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

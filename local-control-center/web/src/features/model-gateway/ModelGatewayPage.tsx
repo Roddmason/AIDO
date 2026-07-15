@@ -29,8 +29,15 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { resolveHashRoute, splitHash } from '../../app/routing';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { ErrorState, Tabs } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	ErrorState,
+	PageHeader,
+	Surface,
+	Tabs,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { sumRecordedCostUsd, toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';

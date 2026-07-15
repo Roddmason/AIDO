@@ -53,6 +53,19 @@
 				"useExhaustiveDependencies": "warn",
 				"useHookAtTopLevel": "error"
 			},
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["**/components/primitives"],
+								"message": "Importa desde components/ui"
+							}
+						]
+					}
+				}
+			},
 			"suspicious": {
 				"recommended": true,
 				"noExplicitAny": "error",

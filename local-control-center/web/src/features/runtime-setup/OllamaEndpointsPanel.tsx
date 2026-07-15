@@ -19,8 +19,15 @@ import {
 	syncOllamaEndpointModels,
 } from '../../api/client';
 import type { ModelGatewayRolePolicy, OllamaEndpoint } from '../../api/types';
-import { Badge, Modal } from '../../components/primitives';
-import { Button, Checkbox, SelectField, TextField, useToast } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	Checkbox,
+	Dialog as Modal,
+	SelectField,
+	TextField,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import {

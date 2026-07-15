@@ -4,7 +4,7 @@
  * en USD y redactan secretos antes de pintarlos, evitando que cada panel reimplemente esa lógica.
  * @author Rodrigo Mason
  */
-import { Surface } from '../../components/primitives';
+import { Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 export const EXECUTABLE_AGENT_ROLES = [

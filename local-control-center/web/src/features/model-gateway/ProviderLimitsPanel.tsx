@@ -16,8 +16,15 @@ import type {
 	ModelGatewayProviderLimitStatus,
 	ModelGatewayProviderLimitUpsert,
 } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
-import { Button, Checkbox, SelectField, TextField } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	Checkbox,
+	DataTable,
+	EmptyState,
+	SelectField,
+	TextField,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { money, text } from './utils';

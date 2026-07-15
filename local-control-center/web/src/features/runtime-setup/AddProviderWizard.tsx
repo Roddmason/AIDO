@@ -24,8 +24,15 @@ import {
 	testPromptModelGatewayProvider,
 } from '../../api/client';
 import type { CredentialBackend, ModelGatewayModel, ModelGatewayRolePolicy } from '../../api/types';
-import { Badge, Modal } from '../../components/primitives';
-import { Button, Checkbox, SegmentedControl, SelectField, TextField } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	Checkbox,
+	Dialog as Modal,
+	SegmentedControl,
+	SelectField,
+	TextField,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
 	COST_META,

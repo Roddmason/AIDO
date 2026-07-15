@@ -42,8 +42,15 @@ import {
 	testProjectGitRemote,
 } from '../../api/client';
 import type { Project } from '../../api/types';
-import { StatusDot } from '../../components/primitives';
-import { Button, Dialog, IconButton, TextField, Tooltip, useToast } from '../../components/ui';
+import {
+	Button,
+	Dialog,
+	IconButton,
+	StatusDot,
+	TextField,
+	Tooltip,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 /** Keeps the composer bar single-line; the full subject stays available in the title tooltip. */

@@ -10,6 +10,7 @@ cada remediation debe exponer al frontend.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
@@ -91,10 +92,13 @@ def test_terminal_loop_resolves_its_pending_actions_without_hiding_loopless_reco
         assert all(action["status"] == "resolved" for action in terminal_actions)
         assert all(action["resolvedAt"] is not None for action in terminal_actions)
         assert service.repository.get(loopless["id"])["status"] == "pending"
-        assert connection.execute(
-            "SELECT COUNT(*) AS total FROM remediation_actions WHERE thread_id = ?",
-            (thread["id"],),
-        ).fetchone()["total"] == row_count_before
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS total FROM remediation_actions WHERE thread_id = ?",
+                (thread["id"],),
+            ).fetchone()["total"]
+            == row_count_before
+        )
 
         legacy_pending = service.repository.create_action(
             project_id=project["id"],
@@ -248,8 +252,7 @@ def test_list_backfills_missing_actions_for_current_awaiting_user_decisions(tmp_
             decision["decisionId"] for decision in pending_decisions
         }
         assert not any(
-            action["loopId"] == loop["id"] and action["actionType"] == "retry_loop"
-            for action in actions
+            action["loopId"] == loop["id"] and action["actionType"] == "retry_loop" for action in actions
         )
         dismissed = next(
             action
@@ -480,9 +483,7 @@ def test_runtime_not_executable_opens_runtime_setup_with_ollama_defaults(tmp_pat
         local_validate = next(
             action for action in local_actions if action["actionType"] == "validate_runtime"
         )
-        local_switch = next(
-            action for action in local_actions if action["actionType"] == "switch_runtime"
-        )
+        local_switch = next(action for action in local_actions if action["actionType"] == "switch_runtime")
         local_retry = next(action for action in local_actions if action["actionType"] == "retry_loop")
         remote_settings = next(
             action for action in remote_actions if action["actionType"] == "open_settings_section"
@@ -585,9 +586,7 @@ def test_workspace_allocation_remediation_carries_repair_context(tmp_path: Path)
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "workspace_allocation_failed"
@@ -644,9 +643,7 @@ def test_git_remote_missing_block_creates_remote_remediations(tmp_path: Path) ->
         assert ("git_remote_missing", "add_remote") in actions
         assert ("git_remote_missing", "retry_loop") in actions
         add_remote = next(action for action in created if action["actionType"] == "add_remote")
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
         assert add_remote["payload"]["name"] == "origin"
         assert add_remote["payload"]["url"] == "git@github.com:aido/example.git"
@@ -786,9 +783,7 @@ def test_resource_manager_missing_api_key_opens_credentials_remediation(tmp_path
 
         action_types = {action["actionType"] for action in created}
         blocker_actions = {(action["blockerType"], action["actionType"]) for action in created}
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         validate = next(action for action in created if action["actionType"] == "validate_runtime")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
         assert {
@@ -837,9 +832,7 @@ def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_revie
                         "taskId": "product-owner-1",
                         "decision": {
                             "selected": None,
-                            "decisionReason": (
-                                "Remote resources are blocked by the project privacy policy."
-                            ),
+                            "decisionReason": ("Remote resources are blocked by the project privacy policy."),
                             "rejected": [
                                 {
                                     "providerId": "codex_cli",
@@ -860,9 +853,7 @@ def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_revie
             },
         )
 
-        assert {action["blockerType"] for action in created} == {
-            "resource_manager_privacy_blocked"
-        }
+        assert {action["blockerType"] for action in created} == {"resource_manager_privacy_blocked"}
         assert [action["actionType"] for action in created] == [
             "open_settings_section",
             "open_settings_section",
@@ -876,9 +867,7 @@ def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_revie
         assert routing_settings["payload"]["section"] == "routing"
         assert retry["primary"] is False
         assert retry["payload"]["retryTarget"] == "resource_manager"
-        assert "disable" not in " ".join(
-            action["description"].lower() for action in created
-        )
+        assert "disable" not in " ".join(action["description"].lower() for action in created)
 
 
 def test_resource_manager_privacy_blocked_requires_nonempty_rejections(tmp_path: Path) -> None:
@@ -988,9 +977,7 @@ def test_resource_manager_unconfigured_remediation_carries_blocked_role_context(
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "resource_manager_unconfigured"
@@ -1083,9 +1070,7 @@ def test_resource_manager_runtime_mapping_block_does_not_offer_approval(
         )
 
         action_types = {action["actionType"] for action in created}
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert "approve_resource_decision" not in action_types
@@ -1213,9 +1198,7 @@ def test_team_scheduler_failed_remediation_carries_planning_context(tmp_path: Pa
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "team_scheduler_failed"
@@ -1274,9 +1257,7 @@ def test_technical_lead_planning_failed_remediation_carries_planning_context(
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         for action in (open_settings, retry):
@@ -1332,9 +1313,7 @@ def test_product_owner_output_invalid_remediation_carries_output_context(
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "product_owner_output_invalid"
@@ -1388,9 +1367,7 @@ def test_product_owner_needs_input_without_options_is_invalid_output(
         )
 
         action_types = {action["actionType"] for action in created}
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert "answer_question" not in action_types
@@ -1439,9 +1416,7 @@ def test_resource_learning_failed_remediation_carries_retry_evidence_context(
             },
         )
 
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         assert open_settings["blockerType"] == "resource_learning_failed"
@@ -1510,9 +1485,7 @@ def test_approval_unavailable_remediation_carries_delivery_evidence_context(
             assert action["blockerType"] == "approval_unavailable"
             assert action["payload"]["workspaceId"] == "workspace_approval"
             assert action["payload"]["evidenceRefs"] == ["evidence_runtime", "evidence_gitleaks"]
-            assert action["payload"]["diffRefs"] == [
-                {"kind": "git_diff", "path": "evidence/delivery.diff"}
-            ]
+            assert action["payload"]["diffRefs"] == [{"kind": "git_diff", "path": "evidence/delivery.diff"}]
             assert action["payload"]["changedFiles"] == ["src/aido.py", "tests/test_aido.py"]
             assert action["payload"]["gitleaksStatus"] == "completed"
             assert action["payload"]["resourceLearning"] == {
@@ -1640,9 +1613,7 @@ def test_gitleaks_failed_remediation_carries_security_recovery_context(
             assert action["payload"]["agentTaskIds"] == ["agent_task_1"]
             assert action["payload"]["scheduledRoles"] == ["backend_engineer"]
             assert action["payload"]["changedFiles"] == ["src/aido.py"]
-            assert action["payload"]["diffRefs"] == [
-                {"kind": "git_diff", "path": "evidence/gitleaks.diff"}
-            ]
+            assert action["payload"]["diffRefs"] == [{"kind": "git_diff", "path": "evidence/gitleaks.diff"}]
             assert action["payload"]["gitleaksStatus"] == "blocked"
             assert action["payload"]["gitleaksFindingCount"] == 1
             assert action["payload"]["qaResultCount"] == 1
@@ -1707,9 +1678,7 @@ def test_qa_failed_remediation_carries_qa_recovery_context(
             },
         )
 
-        continue_plan = next(
-            action for action in created if action["actionType"] == "continue_plan_only"
-        )
+        continue_plan = next(action for action in created if action["actionType"] == "continue_plan_only")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         for action in (continue_plan, retry):
@@ -1781,9 +1750,7 @@ def test_runtime_output_invalid_remediation_carries_runtime_recovery_context(
             },
         )
 
-        continue_plan = next(
-            action for action in created if action["actionType"] == "continue_plan_only"
-        )
+        continue_plan = next(action for action in created if action["actionType"] == "continue_plan_only")
         retry = next(action for action in created if action["actionType"] == "retry_loop")
 
         for action in (continue_plan, retry):
@@ -2141,9 +2108,7 @@ def test_product_owner_output_invalid_offers_validate_and_switch_runtime(tmp_pat
 
         validate = next(action for action in created if action["actionType"] == "validate_runtime")
         switch = next(action for action in created if action["actionType"] == "switch_runtime")
-        open_settings = next(
-            action for action in created if action["actionType"] == "open_settings_section"
-        )
+        open_settings = next(action for action in created if action["actionType"] == "open_settings_section")
 
         # The runtime behind ProductOwnerAgent is the likely culprit, so revalidating it leads the card.
         assert validate["primary"] is True
@@ -2180,3 +2145,35 @@ def test_remediation_records_carry_primary_destructive_and_technical_reason(tmp_
             assert record["technicalReason"] == "Runtime is not executable."
             assert record["destructive"] is False
         assert created[0]["primary"] is True
+
+
+def test_blocked_thread_without_a_blocked_loop_still_gets_a_retry_action(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "blocked-thread-no-blocked-loop")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        loop = coordinator.start(project_id=project["id"], title="Diverged state loop")
+
+        # Divergencia: el loop dejó de estar "blocked" (cascada de reintentos + worker detenido),
+        # pero conserva el durable del bloqueo y el hilo sigue marcado como blocked.
+        durable = {
+            "durableRun": {
+                "thread": {"projectThreadId": thread["id"]},
+                "status": "blocked",
+                "blockedStage": "product_owner",
+                "blockedReason": (
+                    "ProductOwnerAgent output must be a JSON object: questions[0].category "
+                    "must be one of ['compliance', 'data', 'delivery']."
+                ),
+            }
+        }
+        connection.execute(
+            "UPDATE product_loops SET state = 'cancelled', context = ? WHERE id = ?",
+            (json.dumps(durable), loop["id"]),
+        )
+        ThreadsRepository(connection).set_status(thread["id"], "blocked")
+
+        service = BlockerRemediationService(connection, root=tmp_path)
+        actions = service.list_for_thread(thread_id=thread["id"])
+
+        assert any(action["actionType"] == "retry_loop" for action in actions)

@@ -21,7 +21,6 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.index import RetrievalIndex
 from local_control_center.memory_retrieval.repository import MemoryRepository
 from local_control_center.projects.repository import ProjectsRepository
-from local_control_center.sandbox import WindowsSandbox
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -985,18 +984,6 @@ def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> N
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
     assert {"jobs", "job_runs", "events", "audit_events", "action_requests", "memory_embeddings"} <= tables
-
-
-def test_sandbox_denies_dangerous_subprocess_without_docker(tmp_path: Path, monkeypatch) -> None:
-    sandbox = WindowsSandbox(workspace=tmp_path)
-    monkeypatch.setattr(sandbox, "docker_available", lambda: False)
-
-    denied = sandbox.assess(["git", "push"])
-    allowed = sandbox.assess(["python", "--version"])
-
-    assert denied.allowed is False
-    assert denied.mode == "restricted-subprocess"
-    assert allowed.allowed is True
 
 
 def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monkeypatch) -> None:

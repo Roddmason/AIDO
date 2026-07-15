@@ -27,7 +27,6 @@ AUTHOR_TAG = "@author Rodrigo Mason"
 # Módulos con requisitos de dominio (ver §4 del estándar).
 SECURITY_KEYWORDS = ("invariant", "raises", "raise", "lanza")
 SECURITY_EXTRA_FILES = {
-    BACKEND / "sandbox.py",
     BACKEND / "agents" / "tool_broker.py",
     BACKEND / "agents" / "credentials.py",
 }

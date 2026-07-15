@@ -11,7 +11,7 @@
 import { useMemo } from 'react';
 
 import type { AgentProfile, Overview } from '../../api/types';
-import { Badge, EmptyState } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { ConsoleLink } from './SettingsPage';

@@ -8,8 +8,7 @@
  * while `open`, so it adds no cost when the drawer is closed.
  * @author Rodrigo Mason
  */
-import { Badge, EmptyState } from '../../components/primitives';
-import { ErrorState, Skeleton } from '../../components/ui';
+import { StatusChip as Badge, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { TeamActivityCard } from './TeamActivityCard';
 import { useTeamActivity } from './useTeamActivity';

@@ -30,8 +30,18 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
-import { Badge, Drawer, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { Button, SegmentedControl, TextArea, TextField, useToast } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	Drawer,
+	EmptyState,
+	PageHeader,
+	SegmentedControl,
+	Surface,
+	TextArea,
+	TextField,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { formatTime, shortId, toneForStatus } from '../../lib/format';
 import { GitBranchBar } from '../shell/GitBranchBar';

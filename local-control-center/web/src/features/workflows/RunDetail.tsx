@@ -16,8 +16,14 @@ import {
 	retryJob,
 } from '../../api/client';
 import type { Artifact, Overview } from '../../api/types';
-import { Badge, DataTable, Drawer, EmptyState, Surface } from '../../components/primitives';
-import { Tabs } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	DataTable,
+	Drawer,
+	EmptyState,
+	Surface,
+	Tabs,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../lib/artifacts';
 import { findPatchArtifact } from '../../lib/diff';

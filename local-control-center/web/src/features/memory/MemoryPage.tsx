@@ -4,7 +4,7 @@
  * @author Rodrigo Mason
  */
 import type { Overview, RetrievalStatus } from '../../api/types';
-import { PageHeader, Surface } from '../../components/primitives';
+import { PageHeader, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 export function MemoryPage({

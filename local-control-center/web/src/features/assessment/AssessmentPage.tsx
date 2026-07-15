@@ -9,8 +9,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiRequest } from '../../api/client';
 import type { Overview, Project } from '../../api/types';
-import { DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { Button, ErrorState, Skeleton, StatusChip } from '../../components/ui';
+import {
+	Button,
+	DataTable,
+	EmptyState,
+	ErrorState,
+	PageHeader,
+	Skeleton,
+	StatusChip,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 

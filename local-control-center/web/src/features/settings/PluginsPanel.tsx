@@ -34,10 +34,12 @@ import {
 	scanLocalPlugins,
 	validatePlugin,
 } from '../../api/client';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
 import {
+	StatusChip as Badge,
 	Button,
+	DataTable,
 	Dialog,
+	EmptyState,
 	ErrorState,
 	Skeleton,
 	Tabs,

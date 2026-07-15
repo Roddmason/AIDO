@@ -25,7 +25,7 @@ import type {
 } from '../../api/types';
 import { DEVELOPER_PAGE_GROUPS, pickLabel } from '../../app/navigation';
 import { Disclosure } from '../../components/Disclosure';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';

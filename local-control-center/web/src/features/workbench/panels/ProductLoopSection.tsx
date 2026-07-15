@@ -12,8 +12,13 @@ import type { ReactNode } from 'react';
 import type { ProjectProductLoopResponse } from '../../../api/client';
 import type { Overview } from '../../../api/types';
 import { Disclosure } from '../../../components/Disclosure';
-import { Badge, EmptyState } from '../../../components/primitives';
-import { Button, ErrorState, Skeleton } from '../../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	EmptyState,
+	ErrorState,
+	Skeleton,
+} from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { toneForStatus } from '../../../lib/format';
 import { StorySpecDialog } from './StorySpecDialog';

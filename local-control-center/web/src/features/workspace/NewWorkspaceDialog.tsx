@@ -11,7 +11,7 @@ import { FolderOpen, FolderPlus, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { Overview } from '../../api/types';
-import { Modal } from '../../components/primitives';
+import { Dialog as Modal } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { ProjectDiscoverySummary } from './ProjectDiscoverySummary';
 import type { WorkspaceMode } from './useProjectDiscovery';

@@ -10,7 +10,7 @@ import { m } from 'motion/react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { EmptyState } from '../components/primitives';
+import { EmptyState } from '../components/ui';
 import { useI18n } from '../i18n/I18nProvider';
 import { cardTransition, dialogTransition, listStagger } from '../motion/variants';
 import type { CommandAction, CommandGroupId } from './commandActions';

@@ -10,7 +10,7 @@ import { AnimatePresence, m } from 'motion/react';
 
 import type { ActionRequest } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../lib/artifacts';
 import { hasRealPatchChanges } from '../../lib/diff';

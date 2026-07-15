@@ -10,8 +10,16 @@ import type { ProjectProductLoopResponse } from '../../../api/client';
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
 import { Disclosure } from '../../../components/Disclosure';
-import { Badge, DataTable, Drawer, EmptyState, Surface } from '../../../components/primitives';
-import { Button, SelectField, TextArea } from '../../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	DataTable,
+	Drawer,
+	EmptyState,
+	SelectField,
+	Surface,
+	TextArea,
+} from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { artifactDisplayName, artifactSizeLabel } from '../../../lib/artifacts';
 import { evidenceDiffChangedFiles, findSecurityArtifact } from '../../../lib/diff';

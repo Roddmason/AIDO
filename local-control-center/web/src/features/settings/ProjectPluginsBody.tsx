@@ -9,8 +9,7 @@
 import { useEffect, useState } from 'react';
 
 import { listPlugins, type PluginRecord } from '../../api/client';
-import { Badge, EmptyState } from '../../components/primitives';
-import { ErrorState, Skeleton } from '../../components/ui';
+import { StatusChip as Badge, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 export function ProjectPluginsBody() {

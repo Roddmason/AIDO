@@ -7,8 +7,7 @@
  */
 
 import type { ProjectProductLoopResponse } from '../../api/client';
-import { Badge, EmptyState, StatusDot } from '../../components/primitives';
-import { Button } from '../../components/ui';
+import { StatusChip as Badge, Button, EmptyState, StatusDot } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { PRODUCT_LOOP_PHASES, PRODUCT_LOOP_STATE_ORDER } from './productLoopModel';

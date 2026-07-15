@@ -11,8 +11,7 @@
 import { Moon, Rows3, Sun } from 'lucide-react';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
-import { StatusDot } from '../components/primitives';
-import { Button, IconButton, Tooltip } from '../components/ui';
+import { Button, IconButton, StatusDot, Tooltip } from '../components/ui';
 import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
 import { deriveShellStatus } from './shellStatus';

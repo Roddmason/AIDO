@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.agents.product_owner_agent import persist_product_owner_backlog
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.time import utc_now
@@ -39,6 +40,7 @@ from .models import (
     ProductLoopStartRequest,
     ProductLoopStateResponse,
     ProductLoopTransitionRequest,
+    StorySpecResponse,
 )
 from .repository import ProductLoopRepository
 
@@ -116,6 +118,22 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     )
     async def get_product_loop_state(project_id: str) -> dict[str, Any]:
         return product_loop_state(project_id)
+
+    @router.get(
+        "/api/v1/projects/{project_id}/product-loop/stories/{story_id}/spec",
+        response_model=StorySpecResponse,
+    )
+    async def get_story_spec(project_id: str, story_id: str) -> dict[str, Any]:
+        """Devuelve el spec ejecutable de una historia: épica, HU, criterios, roles y texto de prompt."""
+        backlog = backlog_repository()
+        try:
+            story = backlog.get_user_story(story_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if story["projectId"] != project_id:
+            raise HTTPException(status_code=404, detail=f"User story not found in project: {story_id}")
+        spec = build_story_spec(backlog, story_id)
+        return {**spec, "promptText": render_story_spec_prompt([spec])}
 
     @router.post(
         "/api/v1/projects/{project_id}/product-loop",

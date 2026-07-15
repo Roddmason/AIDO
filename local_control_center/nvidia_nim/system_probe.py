@@ -1,4 +1,7 @@
-"""Bounded allowlisted system probes for NVIDIA NIM local compatibility facts."""
+"""Bounded allowlisted system probes for NVIDIA NIM local compatibility facts.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

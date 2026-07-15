@@ -1,4 +1,7 @@
-"""Resolve persisted provider accounts to their concrete model adapter."""
+"""Resolve persisted provider accounts to their concrete model adapter.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

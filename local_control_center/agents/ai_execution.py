@@ -3,6 +3,8 @@
 The service persists only execution identity, endpoint/model identity, quota settlement and
 content fingerprints. Request messages, response bodies, raw provider payloads and raw errors
 never cross the SQLite boundary.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

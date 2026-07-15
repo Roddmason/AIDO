@@ -1,4 +1,7 @@
-"""Pure NVIDIA NIM compatibility evaluation over sanitized host observations."""
+"""Pure NVIDIA NIM compatibility evaluation over sanitized host observations.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

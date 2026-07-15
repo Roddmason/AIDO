@@ -1,4 +1,7 @@
-"""Versioned, source-attributed NVIDIA NIM local hardware requirements."""
+"""Versioned, source-attributed NVIDIA NIM local hardware requirements.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

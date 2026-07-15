@@ -1,4 +1,7 @@
-"""Typed provider capability ports and transport-neutral request/response records."""
+"""Typed provider capability ports and transport-neutral request/response records.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

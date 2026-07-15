@@ -8111,6 +8111,34 @@
       "en": "so that",
       "es": "para que"
     },
+    "app.workbench.loop.storySpec.action": {
+      "en": "Agent spec",
+      "es": "Spec del agente"
+    },
+    "app.workbench.loop.storySpec.title": {
+      "en": "Story spec",
+      "es": "Spec de la historia"
+    },
+    "app.workbench.loop.storySpec.rolesLabel": {
+      "en": "Role responsibilities",
+      "es": "Responsabilidades por rol"
+    },
+    "app.workbench.loop.storySpec.reviewer": {
+      "en": "Reviewer",
+      "es": "Revisor"
+    },
+    "app.workbench.loop.storySpec.dependsOn": {
+      "en": "depends on",
+      "es": "depende de"
+    },
+    "app.workbench.loop.storySpec.promptLabel": {
+      "en": "Prompt the implementing agent receives",
+      "es": "Prompt que recibe el agente que implementa"
+    },
+    "app.workbench.loop.storySpec.error": {
+      "en": "The story spec could not be loaded",
+      "es": "No se pudo cargar el spec de la historia"
+    },
     "app.workbench.loop.iteration.emptyTitle": {
       "en": "No planned iterations",
       "es": "Sin iteraciones planificadas"

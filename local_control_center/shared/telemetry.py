@@ -16,10 +16,13 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from .event_bus import EventBus
 from .redaction import redact_secrets
+
+HTTP_REQUEST_TELEMETRY_RETENTION_DAYS = 7
 
 
 class ExternalTelemetryExporter(Protocol):
@@ -313,6 +316,30 @@ def record_http_request(
             "durationMs": duration_ms,
         },
     )
+
+
+def prune_http_request_telemetry(
+    connection: sqlite3.Connection,
+    *,
+    retention_days: int = HTTP_REQUEST_TELEMETRY_RETENTION_DAYS,
+) -> int:
+    """Borra eventos ``telemetry.http.request`` más antiguos que la retención y devuelve cuántos.
+
+    Solo poda telemetría de latencia HTTP (alto volumen, valor decreciente); nunca toca
+    eventos de dominio ni ``audit_events``. El cutoff se calcula en el mismo formato
+    ISO-8601 con sufijo ``Z`` de ``utc_now`` para que la comparación lexicográfica sea
+    correcta también dentro del mismo día.
+    """
+    cutoff = (
+        (datetime.now(UTC) - timedelta(days=retention_days))
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    cursor = connection.execute(
+        "DELETE FROM events WHERE type = 'telemetry.http.request' AND created_at < ?",
+        (cutoff,),
+    )
+    return cursor.rowcount
 
 
 def record_policy_decision(connection: sqlite3.Connection, decision: dict[str, Any]) -> dict[str, Any]:

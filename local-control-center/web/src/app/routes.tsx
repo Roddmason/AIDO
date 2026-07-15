@@ -39,12 +39,14 @@ const importModelGateway = () => Promise.resolve({ ModelGatewayPage });
 const importAgents = () => import('../features/agents/AgentsPage');
 const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPage })));
 
-const importPages = () => import('../features/pages');
-const EvidencePage = lazy(() => importPages().then((m) => ({ default: m.EvidencePage })));
-const GovernancePage = lazy(() => importPages().then((m) => ({ default: m.GovernancePage })));
+const importPolicy = () => import('../features/policy/PolicySecurityPage');
 const PolicySecurityPage = lazy(() =>
-	importPages().then((m) => ({ default: m.PolicySecurityPage })),
+	importPolicy().then((m) => ({ default: m.PolicySecurityPage })),
 );
+const importEvidence = () => import('../features/evidence/EvidencePage');
+const EvidencePage = lazy(() => importEvidence().then((m) => ({ default: m.EvidencePage })));
+const importGovernance = () => import('../features/governance/GovernancePage');
+const GovernancePage = lazy(() => importGovernance().then((m) => ({ default: m.GovernancePage })));
 
 const importIntegrations = () => import('../features/integrations/IntegrationsPage');
 const IntegrationsPage = lazy(() =>
@@ -180,7 +182,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	policy: {
 		render: (ctx) => <PolicySecurityPage overview={ctx.overview} mutate={ctx.mutate} />,
-		preload: importPages,
+		preload: importPolicy,
 	},
 	memory: {
 		render: (ctx) => <MemoryPage overview={ctx.overview} retrievalStatus={ctx.retrievalStatus} />,
@@ -188,7 +190,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 	},
 	evidence: {
 		render: (ctx) => <EvidencePage overview={ctx.overview} token={ctx.token} />,
-		preload: importPages,
+		preload: importEvidence,
 	},
 	models: {
 		render: (ctx) => (
@@ -209,7 +211,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				mutate={ctx.mutate}
 			/>
 		),
-		preload: importPages,
+		preload: importGovernance,
 	},
 	assessment: {
 		render: (ctx) => (

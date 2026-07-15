@@ -159,6 +159,8 @@ export type EvidenceDetailResponse =
 	OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type ProjectProductLoopResponse =
 	OperationResponse<'get_product_loop_state_api_v1_projects__project_id__product_loop_get'>;
+export type StorySpecResponse =
+	OperationResponse<'get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get'>;
 export type ProductLoopStartRequest =
 	MutationBody<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductLoopTransitionRequest =
@@ -331,6 +333,18 @@ export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 		ProjectProductLoopResponse
 	>('get_product_loop_state_api_v1_projects__project_id__product_loop_get', {
 		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Executable spec of one user story (epic, story, criteria, role responsibilities and the
+ *  prompt text the implementing agent receives); a read, so no write token. */
+export function getStorySpec(projectId: string, storyId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get',
+		StorySpecResponse
+	>('get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get', {
+		pathParams: { project_id: projectId, story_id: storyId },
 		signal,
 	});
 }

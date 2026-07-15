@@ -16,6 +16,7 @@ import { Badge, EmptyState } from '../../../components/primitives';
 import { Button, ErrorState, Skeleton } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { toneForStatus } from '../../../lib/format';
+import { StorySpecDialog } from './StorySpecDialog';
 
 /** The loop sections backed by the product-loop endpoint (or, for architecture, the overview). */
 export type ProductLoopSectionId =
@@ -458,6 +459,13 @@ export function ProductLoopSection({
 													))}
 												</div>
 											</Labeled>
+											<div className="inline">
+												<StorySpecDialog
+													projectId={story.projectId}
+													storyId={story.id}
+													storyTitle={story.title}
+												/>
+											</div>
 											<Labeled
 												label={t(
 													'app.workbench.loop.backlog.agentTasksByAgent',

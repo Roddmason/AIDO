@@ -696,8 +696,11 @@ def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> 
         raise HTTPException(status_code=422, detail="ProductOwnerAgent taskId is required.")
     idea = str(payload.get("idea") or "").strip()
     initiative_id = str(payload.get("initiativeId") or "").strip()
-    if not idea and not initiative_id:
-        raise HTTPException(status_code=422, detail="ProductOwnerAgent requires an idea or an initiativeId.")
+    epic_id = str(payload.get("epicId") or "").strip()
+    if not idea and not initiative_id and not epic_id:
+        raise HTTPException(
+            status_code=422, detail="ProductOwnerAgent requires an idea, an initiativeId or an epicId."
+        )
     preferred_runtime = payload.get("preferredRuntime")
     if preferred_runtime and preferred_runtime not in PRODUCT_OWNER_AGENT_RUNTIMES:
         raise HTTPException(

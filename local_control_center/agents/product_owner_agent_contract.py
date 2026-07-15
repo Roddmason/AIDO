@@ -82,6 +82,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
                 "taskId": {"type": "string"},
                 "idea": {"type": ["string", "null"]},
                 "initiativeId": {"type": ["string", "null"]},
+                "epicId": {"type": ["string", "null"]},
                 "completenessThreshold": {"type": ["number", "null"]},
                 "workflowContext": {"type": "object"},
                 "assessment": {"type": "object"},

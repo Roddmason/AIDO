@@ -2159,10 +2159,10 @@ class ProductLoopCoordinator:
                     preferred_provider_ids.append(provider_id)
             return {
                 "rolePolicyId": str(policy.get("id") or policy_role),
+                "routingProfileId": str(policy.get("routingProfileId") or ""),
+                "freeTierOnly": str(policy.get("routingProfileId") or "") == "free_tier",
                 "allowUnknownCost": bool(policy.get("allowUnknownCost", False)),
-                "requireApprovalForUnknownCost": bool(
-                    policy.get("requireApprovalForUnknownCost", True)
-                ),
+                "requireApprovalForUnknownCost": bool(policy.get("requireApprovalForUnknownCost", True)),
                 "requiresApprovalOverUsd": float(threshold) if threshold is not None else None,
                 "maxTokensPerRun": int(policy.get("maxTokensPerRun") or 0) or None,
                 "allowRemote": bool(policy.get("allowRemote", False)),
@@ -2170,12 +2170,12 @@ class ProductLoopCoordinator:
                 "allowCli": bool(policy.get("allowCli", False)),
                 "allowApi": bool(policy.get("allowApi", False)),
                 "preferredProviderIds": preferred_provider_ids,
-                "blockedResources": [
-                    item for item in policy.get("blocked") or [] if isinstance(item, dict)
-                ],
+                "blockedResources": [item for item in policy.get("blocked") or [] if isinstance(item, dict)],
             }
         return {
             "rolePolicyId": None,
+            "routingProfileId": None,
+            "freeTierOnly": False,
             "allowUnknownCost": False,
             "requireApprovalForUnknownCost": True,
             "requiresApprovalOverUsd": None,
@@ -2426,7 +2426,11 @@ class ProductLoopCoordinator:
                     task_id=task["id"],
                     task_type=f"{role}.{role_plan.get('kind') or 'reason'}",
                     risk_level=str(team_schedule.get("risk") or "medium"),
-                    routing_policy=str(team_schedule.get("mode") or "balanced"),
+                    routing_policy=(
+                        "economy"
+                        if resource_policy["freeTierOnly"]
+                        else str(team_schedule.get("mode") or "balanced")
+                    ),
                     context_tokens_estimate=context_tokens,
                     required_capabilities=self._resource_required_capabilities(role_plan),
                     privacy_level=privacy_level,
@@ -2440,10 +2444,9 @@ class ProductLoopCoordinator:
                     allow_local=resource_policy["allowLocal"],
                     allow_cli=resource_policy["allowCli"],
                     allow_api=resource_policy["allowApi"],
+                    free_tier_only=resource_policy["freeTierOnly"],
                     allow_unknown_cost=resource_policy["allowUnknownCost"],
-                    require_approval_for_unknown_cost=resource_policy[
-                        "requireApprovalForUnknownCost"
-                    ],
+                    require_approval_for_unknown_cost=resource_policy["requireApprovalForUnknownCost"],
                     require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
                 ),
                 record=True,
@@ -2711,15 +2714,25 @@ class ProductLoopCoordinator:
             return runtime_id
         return None
 
-    def _product_owner_runtime_id_for_resource_selection(
-        self, selected: dict[str, Any]
-    ) -> str | None:
-        allowed_runtimes = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+    def _product_owner_runtime_id_for_resource_selection(self, selected: dict[str, Any]) -> str | None:
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
-        if provider_id in allowed_runtimes or self._is_ollama_provider(provider_id):
+        if provider_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
             return provider_id
-        if runtime_id in allowed_runtimes:
+        row = self.connection.execute(
+            """
+            SELECT provider_family, api_format, provider_type
+            FROM provider_accounts
+            WHERE provider_id = ?
+            """,
+            (provider_id,),
+        ).fetchone()
+        if row and (
+            str(row["provider_family"] or "") in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+            or str(row["api_format"] or "") == "ollama"
+        ):
+            return provider_id
+        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
             return runtime_id
         return None
 
@@ -2736,23 +2749,33 @@ class ProductLoopCoordinator:
             "product_owner",
             fallback_to_developer=False,
         )
-        ollama_providers = {
-            str(row["provider_id"])
+        model_provider_rows = [
+            dict(row)
             for row in self.connection.execute(
-                "SELECT provider_id FROM provider_accounts WHERE api_format = 'ollama'"
+                """
+                SELECT provider_id, provider_family, api_format
+                FROM provider_accounts
+                WHERE provider_type IN ('api', 'gateway', 'local')
+                ORDER BY provider_id ASC
+                """
             ).fetchall()
-        }
-        allowed_provider_ids = sorted(
-            PRODUCT_OWNER_AGENT_CLI_RUNTIMES
-            | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
-            | ollama_providers
-        )
+            if str(row["provider_family"] or "") in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+            or str(row["api_format"] or "") == "ollama"
+        ]
+        model_provider_ids = {str(row["provider_id"]) for row in model_provider_rows}
+        allowed_provider_ids = sorted(PRODUCT_OWNER_AGENT_CLI_RUNTIMES | model_provider_ids)
         preferred_provider_ids: list[str] = []
         ordered_contract_providers: list[str] = []
-        for provider_id in PRODUCT_OWNER_AGENT_RUNTIME_ORDER:
-            ordered_contract_providers.append(provider_id)
-            if provider_id == "ollama":
-                ordered_contract_providers.extend(sorted(ollama_providers - {"ollama"}))
+        for runtime_family in PRODUCT_OWNER_AGENT_RUNTIME_ORDER:
+            if runtime_family in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+                ordered_contract_providers.append(runtime_family)
+                continue
+            ordered_contract_providers.extend(
+                str(row["provider_id"])
+                for row in model_provider_rows
+                if str(row["provider_family"] or "") == runtime_family
+                or (runtime_family == "ollama" and str(row["api_format"] or "") == "ollama")
+            )
         for provider_id in [
             *resource_policy["preferredProviderIds"],
             *ordered_contract_providers,
@@ -2767,7 +2790,9 @@ class ProductLoopCoordinator:
                 task_id=task_id,
                 task_type="product_owner.discovery",
                 risk_level=str(request_meta.get("risk") or "medium"),
-                routing_policy=self._team_mode(request_meta),
+                routing_policy=(
+                    "economy" if resource_policy["freeTierOnly"] else self._team_mode(request_meta)
+                ),
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed_provider_ids,
@@ -2779,11 +2804,10 @@ class ProductLoopCoordinator:
                 allow_local=resource_policy["allowLocal"],
                 allow_cli=resource_policy["allowCli"],
                 allow_api=resource_policy["allowApi"],
+                free_tier_only=resource_policy["freeTierOnly"],
                 privacy_level=self._resource_privacy_level(request_meta),
                 allow_unknown_cost=resource_policy["allowUnknownCost"],
-                require_approval_for_unknown_cost=resource_policy[
-                    "requireApprovalForUnknownCost"
-                ],
+                require_approval_for_unknown_cost=resource_policy["requireApprovalForUnknownCost"],
                 require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
             ),
             record=True,
@@ -2794,7 +2818,9 @@ class ProductLoopCoordinator:
             request_meta=request_meta,
         )
         public_decision = self._public_resource_decision(decision)
-        selected = public_decision.get("selected") if isinstance(public_decision.get("selected"), dict) else None
+        selected = (
+            public_decision.get("selected") if isinstance(public_decision.get("selected"), dict) else None
+        )
         runtime_id = self._product_owner_runtime_id_for_resource_selection(selected or {})
         if selected is None:
             return public_decision, {

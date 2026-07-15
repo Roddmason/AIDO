@@ -18,15 +18,39 @@ def _required_capabilities(profile: dict[str, Any]) -> list[str]:
     return [str(capability) for capability in capabilities if str(capability).strip()] or ["chat"]
 
 
-def _candidate_provider_ids(profile: dict[str, Any]) -> list[str]:
-    policy = profile.get("defaultRuntimePolicy") or {}
-    candidates = profile.get("allowedProviders") or policy.get("providerCandidates") or []
+def _ordered_provider_ids(values: Any) -> list[str]:
     seen: dict[str, None] = {}
-    for candidate in candidates:
+    for candidate in values or []:
         value = str(candidate).strip()
-        if value:
+        if value and value != "*":
             seen.setdefault(value, None)
     return list(seen)
+
+
+def _candidate_provider_ids(profile: dict[str, Any], provider_statuses: list[dict[str, Any]]) -> list[str]:
+    policy = profile.get("defaultRuntimePolicy") or {}
+    allowed = profile.get("allowedProviders") or []
+    if "*" in allowed:
+        candidates = _ordered_provider_ids(policy.get("providerCandidates"))
+        configured = sorted(
+            {
+                provider_id
+                for provider in provider_statuses
+                if (provider_id := str(provider.get("id") or "").strip())
+                and provider_id not in candidates
+            }
+        )
+        return [*candidates, *configured]
+    candidates = _ordered_provider_ids(allowed) or _ordered_provider_ids(policy.get("providerCandidates"))
+    if candidates:
+        return candidates
+    return sorted(
+        {
+            provider_id
+            for provider in provider_statuses
+            if (provider_id := str(provider.get("id") or "").strip())
+        }
+    )
 
 
 def _provider_satisfies(provider: dict[str, Any], required_capabilities: list[str]) -> bool:
@@ -43,7 +67,7 @@ def _provider_satisfies(provider: dict[str, Any], required_capabilities: list[st
 def runtime_availability(profile: dict[str, Any], provider_statuses: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the effective runtime availability for one agent profile."""
     required_capabilities = _required_capabilities(profile)
-    candidates = _candidate_provider_ids(profile)
+    candidates = _candidate_provider_ids(profile, provider_statuses)
     if profile.get("status") != "active":
         return {
             "status": "disabled",

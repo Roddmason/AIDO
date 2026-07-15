@@ -26,6 +26,8 @@ from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
 from .model_gateway import cached_ollama_status
 from .provider_accounts import ProviderAccountStore
+from .provider_catalog import MODEL_PROVIDER_FAMILIES
+from .providers.factory import provider_account_requires_credential
 from .runtime_provider_config import (
     DEFAULT_OLLAMA_BASE_URL,
     KNOWN_PROVIDER_DEFAULT_BASE_URLS,
@@ -174,8 +176,12 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     if provider_id in OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS:
         return ["apiKey", "model"]
     if api_format in OPENAI_COMPATIBLE_FORMATS or provider_id in {"openai_compatible", "litellm"}:
-        return ["baseUrl", "apiKey", "model"]
-    return ["baseUrl", "apiKey"]
+        required = ["baseUrl", "model"]
+    else:
+        required = ["baseUrl"]
+    if provider_account_requires_credential(account):
+        required.insert(1, "apiKey")
+    return required
 
 
 def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
@@ -260,17 +266,24 @@ def _api_provider_status(
         or _runtime_configuration_present(configuration, "apiKey")
         or (credential_status == "unverified" and healthy)
     )
+    configuration_error = str((configuration and configuration.resolution_error) or "").strip()
     configured = bool(
-        (configuration and configuration.configured) or (has_base_url and has_credential and has_model)
+        not configuration_error
+        and (
+            (configuration and configuration.configured)
+            or (has_base_url and has_credential and has_model)
+        )
     )
-    authenticated = bool(has_credential or (credential_status == "unverified" and healthy))
+    authenticated = bool(
+        not configuration_error
+        and (has_credential or (credential_status == "unverified" and healthy))
+    )
     available = configured and healthy
     installation_enabled = _runtime_installation_enabled(runtime_installation)
     has_prompt_capability = "chat" in set(capabilities)
     api_family = str(account.get("apiFamily") or "")
     unsupported_nvidia_chat_family = (
-        str(account.get("providerFamily") or "") == "nvidia_nim"
-        and api_family != "chat_completions"
+        str(account.get("providerFamily") or "") == "nvidia_nim" and api_family != "chat_completions"
     )
     policy_allowed = bool(policy_decision.get("allowed"))
     executable = (
@@ -282,11 +295,10 @@ def _api_provider_status(
         and has_prompt_capability
     )
     can_run_prompt = executable
-    if unsupported_nvidia_chat_family:
-        reason = (
-            f"NVIDIA NIM API family {api_family or 'unspecified'} is not supported "
-            "for chat execution."
-        )
+    if configuration_error:
+        reason = configuration_error
+    elif unsupported_nvidia_chat_family:
+        reason = f"NVIDIA NIM API family {api_family or 'unspecified'} is not supported for chat execution."
     elif not has_credential:
         credential_message = str(account_configuration.get("credentialMessage") or "").strip()
         message_suffix = f" ({credential_message})" if credential_message else ""
@@ -342,6 +354,8 @@ def _api_provider_status(
     payload["deploymentMode"] = str(account.get("deploymentMode") or "")
     payload["termsMode"] = str(account.get("termsMode") or "")
     payload["pricingMode"] = str(account.get("pricingMode") or "")
+    metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
+    payload["freeTierDeclaredByOperator"] = metadata.get("freeTierDeclaredByOperator") is True
     payload["productOwnerExecutable"] = can_run_prompt
     return payload
 
@@ -422,7 +436,9 @@ def _cli_provider_status(
     elif not command_matches_provider:
         reason = "Runtime detected executable does not match the declared runtime command."
     elif issue_to_patch_argv_error:
-        reason = f"Runtime can execute prompts, but DeveloperAgent is unavailable: {issue_to_patch_argv_error}"
+        reason = (
+            f"Runtime can execute prompts, but DeveloperAgent is unavailable: {issue_to_patch_argv_error}"
+        )
     elif not can_code_edit:
         reason = (
             "Runtime can execute prompts; workspace editing is unavailable because the code_edit "
@@ -471,9 +487,7 @@ def _cli_provider_status(
             or fresh_version in PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS
         )
     )
-    if str(account["providerId"]) == "codex_cli" and can_run_prompt and not payload[
-        "productOwnerExecutable"
-    ]:
+    if str(account["providerId"]) == "codex_cli" and can_run_prompt and not payload["productOwnerExecutable"]:
         payload["configurationWarnings"].append(
             "ProductOwnerAgent requires a fresh, explicitly reviewed Codex CLI version probe."
         )
@@ -666,8 +680,7 @@ class RuntimeStatusService:
         capabilities = _capabilities(self.connection)
         configurations = {
             provider_id: runtime_provider_configuration(provider_id)
-            for provider_id in CLI_RUNTIME_IDS
-            | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
+            for provider_id in CLI_RUNTIME_IDS | set(MODEL_PROVIDER_FAMILIES)
         }
         runtime_repo = RuntimeConfigRepository(self.connection)
         runtime_installations = {
@@ -713,9 +726,7 @@ class RuntimeStatusService:
         for account in self.accounts.list_provider_accounts():
             provider_id = str(account["providerId"])
             provider_family = str(account.get("providerFamily") or "")
-            provider_capabilities = capabilities.get(provider_id, []) or capabilities.get(
-                provider_family, []
-            )
+            provider_capabilities = capabilities.get(provider_id, []) or capabilities.get(provider_family, [])
             api_family = str(account.get("apiFamily") or "")
             if provider_family == "nvidia_nim" and api_family != "chat_completions":
                 provider_capabilities = [
@@ -766,7 +777,8 @@ class RuntimeStatusService:
                     _api_provider_status(
                         self.connection,
                         account,
-                        runtime_installations.get(provider_id),
+                        runtime_installations.get(provider_id)
+                        or runtime_installations.get(provider_family),
                         provider_capabilities,
                         policy_decision,
                         configurations.get(provider_id),

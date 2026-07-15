@@ -18,7 +18,7 @@ from .ai_resource_manager import AIResourceManager, AIResourceRequest
 from .budget_rules import BudgetRuleEvaluator
 from .model_benchmarks import ModelBenchmarkStore
 from .pricing_catalog import PricingCatalog
-from .provider_accounts import ProviderAccountStore
+from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
 
@@ -28,6 +28,8 @@ CLI_PROVIDER_TYPES = {"cli"}
 MIN_BENCHMARK_SAMPLES = 5
 UNKNOWN_REMOTE_COST_NOT_ALLOWED = "unknown_remote_cost_not_allowed"
 UNKNOWN_REMOTE_COST_REQUIRES_APPROVAL = "unknown_remote_cost_requires_approval"
+FREE_TIER_MODES = {"free_tier", "free_only"}
+FREE_TIER_REMOTE_PRIVACY_LEVELS = {"remote_allowed", "public"}
 
 
 class RoutingRequest(BaseModel):
@@ -273,6 +275,7 @@ class ModelRouter:
             "scoreBreakdown": selected.get("scoreBreakdown", {}) if selected else {},
             "policyResult": {
                 "requiresApproval": requires_approval,
+                "freeTierOnly": self._free_tier_only(request, role_policy),
                 "rolePolicyId": role_policy["id"],
                 "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
                 "allowUnknownCost": bool(role_policy.get("allowUnknownCost", True)),
@@ -325,25 +328,22 @@ class ModelRouter:
             project_id=request.project_id,
             task_type=request.task_type,
             risk_level=request.risk_level,
-            routing_policy=self._ai_routing_policy(request),
+            routing_policy=self._ai_routing_policy(request, role_policy),
             context_tokens_estimate=request.context_tokens_estimate,
             required_capabilities=self._ai_required_capabilities(request),
             preferred_provider_ids=preferred_provider_ids,
-            blocked_resources=[
-                item for item in role_policy.get("blocked") or [] if isinstance(item, dict)
-            ],
+            blocked_resources=[item for item in role_policy.get("blocked") or [] if isinstance(item, dict)],
             context_token_limit=int(role_policy.get("maxTokensPerRun") or 0) or None,
             role_policy_id=str(role_policy.get("id") or request.role),
             allow_remote=bool(role_policy.get("allowRemote", False)),
             allow_local=bool(role_policy.get("allowLocal", False)),
             allow_cli=bool(role_policy.get("allowCli", False)),
             allow_api=bool(role_policy.get("allowApi", False)),
+            free_tier_only=self._free_tier_only(request, role_policy),
             privacy_level=request.privacy_level,
             budget_remaining_usd=request.budget_remaining_usd,
             allow_unknown_cost=bool(role_policy.get("allowUnknownCost", False)),
-            require_approval_for_unknown_cost=bool(
-                role_policy.get("requireApprovalForUnknownCost", True)
-            ),
+            require_approval_for_unknown_cost=bool(role_policy.get("requireApprovalForUnknownCost", True)),
             # In the AI-resource path the approval verdict comes from that manager alone (see
             # `_ai_decision_to_routing_preview`). Hand it the role's premium threshold or an expensive
             # pick would slip through here while the classic path below still gates it.
@@ -418,9 +418,22 @@ class ModelRouter:
         ).fetchone()
         return row is not None
 
-    def _ai_routing_policy(self, request: RoutingRequest) -> str:
+    def _ai_routing_policy(
+        self,
+        request: RoutingRequest,
+        role_policy: dict[str, Any] | None = None,
+    ) -> str:
+        if self._free_tier_only(request, role_policy):
+            return "economy"
         mode = request.mode.strip().lower().replace("-", "_")
-        if mode in {"economy", "free_first", "low_cost", "local_private"}:
+        if mode in {
+            "economy",
+            "free_first",
+            "free_tier",
+            "free_only",
+            "low_cost",
+            "local_private",
+        }:
             return "economy"
         if mode in {"critical"}:
             return "critical"
@@ -457,18 +470,15 @@ class ModelRouter:
         rejected = [self._ai_rejected_to_router_rejected(item) for item in decision.get("rejected", [])]
         policy_result = {
             "requiresApproval": bool(decision.get("approvalRequired")),
+            "freeTierOnly": self._free_tier_only(request, role_policy),
             "rolePolicyId": role_policy["id"],
             "mode": decision.get("policyResult", {}).get("mode", "balanced"),
             "maxCostPerTaskUsd": role_policy.get("maxCostPerTaskUsd"),
             "allowUnknownCost": bool(role_policy.get("allowUnknownCost", False)),
             "requireApprovalForUnknownCost": bool(role_policy.get("requireApprovalForUnknownCost", True)),
             "unknownCostPolicy": decision.get("policyResult", {}).get("unknownCostPolicy", {}),
-            "roleExecutionPolicy": decision.get("policyResult", {}).get(
-                "roleExecutionPolicy", {}
-            ),
-            "providerPreferenceOrder": decision.get("policyResult", {}).get(
-                "providerPreferenceOrder", []
-            ),
+            "roleExecutionPolicy": decision.get("policyResult", {}).get("roleExecutionPolicy", {}),
+            "providerPreferenceOrder": decision.get("policyResult", {}).get("providerPreferenceOrder", []),
             "selectionOrder": decision.get("policyResult", {}).get("selectionOrder"),
             "source": "ai_resource_manager",
             "opaqueMlUsed": False,
@@ -479,7 +489,11 @@ class ModelRouter:
             "reason": "budget_stop" if decision.get("budgetStop") else "within_budget",
             "requiresApproval": False,
         }
-        quota_result = {"allowed": True, "reason": "not_evaluated_by_ai_resource_manager", "quotaPressure": 0.0}
+        quota_result = {
+            "allowed": True,
+            "reason": "not_evaluated_by_ai_resource_manager",
+            "quotaPressure": 0.0,
+        }
         policy_result["budgetResult"] = budget_result
         policy_result["quotaResult"] = quota_result
         return {
@@ -549,6 +563,19 @@ class ModelRouter:
             return "provider_healthcheck_required"
         if provider["healthStatus"] != "healthy":
             return "provider_unhealthy"
+        if self._free_tier_only(request, role_policy):
+            if (
+                request.privacy_level.strip().lower() not in FREE_TIER_REMOTE_PRIVACY_LEVELS
+                and provider_type in REMOTE_PROVIDER_TYPES
+            ):
+                return "free_tier_sensitive_data_blocked"
+            if provider_type not in LOCAL_PROVIDER_TYPES and not bool(model.get("freeTier")):
+                return "free_tier_model_required"
+            if (
+                provider_type in REMOTE_PROVIDER_TYPES
+                and not provider_account_is_declared_free(provider)
+            ):
+                return "free_tier_account_not_confirmed"
         if (
             request.context_tokens_estimate
             and model["contextWindow"]
@@ -629,6 +656,7 @@ class ModelRouter:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
+            pricing_mode=str(provider.get("pricingMode") or "unknown"),
         )
         return {
             "cost": pricing["estimatedCostUsd"],
@@ -726,7 +754,10 @@ class ModelRouter:
             - latency_penalty * 0.05
             - privacy_penalty * 0.20
         )
-        if request.mode == "free_first" and model["freeTier"]:
+        if (
+            request.mode in {"free_first", *FREE_TIER_MODES}
+            or self._free_tier_only(request, role_policy)
+        ) and estimate.get("freeTier"):
             score += 0.35
         if request.mode == "max_performance" and model["supportsReasoning"]:
             score += 0.2
@@ -749,6 +780,20 @@ class ModelRouter:
             "freeTier": 1.0 if estimate.get("freeTier") else 0.0,
             **benchmark_breakdown,
         }
+
+    @staticmethod
+    def _free_tier_only(
+        request: RoutingRequest,
+        role_policy: dict[str, Any] | None = None,
+    ) -> bool:
+        """Whether request or role policy must fail closed instead of using paid fallback."""
+        requested_mode = request.mode.strip().lower().replace("-", "_")
+        policy_mode = str(
+            (role_policy or {}).get("routingProfileId")
+            or (role_policy or {}).get("routing_profile_id")
+            or ""
+        ).strip().lower().replace("-", "_")
+        return requested_mode in FREE_TIER_MODES or policy_mode in FREE_TIER_MODES
 
     def _benchmark_index(self, role: str) -> dict[tuple[str, str, str], dict[str, Any]]:
         index: dict[tuple[str, str, str], dict[str, Any]] = {}

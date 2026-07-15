@@ -37,6 +37,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .provider_accounts import ProviderAccountStore
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, PROVIDER_CATALOG
 from .providers.base import ModelRequest
 from .providers.factory import (
     ProviderAccountDisabledError,
@@ -52,13 +53,8 @@ RUNTIME_ADAPTER_TOOLS = {
     "mcp",
     "openhands",
     "swe_agent",
-    "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
     "workspace_patch",
-}
+} | set(MODEL_PROVIDER_FAMILIES)
 CLI_VERSION_ADAPTERS = {
     "codex": ("codex",),
     "codex_cli": ("codex",),
@@ -1021,8 +1017,7 @@ class ProviderFactoryAdapter:
                 status="blocked",
                 started_at=started_at,
                 reason=(
-                    f"Provider endpoint {provider_id} is not bound to adapter family "
-                    f"{self.provider_family}."
+                    f"Provider endpoint {provider_id} is not bound to adapter family {self.provider_family}."
                 ),
             )
         policy_decision = RuntimeConfigRepository(connection).runtime_policy_decision(
@@ -1366,6 +1361,15 @@ class RuntimeAdapterRegistry:
         artifact_root: str | Path | None = None,
         environ: dict[str, str] | None = None,
     ):
+        provider_adapters: dict[str, RuntimeAdapter] = {
+            entry.provider_family: ProviderFactoryAdapter(
+                provider_family=entry.provider_family,
+                display_name=entry.display_name,
+                connection=connection,
+                artifact_root=artifact_root,
+            )
+            for entry in PROVIDER_CATALOG
+        }
         self.adapters: dict[str, RuntimeAdapter] = adapters or {
             "restricted_subprocess": RestrictedSubprocessAdapter(
                 connection=connection, artifact_root=artifact_root
@@ -1377,36 +1381,7 @@ class RuntimeAdapterRegistry:
             "openhands": CliVersionAdapter(adapter_id="openhands"),
             "swe-agent": CliVersionAdapter(adapter_id="swe-agent"),
             "swe_agent": CliVersionAdapter(adapter_id="swe_agent"),
-            "ollama": ProviderFactoryAdapter(
-                provider_family="ollama",
-                display_name="Ollama",
-                connection=connection,
-                artifact_root=artifact_root,
-            ),
-            "openai_compatible": ProviderFactoryAdapter(
-                provider_family="openai_compatible",
-                display_name="OpenAI-compatible",
-                connection=connection,
-                artifact_root=artifact_root,
-            ),
-            "openrouter": ProviderFactoryAdapter(
-                provider_family="openrouter",
-                display_name="OpenRouter",
-                connection=connection,
-                artifact_root=artifact_root,
-            ),
-            "nvidia_nim": ProviderFactoryAdapter(
-                provider_family="nvidia_nim",
-                display_name="NVIDIA NIM",
-                connection=connection,
-                artifact_root=artifact_root,
-            ),
-            "anthropic_api": ProviderFactoryAdapter(
-                provider_family="anthropic_api",
-                display_name="Anthropic",
-                connection=connection,
-                artifact_root=artifact_root,
-            ),
+            **provider_adapters,
         }
 
     def register(self, adapter_id: str, adapter: RuntimeAdapter) -> None:

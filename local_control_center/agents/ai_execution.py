@@ -11,6 +11,7 @@ import hashlib
 import re
 import sqlite3
 import time
+import urllib.error
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -30,7 +31,7 @@ from .ai_execution_models import (
 )
 from .credentials import CredentialResolver
 from .pricing_catalog import PricingCatalog
-from .provider_accounts import ProviderAccountStore
+from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 from .providers.base import ModelRequest, ModelResponse
 from .providers.factory import (
     ProviderAdapterFactory,
@@ -240,7 +241,20 @@ class AIExecutionService:
                         execution_id=execution_id,
                     )
                 except Exception as error:
-                    code = _public_error_code(error)
+                    rate_limited = isinstance(error, urllib.error.HTTPError) and error.code == 429
+                    if rate_limited:
+                        headers = (
+                            {str(key): str(value) for key, value in error.headers.items()}
+                            if error.headers is not None
+                            else {}
+                        )
+                        self.quota.record_rate_limit(
+                            provider_id=branch.plan.provider_id,
+                            model=branch.plan.model,
+                            headers=headers,
+                            error_class=error.__class__.__name__,
+                        )
+                    code = "provider_rate_limited" if rate_limited else _public_error_code(error)
                     with immediate_transaction(self.connection):
                         if branch.lease is not None:
                             self.quota.release(branch.lease.id, reason=code)
@@ -307,9 +321,7 @@ class AIExecutionService:
                     created_at,
                 ),
             )
-            for ordinal, (branch_id, branch) in enumerate(
-                zip(branch_ids, plan.branches, strict=True)
-            ):
+            for ordinal, (branch_id, branch) in enumerate(zip(branch_ids, plan.branches, strict=True)):
                 self.connection.execute(
                     """
                     INSERT INTO ai_execution_branches
@@ -466,10 +478,19 @@ class AIExecutionService:
                 if actual_pricing["priceKnown"]
                 else "unknown"
             )
-        elif manifest.get("freeTier"):
+        else:
+            account = self.accounts.get_provider_account(branch.plan.provider_id)
+        if (
+            not usage_known
+            and manifest.get("freeTier")
+            and (
+                provider_account_is_declared_free(account)
+                or str(account.get("providerType") or "") in {"local", "manual"}
+            )
+        ):
             actual_cost_usd = 0.0
             cost_status = "free"
-        else:
+        elif not usage_known:
             actual_cost_usd = None
             cost_status = "unknown"
         try:

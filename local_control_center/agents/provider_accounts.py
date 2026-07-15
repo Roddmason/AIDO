@@ -167,6 +167,16 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def provider_account_is_declared_free(account: dict[str, Any]) -> bool:
+    """Return whether zero-cost billing was explicitly and safely declared for an account."""
+    if str(account.get("pricingMode") or "unknown") != "free":
+        return False
+    if str(account.get("providerFamily") or account.get("providerId") or "") != "gemini":
+        return True
+    metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
+    return metadata.get("freeTierDeclaredByOperator") is True
+
+
 def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
     """Map a `model_catalog` row to its camelCase dict (capability flags and prices decoded)."""
     return {
@@ -272,6 +282,7 @@ class ProviderAccountStore:
         terms_mode = _value_or_existing(body, existing, "termsMode", "unspecified")
         pricing_mode = _value_or_existing(body, existing, "pricingMode", "unknown")
         provider_type = _value_or_existing(body, existing, "providerType", "api")
+        metadata = redact_secrets(body.get("metadata") or {})
         base_url = validate_provider_base_url(
             body.get("baseUrl"),
             provider_family=provider_family,
@@ -289,7 +300,14 @@ class ProviderAccountStore:
             raise ValueError(
                 "NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown."
             )
-        metadata = redact_secrets(body.get("metadata") or {})
+        if (
+            provider_family == "gemini"
+            and pricing_mode == "free"
+            and metadata.get("freeTierDeclaredByOperator") is not True
+        ):
+            raise ValueError(
+                "Gemini pricingMode free requires metadata.freeTierDeclaredByOperator=true."
+            )
         now = utc_now()
         self.connection.execute(
             """
@@ -476,6 +494,7 @@ class ProviderAccountStore:
             "id": existing["id"],
             "providerId": existing["providerId"],
             "model": existing["model"],
+            "source": "operator_override",
         }
         return self.upsert_model(merged)
 

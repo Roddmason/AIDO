@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import urllib.request
 from pathlib import Path
 
 from local_control_center.agents.model_gateway import ModelGateway
+from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.providers.factory import (
+    ProviderAdapterFactory,
+    provider_account_requires_credential,
+)
 from local_control_center.agents.runtime_provider_config import (
     list_runtime_provider_configurations,
     runtime_provider_configuration,
@@ -151,6 +157,92 @@ def test_known_nvidia_provider_config_does_not_require_manual_base_url() -> None
     assert nvidia["configured"] is True
     assert nvidia["missing"] == []
     assert base_url["required"] is False
+
+
+def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AIDO_LITELLM_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_API_KEY", raising=False)
+    monkeypatch.setenv("AIDO_LITELLM_BASE_URL", "https://litellm.example.test/v1")
+    observed: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        @staticmethod
+        def read() -> bytes:
+            return b'{"data":[{"id":"proxy-model"}]}'
+
+    def fake_urlopen(request: urllib.request.Request, *, timeout: float):
+        observed["request"] = request
+        observed["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(
+        "local_control_center.agents.providers.openai_compatible.urlopen_fail_closed",
+        fake_urlopen,
+    )
+    configuration = runtime_provider_configuration("litellm")
+    assert configuration is not None
+    assert configuration.configured is True
+    assert configuration.value("apiKey") is None
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.remote.enabled", True)
+        repo.upsert_installation(
+            {
+                "runtimeId": "litellm",
+                "kind": "gateway",
+                "enabled": True,
+                "configurationSource": "manual",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET enabled = 1,
+                base_url = '',
+                health_status = 'healthy',
+                last_health_check_at = '2026-07-14T12:00:00Z'
+            WHERE provider_id = 'litellm'
+            """
+        )
+        connection.execute(
+            "UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'litellm'"
+        )
+        account = next(
+            item
+            for item in ProviderAccountStore(connection).list_provider_accounts()
+            if item["providerId"] == "litellm"
+        )
+        provider = ProviderAdapterFactory(connection).resolve("litellm")
+        models = provider.list_models()
+        status = next(
+            item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+            if item["id"] == "litellm"
+        )
+
+    request = observed["request"]
+    assert isinstance(request, urllib.request.Request)
+    assert request.get_header("Authorization") is None
+    assert observed["timeout"] == 10
+    assert [model.model for model in models] == ["proxy-model"]
+    assert account["credentialRef"] == ""
+    assert provider_account_requires_credential(account) is False
+    assert provider.credential_required is False
+    assert status["requiredConfiguration"] == ["baseUrl", "model"]
+    assert status["configured"] is True
+    assert status["authenticated"] is True
+    assert status["executable"] is True
 
 
 def test_cli_is_the_seeded_default_runtime(tmp_path: Path) -> None:

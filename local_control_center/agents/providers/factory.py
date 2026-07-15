@@ -14,6 +14,7 @@ from local_control_center.agents.runtime_provider_config import (
 from .anthropic_api import AnthropicAPIProvider
 from .azure_openai import AzureOpenAIProvider
 from .capabilities import HttpTransport, ImageArtifactStore
+from .gemini import GeminiProvider
 from .litellm_adapter import LiteLLMAdapter
 from .nvidia_nim import NvidiaNimProvider, NvidiaNimVisualProvider
 from .ollama import OllamaProvider
@@ -73,6 +74,17 @@ class ProviderBaseUrlRequiredError(ProviderAdapterResolutionError):
         super().__init__(f"{self.code}:{api_family}:{provider_id}")
 
 
+class ProviderConfigurationConflictError(ProviderAdapterResolutionError):
+    """Raised when aliases provide conflicting credentials for one canonical provider."""
+
+    code = "provider_configuration_conflict"
+    public_code = "provider_configuration_conflict"
+
+    def __init__(self, *, provider_id: str):
+        self.provider_id = provider_id
+        super().__init__(f"{self.code}:{provider_id}")
+
+
 class UnsupportedAdapterProfileError(ProviderAdapterResolutionError):
     """Raised when a persisted adapter profile has no documented implementation."""
 
@@ -90,7 +102,7 @@ def provider_account_requires_credential(account: dict[str, Any]) -> bool:
     provider_family = str(account.get("providerFamily") or "").strip()
     api_format = str(account.get("apiFormat") or "").strip()
     deployment_mode = str(account.get("deploymentMode") or "").strip()
-    if provider_family in {"ollama", "local_ollama"} or api_format == "ollama":
+    if provider_family in {"ollama", "local_ollama", "litellm"} or api_format == "ollama":
         return False
     if provider_family == "nvidia_nim":
         return not deployment_mode.startswith("self_hosted")
@@ -239,6 +251,12 @@ class ProviderAdapterFactory:
                 base_url=base_url,
                 credential_ref=credential_ref,
             )
+        if provider_family == "gemini":
+            return GeminiProvider(
+                provider_id=provider_id,
+                base_url=base_url,
+                credential_ref=credential_ref,
+            )
         if provider_family == "litellm":
             return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref)
         if provider_family == "azure_openai" or api_format == "azure_openai":
@@ -264,6 +282,8 @@ class ProviderAdapterFactory:
     def _connection_configuration(self, account: dict[str, Any]) -> tuple[str | None, str | None]:
         configuration = self._runtime_configuration(account)
         provider_id = str(account["providerId"])
+        if configuration and configuration.resolution_error:
+            raise ProviderConfigurationConflictError(provider_id=provider_id)
         provider_family = str(account.get("providerFamily") or "")
         deployment_mode = str(account.get("deploymentMode") or "")
         api_family = str(account.get("apiFamily") or "")

@@ -23,7 +23,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
-from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.provider_accounts import (
+    ProviderAccountStore,
+    provider_account_is_declared_free,
+)
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -74,6 +77,7 @@ class AIResourceRequest:
     allow_local: bool = True
     allow_cli: bool = True
     allow_api: bool = True
+    free_tier_only: bool = False
     privacy_level: str = "remote_allowed"
     budget_remaining_usd: float | None = None
     max_tokens: int | None = None
@@ -120,15 +124,12 @@ def _camel_payload_value(payload: dict[str, Any], *keys: str, default: Any = Non
 
 def _performance_evidence_summary(evidence: list[Any]) -> tuple[str, int]:
     outcome_count = sum(
-        1
-        for item in evidence
-        if isinstance(item, dict) and str(item.get("kind") or "") == "outcome"
+        1 for item in evidence if isinstance(item, dict) and str(item.get("kind") or "") == "outcome"
     )
     if outcome_count:
         return "observed", outcome_count
     if any(
-        isinstance(item, dict)
-        and str(item.get("kind") or "") == MODEL_CATALOG_BASELINE_EVIDENCE_KIND
+        isinstance(item, dict) and str(item.get("kind") or "") == MODEL_CATALOG_BASELINE_EVIDENCE_KIND
         for item in evidence
     ):
         return "unobserved_prior", 0
@@ -165,6 +166,13 @@ def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:
         "cachedInputPricePerMtok": row["cached_input_price_per_mtok"],
         "outputPricePerMtok": row["output_price_per_mtok"],
         "reasoningPricePerMtok": row["reasoning_price_per_mtok"],
+        "freeTier": str(row["locality"] or "") == "local"
+        or (
+            row["input_price_per_mtok"] is not None
+            and row["output_price_per_mtok"] is not None
+            and float(row["input_price_per_mtok"]) == 0.0
+            and float(row["output_price_per_mtok"]) == 0.0
+        ),
         "observedLatencyMs": row["observed_latency_ms"],
         "observedSuccessRate": row["observed_success_rate"],
         "reworkRate": row["rework_rate"],
@@ -412,6 +420,10 @@ class AIResourceManager:
             if runtime_rejection:
                 rejected.append(self._rejected(model, runtime_rejection))
                 continue
+            free_tier_rejection = self._free_tier_reject_reason(model, request)
+            if free_tier_rejection:
+                rejected.append(self._rejected(model, free_tier_rejection))
+                continue
             estimate = self._estimate_cost(model, request)
             policy = self._unknown_cost_policy(model, request, estimate, policy_mode)
             if policy["action"] == "reject":
@@ -485,6 +497,7 @@ class AIResourceManager:
                 "scoring": "deterministic_explainable",
                 "opaqueMlUsed": False,
                 "candidateInventory": candidate_inventory,
+                "freeTierOnly": request.free_tier_only,
                 "roleExecutionPolicy": {
                     "rolePolicyId": request.role_policy_id,
                     "allowRemote": request.allow_remote,
@@ -747,9 +760,7 @@ class AIResourceManager:
         )
         catalog_keys = {self._model_profile_key(model) for model in catalog_models}
         explicit_models = [
-            model
-            for model in performance_models
-            if self._model_profile_key(model) not in catalog_keys
+            model for model in performance_models if self._model_profile_key(model) not in catalog_keys
         ]
         if not catalog_models:
             return explicit_models, runtime_statuses, PERFORMANCE_PROFILE_CANDIDATE_INVENTORY
@@ -777,9 +788,7 @@ class AIResourceManager:
         providers = {
             str(provider.get("providerId") or ""): provider for provider in store.list_provider_accounts()
         }
-        performance_by_model = {
-            self._model_profile_key(item): item for item in performance_models
-        }
+        performance_by_model = {self._model_profile_key(item): item for item in performance_models}
         profiles: list[dict[str, Any]] = []
         for catalog_model in store.list_models():
             if not bool(catalog_model.get("enabled")):
@@ -826,6 +835,7 @@ class AIResourceManager:
             "cachedInputPricePerMtok": catalog_model.get("cachedInputPricePerMtok"),
             "outputPricePerMtok": catalog_model.get("outputPricePerMtok"),
             "reasoningPricePerMtok": catalog_model.get("reasoningPricePerMtok"),
+            "freeTier": bool(catalog_model.get("freeTier")),
             "observedLatencyMs": None,
             "observedSuccessRate": None,
             "reworkRate": None,
@@ -885,9 +895,7 @@ class AIResourceManager:
         performance: dict[str, Any],
     ) -> dict[str, Any]:
         evidence = list(catalog_profile["evidence"])
-        evidence_ids = {
-            str(item.get("id") or "") for item in evidence if isinstance(item, dict)
-        }
+        evidence_ids = {str(item.get("id") or "") for item in evidence if isinstance(item, dict)}
         evidence.extend(
             item
             for item in performance.get("evidence") or []
@@ -1031,17 +1039,9 @@ class AIResourceManager:
         provider_id = str(model.get("providerId") or "").strip()
         status = runtime_statuses.get(provider_id)
         if status is None:
-            return (
-                "runtime_not_executable: "
-                f"Provider {provider_id} is not configured in runtime status."
-            )
-        if (
-            request.agent_id == "product_owner_agent"
-            and status.get("productOwnerExecutable") is False
-        ):
-            return (
-                "runtime_not_executable: ProductOwnerAgent-specific CLI safety verification failed."
-            )
+            return f"runtime_not_executable: Provider {provider_id} is not configured in runtime status."
+        if request.agent_id == "product_owner_agent" and status.get("productOwnerExecutable") is False:
+            return "runtime_not_executable: ProductOwnerAgent-specific CLI safety verification failed."
         if status.get("executable") is not True:
             reason = str(status.get("reason") or "").strip()
             detail = reason or f"Provider {provider_id} is not executable."
@@ -1049,9 +1049,7 @@ class AIResourceManager:
         advertised_models = status.get("models")
         if isinstance(advertised_models, list) and advertised_models:
             model_id = str(model.get("model") or "").strip()
-            available_models = {
-                str(item).strip() for item in advertised_models if str(item).strip()
-            }
+            available_models = {str(item).strip() for item in advertised_models if str(item).strip()}
             if model_id and model_id not in available_models:
                 return (
                     "runtime_model_not_available: "
@@ -1128,6 +1126,26 @@ class AIResourceManager:
             return "context_window_too_small"
         return None
 
+    def _free_tier_reject_reason(
+        self,
+        model: dict[str, Any],
+        request: AIResourceRequest,
+    ) -> str | None:
+        if not request.free_tier_only:
+            return None
+        if (
+            request.privacy_level.strip().lower() not in {"remote_allowed", "public"}
+            and model["locality"] in REMOTE_LOCALITIES
+        ):
+            return "free_tier_sensitive_data_blocked"
+        if model["locality"] != "local" and not bool(model.get("freeTier")):
+            return "free_tier_model_required"
+        if model["locality"] in REMOTE_LOCALITIES and not self._free_tier_account_declared(
+            str(model.get("providerId") or "")
+        ):
+            return "free_tier_account_not_confirmed"
+        return None
+
     @staticmethod
     def _blocked_by_role_policy(
         model: dict[str, Any],
@@ -1151,6 +1169,15 @@ class AIResourceManager:
         output_price = model.get("outputPricePerMtok")
         reasoning_price = model.get("reasoningPricePerMtok")
         reasoning_tokens = int(output_tokens * 0.5) if "reasoning" in request.required_capabilities else 0
+        if request.free_tier_only:
+            return {
+                "estimatedCostUsd": 0.0,
+                "priceKnown": True,
+                "estimatedInputTokens": request.context_tokens_estimate,
+                "estimatedOutputTokens": output_tokens,
+                "estimatedReasoningTokens": reasoning_tokens,
+                "costEstimateSource": "operator_declared_free_tier_account",
+            }
         observed = self._observed_cost_estimate(
             model=model,
             estimated_total_tokens=request.context_tokens_estimate + output_tokens + reasoning_tokens,
@@ -1188,6 +1215,13 @@ class AIResourceManager:
             "estimatedReasoningTokens": reasoning_tokens,
             "costEstimateSource": "static_price",
         }
+
+    def _free_tier_account_declared(self, provider_id: str) -> bool:
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return False
+        return provider_account_is_declared_free(account) or str(account.get("providerType") or "") == "local"
 
     def _observed_cost_estimate(
         self,
@@ -1696,6 +1730,7 @@ class AIResourceManager:
             "privacyLevel": candidate["privacyLevel"],
             "contextWindow": candidate["contextWindow"],
             "maxOutputTokens": candidate["maxOutputTokens"],
+            "freeTier": bool(candidate.get("freeTier")),
             "qualityScore": candidate["qualityScore"],
             "observedSuccessRate": candidate["observedSuccessRate"],
             "reworkRate": candidate["reworkRate"],

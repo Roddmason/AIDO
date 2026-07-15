@@ -11,27 +11,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+
 ARCHITECT_AGENT_ID = "architect_agent"
-ARCHITECT_AGENT_ALLOWED_TOOLS = [
-    "ollama",
+ARCHITECT_AGENT_ALLOWED_TOOLS = sorted(MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+_LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
     "openrouter",
     "nvidia_nim",
     "anthropic_api",
 ]
-ARCHITECT_AGENT_REMOTE_API_RUNTIMES = {
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
-}
-ARCHITECT_AGENT_MODEL_RUNTIMES = ARCHITECT_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
 ARCHITECT_AGENT_RUNTIME_ORDER = [
     "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
 ]
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
 

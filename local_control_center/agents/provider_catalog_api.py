@@ -35,6 +35,7 @@ from .provider_accounts import ProviderAccountStore
 from .provider_catalog import (
     PROVIDER_CATALOG_VERSION,
     ProviderCatalogEntry,
+    enrich_catalog_model,
     list_provider_catalog,
     provider_catalog_entry,
 )
@@ -166,10 +167,11 @@ def _base_url_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFrom
         return _normalize_base_url(provided)
     deployment_mode = body.deployment_mode or entry.deployment_mode
     api_family = body.api_family or entry.api_family
-    if (
-        entry.provider_family == "nvidia_nim"
-        and api_family in {"rerank", "image_generation", "image_editing"}
-    ):
+    if entry.provider_family == "nvidia_nim" and api_family in {
+        "rerank",
+        "image_generation",
+        "image_editing",
+    }:
         raise HTTPException(
             status_code=422,
             detail=f"baseUrl is required for NVIDIA NIM apiFamily {api_family}.",
@@ -189,14 +191,12 @@ def _base_url_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFrom
     return entry.default_base_url or ""
 
 
-def _credential_ref_for_request(
-    entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest
-) -> str:
+def _credential_ref_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest) -> str:
     credential_ref = str(body.credential_ref or "").strip()
     deployment_mode = body.deployment_mode or entry.deployment_mode
-    credential_required = "credentialRef" in entry.required_fields and not str(
-        deployment_mode
-    ).startswith("self_hosted")
+    credential_required = "credentialRef" in entry.required_fields and not str(deployment_mode).startswith(
+        "self_hosted"
+    )
     if credential_required and not credential_ref:
         raise HTTPException(status_code=422, detail=f"credentialRef is required for provider {entry.id}.")
     return credential_ref
@@ -220,17 +220,21 @@ def _validate_catalog_semantics(
     body: ProviderAccountFromCatalogRequest,
 ) -> None:
     deployment_mode = body.deployment_mode or entry.deployment_mode
+    pricing_mode = body.pricing_mode or entry.pricing_mode
+    if entry.provider_family == "gemini":
+        if pricing_mode == "free" and body.metadata.get("freeTierDeclaredByOperator") is not True:
+            raise HTTPException(
+                status_code=422,
+                detail="Gemini Free tier requires explicit operator attestation.",
+            )
+        return
     if entry.provider_family != "nvidia_nim" or deployment_mode != "hosted_trial":
         return
     terms_mode = body.terms_mode or entry.terms_mode
-    pricing_mode = body.pricing_mode or entry.pricing_mode
     if terms_mode != "evaluation" or pricing_mode != "unknown":
         raise HTTPException(
             status_code=422,
-            detail=(
-                "NVIDIA NIM hosted_trial requires termsMode evaluation "
-                "and pricingMode unknown."
-            ),
+            detail=("NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown."),
         )
 
 
@@ -325,7 +329,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             "baseUrl": _base_url_for_request(entry, body),
             "credentialRef": _credential_ref_for_request(entry, body),
             "enabled": body.enabled,
-            "quotaMode": "none",
+            "quotaMode": "provider_reported" if entry.provider_family == "gemini" else "none",
             "metadata": _catalog_metadata(entry, body.metadata),
         }
         try:
@@ -380,10 +384,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=409, detail=detail) from error
         _validate_sync_credentials(account)
         try:
-            discovered = [
-                item.model_dump(by_alias=True)
-                for item in provider.list_models()
-            ]
+            discovered = [item.model_dump(by_alias=True) for item in provider.list_models()]
         except NvidiaNimCapabilityError as error:
             status_code = 502 if error.code.startswith("provider_") else 409
             raise HTTPException(status_code=status_code, detail=error.code) from error
@@ -393,20 +394,22 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 detail=redact_secrets(f"Model sync failed for {provider_id}: {error}"),
             ) from error
         api_family = str(account.get("apiFamily") or "")
-        stored = [
-            providers().upsert_model(
-                {
-                    **item,
-                    "providerId": provider_id,
-                    "apiFamily": api_family,
-                    "supportsEmbeddings": api_family == "embeddings",
-                    "supportsRerank": api_family == "rerank",
-                    "enabled": True,
-                    "source": f"provider_account_sync:{provider_id}",
-                }
+        stored: list[dict[str, Any]] = []
+        for item in discovered:
+            enriched = enrich_catalog_model(catalog_entry, item)
+            stored.append(
+                providers().upsert_model(
+                    {
+                        **enriched,
+                        "providerId": provider_id,
+                        "apiFamily": api_family,
+                        "supportsEmbeddings": api_family == "embeddings",
+                        "supportsRerank": api_family == "rerank",
+                        "enabled": True,
+                        "source": enriched.get("source", f"provider_account_sync:{provider_id}"),
+                    }
+                )
             )
-            for item in discovered
-        ]
         audit(
             "provider_catalog.account.models_synced",
             provider_id,

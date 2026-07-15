@@ -12,28 +12,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+
 SECURITY_AGENT_ID = "security_agent"
 SECURITY_AGENT_ALLOWED_TOOLS = [
     "shell",
-    "ollama",
+    *sorted(MODEL_PROVIDER_FAMILIES),
+]
+SECURITY_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+SECURITY_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+_LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
     "openrouter",
     "nvidia_nim",
     "anthropic_api",
 ]
-SECURITY_AGENT_REMOTE_API_RUNTIMES = {
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
-}
-SECURITY_AGENT_MODEL_RUNTIMES = SECURITY_AGENT_REMOTE_API_RUNTIMES | {"ollama"}
 SECURITY_AGENT_RUNTIME_ORDER = [
     "ollama",
-    "openai_compatible",
-    "openrouter",
-    "nvidia_nim",
-    "anthropic_api",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
 ]
 SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
 
@@ -121,11 +118,7 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
     model runtimes are ranked by the configured runtime order to select a candidate.
     """
     deterministic_controls_executable = bool(SECURITY_AGENT_ALLOWED_TOOLS)
-    model_candidates = [
-        runtime
-        for runtime in runtime_statuses
-        if is_security_model_runtime(runtime)
-    ]
+    model_candidates = [runtime for runtime in runtime_statuses if is_security_model_runtime(runtime)]
     ordered = sorted(
         model_candidates,
         key=lambda item: (

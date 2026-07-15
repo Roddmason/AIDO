@@ -66,8 +66,111 @@ class ProviderCatalogEntry:
         }
 
 
-PROVIDER_CATALOG_VERSION = "2026-07-13"
+PROVIDER_CATALOG_VERSION = "2026-07-14"
 OPENAI_COMPATIBLE_SYNC = {"strategy": "api_list_models", "endpoint": "/models"}
+
+# Gemini exposes model ids through the OpenAI-compatible ``/models`` endpoint, but that
+# response intentionally does not carry the capability, context, or pricing metadata
+# required by AIDO's router.  Keep the official, reviewed metadata in one manifest and
+# overlay it only for exact stable model ids.  ``freeTier`` means "Google offers this
+# model on a free project"; the provider account's ``pricingMode`` still decides whether
+# a particular call is free.
+GEMINI_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
+    "gemini-3.5-flash": {
+        "displayName": "Gemini 3.5 Flash",
+        "modelFamily": "gemini-3.5",
+        "contextWindow": 1_048_576,
+        "maxOutputTokens": 65_536,
+        "supportsTools": True,
+        "supportsJson": True,
+        "supportsStreaming": True,
+        "supportsVision": True,
+        "supportsReasoning": True,
+        "supportsThinking": True,
+        "inputPricePerMtok": 1.50,
+        "cachedInputPricePerMtok": 0.15,
+        "outputPricePerMtok": 9.00,
+        "reasoningPricePerMtok": 9.00,
+        "freeTier": True,
+        "freeTierNotes": (
+            "Available on Google AI Studio free-tier projects subject to dynamic per-model "
+            "RPM/TPM/RPD limits. 1,048,576 is the per-request input context limit, not a quota."
+        ),
+    },
+    "gemini-3.1-flash-lite": {
+        "displayName": "Gemini 3.1 Flash-Lite",
+        "modelFamily": "gemini-3.1",
+        "contextWindow": 1_048_576,
+        "maxOutputTokens": 65_536,
+        "supportsTools": True,
+        "supportsJson": True,
+        "supportsStreaming": True,
+        "supportsVision": True,
+        "supportsReasoning": True,
+        "supportsThinking": True,
+        "inputPricePerMtok": 0.25,
+        "cachedInputPricePerMtok": 0.025,
+        "outputPricePerMtok": 1.50,
+        "reasoningPricePerMtok": 1.50,
+        "freeTier": True,
+        "freeTierNotes": "Stable high-volume free-tier fallback; dynamic project/model limits apply.",
+    },
+    "gemini-2.5-flash": {
+        "displayName": "Gemini 2.5 Flash",
+        "modelFamily": "gemini-2.5",
+        "contextWindow": 1_048_576,
+        "maxOutputTokens": 65_536,
+        "supportsTools": True,
+        "supportsJson": True,
+        "supportsStreaming": True,
+        "supportsVision": True,
+        "supportsReasoning": True,
+        "supportsThinking": True,
+        "inputPricePerMtok": 0.30,
+        "cachedInputPricePerMtok": 0.03,
+        "outputPricePerMtok": 2.50,
+        "reasoningPricePerMtok": 2.50,
+        "freeTier": True,
+        "freeTierNotes": "Available on free-tier projects; dynamic project/model limits apply.",
+    },
+    "gemini-2.5-flash-lite": {
+        "displayName": "Gemini 2.5 Flash-Lite",
+        "modelFamily": "gemini-2.5",
+        "contextWindow": 1_048_576,
+        "maxOutputTokens": 65_536,
+        "supportsTools": True,
+        "supportsJson": True,
+        "supportsStreaming": True,
+        "supportsVision": True,
+        "supportsReasoning": True,
+        "supportsThinking": True,
+        "inputPricePerMtok": 0.10,
+        "cachedInputPricePerMtok": 0.01,
+        "outputPricePerMtok": 0.40,
+        "reasoningPricePerMtok": 0.40,
+        "freeTier": True,
+        "freeTierNotes": "Available on free-tier projects; dynamic project/model limits apply.",
+    },
+    "gemini-2.5-pro": {
+        "displayName": "Gemini 2.5 Pro",
+        "modelFamily": "gemini-2.5",
+        "contextWindow": 1_048_576,
+        "maxOutputTokens": 65_536,
+        "supportsTools": True,
+        "supportsJson": True,
+        "supportsStreaming": True,
+        "supportsVision": True,
+        "supportsReasoning": True,
+        "supportsThinking": True,
+        # Paid prices are prompt-length tiered and the current catalog schema cannot
+        # represent that boundary honestly. An operator-attested free account is still cost zero.
+        "freeTier": True,
+        "freeTierNotes": (
+            "Available on free-tier projects. Paid pricing is prompt-length tiered and must be "
+            "configured explicitly before paid routing."
+        ),
+    },
+}
 
 PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
     ProviderCatalogEntry(
@@ -116,6 +219,21 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         docs_url="https://openrouter.ai/docs/api/reference/overview",
         pricing_source="https://openrouter.ai/docs/guides/overview/models",
         provider_family="openrouter",
+    ),
+    ProviderCatalogEntry(
+        id="litellm",
+        display_name="LiteLLM Proxy",
+        provider_type="gateway",
+        api_format="openai_compatible",
+        default_base_url=None,
+        required_fields=("baseUrl",),
+        credential_kind="optional_bearer_token",
+        known_models=(),
+        model_sync=OPENAI_COMPATIBLE_SYNC,
+        capabilities=("chat", "routing", "tools", "json", "streaming"),
+        docs_url="https://docs.litellm.ai/docs/",
+        pricing_source="operator_managed_gateway",
+        provider_family="litellm",
     ),
     ProviderCatalogEntry(
         id="nvidia_nim",
@@ -206,7 +324,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         default_base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         required_fields=("credentialRef",),
         credential_kind="api_key",
-        known_models=("gemini-3.5-flash",),
+        known_models=tuple(GEMINI_MODEL_MANIFEST),
         model_sync=OPENAI_COMPATIBLE_SYNC,
         capabilities=("chat", "tools", "json", "vision", "reasoning", "streaming"),
         docs_url="https://ai.google.dev/gemini-api/docs/openai",
@@ -280,6 +398,13 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
     ),
 )
 
+REMOTE_MODEL_PROVIDER_FAMILIES = frozenset(
+    entry.provider_family for entry in PROVIDER_CATALOG if entry.provider_type in {"api", "gateway"}
+)
+MODEL_PROVIDER_FAMILIES = REMOTE_MODEL_PROVIDER_FAMILIES | frozenset(
+    entry.provider_family for entry in PROVIDER_CATALOG if entry.provider_type == "local"
+)
+
 _CATALOG_BY_ID = {entry.id: entry for entry in PROVIDER_CATALOG}
 _ALIASES = {alias: entry.id for entry in PROVIDER_CATALOG for alias in entry.aliases}
 
@@ -298,3 +423,22 @@ def canonical_provider_id(provider_id: str) -> str:
 def provider_catalog_entry(provider_id: str) -> ProviderCatalogEntry | None:
     """Return a catalog entry by canonical id or alias."""
     return _CATALOG_BY_ID.get(canonical_provider_id(provider_id))
+
+
+def enrich_catalog_model(
+    entry: ProviderCatalogEntry,
+    discovered: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay reviewed provider metadata onto one discovered model record.
+
+    Unknown or preview Gemini model ids remain discoverable but intentionally retain
+    unknown pricing/capabilities until their metadata is reviewed.
+    """
+    model_id = str(discovered.get("model") or "").strip()
+    if entry.provider_family != "gemini" or model_id not in GEMINI_MODEL_MANIFEST:
+        return dict(discovered)
+    return {
+        **discovered,
+        **GEMINI_MODEL_MANIFEST[model_id],
+        "source": f"official_manifest:{PROVIDER_CATALOG_VERSION}",
+    }

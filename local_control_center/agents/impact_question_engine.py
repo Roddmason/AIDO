@@ -11,6 +11,7 @@ para que el flujo pueda avanzar sin bloquearse.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -25,6 +26,140 @@ QUESTION_CATEGORIES = {
     "risk",
     "delivery",
 }
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_QUESTION_CATEGORY = "scope"
+CATEGORY_ALIASES = {
+    # nonfunctional
+    "performance": "nonfunctional",
+    "scalability": "nonfunctional",
+    "reliability": "nonfunctional",
+    "availability": "nonfunctional",
+    "latency": "nonfunctional",
+    "throughput": "nonfunctional",
+    "maintainability": "nonfunctional",
+    "observability": "nonfunctional",
+    "quality": "nonfunctional",
+    "technical": "nonfunctional",
+    "architecture": "nonfunctional",
+    "infrastructure": "nonfunctional",
+    "operational": "nonfunctional",
+    "ops": "nonfunctional",
+    "non-functional": "nonfunctional",
+    "non functional": "nonfunctional",
+    "nfr": "nonfunctional",
+    "resilience": "nonfunctional",
+    "capacity": "nonfunctional",
+    # ux
+    "usability": "ux",
+    "design": "ux",
+    "ui": "ux",
+    "user experience": "ux",
+    "user-experience": "ux",
+    "accessibility": "ux",
+    "a11y": "ux",
+    "interaction": "ux",
+    # scope
+    "functional": "scope",
+    "feature": "scope",
+    "features": "scope",
+    "functionality": "scope",
+    "mvp": "scope",
+    "requirement": "scope",
+    "requirements": "scope",
+    "boundaries": "scope",
+    # delivery
+    "timeline": "delivery",
+    "schedule": "delivery",
+    "cost": "delivery",
+    "budget": "delivery",
+    "resourcing": "delivery",
+    "rollout": "delivery",
+    "release": "delivery",
+    "deployment": "delivery",
+    "milestone": "delivery",
+    "milestones": "delivery",
+    "planning": "delivery",
+    "roadmap": "delivery",
+    "effort": "delivery",
+    "estimate": "delivery",
+    "estimation": "delivery",
+    # compliance
+    "legal": "compliance",
+    "regulatory": "compliance",
+    "regulation": "compliance",
+    "regulations": "compliance",
+    "privacy": "compliance",
+    "gdpr": "compliance",
+    "hipaa": "compliance",
+    "data privacy": "compliance",
+    "data protection": "compliance",
+    "governance": "compliance",
+    "policy": "compliance",
+    "licensing": "compliance",
+    # risk
+    "security": "risk",
+    "threat": "risk",
+    "vulnerability": "risk",
+    "safety": "risk",
+    "business risk": "risk",
+    "dependency": "risk",
+    "dependencies": "risk",
+    "uncertainty": "risk",
+    # data
+    "database": "data",
+    "storage": "data",
+    "schema": "data",
+    "data model": "data",
+    "data modeling": "data",
+    "analytics": "data",
+    "data retention": "data",
+    "persistence": "data",
+    "migration": "data",
+    # integration
+    "api": "integration",
+    "apis": "integration",
+    "third party": "integration",
+    "third-party": "integration",
+    "interoperability": "integration",
+    "integrations": "integration",
+    "external": "integration",
+    "webhook": "integration",
+    "webhooks": "integration",
+    "connectivity": "integration",
+    "interface": "integration",
+    # users
+    "user": "users",
+    "persona": "users",
+    "personas": "users",
+    "audience": "users",
+    "stakeholder": "users",
+    "stakeholders": "users",
+    "target users": "users",
+    "customer": "users",
+    "customers": "users",
+    "roles": "users",
+}
+
+
+def normalize_category(raw: Any) -> tuple[str, str | None]:
+    """Coerce una categoría de pregunta al valor canónico del catálogo.
+
+    Returns:
+        ``(canonical, coerced_from)`` donde ``coerced_from`` es ``None`` si el valor ya era
+        canónico, o el valor original (en minúsculas) cuando se mapeó vía alias o cayó al
+        default ``DEFAULT_QUESTION_CATEGORY`` por ser desconocido.
+    """
+    value = str(raw or "").strip().lower()
+    if value in QUESTION_CATEGORIES:
+        return value, None
+    mapped = CATEGORY_ALIASES.get(value)
+    if mapped is not None:
+        return mapped, value
+    return DEFAULT_QUESTION_CATEGORY, value
+
+
 CONFIDENCES = {"low", "medium", "high"}
 MAX_QUESTIONS_PER_TURN = 5
 MIN_OPTIONS = 2
@@ -75,17 +210,24 @@ def impact_score(question: dict[str, Any]) -> int:
 def validate_impact_question(item: Any, *, index: int = 0) -> dict[str, Any]:
     """Valida y normaliza una pregunta contra el contrato de ocho campos del motor.
 
+    ``category`` es tolerante: sinónimos conocidos se coercen al catálogo canónico y valores
+    desconocidos caen a ``DEFAULT_QUESTION_CATEGORY`` con auditoría en log (la categoría solo
+    afecta priorización/dedup, no la corrección del brief).
+
     Raises:
         ImpactQuestionValidationError: si falta un campo, un tipo no coincide o un enum es inválido
-            (category/confidence fuera de catálogo, options con menos de dos opciones, o
+            (confidence fuera de catálogo, options con menos de dos opciones, o
             recommendation/defaultDecision que no figuran entre las options).
     """
     if not isinstance(item, dict):
         raise ImpactQuestionValidationError(f"questions[{index}] must be an object.")
-    category = str(item.get("category") or "").strip().lower()
-    if category not in QUESTION_CATEGORIES:
-        raise ImpactQuestionValidationError(
-            f"questions[{index}].category must be one of {sorted(QUESTION_CATEGORIES)}."
+    category, coerced_from = normalize_category(item.get("category"))
+    if coerced_from is not None:
+        logger.warning(
+            "questions[%s].category %r coerced to %r (category only affects ranking/dedup).",
+            index,
+            coerced_from,
+            category,
         )
     confidence = str(item.get("confidence") or "").strip().lower()
     if confidence not in CONFIDENCES:

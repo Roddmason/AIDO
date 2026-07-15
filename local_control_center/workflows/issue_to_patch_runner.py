@@ -24,6 +24,7 @@ from local_control_center.agents.developer_agent_contract import is_developer_ru
 from local_control_center.agents.qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_registry import issue_to_patch_prompt
+from local_control_center.agents.runtime_selection import RUNTIME_UNAVAILABLE_STATUS, display_command
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.evidence.artifacts import (
     artifact_hashes,
@@ -55,7 +56,6 @@ from local_control_center.workspaces_projects.git_worktrees import (
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 APPROVED_FOR_INTEGRATION_STATUS = "approved_for_integration"
 PROMOTED_TO_BRANCH_STATUS = "promoted_to_branch"
 PROMOTION_FAILED_STATUS = "promotion_failed"
@@ -179,16 +179,6 @@ def _final_diff_refs(workspace: dict[str, Any], diff: dict[str, Any]) -> list[di
     return refs
 
 
-def _display_command(argv: list[str]) -> str:
-    if not argv:
-        return ""
-    executable = Path(argv[0]).name or str(argv[0])
-    lowered = executable.lower()
-    if lowered in {"python.exe", "python3.exe", "py.exe"}:
-        executable = "python"
-    return subprocess.list2cmdline([executable, *[str(item) for item in argv[1:]]])
-
-
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
@@ -221,15 +211,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "reason": execution_result.get("reason") or payload.get("decisionReason"),
         "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
         "stderrArtifactId": execution_result.get("stderrArtifactId"),
-    }
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {
-        "status": RUNTIME_UNAVAILABLE_STATUS,
-        "reason": reason,
-        "execution": "not_executed",
-        "blockedBy": RUNTIME_UNAVAILABLE_STATUS,
     }
 
 
@@ -491,7 +472,7 @@ def _pr_qa_summary_lines(results: list[dict[str, Any]]) -> list[str]:
         return ["- No QA results were captured in the promotion evidence."]
     lines: list[str] = []
     for result in results:
-        command = str(result.get("command") or _display_command(result.get("argv") or []) or "qa_command")
+        command = str(result.get("command") or display_command(result.get("argv") or []) or "qa_command")
         status = str(result.get("status") or "unknown")
         duration = result.get("durationMs")
         duration_text = f" ({duration} ms)" if isinstance(duration, int) else ""

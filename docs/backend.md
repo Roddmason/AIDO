@@ -6,10 +6,17 @@ frontend bundles, caches, and dependency folders are not source of truth.
 
 ## Active Slices
 
-- `control_plane`: operational overview read model.
-- `projects`: project records and discovery reports.
-- `jobs_approvals`: jobs, runs, leases, action requests, and approvals.
-- `workflows`: workflow definitions, runs, steps, edges, and events.
+The backend package is `local_control_center/` (snake_case import path); the
+sibling `local-control-center/` folder holds the frontend, scripts, and build
+artifacts. Domain packages under `local_control_center/`:
+
+- `control_plane`: runtime bootstrap plus the operational overview read model.
+- `projects`: project catalog, templates, discovery reports, provider/team read
+  models, and project-scoped assessments, findings, and functionality views.
+- `jobs_approvals`: jobs, runs, leases, action requests, approvals, and the
+  concurrent worker that executes queued jobs.
+- `workflows`: workflow definitions, runs, steps, edges, events, and the
+  issue-to-patch / issue-to-pr productive workflows.
 - `security_policy`: command classification, deterministic policy decisions,
   permission records, sandbox posture, and secret boundaries.
 - `workspaces_projects`: task-scoped workspace allocation, Git worktree support,
@@ -22,10 +29,74 @@ frontend bundles, caches, and dependency folders are not source of truth.
 - `evidence`: evidence packages, test results, QA verdict gates, artifacts.
 - `governance`: architecture decisions, risk register, and actionable next
   steps.
-- `sessions_chats`: v1 session and chat read models.
-- `pipelines`: v1 pipeline read models.
-- `integrations`: IDE connection contracts and integration adapter surfaces.
+- `backlog`: project-scoped epics, user stories, and executable story specs
+  traceable from user value to agent work.
+- `product_discovery`: problem-to-brief discovery entities, versioned and
+  project-scoped.
+- `product_loop`: durable state machine coordinating idea -> discovery ->
+  backlog -> delivery, with a persisted transition log.
+- `threads`: persisted per-project conversation threads (real execution
+  surface), including similarity recall, notes, and cancellation.
+- `team_scheduler`: composes the minimal agent team for a task and resolves
+  per-role execution.
+- `team_activity`: read-only aggregation of live agent work for the shell UI.
+- `remediations`: remediation actions for blocked or configuration-required
+  product flows.
+- `self_improvement`: proposals, lessons, performance evidence, and promotion
+  gates.
+- `research`: source-trust policy for web-research-backed technical
+  conclusions.
+- `credentials`: secret metadata, backend references, fingerprints, and audit;
+  secret values are never persisted or returned.
+- `runtime_integrations`: persisted runtime/CLI installation and account
+  configuration, with environment variables only as override.
+- `git_workspace`: per-project local Git status, branches, diff, checkout, and
+  gitleaks scans routed through the tool broker.
+- `workers`: API-controlled local worker runtime for queued jobs
+  (`/api/v1/workers/*`).
+- `nvidia_nim`: NVIDIA NIM local-runtime discovery and compatibility preflight.
+- `ollama`: administration of local or remote Ollama endpoints (health checks,
+  model sync).
+- `plugins`: fail-closed plugin manifests, validation, and install lifecycle.
+- `settings`: two-tier persistent preference store (descriptor registry,
+  generic SQLite store, pure resolver).
+- `i18n`: runtime-editable bilingual UI catalog persisted and served by API.
+- `sessions_chats`: legacy session and chat read models, served under
+  `/api/v1/legacy/*`.
+- `pipelines`: legacy pipeline read models, served under
+  `/api/v1/legacy/pipelines`.
+- `integrations`: IDE connection contracts, MCP server registry, and the n8n
+  adapter surface.
 - `prompts`: prompt templates and append-only prompt version records.
+
+`shared/` is not a domain slice: it owns cross-slice helpers (DB connection,
+migrations, event bus, telemetry, redaction, settings, serialization, time).
+
+## Entrypoints And Startup
+
+- `python -m local_control_center` runs `__main__.py`, which delegates to
+  `cli.main`.
+- `local_control_center/cli.py` parses the CLI flags (`--dashboard-host`,
+  `--dashboard-port` with default 4310, `--dashboard-only`, `--no-dashboard`,
+  `--worker`, `--no-worker`, `--worker-interval-ms`, `--worker-count`,
+  `--workspace`, `--db-path`, `--static-dir`), applies the Windows selector
+  event loop policy, initializes `ControlCenterRuntime`, and starts uvicorn
+  and/or the `ConcurrentWorker` loop.
+- `pnpm run start` runs
+  `local-control-center/scripts/start_control_center.py` through `uv`. The
+  script builds the dashboard bundle into `local-control-center/dist/web` when
+  it is missing and then launches the backend on `127.0.0.1:4310`.
+
+The canonical SQLite database lives at
+`~/.claude/local-control-center/platform.sqlite`, resolved by
+`default_db_path()` in `local_control_center/shared/settings.py`; `--db-path`
+overrides it per process.
+
+`local_control_center/worker.py` is a stable import facade that re-exports
+`ConcurrentWorker` and `execute_job` from `jobs_approvals.worker`. The
+`workers/` slice adds `LocalWorkerRuntime`, a non-blocking local loop that
+drains queued jobs under the existing safety gates and is controlled through
+`/api/v1/workers/*` (status, pause, resume, run-once).
 
 ## Runtime Boundary
 
@@ -111,9 +182,12 @@ does not make Docker a startup requirement.
 
 ## API Composition
 
-`local_control_center.api.create_app()` is the only FastAPI composition path.
-Routers are mounted from vertical slices. Removed compatibility routes are not
-mounted.
+`local_control_center.app.create_app()` is the canonical FastAPI composition
+entrypoint. `local_control_center/api.py` is the assembly site it re-exports:
+that module mounts one router per vertical slice. Architecture tests pin the
+facade (`tests_py/test_vertical_slices_architecture.py`); the CLI and tests
+must import `create_app` from `local_control_center.app`, not from
+`local_control_center.api`. Removed compatibility routes are not mounted.
 
 Mutating endpoints require the loopback token from
 `GET /api/v1/security/handshake`. Tool calls and shell execution must pass:
@@ -294,7 +368,7 @@ path traversal through malicious artifact rows.
 
 | Capability | Real state | Endpoint/UI | Tests | Limitations |
 | --- | --- | --- | --- | --- |
-| FastAPI composition | Implemented through `local_control_center.api.create_app()` and mounted vertical-slice routers. | v1 API surface, dashboard startup. | Broad `tests_py` coverage plus OpenAPI client generation tests. | Removed compatibility routes are not mounted; callers must use v1 routes. |
+| FastAPI composition | Implemented in `local_control_center/api.py` and exposed through the canonical `local_control_center.app.create_app()` facade with mounted vertical-slice routers. | v1 API surface, dashboard startup. | Broad `tests_py` coverage plus OpenAPI client generation tests. | Removed compatibility routes are not mounted; callers must use v1 routes. |
 | Runtime provider status | Implemented from provider configuration, health records, local CLI detection, and safety gates. | `GET /api/v1/runtime/providers`, Runtime & Model Gateway UI. | `tests_py/test_aido_real_runtime_slice.py`, `tests_py/test_internal_mock_product_boundary.py`. | `configured`, `available`, and `executable` are separate states; enabled plus real health is required. |
 | Provider configuration read model | Implemented as env-only inspection with secret fingerprints. | `GET /api/v1/runtime/provider-configuration`. | Runtime provider configuration tests. | It does not mutate provider accounts or persist credentials. |
 | `issue_to_patch` execution | Implemented fail-closed through Git worktree allocation, `DeveloperAgentRunner`, QAAgent, evidence, approval request creation, and reviewed-patch transition. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, workflow detail endpoint. | `tests_py/test_aido_real_runtime_slice.py`, workflow/evidence tests. | Productive execution requires Git worktree evidence and DeveloperAgent runtime readiness. Missing runtime, diff, QA, evidence, approved review, or non-blocking security evidence blocks completion/approval. |
@@ -311,24 +385,17 @@ Schema creation and migration seeds are centralized in
 `local_control_center/shared/migrations.py`; slice repositories own operational
 reads/writes after tables exist.
 
-Current migration versions:
+Current migration structure:
 
-- v1: baseline platform schema.
-- v2: workflows, policy decisions, evidence, agents, model policies.
-- v3: workspaces, skills, artifacts, test results, QA verdicts, model providers.
-- v4: workflow traceability columns for allocated workspaces.
-- v5: architecture decisions, risk register, and next steps.
-- v6: workflow traceability columns for jobs and agent runs.
-- v7: integrations, MCP server registry, and MCP tool-call records.
-- v8: permission grants for one-use approval-to-execution correlation.
-- v9: sandbox profiles for Docker image catalogs, network modes, and resource
-  limits.
-- v10: revocation metadata for permission grants and sandbox profiles.
-- v11: policy revision records for audited sandbox profile changes.
-- v12: provider accounts, model/runtime catalog, routing profiles, usage
-  ledger, budget rules, runtime capabilities, and provider health records.
-- v13: model benchmark outcomes linked to evidence and workflow context.
-- v14: pricing snapshots for local catalog updates.
-- v15: runtime-editable i18n catalog tables.
+- `initialize_platform_schema` applies `init_base_schema` (baseline platform
+  schema) followed by `init_phase2_schema` through `init_phase56_schema` in
+  order, recording each phase in `schema_migrations`.
+- Every phase is idempotent (`CREATE TABLE IF NOT EXISTS`, conditional
+  `ALTER TABLE`, `INSERT OR IGNORE`); re-running the full set on an already
+  migrated database produces no changes.
+- Each `init_phaseN_schema` docstring documents the feature boundary that
+  phase introduced. `local_control_center/shared/migrations.py` is the
+  authoritative per-phase changelog; this document does not duplicate the
+  phase list.
 - Sandbox profile updates are routed through a token-protected, reason-required
   API endpoint; direct SQLite edits are no longer the operational path.

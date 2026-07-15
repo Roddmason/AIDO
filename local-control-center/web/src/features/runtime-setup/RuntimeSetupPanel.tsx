@@ -35,8 +35,7 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
-import { Badge } from '../../components/primitives';
-import { useToast } from '../../components/ui';
+import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';

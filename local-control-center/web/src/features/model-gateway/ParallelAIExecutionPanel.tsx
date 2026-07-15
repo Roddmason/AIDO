@@ -13,8 +13,15 @@ import type {
 	ModelGatewayProviderAccount,
 	Project,
 } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
-import { Button, SelectField, TextArea, TextField } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	DataTable,
+	EmptyState,
+	SelectField,
+	TextArea,
+	TextField,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { money, text } from './utils';

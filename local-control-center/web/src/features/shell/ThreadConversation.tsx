@@ -61,8 +61,15 @@ import type {
 	ThreadSimilarityCandidate,
 } from '../../api/types';
 import type { Mutate } from '../../app/routes';
-import { StatusDot } from '../../components/primitives';
-import { Button, Dialog, EmptyState, Skeleton, StatusChip, TextArea } from '../../components/ui';
+import {
+	Button,
+	Dialog,
+	EmptyState,
+	Skeleton,
+	StatusChip,
+	StatusDot,
+	TextArea,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { threadStatusTone } from '../../lib/format';
 import {

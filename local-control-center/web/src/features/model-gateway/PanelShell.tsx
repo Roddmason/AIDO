@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from 'react';
 
-import { Surface } from '../../components/primitives';
+import { Surface } from '../../components/ui';
 
 export function PanelShell({ title, children }: { title: string; children: ReactNode }) {
 	return <Surface title={title}>{children}</Surface>;

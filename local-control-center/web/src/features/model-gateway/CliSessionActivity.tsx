@@ -9,8 +9,15 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { type CliSessionEvent, cancelCliSession } from '../../api/client';
-import { Badge, EmptyState, Surface } from '../../components/primitives';
-import { Button, ErrorState, Skeleton, useToast } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	EmptyState,
+	ErrorState,
+	Skeleton,
+	Surface,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId } from '../../lib/format';
 import { useCliSessionStream } from './useCliSessionStream';

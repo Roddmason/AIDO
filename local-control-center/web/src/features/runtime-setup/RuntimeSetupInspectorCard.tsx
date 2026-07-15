@@ -11,8 +11,7 @@ import { useMemo, useState } from 'react';
 
 import { healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
-import { StatusDot } from '../../components/primitives';
-import { useToast } from '../../components/ui';
+import { StatusDot, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
 	apiProviderIdsNeedingProbe,

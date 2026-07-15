@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react';
 
 import type { RuntimeProvider, RuntimeProviderConfiguration } from '../../api/types';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { type AdvancedColumn, ColumnChooser, useColumnVisibility } from './ColumnChooser';

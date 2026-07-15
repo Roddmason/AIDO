@@ -5,7 +5,7 @@
  * @author Rodrigo Mason
  */
 import type { ModelGatewayRoutePreviewResponse } from '../../api/client';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { EXECUTABLE_AGENT_ROLES, money } from './utils';

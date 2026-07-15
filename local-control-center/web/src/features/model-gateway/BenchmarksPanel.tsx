@@ -10,7 +10,7 @@ import type {
 	ModelGatewayModel,
 	ModelGatewayProviderAccount,
 } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { boolLabel, EXECUTABLE_AGENT_ROLES, money, text } from './utils';

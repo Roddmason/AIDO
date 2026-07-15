@@ -5,7 +5,7 @@
  * @author Rodrigo Mason
  */
 import type { ModelGatewayUsage } from '../../api/types';
-import { DataTable, EmptyState } from '../../components/primitives';
+import { DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { money, text } from './utils';

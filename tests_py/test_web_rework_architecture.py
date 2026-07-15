@@ -220,7 +220,7 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     client_source = read(SRC / "api" / "client.ts")
     hook_source = read(SRC / "hooks" / "useControlPlane.ts")
     artifacts_source = read(SRC / "lib" / "artifacts.ts")
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "evidence" / "EvidencePage.tsx")
     # The workflow artifact preview now lives in the run-detail Inspector body, not the launcher page.
     run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
     # MemoryPage was extracted out of the pages barrel into its own feature module.
@@ -245,7 +245,7 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
 
 def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> None:
     types_source = read(SRC / "api" / "types.ts")
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "policy" / "PolicySecurityPage.tsx")
 
     assert "PolicyRevisionRecord" in types_source
     assert "export type PolicyRevision = PolicyRevisionRecord" in types_source
@@ -544,7 +544,14 @@ def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() ->
 
 
 def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> None:
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = "\n".join(
+        read(path)
+        for path in (
+            SRC / "features" / "policy" / "PolicySecurityPage.tsx",
+            SRC / "features" / "evidence" / "EvidencePage.tsx",
+            SRC / "features" / "governance" / "GovernancePage.tsx",
+        )
+    )
     agents_source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
     # Model-call cost/token rendering moved with the run detail into the Inspector body.
     run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
@@ -566,7 +573,7 @@ def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> Non
 
 
 def test_governance_surface_has_filtering_and_risk_update_controls() -> None:
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "governance" / "GovernancePage.tsx")
 
     assert 'id="governance-filter"' in pages_source
     assert 'id="risk-status-filter"' in pages_source

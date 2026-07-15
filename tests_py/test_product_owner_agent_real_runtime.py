@@ -161,6 +161,15 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
 
 class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
     response_content = "{}"
+    response_queue: list[str] = []
+    chat_post_count = 0
+
+    def _next_content(self) -> str:
+        cls = type(self)
+        cls.chat_post_count += 1
+        if cls.response_queue:
+            return cls.response_queue.pop(0)
+        return cls.response_content
 
     def do_GET(self) -> None:
         if self.path != "/models":
@@ -180,7 +189,7 @@ class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
         if self.path == "/messages":
             self.rfile.read(int(self.headers.get("Content-Length") or "0"))
             payload = {
-                "content": [{"type": "text", "text": self.response_content}],
+                "content": [{"type": "text", "text": self._next_content()}],
                 "usage": {"input_tokens": 1, "output_tokens": 1},
             }
             body = json.dumps(payload).encode("utf-8")
@@ -196,7 +205,7 @@ class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
             return
         self.rfile.read(int(self.headers.get("Content-Length") or "0"))
         payload = {
-            "choices": [{"message": {"content": self.response_content}}],
+            "choices": [{"message": {"content": self._next_content()}}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
         body = json.dumps(payload).encode("utf-8")
@@ -210,8 +219,12 @@ class ControlledProductOwnerProviderHandler(BaseHTTPRequestHandler):
         return
 
 
-def start_controlled_provider(content: str) -> tuple[ThreadingHTTPServer, str]:
+def start_controlled_provider(
+    content: str, *, contents: list[str] | None = None
+) -> tuple[ThreadingHTTPServer, str]:
     ControlledProductOwnerProviderHandler.response_content = content
+    ControlledProductOwnerProviderHandler.response_queue = list(contents or [])
+    ControlledProductOwnerProviderHandler.chat_post_count = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledProductOwnerProviderHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -455,9 +468,7 @@ def attach_persisted_resource_decision(
     model: str,
     runtime_kind: str,
 ) -> dict[str, Any]:
-    workflow_context = (
-        body.get("workflowContext") if isinstance(body.get("workflowContext"), dict) else {}
-    )
+    workflow_context = body.get("workflowContext") if isinstance(body.get("workflowContext"), dict) else {}
     workflow_run_id = str(workflow_context.get("workflowRunId") or f"product-loop-{uuid.uuid4()}")
     body["workflowContext"] = {**workflow_context, "workflowRunId": workflow_run_id}
     decision = {
@@ -501,8 +512,9 @@ def run_with_controlled_provider(
     content: str,
     body: dict,
     runtime_id: str = "openai_compatible",
+    contents: list[str] | None = None,
 ):
-    server, base_url = start_controlled_provider(content)
+    server, base_url = start_controlled_provider(content, contents=contents)
     try:
         monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
         env_by_runtime = {
@@ -556,7 +568,13 @@ def run_with_controlled_provider(
 
 def test_product_owner_readiness_prefers_cli_runtime() -> None:
     statuses = [
-        {"id": "openai_compatible", "providerFamily": "openai_compatible", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {
+            "id": "openai_compatible",
+            "providerFamily": "openai_compatible",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
         {
             "id": "codex_cli",
             "executable": False,
@@ -644,9 +662,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
         assert runtime_workspace not in source_workspace.parents
         assert kwargs["workspace_path"] == str(runtime_workspace)
         runtime_workspace_flag = "--cd" if runtime_id == "codex_cli" else "--add-dir"
-        assert kwargs["argv"][kwargs["argv"].index(runtime_workspace_flag) + 1] == str(
-            runtime_workspace
-        )
+        assert kwargs["argv"][kwargs["argv"].index(runtime_workspace_flag) + 1] == str(runtime_workspace)
         assert list(runtime_workspace.iterdir()) == []
         assert not (runtime_workspace / "AGENTS.md").exists()
         assert not (runtime_workspace / ".agents").exists()
@@ -671,9 +687,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
             assert "AIDO_PRODUCT_OWNER_SECRET_CANARY" not in subprocess_environment
             controlled_codex_home = Path(subprocess_environment["CODEX_HOME"]).resolve()
             controlled_codex_homes.append(controlled_codex_home)
-            expected_root = (
-                controlled_local_app_data / "AIDO" / "product-owner-codex-homes"
-            ).resolve()
+            expected_root = (controlled_local_app_data / "AIDO" / "product-owner-codex-homes").resolve()
             assert controlled_codex_home.parent == expected_root
             assert controlled_codex_home != operator_codex_home.resolve()
             assert runtime_workspace not in controlled_codex_home.parents
@@ -682,9 +696,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
             assert not (controlled_codex_home / "config.toml").exists()
             assert not (controlled_codex_home / "skills").exists()
             isolated_auth = controlled_codex_home / "auth.json"
-            assert isolated_auth.read_text(encoding="utf-8") == operator_auth.read_text(
-                encoding="utf-8"
-            )
+            assert isolated_auth.read_text(encoding="utf-8") == operator_auth.read_text(encoding="utf-8")
             isolated_auth.write_text('{"auth":"isolated-mutation"}', encoding="utf-8")
             assert operator_auth.read_text(encoding="utf-8") == '{"auth":"operator-test-token"}'
         else:
@@ -793,9 +805,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
     assert replay_body["status"] == "failed"
     assert replay_call is not None
     assert replay_call["status"] == "denied"
-    assert "product_owner_resource_decision_replay_denied" in json.loads(replay_call["payload"])[
-        "categories"
-    ]
+    assert "product_owner_resource_decision_replay_denied" in json.loads(replay_call["payload"])["categories"]
     assert len(sandbox_requests) == 1
 
 
@@ -865,9 +875,27 @@ def test_product_owner_cli_runtime_without_resource_decision_fails_closed(
 
 def test_product_owner_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
     ]
 
     readiness = product_owner_agent_readiness(statuses, preferred_runtime="anthropic_api")
@@ -1269,3 +1297,53 @@ def test_product_owner_guided_profile_escalates_and_withholds_backlog(
     assert result["output"]["autonomy"]["counts"]["automatic"] == 0
     assert result["epics"] == []
     assert BacklogRepository(store.connection).list_epics(project["id"]) == []
+
+
+def test_product_owner_repairs_invalid_output_on_second_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-repair-ok")
+
+    invalid = json.dumps({"brief": {"title": "Partial"}})  # missing required fields
+    valid = json.dumps(product_owner_output(blocking=False))
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=valid,
+        contents=[invalid, valid],
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert ControlledProductOwnerProviderHandler.chat_post_count == 2
+    assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"])
+
+
+def test_product_owner_stops_after_repair_attempt_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-repair-cap")
+
+    invalid = json.dumps({"brief": {"title": "Partial"}})
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=invalid,
+        contents=[invalid, invalid],
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "failed_validation"
+    assert body["output"] is None
+    assert ControlledProductOwnerProviderHandler.chat_post_count == 2
+    assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []

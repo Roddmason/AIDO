@@ -6,7 +6,7 @@
 import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 
 import type { Overview, Project } from '../../api/types';
-import { Badge, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { formatTime, shortId, toneForStatus } from '../../lib/format';
 

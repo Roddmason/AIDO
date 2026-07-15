@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 
 import type { Overview } from '../api/types';
-import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';
+import { StatusChip as Badge, DataTable, Drawer, EmptyState } from '../components/ui';
 import { shortId, toneForStatus } from '../lib/format';
 
 /**

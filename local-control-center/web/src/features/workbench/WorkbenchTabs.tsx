@@ -8,7 +8,7 @@ import { AnimatePresence, m } from 'motion/react';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { useRef } from 'react';
 
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { crossfade } from '../../motion/variants';
 

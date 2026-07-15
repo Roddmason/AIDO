@@ -6,7 +6,13 @@
 import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 
 import type { Overview, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
-import { Badge, DataTable, EmptyState, StatusDot, Surface } from '../../components/primitives';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	StatusDot,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { RuntimeSetupInspectorCard } from '../runtime-setup/RuntimeSetupInspectorCard';

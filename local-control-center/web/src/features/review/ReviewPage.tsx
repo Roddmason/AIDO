@@ -11,13 +11,13 @@ import { useMemo, useRef, useState } from 'react';
 import type { ActionRequest, Overview } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
 import {
-	Badge,
+	StatusChip as Badge,
 	DataTable,
 	Drawer,
 	EmptyState,
 	PageHeader,
 	Surface,
-} from '../../components/primitives';
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import { redactVisibleText } from '../../lib/redaction';

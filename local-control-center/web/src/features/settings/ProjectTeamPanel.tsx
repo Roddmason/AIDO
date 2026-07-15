@@ -11,8 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { getAgentProfiles } from '../../api/client';
 import type { AgentProfile } from '../../api/types';
-import { EmptyState } from '../../components/primitives';
-import { ErrorState, Skeleton } from '../../components/ui';
+import { EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { TeamRosterCards } from './DefaultTeamSettingsPanel';
 import { ConsoleLink } from './SettingsPage';

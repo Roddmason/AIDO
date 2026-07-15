@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
-import { Badge } from '../../../components/primitives';
+import { StatusChip as Badge } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../../lib/artifacts';
 import {

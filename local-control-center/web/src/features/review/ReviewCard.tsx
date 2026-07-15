@@ -11,7 +11,7 @@ import { m } from 'motion/react';
 import type { CSSProperties } from 'react';
 import { useRef } from 'react';
 
-import { Badge, StatusDot } from '../../components/primitives';
+import { StatusChip as Badge, StatusDot } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import type { PatchWorkflowKind, ReviewItem } from './model';

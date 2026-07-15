@@ -11,8 +11,13 @@ import { useEffect, useState } from 'react';
 
 import type { Overview, Project } from '../../api/types';
 import { splitHash } from '../../app/routing';
-import { Badge, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { SegmentedControl } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	EmptyState,
+	PageHeader,
+	SegmentedControl,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 

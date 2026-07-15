@@ -15,8 +15,7 @@ import type { ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 
 import type { Overview, Project } from '../api/types';
-import { Badge, EmptyState } from '../components/primitives';
-import { IconButton } from '../components/ui';
+import { StatusChip as Badge, EmptyState, IconButton } from '../components/ui';
 import { ThreadInspector } from '../features/shell/ThreadInspector';
 import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import { RunDetail } from '../features/workflows/RunDetail';

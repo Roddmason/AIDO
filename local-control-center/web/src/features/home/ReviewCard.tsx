@@ -5,7 +5,7 @@
  */
 import { ArrowRight, ClipboardCheck } from 'lucide-react';
 
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { CardHead, HomeCard } from './HomeCardShell';
 import type { HomeReview } from './homeModel';

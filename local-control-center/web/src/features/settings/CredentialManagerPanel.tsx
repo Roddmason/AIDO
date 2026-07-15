@@ -29,8 +29,15 @@ import {
 	validateCredential,
 } from '../../api/client';
 import type { Credential, CredentialAudit, CredentialBackend } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
-import { Button, SelectField, TextField, useToast } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	Button,
+	DataTable,
+	EmptyState,
+	SelectField,
+	TextField,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 

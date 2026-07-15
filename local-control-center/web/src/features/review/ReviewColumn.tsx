@@ -4,7 +4,7 @@
  * the localized copy, and the column just renders and forwards open callbacks.
  * @author Rodrigo Mason
  */
-import { Badge, EmptyState, StatusDot } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState, StatusDot } from '../../components/ui';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';
 import { COLUMN_TONE } from './model';
 import { ReviewCard } from './ReviewCard';

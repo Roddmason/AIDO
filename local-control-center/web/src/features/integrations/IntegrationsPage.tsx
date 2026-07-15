@@ -8,7 +8,13 @@
 import { useEffect, useState } from 'react';
 import { registerMcpServer } from '../../api/client';
 import type { McpTransport, Overview } from '../../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	PageHeader,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 

@@ -4,7 +4,7 @@
  * @author Rodrigo Mason
  */
 import type { Overview } from '../../../api/types';
-import { Badge, DataTable, EmptyState, Surface } from '../../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { formatTime, shortId, toneForStatus } from '../../../lib/format';
 import type { TimelineArtifactRef, WorkflowTimelineStage } from '../timelineModel';

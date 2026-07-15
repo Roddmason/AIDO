@@ -509,6 +509,7 @@ def _enable_remote_provider_for_resource_selection(
     *,
     provider_id: str = "nvidia_nim",
     model: str = "nvidia/nemotron-coder",
+    pricing_mode: str = "unknown",
 ) -> None:
     os.environ.setdefault("AIDO_PRODUCT_LOOP_TEST_API_KEY", "test-key")
     now = utc_now()
@@ -523,6 +524,9 @@ def _enable_remote_provider_for_resource_selection(
             "displayName": provider_id,
             "providerType": "api",
             "apiFormat": "openai_compatible",
+            "deploymentMode": "custom",
+            "termsMode": "accepted",
+            "pricingMode": pricing_mode,
             "baseUrl": f"https://{provider_id}.test/v1",
             "credentialRef": "env:AIDO_PRODUCT_LOOP_TEST_API_KEY",
             "enabled": True,
@@ -2998,7 +3002,7 @@ def test_run_user_message_resource_manager_can_drive_nvidia_api_runtime(
             input_price_per_mtok=0.0,
             output_price_per_mtok=0.0,
         )
-        _enable_remote_provider_for_resource_selection(connection)
+        _enable_remote_provider_for_resource_selection(connection, pricing_mode="free")
         project = _workspace_project(connection, tmp_path, "resource-nvidia-api")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
@@ -3040,6 +3044,15 @@ def test_run_user_message_ignores_untrusted_unknown_cost_policy_metadata(
     planner = _RoleTaskPlanner(["backend_engineer"])
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
+        connection.execute(
+            """
+            UPDATE role_model_policies
+            SET routing_profile_id = 'balanced_best_value',
+                allow_unknown_cost = 0,
+                require_approval_for_unknown_cost = 1
+            WHERE id = 'product_owner'
+            """
+        )
         _seed_remote_api_resource(
             connection,
             provider_id="nvidia_nim",
@@ -3104,7 +3117,7 @@ def test_run_user_message_resource_manager_drives_product_owner_runtime_selectio
             input_price_per_mtok=0.0,
             output_price_per_mtok=0.0,
         )
-        _enable_remote_provider_for_resource_selection(connection)
+        _enable_remote_provider_for_resource_selection(connection, pricing_mode="free")
         project = _workspace_project(connection, tmp_path, "po-resource-nvidia-api")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
@@ -3156,7 +3169,13 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         coordinator.routing_profiles.patch_role_policy(
             "product_owner",
-            {"allowCli": False, "allowLocal": False},
+            {
+                "routingProfileId": "balanced_best_value",
+                "allowCli": False,
+                "allowLocal": False,
+                "allowUnknownCost": False,
+                "requireApprovalForUnknownCost": True,
+            },
         )
 
         blocked = coordinator.run_user_message(
@@ -3289,7 +3308,7 @@ def test_run_user_message_records_product_owner_resource_usage_learning(
             input_price_per_mtok=0.0,
             output_price_per_mtok=0.0,
         )
-        _enable_remote_provider_for_resource_selection(connection)
+        _enable_remote_provider_for_resource_selection(connection, pricing_mode="free")
         project = _workspace_project(connection, tmp_path, "po-resource-learning")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
@@ -3807,6 +3826,10 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "catalogued-ai-resource")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        coordinator.routing_profiles.patch_role_policy(
+            "product_owner",
+            {"routingProfileId": "balanced_best_value"},
+        )
 
         result = coordinator.run_user_message(
             project_id=project["id"],

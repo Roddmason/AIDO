@@ -89,15 +89,19 @@ export function RoutePreviewPanel({
 							onChange={(event) => onChange('mode', event.target.value)}
 						>
 							{[
-								'free_first',
-								'cost_controlled',
-								'balanced_best_value',
-								'max_performance',
-								'manual_by_profile',
-								'local_private',
+								{
+									value: 'free_tier',
+									label: t('app.modelGateway.routeMode.freeTier', 'Free tier only'),
+								},
+								{ value: 'free_first', label: 'free_first' },
+								{ value: 'cost_controlled', label: 'cost_controlled' },
+								{ value: 'balanced_best_value', label: 'balanced_best_value' },
+								{ value: 'max_performance', label: 'max_performance' },
+								{ value: 'manual_by_profile', label: 'manual_by_profile' },
+								{ value: 'local_private', label: 'local_private' },
 							].map((mode) => (
-								<option key={mode} value={mode}>
-									{mode}
+								<option key={mode.value} value={mode.value}>
+									{mode.label}
 								</option>
 							))}
 						</select>

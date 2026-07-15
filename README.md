@@ -377,6 +377,22 @@ $env:AIDO_ANTHROPIC_API_KEY = "<real API key outside repo>"
 $env:AIDO_ANTHROPIC_MODEL = "claude-model-id"
 ```
 
+Google Gemini (API key created in Google AI Studio):
+
+```powershell
+$env:AIDO_GEMINI_API_KEY = "<real API key outside repo>"
+$env:AIDO_GEMINI_MODEL = "gemini-3.5-flash"
+```
+
+The Gemini wizard defaults to the Free tier option and requires the operator to
+attest that the Google project is actually on that tier. The `free_tier`
+routing mode only considers models on accounts explicitly marked free (or local
+zero-cost runtimes) and does not silently fall back to paid routes. Free-tier
+limits are dynamic and visible in Google AI Studio: Gemini 3.5 Flash's
+1,048,576-token input context window is not a free-token allowance. Free-tier
+content may be used by Google to improve its products, so do not route personal,
+sensitive, or confidential data through it. See [Google Gemini provider setup and safety](docs/google-gemini-provider.md).
+
 Ollama:
 
 ```powershell
@@ -744,6 +760,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and the PR template under
 - [Model routing](docs/model-routing.md)
 - [Budget and quota control](docs/budget-and-quota-control.md)
 - [Provider accounts](docs/provider-accounts.md)
+- [Google Gemini provider](docs/google-gemini-provider.md)
 - [Credentials](docs/credentials.md)
 - [Evidence and QA](docs/evidence.md)
 - [Security policy](docs/security-policy.md)

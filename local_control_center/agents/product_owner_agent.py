@@ -243,8 +243,14 @@ def persist_product_owner_backlog(
     project_id: str,
     output: dict[str, Any],
     product_owner_output_id: str | None = None,
+    existing_epic: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Materializa épicas, historias y criterios desde un output PO validado."""
+    """Materializa épicas, historias y criterios desde un output PO validado.
+
+    Cuando ``existing_epic`` viene (modo expansión de épica), las historias cuyo
+    ``epicTitle`` coincide con esa épica se enlazan a su registro existente en vez de
+    crear una épica nueva.
+    """
     existing: list[dict[str, Any]] = []
     if product_owner_output_id:
         existing = [
@@ -257,7 +263,12 @@ def persist_product_owner_backlog(
 
     epics_by_title: dict[str, dict[str, Any]] = {}
     persisted: list[dict[str, Any]] = []
+    if existing_epic:
+        epics_by_title[existing_epic["title"]] = existing_epic
+        persisted.append({"epic": existing_epic, "stories": []})
     for epic in output["epics"]:
+        if epic["title"] in epics_by_title:
+            continue
         epic_record = backlog.create_epic(
             {
                 "projectId": project_id,
@@ -333,8 +344,14 @@ class ProductOwnerAgent:
         """Devuelve el contrato (esquemas I/O, tools y runtimes) del ProductOwnerAgent."""
         return product_owner_agent_contract()
 
-    def _assessment_context(self, *, idea: str, assessment: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _assessment_context(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        context = {
             "idea": _bounded_text(idea),
             "codebaseSignals": assessment.get("projectAssessment"),
             "existingInitiative": assessment.get("initiative"),
@@ -348,25 +365,62 @@ class ProductOwnerAgent:
                 for decision in (assessment.get("unresolvedDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
             ],
         }
+        if epic_expansion:
+            context["epicExpansion"] = epic_expansion
+        return context
 
-    def model_messages(self, *, idea: str, assessment: dict[str, Any]) -> list[dict[str, str]]:
+    def model_messages(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+    ) -> list[dict[str, str]]:
         """Arma los mensajes system/user para el runtime de modelo, exigiendo solo JSON del esquema."""
         return [
-            {"role": "system", "content": self._system_instruction()},
+            {"role": "system", "content": self._system_instruction(epic_expansion=bool(epic_expansion))},
             {
                 "role": "user",
                 "content": json_dumps(
-                    redact_secrets(self._assessment_context(idea=idea, assessment=assessment))
+                    redact_secrets(
+                        self._assessment_context(
+                            idea=idea, assessment=assessment, epic_expansion=epic_expansion
+                        )
+                    )
                 ),
             },
         ]
 
-    def cli_prompt(self, *, idea: str, assessment: dict[str, Any]) -> str:
+    def cli_prompt(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+    ) -> str:
         """Arma el prompt de una sola pieza para un runtime CLI real, exigiendo solo JSON del esquema."""
-        context = json_dumps(redact_secrets(self._assessment_context(idea=idea, assessment=assessment)))
-        return f"{self._system_instruction()}\n\nInput context (JSON):\n{context}\n"
+        context = json_dumps(
+            redact_secrets(
+                self._assessment_context(idea=idea, assessment=assessment, epic_expansion=epic_expansion)
+            )
+        )
+        instruction = self._system_instruction(epic_expansion=bool(epic_expansion))
+        return f"{instruction}\n\nInput context (JSON):\n{context}\n"
 
-    def _system_instruction(self) -> str:
+    def _system_instruction(self, *, epic_expansion: bool = False) -> str:
+        if epic_expansion:
+            return (
+                "You are ProductOwnerAgent expanding ONE existing epic into additional user stories. "
+                "Return ONLY valid JSON, without markdown fences, matching this schema: "
+                + json_dumps(self.contract()["outputSchema"])
+                + " Rules: the input context includes epicExpansion with epicTitle, epicDescription and "
+                "existingStoryTitles. Every userStories[i].epicTitle MUST equal epicExpansion.epicTitle "
+                "exactly; do not invent other epics (epics must be an empty list). Do not duplicate any "
+                "title from existingStoryTitles. A user story represents user value (asA/iWant/soThat) "
+                "and is never a technical task; each story must include at least one acceptance "
+                "criterion. Use status backlog_ready when the stories are ready for approval and "
+                "needs_input only when the epic lacks the product facts required to derive stories."
+            )
         return (
             "You are ProductOwnerAgent. Analyze the supplied idea or existing assessment and return ONLY "
             "valid JSON, without markdown fences, matching this schema: "
@@ -384,6 +438,25 @@ class ProductOwnerAgent:
             "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
             "options) and confidence (low/medium/high); do not ask about facts already present in the assessment."
         )
+
+    def validate_epic_expansion_output(self, output: dict[str, Any], *, epic_title: str) -> None:
+        """Valida que un output de expansión derive historias solo para la épica objetivo.
+
+        Raises:
+            ProductOwnerOutputValidationError: si no hay historias o alguna referencia otra épica.
+        """
+        stories = output.get("userStories") or []
+        if not stories:
+            raise ProductOwnerOutputValidationError(
+                "Epic expansion output must include at least one user story for the target epic."
+            )
+        for index, story in enumerate(stories):
+            story_epic = str(story.get("epicTitle") or "")
+            if story_epic != epic_title:
+                raise ProductOwnerOutputValidationError(
+                    f"userStories[{index}].epicTitle must equal the target epic title "
+                    f"({epic_title!r}), got {story_epic!r}."
+                )
 
     def validate_output(self, payload: Any) -> dict[str, Any]:
         """Valida la salida del runtime contra el esquema estricto y la normaliza.
@@ -1123,12 +1196,14 @@ class ProductOwnerAgentRunner:
         project_id: str,
         output: dict[str, Any],
         product_owner_output_id: str | None = None,
+        existing_epic: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         return persist_product_owner_backlog(
             self.backlog,
             project_id=project_id,
             output=output,
             product_owner_output_id=product_owner_output_id,
+            existing_epic=existing_epic,
         )
 
     def _write_manifest_artifact(self, *, project_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -1165,6 +1240,14 @@ class ProductOwnerAgentRunner:
         initiative_id = payload.get("initiativeId")
         threshold = payload.get("completenessThreshold")
         threshold = int(threshold) if isinstance(threshold, (int, float)) else DEFAULT_COMPLETENESS_THRESHOLD
+        epic: dict[str, Any] | None = None
+        epic_id = str(payload.get("epicId") or "").strip()
+        if epic_id:
+            epic = self.backlog.get_epic(epic_id)
+            if epic["projectId"] != project_id:
+                raise KeyError(f"Epic not found in project: {epic_id}")
+            if not idea.strip():
+                idea = f"Expand the epic {epic['title']!r} into additional user stories."
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
@@ -1216,6 +1299,7 @@ class ProductOwnerAgentRunner:
             assessment=assessment,
             task_id=task_id,
             threshold=threshold,
+            epic=epic,
         )
         return self._finalize(
             project_id=project_id,
@@ -1242,6 +1326,7 @@ class ProductOwnerAgentRunner:
         assessment: dict[str, Any],
         task_id: str,
         threshold: int,
+        epic: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "status": RUNTIME_UNAVAILABLE_STATUS,
@@ -1261,6 +1346,7 @@ class ProductOwnerAgentRunner:
         project_id = str(payload["projectId"])
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_id = str(runtime["id"])
+        epic_expansion = self._epic_expansion_context(epic) if epic else None
         if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
             try:
                 runtime_result = self._execute_cli_runtime(
@@ -1271,7 +1357,9 @@ class ProductOwnerAgentRunner:
                     job=job,
                     profile=profile,
                     broker=broker,
-                    prompt=self.agent.cli_prompt(idea=assessment["idea"], assessment=assessment),
+                    prompt=self.agent.cli_prompt(
+                        idea=assessment["idea"], assessment=assessment, epic_expansion=epic_expansion
+                    ),
                 )
             except RuntimeCommandUnavailableError as error:
                 result["status"] = "failed"
@@ -1287,7 +1375,9 @@ class ProductOwnerAgentRunner:
                 job=job,
                 profile=profile,
                 broker=broker,
-                messages=self.agent.model_messages(idea=assessment["idea"], assessment=assessment),
+                messages=self.agent.model_messages(
+                    idea=assessment["idea"], assessment=assessment, epic_expansion=epic_expansion
+                ),
             )
         result["runtimeResult"] = runtime_result
         if runtime_result["status"] != "completed":
@@ -1301,6 +1391,8 @@ class ProductOwnerAgentRunner:
             runtime_output = self._runtime_output_text(runtime_result)
             result["outputArtifactId"] = runtime_output["artifactId"]
             output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
+            if epic:
+                self.agent.validate_epic_expansion_output(output, epic_title=epic["title"])
             selection = ImpactQuestionEngine().select(
                 output["questions"],
                 detected_facts=detected_facts_from_assessment(
@@ -1393,10 +1485,26 @@ class ProductOwnerAgentRunner:
             project_id=project_id,
             output=output,
             product_owner_output_id=output_record["id"],
+            existing_epic=epic,
         )
         result["status"] = COMPLETED_STATUS
-        result["reason"] = "ProductOwnerAgent completed real analysis and generated a validated backlog."
+        result["reason"] = (
+            f"ProductOwnerAgent expanded epic {epic['title']!r} with validated user stories."
+            if epic
+            else "ProductOwnerAgent completed real analysis and generated a validated backlog."
+        )
         return result
+
+    def _epic_expansion_context(self, epic: dict[str, Any]) -> dict[str, Any]:
+        existing_titles = [
+            str(story.get("title") or "")
+            for story in self.backlog.list_user_stories(epic_id=epic["id"])[:PROMPT_COLLECTION_LIMIT]
+        ]
+        return {
+            "epicTitle": epic["title"],
+            "epicDescription": _bounded_text(str(epic.get("description") or "")),
+            "existingStoryTitles": existing_titles,
+        }
 
     def _finalize(
         self,

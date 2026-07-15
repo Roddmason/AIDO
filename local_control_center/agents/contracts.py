@@ -901,6 +901,7 @@ class ProductOwnerAgentRunRequest(BaseModel):
     task_id: str = Field(default="product_owner_agent", alias="taskId")
     idea: str | None = None
     initiative_id: str | None = Field(default=None, alias="initiativeId")
+    epic_id: str | None = Field(default=None, alias="epicId")
     completeness_threshold: float | None = Field(default=None, alias="completenessThreshold")
     autonomy: dict[str, Any] | None = None
     workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")

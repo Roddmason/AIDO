@@ -47,7 +47,10 @@ from .providers.factory import (
     provider_account_requires_credential,
 )
 from .providers.http_transport import urlopen_fail_closed
-from .runtime_provider_config import runtime_provider_configuration
+from .runtime_provider_config import (
+    runtime_provider_configuration,
+    runtime_provider_configuration_for_account,
+)
 
 RUNTIME_ADAPTER_TOOLS = {
     "mcp",
@@ -1073,6 +1076,11 @@ class ProviderFactoryAdapter:
                 started_at=started_at,
                 reason=f"{self.display_name} execution requires input.messages.",
             )
+        if not model:
+            # Solo la cuenta canonica (providerId == providerFamily) hereda el modelo
+            # configurado por entorno; los endpoints dedicados siguen fail-closed.
+            configuration = runtime_provider_configuration_for_account(account)
+            model = str(configuration.value("model") or "").strip() if configuration else ""
         if not model:
             return _result(
                 status="blocked",

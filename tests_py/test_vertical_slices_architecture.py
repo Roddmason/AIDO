@@ -388,7 +388,7 @@ def test_retrieval_and_base_schema_tests_use_direct_sqlite_setup() -> None:
     schema_test = control_center_tests.split(
         "def test_sqlite_schema_contains_python_control_plane_tables",
         1,
-    )[1].split("def test_sandbox_denies_dangerous_subprocess_without_docker", 1)[0]
+    )[1].split("def test_agents_planner_is_gated_when_sdk_or_key_is_missing", 1)[0]
 
     assert "ControlPlaneFixture" not in retrieval_test
     assert "MemoryRepository" in retrieval_test

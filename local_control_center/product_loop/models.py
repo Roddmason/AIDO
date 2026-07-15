@@ -399,6 +399,65 @@ class ProductLoopStateResponse(BaseModel):
     iterations: list[IterationRecord]
 
 
+class StorySpecEpic(BaseModel):
+    """Contexto de la épica dentro del spec ejecutable de una historia."""
+
+    id: str
+    title: str
+    description: str
+
+
+class StorySpecStory(BaseModel):
+    """Núcleo de valor de la historia (asA/iWant/soThat) dentro de su spec ejecutable."""
+
+    title: str
+    as_a: str = Field(alias="asA")
+    i_want: str = Field(alias="iWant")
+    so_that: str = Field(alias="soThat")
+    business_value: str = Field(alias="businessValue")
+    status: str
+    priority: str
+
+
+class StorySpecAcceptanceCriterion(BaseModel):
+    """Criterio de aceptación ordenado que hace verificable el spec de la historia."""
+
+    id: str
+    sequence: int
+    criterion: str
+    status: str
+
+
+class StorySpecDependency(BaseModel):
+    """Arista de dependencia entre responsabilidades de rol dentro del spec."""
+
+    task_id: str = Field(alias="taskId")
+    role: str
+
+
+class StorySpecRoleResponsibility(BaseModel):
+    """Responsabilidad que un rol/agente toma de la historia: goal, reviewer, gates y dependencias."""
+
+    task_id: str = Field(alias="taskId")
+    role: str
+    title: str
+    goal: str
+    reviewer_role: str = Field(alias="reviewerRole")
+    quality_gates: list[dict[str, Any]] = Field(alias="qualityGates")
+    depends_on: list[StorySpecDependency] = Field(alias="dependsOn")
+
+
+class StorySpecResponse(BaseModel):
+    """Spec ejecutable de una historia: épica, HU, criterios, roles y el texto listo para prompt."""
+
+    story_id: str = Field(alias="storyId")
+    epic: StorySpecEpic
+    story: StorySpecStory
+    acceptance_criteria: list[StorySpecAcceptanceCriterion] = Field(alias="acceptanceCriteria")
+    role_responsibilities: list[StorySpecRoleResponsibility] = Field(alias="roleResponsibilities")
+    prompt_text: str = Field(alias="promptText")
+
+
 class ProductLoopStartRequest(BaseModel):
     """Cuerpo para arrancar un product loop en ``goal_received``, con su política de gobierno opcional."""
 

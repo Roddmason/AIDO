@@ -255,12 +255,25 @@ def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
     )
 
 
-def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) -> str:
-    """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules."""
+def developer_agent_prompt(
+    *,
+    instruction: str,
+    qa_commands: list[list[str]],
+    story_specs: str | None = None,
+) -> str:
+    """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules.
+
+    When ``story_specs`` is provided, the rendered user-story spec (epic, story,
+    acceptance criteria, and role responsibilities) is included as the acceptance
+    source of truth; without it the prompt is byte-identical to the legacy form.
+    """
     qa_text = (
         "\n".join(" ".join(command) for command in qa_commands)
         if qa_commands
         else "No QA commands were provided."
+    )
+    spec_block = (
+        "User story spec (source of truth for acceptance):\n" + story_specs + "\n\n" if story_specs else ""
     )
     return (
         "You are DeveloperAgent executing real implementation work in the current workspace only.\n"
@@ -270,6 +283,7 @@ def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) ->
         "- Do not skip applicable tests; if QA commands are provided, preserve them as required verification.\n"
         "- Do not modify the source repository root outside this workspace.\n"
         "- Produce a concise structured summary with changed files, tests run, blockers, and residual risks.\n\n"
+        f"{spec_block}"
         f"Instruction:\n{instruction}\n\nRequired QA commands:\n{qa_text}\n"
     )
 
@@ -417,6 +431,7 @@ def build_developer_agent_argv(
     qa_commands: list[list[str]],
     agent_id: str,
     connection: sqlite3.Connection,
+    story_specs: str | None = None,
 ) -> list[str]:
     """Build the structured argv for a DeveloperAgent run (Codex or Claude Code CLI only).
 
@@ -449,7 +464,9 @@ def build_developer_agent_argv(
             "runtime": runtime_id,
             "workspaceId": workspace_id,
             "workspacePath": workspace_path,
-            "prompt": developer_agent_prompt(instruction=instruction, qa_commands=qa_commands),
+            "prompt": developer_agent_prompt(
+                instruction=instruction, qa_commands=qa_commands, story_specs=story_specs
+            ),
             "envPolicy": {
                 "permissionProfile": "dev_safe",
                 "network": False,

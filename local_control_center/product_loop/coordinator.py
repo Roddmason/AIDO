@@ -49,6 +49,7 @@ from local_control_center.agents.product_owner_agent_contract import (
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
@@ -1818,6 +1819,26 @@ class ProductLoopCoordinator:
                 if isinstance(story, dict):
                     stories.append(story)
         return stories
+
+    def _story_specs_for_tasks(self, agent_tasks: list[dict[str, Any]]) -> str | None:
+        """Renderiza el spec ejecutable (epica/HU/criterios/roles) de las historias asignadas.
+
+        Devuelve None cuando no hay historias resolubles para no alterar el prompt legado.
+        """
+        story_ids: list[str] = []
+        for task in agent_tasks or []:
+            story_id = str(task.get("storyId") or "").strip()
+            if story_id and story_id not in story_ids:
+                story_ids.append(story_id)
+        specs: list[dict[str, Any]] = []
+        for story_id in story_ids:
+            try:
+                specs.append(build_story_spec(self.backlog, story_id))
+            except KeyError:
+                continue
+        if not specs:
+            return None
+        return render_story_spec_prompt(specs)
 
     def _acceptance_criteria_from_backlog(self, backlog: list[dict[str, Any]]) -> list[dict[str, Any]]:
         criteria: list[dict[str, Any]] = []
@@ -4833,6 +4854,7 @@ class ProductLoopCoordinator:
             "workspaceId": workspace["id"],
             "taskId": task_id,
             "instruction": message_text,
+            "storySpecs": self._story_specs_for_tasks(agent_tasks),
             "agentTasks": agent_tasks,
             "teamSchedule": team_schedule,
             "agentAssignments": team_assignments,

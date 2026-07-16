@@ -33,10 +33,14 @@ from .architect_agent_contract import (
     architect_agent_readiness,
 )
 from .repository import AgentsRepository
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    runtime_provider_family,
+    runtime_unavailable_result,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
 ARCHITECT_TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, FAILED_VALIDATION_STATUS, "failed"}
 RISK_SEVERITIES = {"low", "medium", "high", "critical"}
@@ -50,14 +54,8 @@ class ArchitectOutputValidationError(ValueError):
     """Se lanza cuando la salida del modelo no cumple el esquema o cita evidencia no permitida."""
 
 
-def _runtime_provider_family(runtime: dict[str, Any]) -> str:
-    runtime_id = str(runtime.get("id") or "")
-    provider_family = str(runtime.get("providerFamily") or "")
-    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
-
-
 def _runtime_mode(runtime: dict[str, Any]) -> str:
-    return "ollama" if _runtime_provider_family(runtime) == "ollama" else "api"
+    return "ollama" if runtime_provider_family(runtime) == "ollama" else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -75,10 +73,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "evidencePackageId": execution_result.get("evidencePackageId"),
         "redacted": bool(execution_result.get("redacted", False)),
     }
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
 
 
 def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
@@ -359,7 +353,7 @@ class ArchitectAgentRunner:
 
     def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
         runtime_id = str(runtime.get("id") or "")
-        provider_family = _runtime_provider_family(runtime)
+        provider_family = runtime_provider_family(runtime)
         model_runtime = provider_family in ARCHITECT_AGENT_MODEL_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
@@ -444,7 +438,7 @@ class ArchitectAgentRunner:
         diff_text: str,
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
-        provider_family = _runtime_provider_family(runtime)
+        provider_family = runtime_provider_family(runtime)
         model = payload.get("model")
         if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)
@@ -582,7 +576,7 @@ class ArchitectAgentRunner:
             status="running",
         )
 
-        runtime_result = _runtime_unavailable_result(readiness["reason"])
+        runtime_result = runtime_unavailable_result(readiness["reason"])
         final_status = RUNTIME_UNAVAILABLE_STATUS
         final_reason = readiness["reason"]
         output: dict[str, Any] | None = None

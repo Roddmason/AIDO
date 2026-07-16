@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
@@ -48,39 +47,28 @@ from .runtime_registry import (
     build_developer_agent_argv,
     developer_agent_prompt,
 )
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    display_command,
+    is_ollama_runtime,
+    runtime_provider_family,
+    runtime_unavailable_result,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
-
-
-def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
-    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
-
-
-def _runtime_provider_family(runtime: dict[str, Any]) -> str:
-    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
 
 
 def _runtime_mode(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
-    if _is_ollama_runtime(runtime):
+    if is_ollama_runtime(runtime):
         return "ollama"
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "cli"
-    if _runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
+    if runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
         return "api"
     return "hybrid"
-
-
-def _display_command(argv: list[str]) -> str:
-    if not argv:
-        return ""
-    executable = Path(argv[0]).name or str(argv[0])
-    if executable.lower() in {"python.exe", "python3.exe", "py.exe"}:
-        executable = "python"
-    return subprocess.list2cmdline([executable, *[str(item) for item in argv[1:]]])
 
 
 def _diff_summary(diff: dict[str, Any]) -> dict[str, Any]:
@@ -145,10 +133,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
     }
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
 
 
 def _complete_run_status(
@@ -320,8 +304,8 @@ class DeveloperAgentRunner:
 
     def _create_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
         runtime_id = str(runtime.get("id") or "")
-        ollama_runtime = _is_ollama_runtime(runtime)
-        provider_family = _runtime_provider_family(runtime)
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
         remote_runtime = provider_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES or str(
             runtime.get("kind") or ""
         ) in {"api", "gateway"}
@@ -376,7 +360,7 @@ class DeveloperAgentRunner:
             job_id=job["id"],
             tool_call={
                 "tool": "shell",
-                "command": _display_command(runtime_argv),
+                "command": display_command(runtime_argv),
                 "argv": runtime_argv,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
@@ -403,8 +387,8 @@ class DeveloperAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        ollama_runtime = _is_ollama_runtime(runtime)
-        provider_family = _runtime_provider_family(runtime)
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
         if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
@@ -531,7 +515,7 @@ class DeveloperAgentRunner:
 
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_status = RUNTIME_UNAVAILABLE_STATUS
-        runtime_result = _runtime_unavailable_result(preflight_block_reason or readiness["reason"])
+        runtime_result = runtime_unavailable_result(preflight_block_reason or readiness["reason"])
         if readiness["executable"] and not preflight_block_reason:
             try:
                 if str(runtime["id"]) in DEVELOPER_AGENT_CLI_RUNTIMES:
@@ -544,7 +528,7 @@ class DeveloperAgentRunner:
                         profile=profile,
                         broker=broker,
                     )
-                elif _runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
+                elif runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
                     runtime_result = self._execute_model_runtime(
                         payload=payload,
                         runtime=runtime,
@@ -556,7 +540,7 @@ class DeveloperAgentRunner:
                     )
                 runtime_status = str(runtime_result.get("status") or "failed")
             except (RuntimeCommandUnavailableError, ValueError) as error:
-                runtime_result = _runtime_unavailable_result(str(error))
+                runtime_result = runtime_unavailable_result(str(error))
                 runtime_status = RUNTIME_UNAVAILABLE_STATUS
 
         diff = capture_git_diff(

@@ -59,10 +59,15 @@ from .runtime_registry import (
     build_product_owner_agent_argv,
     isolated_product_owner_codex_environment,
 )
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    is_ollama_runtime,
+    runtime_provider_family,
+    runtime_unavailable_result,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
 BLOCKED_STATUS = "blocked"
@@ -101,23 +106,11 @@ class ProductOwnerOutputValidationError(ValueError):
     """Se lanza cuando la salida del runtime no cumple el esquema estricto del ProductOwnerAgent."""
 
 
-def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
-    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
-
-
-def _runtime_provider_family(runtime: dict[str, Any]) -> str:
-    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
-
-
 def _runtime_mode(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return "cli"
-    return "ollama" if _is_ollama_runtime(runtime) else "api"
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
+    return "ollama" if is_ollama_runtime(runtime) else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -758,8 +751,8 @@ class ProductOwnerAgentRunner:
 
     def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
         runtime_id = str(runtime.get("id") or "")
-        ollama_runtime = _is_ollama_runtime(runtime)
-        provider_family = _runtime_provider_family(runtime)
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
         remote_runtime = provider_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES or str(
             runtime.get("kind") or ""
         ) in {"api", "gateway"}
@@ -881,8 +874,8 @@ class ProductOwnerAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        ollama_runtime = _is_ollama_runtime(runtime)
-        provider_family = _runtime_provider_family(runtime)
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
         if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
@@ -1494,7 +1487,7 @@ class ProductOwnerAgentRunner:
         result: dict[str, Any] = {
             "status": RUNTIME_UNAVAILABLE_STATUS,
             "reason": readiness["reason"],
-            "runtimeResult": _runtime_unavailable_result(readiness["reason"]),
+            "runtimeResult": runtime_unavailable_result(readiness["reason"]),
             "output": None,
             "completeness": None,
             "initiative": None,

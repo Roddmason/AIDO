@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .runtime_selection import runtime_provider_family
 
 ARCHITECT_AGENT_ID = "architect_agent"
 ARCHITECT_AGENT_ALLOWED_TOOLS = sorted(MODEL_PROVIDER_FAMILIES)
@@ -29,12 +30,6 @@ ARCHITECT_AGENT_RUNTIME_ORDER = [
     *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
 ]
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
-
-
-def _architect_runtime_family(runtime: dict[str, Any]) -> str:
-    runtime_id = str(runtime.get("id") or "")
-    provider_family = str(runtime.get("providerFamily") or "")
-    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
 
 
 def architect_agent_contract() -> dict[str, Any]:
@@ -88,14 +83,14 @@ def architect_agent_contract() -> dict[str, Any]:
 
 
 def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
-    if _architect_runtime_family(runtime) == "ollama" and not runtime.get("models"):
+    if runtime_provider_family(runtime) == "ollama" and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ArchitectAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ArchitectAgent.")
 
 
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
-    runtime_family = _architect_runtime_family(runtime)
+    runtime_family = runtime_provider_family(runtime)
     if runtime_family not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
@@ -121,8 +116,8 @@ def architect_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
-            ARCHITECT_AGENT_RUNTIME_ORDER.index(_architect_runtime_family(item))
-            if _architect_runtime_family(item) in ARCHITECT_AGENT_RUNTIME_ORDER
+            ARCHITECT_AGENT_RUNTIME_ORDER.index(runtime_provider_family(item))
+            if runtime_provider_family(item) in ARCHITECT_AGENT_RUNTIME_ORDER
             else len(ARCHITECT_AGENT_RUNTIME_ORDER)
         ),
     )

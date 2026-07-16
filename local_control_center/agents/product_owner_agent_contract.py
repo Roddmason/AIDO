@@ -14,6 +14,7 @@ from typing import Any
 
 from .autonomy_profiles import REVERSIBILITIES
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .runtime_selection import is_ollama_runtime, runtime_provider_family
 
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
 PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(MODEL_PROVIDER_FAMILIES)]
@@ -40,29 +41,21 @@ PRODUCT_OWNER_AGENT_RUNTIME_ORDER = [
 PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS = 240
 
 
-def _is_ollama_runtime(runtime: dict[str, Any]) -> bool:
-    return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
-
-
-def _product_owner_runtime_family(runtime: dict[str, Any]) -> str:
-    return "ollama" if _is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
-
-
 def _product_owner_runtime_order_id(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     return (
         runtime_id
         if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
-        else _product_owner_runtime_family(runtime)
+        else runtime_provider_family(runtime)
     )
 
 
 def _product_owner_runtime_cost_rank(runtime: dict[str, Any]) -> int:
-    provider_family = _product_owner_runtime_family(runtime)
+    provider_family = runtime_provider_family(runtime)
     declared_free = str(runtime.get("pricingMode") or "") == "free" and (
         provider_family != "gemini" or runtime.get("freeTierDeclaredByOperator") is True
     )
-    if declared_free or _is_ollama_runtime(runtime):
+    if declared_free or is_ollama_runtime(runtime):
         return 0
     if str(runtime.get("id") or "") in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return 1
@@ -296,7 +289,7 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
         "chat" not in capabilities or runtime.get("canRunPrompt") is False
     ):
         return "CLI runtime does not advertise the chat prompt capability required by ProductOwnerAgent."
-    if _is_ollama_runtime(runtime) and not runtime.get("models"):
+    if is_ollama_runtime(runtime) and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ProductOwnerAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ProductOwnerAgent.")
 
@@ -304,7 +297,7 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
 def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime sirve como ProductOwnerAgent: CLI real ejecutable o modelo con chat disponible."""
     runtime_id = str(runtime.get("id") or "")
-    runtime_family = _product_owner_runtime_family(runtime)
+    runtime_family = runtime_provider_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         product_owner_executable = runtime.get("productOwnerExecutable")
@@ -318,7 +311,7 @@ def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
         return False
     if runtime_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities
-    if _is_ollama_runtime(runtime):
+    if is_ollama_runtime(runtime):
         return bool("chat" in capabilities and runtime.get("models"))
     return False
 

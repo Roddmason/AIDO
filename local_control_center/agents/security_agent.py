@@ -36,6 +36,7 @@ from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .repository import AgentsRepository
+from .runtime_selection import runtime_provider_family
 from .runtime_status import RuntimeStatusService
 from .security_agent_contract import (
     SECURITY_AGENT_ALLOWED_TOOLS,
@@ -94,10 +95,6 @@ MAX_FILES_SCANNED = 5000
 EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
 
 
-def _runtime_provider_family(runtime: dict[str, Any]) -> str:
-    runtime_id = str(runtime.get("id") or "")
-    provider_family = str(runtime.get("providerFamily") or "")
-    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
 SCANNER_REPORT_DIR = "security-scanner-reports"
 SEMGREP_CONFIG_CANDIDATES = (".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml")
 GITLEAKS_CONFIG_CANDIDATES = (".gitleaks.toml", "gitleaks.toml")
@@ -185,7 +182,7 @@ class SecurityAgentRunner:
 
     def _ensure_profile(self, runtime: dict[str, Any] | None = None) -> dict[str, Any]:
         runtime_id = str((runtime or {}).get("id") or "")
-        provider_family = _runtime_provider_family(runtime or {})
+        provider_family = runtime_provider_family(runtime or {})
         model_runtime = provider_family in SECURITY_AGENT_MODEL_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
@@ -996,7 +993,7 @@ class SecurityAgentRunner:
                 "reason": "Optional SecurityAgent model analysis skipped because no executable model runtime is configured.",
             }
         runtime_id = str(runtime["id"])
-        provider_family = _runtime_provider_family(runtime)
+        provider_family = runtime_provider_family(runtime)
         model = payload.get("model")
         if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)

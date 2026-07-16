@@ -56,7 +56,7 @@ recorded in the tool-call payload and fail the agent run.
 
 ## Runtime Adapter Contract
 
-`agents/runtime_adapters.py` defines the typed runtime adapter port:
+The `agents/runtime_adapters/` package defines the typed runtime adapter port:
 `RuntimeAdapter`, `RuntimeExecutionRequest`, `RuntimeExecutionResult`, and
 `RuntimeAdapterRegistry`.
 

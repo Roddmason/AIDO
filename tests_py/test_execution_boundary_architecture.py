@@ -17,7 +17,7 @@ APPROVED_SUBPROCESS_FILES = {
 APPROVED_SANDBOX_EXECUTION_FILES = {
     "local_control_center/agents/cli_runtimes/base.py",
     "local_control_center/agents/openhands_adapter.py",
-    "local_control_center/agents/runtime_adapters.py",
+    "local_control_center/agents/runtime_adapters/subprocess_adapter.py",
     "local_control_center/agents/swe_agent_adapter.py",
     "local_control_center/agents/tool_broker.py",
     "local_control_center/integrations/mcp_gateway.py",

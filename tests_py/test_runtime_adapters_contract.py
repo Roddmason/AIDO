@@ -35,7 +35,7 @@ from local_control_center.shared.time import utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ADAPTER_FILES = [
-    ROOT / "local_control_center" / "agents" / "runtime_adapters.py",
+    *(ROOT / "local_control_center" / "agents" / "runtime_adapters").glob("*.py"),
     ROOT / "local_control_center" / "agents" / "runtime_registry.py",
     *(ROOT / "local_control_center" / "agents" / "cli_runtimes").glob("*.py"),
     *(ROOT / "local_control_center" / "agents" / "providers").glob("*.py"),
@@ -601,7 +601,7 @@ def test_ollama_adapter_executes_against_persisted_remote_endpoint(tmp_path: Pat
             return Response(b'{"models":[{"name":"controlled-model"}]}')
         return Response(b'{"message":{"content":"persisted endpoint reply"}}')
 
-    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
     monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "controlled-bearer-token")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -661,7 +661,7 @@ def test_ollama_adapter_never_forwards_persisted_bearer_to_an_override_host(
         )
         return Response(payload)
 
-    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
     monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "must-not-leave-the-persisted-host")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -723,7 +723,7 @@ def test_ollama_adapter_executes_the_endpoint_selected_in_the_request(tmp_path: 
         )
         return Response(payload)
 
-    monkeypatch.setattr("local_control_center.agents.runtime_adapters.urlopen", fake_urlopen)
+    monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         connection.execute(

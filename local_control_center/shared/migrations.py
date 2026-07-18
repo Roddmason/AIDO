@@ -5702,6 +5702,40 @@ def init_phase56_schema(connection: sqlite3.Connection) -> None:
                     ),
                 )
 
+        # El seed de gemini:* usa columnas de la fase 54; una BD que re-entra
+        # desde la fase 53 aún no las tiene, así que se garantizan idempotentes.
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_concurrency",
+            "max_concurrency INTEGER CHECK (max_concurrency IS NULL OR max_concurrency > 0)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "window_timezone",
+            "window_timezone TEXT NOT NULL DEFAULT 'UTC'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "enabled",
+            "enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "fallback_retry_after_seconds",
+            "fallback_retry_after_seconds INTEGER NOT NULL DEFAULT 300 "
+            "CHECK (fallback_retry_after_seconds BETWEEN 0 AND 86400)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_cost_per_request_usd",
+            "max_cost_per_request_usd REAL "
+            "CHECK (max_cost_per_request_usd IS NULL OR max_cost_per_request_usd >= 0)",
+        )
         connection.execute(
             """
             INSERT OR IGNORE INTO provider_limits

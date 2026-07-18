@@ -38,6 +38,9 @@ from .runtime_registry import PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS, RuntimeReg
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
+# Runtimes autónomos de edición de código: su único propósito es mutar el workspace,
+# así que sin la capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
+CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
 OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
@@ -407,8 +410,12 @@ def _cli_provider_status(
         can_run_prompt and can_code_edit and issue_to_patch_argv_error is None and command_matches_provider
     )
     # ``executable`` means the provider can execute a prompt. Mutation is a separate capability:
-    # DeveloperAgent must additionally require ``canEditWorkspace``/``code_edit``.
-    executable = can_run_prompt
+    # DeveloperAgent must additionally require ``canEditWorkspace``/``code_edit``. Los runtimes
+    # de edición autónoma (openhands/swe_agent) no tienen uso sin esa capability: el contrato de
+    # release exige que permanezcan no ejecutables hasta que el operador la habilite.
+    executable = (
+        can_edit_workspace if str(account["providerId"]) in CODE_EDIT_GATED_RUNTIME_IDS else can_run_prompt
+    )
     if not configured and configuration is not None:
         reason = (
             f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."

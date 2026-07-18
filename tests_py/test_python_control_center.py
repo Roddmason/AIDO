@@ -13,6 +13,7 @@ from local_control_center.control_plane.overview import (
     OVERVIEW_AGENT_RUN_LIMIT,
     OVERVIEW_AGENT_TOOL_CALL_LIMIT,
     OVERVIEW_AUDIT_EVENT_LIMIT,
+    OVERVIEW_COST_USAGE_LIMIT,
     OVERVIEW_EVENT_LIMIT,
     OVERVIEW_PERMISSION_DECISION_LIMIT,
 )
@@ -390,10 +391,19 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
             status="completed",
             payload={"sequence": index},
         )
+    for _index in range(OVERVIEW_COST_USAGE_LIMIT + 10):
+        store.agents.record_model_call(
+            project_id=project["id"],
+            provider="test-provider",
+            model="test-model",
+            status="completed",
+            cost_usd=0.01,
+        )
 
     assert len(store.security.list_decisions()) >= OVERVIEW_PERMISSION_DECISION_LIMIT + 25
     assert len(store.agents.list_agent_runs()) == OVERVIEW_AGENT_RUN_LIMIT + 10
     assert len(store.agents.list_agent_tool_calls()) == OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15
+    assert len(store.agents.list_cost_usage()) == OVERVIEW_COST_USAGE_LIMIT + 10
 
     response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
 
@@ -402,6 +412,29 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
     assert len(overview["permissionDecisions"]) == OVERVIEW_PERMISSION_DECISION_LIMIT
     assert len(overview["agentToolCalls"]) == OVERVIEW_AGENT_TOOL_CALL_LIMIT
     assert len(overview["agentRuns"]) == OVERVIEW_AGENT_RUN_LIMIT
+    assert len(overview["costUsage"]) == OVERVIEW_COST_USAGE_LIMIT
+
+
+def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    expected_indexes = {
+        "idx_agent_runs_created_at",
+        "idx_agent_tool_calls_created_at",
+        "idx_model_calls_created_at",
+        "idx_cost_usage_created_at",
+        "idx_events_type_created_at",
+    }
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        initialize_platform_schema(connection)
+        names = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        assert expected_indexes <= names
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone()
 
 
 def test_startup_lifespan_prunes_stale_http_request_telemetry(tmp_path: Path, monkeypatch) -> None:

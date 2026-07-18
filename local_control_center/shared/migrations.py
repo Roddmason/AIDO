@@ -95,6 +95,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase54_schema(connection)
     init_phase55_schema(connection)
     init_phase56_schema(connection)
+    init_phase57_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -5851,6 +5852,34 @@ def init_phase56_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (56, now),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase57_schema(connection: sqlite3.Connection) -> None:
+    """Fase 57: indices de lectura (created_at) para overview y poda; sin tocar datos."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone():
+        return
+
+    savepoint = "aido_phase57_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_created_at ON agent_runs(created_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_created_at ON agent_tool_calls(created_at)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_model_calls_created_at ON model_calls(created_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_cost_usage_created_at ON cost_usage(created_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_type_created_at ON events(type, created_at)"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (57, utc_now()),
         )
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
     except Exception:

@@ -62,6 +62,7 @@ from local_control_center.product_loop.metadata import strip_untrusted_resource_
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -4514,6 +4515,14 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
+        goal_statement = str(
+            resolve_setting_value(
+                connection=self.connection,
+                key="project.goal.statement",
+                project_id=project_id,
+            )
+            or ""
+        ).strip()
         product_owner_payload = {
             "projectId": project_id,
             "workspaceId": product_owner_workspace["id"],
@@ -4533,6 +4542,8 @@ class ProductLoopCoordinator:
                 "resourceSelection": product_owner_resource_decision,
             },
         }
+        if goal_statement:
+            product_owner_payload["goalStatement"] = goal_statement
         try:
             product_owner_result = product_owner.run(product_owner_payload)
         except Exception as error:

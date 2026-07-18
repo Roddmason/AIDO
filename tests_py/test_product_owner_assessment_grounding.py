@@ -59,3 +59,30 @@ def test_assessment_context_injects_codebase_signals_into_prompt() -> None:
     assert "codebaseSignals" in user_payload
     assert "High technical-debt marker density" in user_payload
     assert "No security tooling detected" in user_payload
+
+
+def test_prompt_includes_project_goal_section() -> None:
+    agent = ProductOwnerAgent()
+    assessment = {"idea": "Add onboarding.", "initiative": None, "projectAssessment": None}
+    goal = "Plataforma de onboarding self-serve completa, de registro a activacion."
+
+    prompt = agent.cli_prompt(idea=assessment["idea"], assessment=assessment, goal_statement=goal)
+    messages = agent.model_messages(idea=assessment["idea"], assessment=assessment, goal_statement=goal)
+
+    assert "projectGoal" in prompt
+    assert goal in prompt
+    assert "projectGoal" in messages[1]["content"]
+    assert goal in messages[1]["content"]
+
+
+def test_prompt_unchanged_without_goal() -> None:
+    agent = ProductOwnerAgent()
+    assessment = {"idea": "Add onboarding.", "initiative": None, "projectAssessment": None}
+
+    legacy_prompt = agent.cli_prompt(idea=assessment["idea"], assessment=assessment)
+    explicit_none = agent.cli_prompt(idea=assessment["idea"], assessment=assessment, goal_statement=None)
+    empty_string = agent.cli_prompt(idea=assessment["idea"], assessment=assessment, goal_statement="")
+
+    assert explicit_none == legacy_prompt
+    assert empty_string == legacy_prompt
+    assert "projectGoal" not in legacy_prompt

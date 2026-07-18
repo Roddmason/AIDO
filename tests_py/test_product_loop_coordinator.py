@@ -7783,3 +7783,58 @@ def test_retry_loop_after_resolved_functionality_decision_carries_user_choice(
         retry_job = JobsRepository(connection).get_job(execution["execution"]["job"]["id"])
         assert retry_job["payload"]["runMetadata"]["functionalityDecision"] == "continue_existing"
         assert ThreadsRepository(connection).get_thread(thread_id)["status"] == "queued"
+
+
+def test_discovery_payload_seeds_goal_statement_setting(tmp_path: Path) -> None:
+    from local_control_center.settings.repository import SettingsRepository
+
+    product_owner = _backlog_ready_po()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "goal-statement")
+        SettingsRepository(connection).set_value(
+            "project.goal.statement",
+            "project",
+            project["id"],
+            "Construir un panel de onboarding self-serve de principio a fin.",
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard.",
+            runtime_runner=_RuntimeUnavailable(),
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+        assert product_owner.run_payloads
+        assert (
+            product_owner.run_payloads[0]["goalStatement"]
+            == "Construir un panel de onboarding self-serve de principio a fin."
+        )
+
+
+def test_discovery_payload_omits_goal_statement_when_unset(tmp_path: Path) -> None:
+    product_owner = _backlog_ready_po()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "goal-statement-unset")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard.",
+            runtime_runner=_RuntimeUnavailable(),
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+        assert product_owner.run_payloads
+        assert "goalStatement" not in product_owner.run_payloads[0]

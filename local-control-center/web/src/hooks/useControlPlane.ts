@@ -1,8 +1,10 @@
 /**
  * Owns the control-plane session: handshake token, polled state, and mutations.
  *
- * Performs the authenticated handshake, polls overview/status every 5s, and exposes
- * a `mutate` runner that injects the write token and refreshes afterwards. Secondary
+ * Performs the authenticated handshake once (the token is static per backend process),
+ * polls overview/status every 5s, and exposes a `mutate` runner that injects the write
+ * token and refreshes afterwards. A write rejected for a stale token clears the cached
+ * token so the next tick re-negotiates the handshake (backend restart). Secondary
  * reads are wrapped in a timeout so a slow optional endpoint cannot stall the page.
  * @author Rodrigo Mason
  */
@@ -74,6 +76,7 @@ function optionalWithTimeout<T>(
 export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
+	const tokenRef = useRef('');
 	const controllersRef = useRef<Set<AbortController>>(new Set());
 	const { t } = useI18n();
 	const tRef = useRef(t);
@@ -113,10 +116,13 @@ export function useControlPlane() {
 		};
 		try {
 			const [handshake, overview] = await Promise.all([
-				getHandshake(controller.signal),
+				tokenRef.current
+					? Promise.resolve({ token: tokenRef.current })
+					: getHandshake(controller.signal),
 				getOverview(controller.signal),
 			]);
 			if (!mountedRef.current) return;
+			tokenRef.current = handshake.token;
 			setState((current) => ({
 				...current,
 				token: handshake.token,
@@ -193,6 +199,10 @@ export function useControlPlane() {
 				if ((error as { name?: string } | null)?.name === 'AbortError') {
 					setState((current) => ({ ...current, busy: false }));
 					throw error;
+				}
+				if (error instanceof Error && error.message.includes('loopback write token')) {
+					tokenRef.current = '';
+					setState((current) => ({ ...current, token: '' }));
 				}
 				setState((current) => ({
 					...current,

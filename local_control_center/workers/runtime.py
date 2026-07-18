@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,12 +26,14 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.telemetry import prune_http_request_telemetry
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 DEFAULT_MAX_CONCURRENT_JOBS = 2
+TELEMETRY_PRUNE_INTERVAL_SECONDS = 3600.0
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,7 @@ class LocalWorkerRuntime:
         self._completed_runs = 0
         self._failed_runs = 0
         self._in_flight_jobs = 0
+        self._last_telemetry_prune_monotonic: float | None = None
 
     @classmethod
     def from_settings(
@@ -317,6 +321,7 @@ class LocalWorkerRuntime:
             self._reason = "Worker is already processing a batch."
             return {**self._operation_status(), "runs": []}
         try:
+            self._prune_telemetry_if_due()
             self._in_flight_jobs = self.settings.max_concurrent_jobs
             runs = ConcurrentWorker(db_path=self.db_path).run_batch(
                 worker_count=self.settings.max_concurrent_jobs,
@@ -352,6 +357,28 @@ class LocalWorkerRuntime:
         finally:
             self._in_flight_jobs = 0
             self._batch_lock.release()
+
+    def _prune_telemetry_if_due(self) -> None:
+        """Prune expired ``telemetry.http.request`` events at most once per interval.
+
+        Complementa la poda de arranque del API para procesos de larga duracion; usa una
+        conexion propia (el hilo del worker no puede reusar la del platform) y jamas
+        interrumpe el batch ante un fallo de poda.
+        """
+        now_monotonic = time.monotonic()
+        last = self._last_telemetry_prune_monotonic
+        if last is not None and (now_monotonic - last) < TELEMETRY_PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_telemetry_prune_monotonic = now_monotonic
+        try:
+            connection = open_sqlite_connection(self.db_path)
+            try:
+                initialize_platform_schema(connection)
+                prune_http_request_telemetry(connection)
+            finally:
+                connection.close()
+        except Exception:  # pragma: no cover - la retencion nunca debe interrumpir el batch
+            pass
 
     def _record_worker_event(self, event_type: str, payload: dict[str, Any] | None = None) -> None:
         connection = open_sqlite_connection(self.db_path)

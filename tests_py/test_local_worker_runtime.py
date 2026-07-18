@@ -639,3 +639,47 @@ def test_worker_status_pause_and_resume_reflect_runtime_state(monkeypatch, tmp_p
         assert status.json()["paused"] is True
     finally:
         runtime.close()
+
+
+def test_run_batch_prunes_stale_http_telemetry(tmp_path: Path) -> None:
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+    from local_control_center.workers.runtime import LocalWorkerRuntime
+
+    db_path = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db_path) as connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+            " VALUES ('event-old-http', NULL, NULL, 'telemetry.http.request', '{}',"
+            " '2020-01-01T00:00:00.000Z')"
+        )
+        connection.execute(
+            "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+            " VALUES ('event-old-domain', NULL, NULL, 'job.created', '{}', '2020-01-01T00:00:00.000Z')"
+        )
+
+    worker_runtime = LocalWorkerRuntime(db_path=db_path, cwd=tmp_path)
+    worker_runtime._run_batch_once()
+
+    with open_sqlite_connection(db_path) as connection:
+        survivors = {
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM events WHERE id IN ('event-old-http', 'event-old-domain')"
+            ).fetchall()
+        }
+    assert survivors == {"event-old-domain"}
+
+    with open_sqlite_connection(db_path) as connection:
+        connection.execute(
+            "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+            " VALUES ('event-old-http-2', NULL, NULL, 'telemetry.http.request', '{}',"
+            " '2020-01-01T00:00:00.000Z')"
+        )
+    worker_runtime._run_batch_once()
+    with open_sqlite_connection(db_path) as connection:
+        throttled = connection.execute(
+            "SELECT id FROM events WHERE id = 'event-old-http-2'"
+        ).fetchone()
+    assert throttled is not None

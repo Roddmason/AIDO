@@ -653,6 +653,31 @@ def test_cli_configures_windows_selector_event_loop_policy() -> None:
     assert not Path("package-lock.json").exists()
 
 
+def test_validate_dashboard_host_accepts_loopback() -> None:
+    from local_control_center import cli
+
+    assert cli.validate_dashboard_host("127.0.0.1") == "127.0.0.1"
+    assert cli.validate_dashboard_host("localhost") == "localhost"
+    assert cli.validate_dashboard_host("::1") == "::1"
+
+
+def test_validate_dashboard_host_rejects_wildcard() -> None:
+    import pytest
+
+    from local_control_center import cli
+
+    with pytest.raises(SystemExit, match="loopback"):
+        cli.validate_dashboard_host("0.0.0.0")
+    with pytest.raises(SystemExit, match="loopback"):
+        cli.validate_dashboard_host("192.168.1.10")
+
+
+def test_validate_dashboard_host_env_override() -> None:
+    from local_control_center import cli
+
+    assert cli.validate_dashboard_host("0.0.0.0", allow_external=True) == "0.0.0.0"
+
+
 def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
     import tomllib
 

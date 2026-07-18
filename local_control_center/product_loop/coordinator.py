@@ -49,6 +49,7 @@ from local_control_center.agents.product_owner_agent_contract import (
 )
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
+from local_control_center.agents.security_agent import SecurityAgentRunner
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
@@ -3558,6 +3559,7 @@ class ProductLoopCoordinator:
         product_owner_runner: Any | None = None,
         assessment_runner: Any | None = None,
         technical_lead_runner: Any | None = None,
+        security_runner: Any | None = None,
         should_abort: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Run one user message through the durable Product Loop control plane.
@@ -3584,6 +3586,7 @@ class ProductLoopCoordinator:
                 product_owner_runner=product_owner_runner,
                 assessment_runner=assessment_runner,
                 technical_lead_runner=technical_lead_runner,
+                security_runner=security_runner,
             )
         except _ProductLoopCancelled as cancelled:
             return self._cancel_run(cancelled.loop_id, actor=actor, thread_id=cancelled.thread_id)
@@ -3608,6 +3611,7 @@ class ProductLoopCoordinator:
         product_owner_runner: Any | None = None,
         assessment_runner: Any | None = None,
         technical_lead_runner: Any | None = None,
+        security_runner: Any | None = None,
     ) -> dict[str, Any]:
         """Ejecuta el mensaje del usuario en el control plane durable, síncrono y fail-closed.
 
@@ -3921,6 +3925,76 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
+        security_agent = security_runner or SecurityAgentRunner(self.connection, root=run.effective_root)
+        patch_artifact_id = str((runtime_result.get("diffSummary") or {}).get("patchArtifactId") or "")
+        security_payload: dict[str, Any] = {
+            "projectId": project_id,
+            "workspaceId": workspace["id"],
+            "taskId": f"{run.task_id}.security",
+            "diffArtifactId": patch_artifact_id or None,
+            "workflowRunId": loop["id"],
+            "workflowStepId": "security_review",
+        }
+        story_specs_prompt = self._story_specs_for_tasks(agent_tasks)
+        if story_specs_prompt:
+            security_payload["storySpecs"] = story_specs_prompt
+        try:
+            security_result = security_agent.run(security_payload)
+        except Exception as error:
+            reason = f"SecurityAgent delivery gate failed to run: {redact_secrets(str(error))}"
+            return self._block_after_runtime_with_resource_learning(
+                loop,
+                project_id=project_id,
+                stage="security_agent",
+                reason=reason,
+                actor=actor,
+                details={
+                    "status": "failed",
+                    "reason": reason,
+                    "workspaceId": workspace["id"],
+                    "runtimeStatus": runtime_status,
+                    "qaResults": qa_results,
+                    "review": review,
+                    "teamSchedule": team_schedule,
+                    "agentTaskIds": [task["id"] for task in agent_tasks],
+                },
+                team_schedule=team_schedule,
+                runtime_result=runtime_result,
+                thread_id=thread_id,
+            )
+        security_verdict = str(security_result.get("verdict") or "").strip().lower()
+        security_summary = {
+            "verdict": security_verdict,
+            "reason": str(security_result.get("reason") or ""),
+            "agentRunId": str((security_result.get("agentRun") or {}).get("id") or ""),
+            "evidencePackageId": str((security_result.get("evidencePackage") or {}).get("id") or ""),
+            "findingsArtifactId": str((security_result.get("findingsArtifact") or {}).get("id") or ""),
+            "findingCount": len(security_result.get("findings") or []),
+        }
+        if security_verdict == "blocked":
+            reason = str(security_result.get("reason") or "SecurityAgent blocked delivery.")
+            return self._block_after_runtime_with_resource_learning(
+                loop,
+                project_id=project_id,
+                stage="security_agent",
+                reason=reason,
+                actor=actor,
+                details={
+                    **security_summary,
+                    "status": "security_blocked",
+                    "reason": reason,
+                    "workspaceId": workspace["id"],
+                    "runtimeStatus": runtime_status,
+                    "qaResults": qa_results,
+                    "review": review,
+                    "teamSchedule": team_schedule,
+                    "agentTaskIds": [task["id"] for task in agent_tasks],
+                },
+                team_schedule=team_schedule,
+                runtime_result=runtime_result,
+                thread_id=thread_id,
+            )
+
         diff_ref = _diff_ref_from_review(review)
         diff_summary = _diff_summary_from_review(review)
         security_evidence = self._record_run_evidence(
@@ -3929,7 +4003,7 @@ class ProductLoopCoordinator:
             stage="gitleaks",
             status="completed",
             reason=str(gitleaks.get("reason") or "gitleaks passed."),
-            details=gitleaks,
+            details={**gitleaks, "securityAgent": security_summary},
             workspace_id=workspace["id"],
             diff_refs=[diff_ref],
             diff_summary=diff_summary,
@@ -3942,6 +4016,11 @@ class ProductLoopCoordinator:
                         "workspaceId": workspace["id"],
                         "findingCount": (gitleaks.get("gitleaks") or {}).get("findingCount", 0),
                     },
+                },
+                {
+                    "command": "security_agent",
+                    "status": "passed",
+                    "metadata": {"workspaceId": workspace["id"], **security_summary},
                 },
             ],
             tool_calls=gitleaks.get("toolCalls") or [],

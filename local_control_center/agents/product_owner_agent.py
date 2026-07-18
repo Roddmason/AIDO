@@ -347,6 +347,7 @@ class ProductOwnerAgent:
         idea: str,
         assessment: dict[str, Any],
         epic_expansion: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
     ) -> dict[str, Any]:
         context = {
             "idea": _bounded_text(idea),
@@ -362,6 +363,8 @@ class ProductOwnerAgent:
                 for decision in (assessment.get("unresolvedDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
             ],
         }
+        if goal_statement:
+            context["projectGoal"] = _bounded_text(goal_statement)
         if epic_expansion:
             context["epicExpansion"] = epic_expansion
         return context
@@ -373,6 +376,7 @@ class ProductOwnerAgent:
         assessment: dict[str, Any],
         epic_expansion: dict[str, Any] | None = None,
         repair: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
     ) -> list[dict[str, str]]:
         """Arma los mensajes system/user para el runtime de modelo, exigiendo solo JSON del esquema."""
         messages = [
@@ -382,7 +386,10 @@ class ProductOwnerAgent:
                 "content": json_dumps(
                     redact_secrets(
                         self._assessment_context(
-                            idea=idea, assessment=assessment, epic_expansion=epic_expansion
+                            idea=idea,
+                            assessment=assessment,
+                            epic_expansion=epic_expansion,
+                            goal_statement=goal_statement,
                         )
                     )
                 ),
@@ -399,11 +406,17 @@ class ProductOwnerAgent:
         assessment: dict[str, Any],
         epic_expansion: dict[str, Any] | None = None,
         repair: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
     ) -> str:
         """Arma el prompt de una sola pieza para un runtime CLI real, exigiendo solo JSON del esquema."""
         context = json_dumps(
             redact_secrets(
-                self._assessment_context(idea=idea, assessment=assessment, epic_expansion=epic_expansion)
+                self._assessment_context(
+                    idea=idea,
+                    assessment=assessment,
+                    epic_expansion=epic_expansion,
+                    goal_statement=goal_statement,
+                )
             )
         )
         instruction = self._system_instruction(epic_expansion=bool(epic_expansion))
@@ -1393,6 +1406,7 @@ class ProductOwnerAgentRunner:
             runtimeResult}`` si el runtime no completó (la reparación no aplica).
         """
         runtime_id = str(runtime["id"])
+        goal_statement = str(payload.get("goalStatement") or "").strip() or None
         if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
             try:
                 runtime_result = self._execute_cli_runtime(
@@ -1408,6 +1422,7 @@ class ProductOwnerAgentRunner:
                         assessment=assessment,
                         epic_expansion=epic_expansion,
                         repair=repair,
+                        goal_statement=goal_statement,
                     ),
                 )
             except RuntimeCommandUnavailableError as error:
@@ -1430,6 +1445,7 @@ class ProductOwnerAgentRunner:
                     assessment=assessment,
                     epic_expansion=epic_expansion,
                     repair=repair,
+                    goal_statement=goal_statement,
                 ),
             )
         if runtime_result["status"] != "completed":

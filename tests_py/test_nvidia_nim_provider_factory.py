@@ -620,7 +620,11 @@ def test_runtime_status_surfaces_endpoint_identity_and_family_without_generation
     assert status["providerFamily"] == "nvidia_nim"
     assert status["apiFamily"] == "chat_completions"
     assert status["healthStatus"] == "healthy"
-    assert status["capabilities"] == ["chat"]
+    # La fase 56 siembra las capabilities de la familia desde el catálogo canónico; la
+    # identidad del contrato es que jamás incluyan generación/edición de imágenes.
+    assert status["capabilities"] == ["chat", "json", "streaming", "tools", "vision"]
+    assert "image_generation" not in status["capabilities"]
+    assert "image_editing" not in status["capabilities"]
     assert status["executable"] is True
     assert status["reason"] == "Provider is configured, health checked, and executable."
 

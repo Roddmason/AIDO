@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.routing_profiles import RoutingProfileStore
+from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.product_loop.repository import ProductLoopRepository
 from local_control_center.projects.repository import ProjectsRepository
@@ -309,14 +310,38 @@ def test_latency_reports_observed_calls_without_counting_unmeasured_ones(tmp_pat
     assert latency["maxMs"] == 1200
 
 
-def test_routing_view_reads_the_trail_the_product_loop_writes(tmp_path: Path) -> None:
-    """El Product Loop registra en ``ai_routing_decisions``: el snapshot lo lee en vez de quedar vacío."""
+def test_routing_view_reads_the_trail_the_product_loop_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El Product Loop registra en ``ai_routing_decisions``: el snapshot lo lee en vez de quedar vacío.
+
+    Los perfiles explícitos deben existir en runtime truth para ser ejecutables (contrato
+    fail-closed de ``test_explicit_profile_must_exist_in_runtime_truth``), así que los dos
+    providers sembrados se publican como runtimes locales ejecutables; el sujeto de este
+    test sigue siendo el rastro de ruteo, no el gate de ejecutabilidad.
+    """
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
     thread = _thread(runtime, project_id, "Real loop run")
     loop = _loop(runtime, project_id, {"fsm": {"usage": {"reworkRounds": 1}}})
     _link_thread_to_loop(runtime, thread["id"], loop["id"])
 
+    monkeypatch.setattr(
+        RuntimeStatusService,
+        "list_provider_statuses",
+        lambda _service, *, project_id=None: [
+            {
+                "id": provider_id,
+                "kind": "local",
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat"],
+                "reason": "Controlled executable runtime.",
+            }
+            for provider_id in ("ollama_local", "lmstudio_local")
+        ],
+    )
     manager = AIResourceManager(runtime.connection)
     for provider_id, model, price, quality in (
         ("ollama_local", "llama-premium", 20.0, 0.95),

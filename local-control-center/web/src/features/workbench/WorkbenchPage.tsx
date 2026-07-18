@@ -21,6 +21,7 @@ import {
 	createThread,
 	getProjectGitStatus,
 	postThreadMessage,
+	runProductOwnerAgent,
 	startProductLoop,
 	transitionProductLoop,
 } from '../../api/client';
@@ -501,6 +502,25 @@ export function WorkbenchPage({
 		);
 	};
 
+	const expansionWorkspaceId =
+		projectWorkspaces.find((workspace) => workspace.status !== 'archived')?.id ?? '';
+
+	const handleExpandEpic = (epicId: string) => {
+		if (!project || !expansionWorkspaceId) return;
+		void runLoopAction(
+			'expand_epic',
+			() =>
+				runProductOwnerAgent(token, {
+					projectId: project.id,
+					workspaceId: expansionWorkspaceId,
+					taskId: `epic-expansion-${epicId}`,
+					epicId,
+				}),
+			t('app.workbench.loop.epicExpanded', 'Epic expanded into new stories'),
+			t('app.workbench.loop.epicExpandFailed', 'Could not expand the epic'),
+		);
+	};
+
 	const productLoopActions = {
 		busy: Boolean(loopActionBusy),
 		onAidoDecide: activeProductLoop ? handleAidoDecide : undefined,
@@ -508,6 +528,7 @@ export function WorkbenchPage({
 		onApproveBacklog: activeProductLoop ? handleApproveBacklog : undefined,
 		onStartIteration:
 			activeProductLoop?.state === 'backlog_ready' ? handleStartIteration : undefined,
+		onExpandEpic: expansionWorkspaceId ? handleExpandEpic : undefined,
 	};
 
 	const onSelectRun = (runId: string) => {

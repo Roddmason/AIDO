@@ -45,6 +45,7 @@ type ProductLoopSectionProps = {
 		onApproveBrief?: () => void;
 		onApproveBacklog?: () => void;
 		onStartIteration?: () => void;
+		onExpandEpic?: (epicId: string) => void;
 	};
 };
 
@@ -408,6 +409,11 @@ export function ProductLoopSection({
 										{stories.filter((story) => story.epicId === epic.id).length}{' '}
 										{t('app.workbench.loop.backlog.storyCount', 'stories')}
 									</span>
+									{actions?.onExpandEpic ? (
+										<Button disabled={actions.busy} onClick={() => actions.onExpandEpic?.(epic.id)}>
+											{t('app.workbench.loop.backlog.expandEpic', 'Expand epic')}
+										</Button>
+									) : null}
 								</div>
 							))}
 						</div>

@@ -12034,6 +12034,18 @@
     "app.settings.project.routing.forceLocal": {
       "en": "Force local models",
       "es": "Forzar modelos locales"
+    },
+    "app.workbench.loop.backlog.expandEpic": {
+      "en": "Expand epic",
+      "es": "Expandir épica"
+    },
+    "app.workbench.loop.epicExpanded": {
+      "en": "Epic expanded into new stories",
+      "es": "Épica expandida en nuevas historias"
+    },
+    "app.workbench.loop.epicExpandFailed": {
+      "en": "Could not expand the epic",
+      "es": "No se pudo expandir la épica"
     }
   }
 }

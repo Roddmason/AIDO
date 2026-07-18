@@ -10,6 +10,10 @@ PRODUCT_ROOT = ROOT / "local_control_center"
 
 APPROVED_SUBPROCESS_FILES = {
     "local_control_center/integrations/mcp_gateway.py",
+    # Read-only NIM host probe boundary: exact-argv allowlist, shell=False, bounded
+    # timeout/output, no caller-controlled arguments; invariants pinned by
+    # test_nvidia_nim_local_preflight.py.
+    "local_control_center/nvidia_nim/system_probe.py",
     "local_control_center/security_policy/git_command_runner.py",
     "local_control_center/security_policy/sandbox.py",
 }

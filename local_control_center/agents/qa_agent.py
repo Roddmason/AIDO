@@ -71,6 +71,7 @@ def qa_agent_contract() -> dict[str, Any]:
                     },
                 },
                 "metadata": {"type": "object"},
+                "storySpecs": {"type": "string"},
             },
         },
         "outputSchema": {
@@ -386,26 +387,34 @@ class QAAgentRunner:
         job_id: str | None = None,
         parent_agent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        story_specs: str | None = None,
     ) -> dict[str, Any]:
         """Run QA commands for a context and return the verdict, results, and artifact ids.
 
         Normalizes (or discovers) commands, executes each through the broker, persists
         per-command output artifacts, and records the agent run's terminal status.
+        ``story_specs`` (el spec renderizado de las HUs bajo prueba) se persiste como
+        artefacto y contexto del run para trazar la evidencia QA a los criterios de
+        aceptacion; NO altera el veredicto, que sigue siendo por exit codes y artifacts.
         """
         workspace = self._workspace(project_id=project_id, workspace_id=workspace_id)
         discovered_or_supplied = commands if commands else discover_qa_commands(workspace["path"])
         normalized = _normalize_commands(discovered_or_supplied)
         profile = self._ensure_profile()
+        story_specs_text = str(story_specs or "").strip()
+        input_payload: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "commands": normalized,
+            "parentAgentRunId": parent_agent_run_id,
+            "metadata": metadata or {},
+        }
+        if story_specs_text:
+            input_payload["storySpecs"] = story_specs_text
         agent_run = self.agents.create_agent_run(
             project_id=project_id,
             agent_profile_id=QA_AGENT_ID,
             task_id=f"{task_id}:qa",
-            input_payload={
-                "workspaceId": workspace_id,
-                "commands": normalized,
-                "parentAgentRunId": parent_agent_run_id,
-                "metadata": metadata or {},
-            },
+            input_payload=input_payload,
             output_payload={},
             job_id=job_id,
             workflow_run_id=workflow_run_id,
@@ -445,21 +454,51 @@ class QAAgentRunner:
             results.append(result)
             artifact_ids.extend(command_artifacts)
 
+        story_specs_artifact_id: str | None = None
+        if story_specs_text:
+            spec_artifact_id = f"artifact-{uuid.uuid4()}"
+            spec_artifact = write_text_artifact(
+                root=self.root,
+                artifact_id=spec_artifact_id,
+                suffix=".qa-spec.md",
+                content=story_specs_text,
+            )
+            persisted_spec = self.evidence.create_artifact(
+                artifact_id=spec_artifact_id,
+                project_id=project_id,
+                evidence_package_id=None,
+                kind="test_report",
+                path=spec_artifact["path"],
+                content_hash=spec_artifact["hash"],
+                metadata={
+                    "name": "qa-story-spec.md",
+                    "source": QA_AGENT_ID,
+                    "mimeType": "text/markdown",
+                    "sizeBytes": spec_artifact["sizeBytes"],
+                    "hashAlgorithm": "sha256",
+                },
+            )
+            story_specs_artifact_id = persisted_spec["id"]
+            artifact_ids.append(story_specs_artifact_id)
+
         verdict, reason = qa_verdict_from_results(results)
         completed = qa_verdict_allows_completion(verdict, results)
+        output_payload: dict[str, Any] = {
+            "status": verdict,
+            "verdict": verdict,
+            "reason": reason,
+            "results": results,
+            "artifactIds": sorted(set(artifact_ids)),
+            "policyDecisions": policy_decisions,
+        }
+        if story_specs_artifact_id:
+            output_payload["storySpecsArtifactId"] = story_specs_artifact_id
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
             status="completed" if completed else "failed",
-            output_payload={
-                "status": verdict,
-                "verdict": verdict,
-                "reason": reason,
-                "results": results,
-                "artifactIds": sorted(set(artifact_ids)),
-                "policyDecisions": policy_decisions,
-            },
+            output_payload=output_payload,
         )
-        return {
+        response: dict[str, Any] = {
             "status": verdict,
             "verdict": verdict,
             "reason": reason,
@@ -470,6 +509,9 @@ class QAAgentRunner:
             "policyDecisions": policy_decisions,
             "contract": qa_agent_contract(),
         }
+        if story_specs_artifact_id:
+            response["storySpecsArtifactId"] = story_specs_artifact_id
+        return response
 
     def attach_artifacts_to_evidence(self, *, evidence_id: str, artifact_ids: list[str]) -> None:
         """Attach each (deduplicated) artifact id to the given evidence package."""

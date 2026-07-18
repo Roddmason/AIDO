@@ -35,6 +35,7 @@ OVERVIEW_PERMISSION_DECISION_LIMIT = 300
 OVERVIEW_AGENT_TOOL_CALL_LIMIT = 300
 OVERVIEW_AGENT_RUN_LIMIT = 200
 OVERVIEW_MODEL_CALL_LIMIT = 300
+OVERVIEW_COST_USAGE_LIMIT = 200
 
 
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
@@ -109,7 +110,7 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "modelProviders": agents.list_model_providers(),
         "agentToolCalls": agents.list_agent_tool_calls(limit=OVERVIEW_AGENT_TOOL_CALL_LIMIT),
         "modelCalls": agents.list_model_calls(limit=OVERVIEW_MODEL_CALL_LIMIT),
-        "costUsage": agents.list_cost_usage(),
+        "costUsage": agents.list_cost_usage(limit=OVERVIEW_COST_USAGE_LIMIT),
         "runtimeWorkspaces": workspaces.list_workspaces(),
         "skills": skills.list_skills(),
         "architectureDecisions": governance.list_architecture_decisions(),

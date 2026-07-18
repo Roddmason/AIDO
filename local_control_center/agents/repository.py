@@ -714,7 +714,11 @@ class AgentsRepository:
             rows = self.connection.execute(query).fetchall()
         return [row_to_model_call(row) for row in rows]
 
-    def list_cost_usage(self) -> list[dict[str, Any]]:
-        """List all cost-usage entries, newest first."""
-        rows = self.connection.execute("SELECT * FROM cost_usage ORDER BY created_at DESC").fetchall()
+    def list_cost_usage(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """List cost-usage entries, newest first; ``limit`` bounds the result to the most recent N."""
+        query = "SELECT * FROM cost_usage ORDER BY created_at DESC"
+        if limit is not None:
+            rows = self.connection.execute(f"{query} LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = self.connection.execute(query).fetchall()
         return [row_to_cost_usage(row) for row in rows]

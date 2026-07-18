@@ -589,3 +589,61 @@ def test_developer_agent_ui_and_openapi_expose_executable_status() -> None:
     assert "getDeveloperAgentStatus" in client
     assert "/api/v1/agents/developer/status" in openapi
     assert "DeveloperAgentStatusResponse" in openapi
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_forwards_story_specs_to_qa_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.developer_agent import DeveloperAgentRunner
+    from local_control_center.agents.qa_agent import QAAgentRunner
+
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Developer Story Specs")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="developer-story-specs",
+        agent_id="developer_agent",
+        reason="developer story specs workspace",
+        isolation_type="git_worktree",
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_developer_runtime_status(),
+    )
+    captured: dict[str, Any] = {}
+
+    class SpyQAAgentRunner(QAAgentRunner):
+        def run_for_context(self, **kwargs):
+            captured.update(kwargs)
+            return super().run_for_context(**kwargs)
+
+    monkeypatch.setattr(
+        "local_control_center.agents.developer_agent.QAAgentRunner", SpyQAAgentRunner
+    )
+    spec = "## Epic: Onboarding\n### HU-1: registro\n- Criterio: se crea la cuenta."
+
+    result = DeveloperAgentRunner(store.connection, root=tmp_path).run(
+        {
+            "projectId": project["id"],
+            "workspaceId": workspace["id"],
+            "taskId": "developer-story-specs",
+            "instruction": "Create developer-agent-output.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": False,
+            "storySpecs": spec,
+        }
+    )
+
+    assert result["status"] == "completed"
+    assert captured["story_specs"] == spec
+    qa_runs = [
+        run
+        for run in store.agents.list_agent_runs()
+        if isinstance(run.get("input"), dict) and run["input"].get("storySpecs")
+    ]
+    assert qa_runs
+    assert qa_runs[0]["input"]["storySpecs"] == spec
+    assert qa_runs[0]["output"]["storySpecsArtifactId"].startswith("artifact-")

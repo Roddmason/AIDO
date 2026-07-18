@@ -326,3 +326,78 @@ def test_qa_verdict_required_for_completed() -> None:
     assert qa_verdict_allows_completion("skipped_with_reason", [{"status": "skipped_with_reason"}]) is False
     assert qa_verdict_allows_completion("failed", [{"status": "failed"}]) is False
     assert qa_verdict_allows_completion("blocked", []) is False
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_run_for_context_persists_story_spec_artifact_and_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.qa_agent import QAAgentRunner
+
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="QA Agent Spec")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="qa-agent-spec",
+        agent_id="qa_agent",
+        reason="qa agent spec workspace",
+        isolation_type="git_worktree",
+    )
+    spec = "## Epic: Onboarding\n### HU-1: registro\n- Criterio: el usuario puede registrarse."
+
+    summary = QAAgentRunner(store.connection, root=tmp_path).run_for_context(
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+        task_id="qa-agent-spec",
+        commands=[{"label": "python version", "argv": [sys.executable, "--version"], "critical": True}],
+        story_specs=spec,
+    )
+
+    assert summary["verdict"] == "passed"
+    spec_artifact_id = summary["storySpecsArtifactId"]
+    assert spec_artifact_id.startswith("artifact-")
+    assert spec_artifact_id in summary["artifactIds"]
+    assert summary["agentRun"]["input"]["storySpecs"] == spec
+    assert summary["agentRun"]["output"]["storySpecsArtifactId"] == spec_artifact_id
+    artifact_row = store.connection.execute(
+        "SELECT path, kind FROM artifacts WHERE id = ?", (spec_artifact_id,)
+    ).fetchone()
+    assert artifact_row is not None
+    assert artifact_row["kind"] == "test_report"
+    assert Path(artifact_row["path"]).read_text(encoding="utf-8") == spec
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_run_for_context_legacy_input_payload_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.qa_agent import QAAgentRunner
+
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="QA Agent Legacy")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="qa-agent-legacy",
+        agent_id="qa_agent",
+        reason="qa agent legacy workspace",
+        isolation_type="git_worktree",
+    )
+
+    summary = QAAgentRunner(store.connection, root=tmp_path).run_for_context(
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+        task_id="qa-agent-legacy",
+        commands=[{"label": "python version", "argv": [sys.executable, "--version"], "critical": True}],
+    )
+
+    assert summary["verdict"] == "passed"
+    assert "storySpecsArtifactId" not in summary
+    assert "storySpecsArtifactId" not in summary["agentRun"]["output"]
+    assert sorted(summary["agentRun"]["input"].keys()) == [
+        "commands",
+        "metadata",
+        "parentAgentRunId",
+        "workspaceId",
+    ]

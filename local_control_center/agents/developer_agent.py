@@ -568,6 +568,9 @@ class DeveloperAgentRunner:
                 job_id=job["id"],
                 parent_agent_run_id=agent_run["id"],
                 metadata={"source": DEVELOPER_AGENT_ID},
+                story_specs=payload.get("storySpecs")
+                if isinstance(payload.get("storySpecs"), str)
+                else None,
             )
             qa_results = qa_summary["results"]
             qa_artifact_ids = qa_summary["artifactIds"]

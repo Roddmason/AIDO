@@ -3174,7 +3174,11 @@ test('Model Gateway route preview submits request without exposing credentials',
 	await expect(page.getByText('Selected route')).toBeVisible();
 	await expect(page.getByText('Budget result')).toBeVisible();
 	await expect(page.getByText('Quota result')).toBeVisible();
-	await expect(page.getByText('nvidia_nim').first()).toBeVisible();
+	// The provider must stay referenced by id somewhere visible while the secret stays redacted.
+	// Filter to visible matches: the Parallel AI execution panel lists `nvidia_nim` first in DOM
+	// order as an <option> inside a closed <select>, which Playwright reports hidden. The route
+	// preview itself may select no candidate on a fresh DB, so don't anchor to its result.
+	await expect(page.getByText('nvidia_nim').filter({ visible: true }).first()).toBeVisible();
 	await expect(page.locator('body')).not.toContainText('sk-');
 });
 

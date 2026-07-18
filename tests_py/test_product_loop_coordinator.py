@@ -434,6 +434,27 @@ def _backlog_ready_po() -> _ProductOwnerRunner:
     return _ProductOwnerRunner(_product_owner_result("backlog_ready"))
 
 
+class _SecurityGate:
+    """Stub inyectable del SecurityAgentRunner con veredicto controlado y payloads capturados."""
+
+    def __init__(self, verdict: str = "passed", reason: str = "Security controls passed.") -> None:
+        self.verdict = verdict
+        self.reason = reason
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        return {
+            "status": self.verdict,
+            "verdict": self.verdict,
+            "reason": self.reason,
+            "agentRun": {"id": "security-run-controlled"},
+            "evidencePackage": {"id": "security-evidence-controlled"},
+            "findingsArtifact": {"id": "security-findings-controlled"},
+            "findings": [],
+        }
+
+
 def _seed_ai_resource(
     connection,
     *,
@@ -4711,6 +4732,7 @@ def test_run_user_message_keeps_durable_result_when_event_bus_persistence_crashe
             product_owner_runner=_backlog_ready_po(),
             assessment_runner=_AssessmentRunner(),
             technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=_SecurityGate(),
         )
 
         durable = result["loop"]["context"]["durableRun"]
@@ -7838,3 +7860,62 @@ def test_discovery_payload_omits_goal_statement_when_unset(tmp_path: Path) -> No
 
         assert product_owner.run_payloads
         assert "goalStatement" not in product_owner.run_payloads[0]
+
+
+def test_security_agent_receives_diff_artifact_and_story_specs(tmp_path: Path) -> None:
+    security = _SecurityGate()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "security-gate-payload")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard with the security gate.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=_ControlledRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=security,
+        )
+
+        assert result["status"] == "awaiting_approval"
+        assert security.run_payloads
+        payload = security.run_payloads[0]
+        assert payload["workflowStepId"] == "security_review"
+        assert payload["taskId"].endswith(".security")
+        assert payload["workflowRunId"] == result["loop"]["id"]
+        assert "diffArtifactId" in payload
+        assert "Readiness checklist" in str(payload.get("storySpecs") or "")
+
+
+def test_security_agent_verdict_blocked_blocks_delivery(tmp_path: Path) -> None:
+    security = _SecurityGate(
+        verdict="blocked", reason="Critical security finding blocks completion."
+    )
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "security-gate-blocked")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard with a blocking security finding.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=_ControlledRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=security,
+        )
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["state"] == "blocked"
+        assert "Critical security finding" in result["reason"]
+        durable = result["loop"]["context"]["durableRun"]
+        assert durable["blockedStage"] == "security_agent"

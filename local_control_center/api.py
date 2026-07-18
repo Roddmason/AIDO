@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -187,7 +188,7 @@ def create_app(
     def require_write(request: Request) -> None:
         expected = platform.get_handshake()["token"]
         provided = request.headers.get("X-Local-Control-Token")
-        if not provided or provided != expected:
+        if not provided or not secrets.compare_digest(str(provided), str(expected)):
             raise HTTPException(status_code=403, detail="A valid loopback write token is required.")
 
     app.include_router(create_jobs_approvals_router(platform=platform, require_write=require_write))

@@ -184,6 +184,33 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
     assert search.json()["results"] == []
 
 
+def test_require_write_rejects_near_miss_token(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Token", path=tmp_path / "token", template_id="other")
+    app = create_app(runtime=store, static_dir=None)
+    client = TestClient(app)
+
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    near_miss = token[:-1] + ("A" if token[-1] != "A" else "B")
+    body = {"projectId": project["id"], "kind": "prompt.optimize"}
+
+    denied = client.post(
+        "/api/v1/jobs",
+        json=body,
+        headers={"X-Local-Control-Token": near_miss, "Origin": "http://127.0.0.1"},
+    )
+    assert denied.status_code == 403
+
+    accepted = client.post(
+        "/api/v1/jobs",
+        json=body,
+        headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
+    )
+    assert accepted.status_code == 202
+
+
 def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Path, monkeypatch) -> None:
     app_root = tmp_path / "app-root"
     static_dir = app_root / "dist"

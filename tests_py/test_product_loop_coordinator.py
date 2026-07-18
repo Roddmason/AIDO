@@ -18,6 +18,7 @@ from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import (
+    DEFAULT_AUTO_REWORK_ROUNDS,
     ProductLoopCoordinator,
     ProductLoopStopConditionError,
     ProductLoopTransitionError,
@@ -7919,3 +7920,114 @@ def test_security_agent_verdict_blocked_blocks_delivery(tmp_path: Path) -> None:
         assert "Critical security finding" in result["reason"]
         durable = result["loop"]["context"]["durableRun"]
         assert durable["blockedStage"] == "security_agent"
+
+
+class _FlakyQARuntime(_ControlledRuntime):
+    """Runtime controlado que falla QA un numero fijo de intentos y luego completa."""
+
+    def __init__(self, failures: int = 1) -> None:
+        super().__init__(status="qa_failed")
+        self._remaining_failures = failures
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.status_value = "qa_failed" if self._remaining_failures > 0 else "completed"
+        if self._remaining_failures > 0:
+            self._remaining_failures -= 1
+        return super().run(payload)
+
+
+def test_qa_failure_reworks_automatically_and_recovers(tmp_path: Path) -> None:
+    runtime = _FlakyQARuntime(failures=1)
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "auto-rework-recovers")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard with one flaky QA round.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=_SecurityGate(),
+        )
+
+        assert result["status"] == "awaiting_approval"
+        assert result["loop"]["state"] == "awaiting_approval"
+        assert len(runtime.run_payloads) == 2
+        retry_payload = runtime.run_payloads[1]
+        assert retry_payload["reworkRound"] == 1
+        assert "[QA rework feedback - round 1]" in retry_payload["instruction"]
+        assert retry_payload["taskId"].endswith(":r1")
+        assert result["loop"]["context"]["fsm"]["usage"]["reworkRounds"] == 1
+        states = [item["toState"] for item in result["transitions"]]
+        rework_index = states.index("reworking")
+        assert "executing" in states[rework_index:]
+        triggers = [item.get("trigger") for item in result["transitions"]]
+        assert "auto_rework" in triggers
+
+
+def test_qa_failure_exhausts_auto_rework_and_stops_in_reworking(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime(status="qa_failed")
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "auto-rework-exhausted")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard while QA always fails.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=_SecurityGate(),
+        )
+
+        assert result["status"] == "reworking"
+        assert result["loop"]["state"] == "reworking"
+        assert len(runtime.run_payloads) == 1 + DEFAULT_AUTO_REWORK_ROUNDS
+        assert result["loop"]["context"]["fsm"]["usage"]["reworkRounds"] == 1 + DEFAULT_AUTO_REWORK_ROUNDS
+
+
+def test_operator_max_rework_policy_overrides_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _ControlledRuntime(status="qa_failed")
+    original_start = ProductLoopCoordinator.start
+
+    def start_with_policy(self: ProductLoopCoordinator, **kwargs: Any) -> dict[str, Any]:
+        return original_start(self, **{**kwargs, "max_rework_rounds": 1})
+
+    monkeypatch.setattr(ProductLoopCoordinator, "start", start_with_policy)
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "auto-rework-policy")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding dashboard under a strict rework policy.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=_SecurityGate(),
+        )
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
+        assert "Maximum rework rounds (1)" in result["reason"]
+        assert len(runtime.run_payloads) == 2

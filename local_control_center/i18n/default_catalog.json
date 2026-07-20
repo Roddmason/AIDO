@@ -643,6 +643,10 @@
       "en": "Decision needed",
       "es": "Decisión requerida"
     },
+    "app.threads.decisionProgress": {
+      "en": "{current} of {total}",
+      "es": "{current} de {total}"
+    },
     "app.threads.decisionResolved": {
       "en": "Resolved",
       "es": "Resuelta"
@@ -11242,6 +11246,10 @@
     "app.threads.remediation.blocker.product_owner_output_invalid.impact": {
       "en": "Without a validated brief or backlog, planning and execution cannot continue.",
       "es": "Sin un brief o backlog validado, la planificación y la ejecución no pueden continuar."
+    },
+    "app.threads.remediation.blocker.product_owner_output_invalid.cause": {
+      "en": "The runtime answered in a shape the strict product contract rejected.",
+      "es": "El runtime respondió con una forma que el contrato estricto de producto rechazó."
     },
     "app.threads.remediation.blocker.research_required.title": {
       "en": "Research evidence required",

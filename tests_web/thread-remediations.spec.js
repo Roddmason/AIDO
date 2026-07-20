@@ -420,14 +420,23 @@ test('Remediations: a ProductOwnerAgent block offers validate and switch runtime
 	await expect(card.getByRole('button', { name: /Revalidate runtime|Revalidar runtime/ })).toBeVisible();
 	await expect(card.getByRole('button', { name: /Switch to Ollama|Cambiar a Ollama/ })).toBeVisible();
 
-	// The card explains itself: stage, machine cause, and what staying blocked costs.
+	// The card explains itself: stage, cause in plain language, and what staying blocked costs.
 	await expect(card.getByText(/product owner/i).first()).toBeVisible();
-	await expect(card.getByText(technicalReason)).toBeVisible();
+	await expect(
+		card.getByText(
+			/answered in a shape the strict product contract rejected|respondió con una forma que el contrato estricto de producto rechazó/,
+		),
+	).toBeVisible();
 	await expect(
 		card.getByText(
 			/Without a validated brief or backlog|Sin un brief o backlog validado/,
 		),
 	).toBeVisible();
+
+	// The raw validator string is diagnostic, not a user-facing fact: it stays behind the disclosure.
+	await expect(card.getByText(technicalReason)).toBeHidden();
+	await card.getByRole('button', { name: /Technical detail|Detalle técnico/ }).click();
+	await expect(card.getByText(technicalReason)).toBeVisible();
 });
 
 test('Remediations: a local-only resource block keeps runtime and routing repairs distinct', async ({

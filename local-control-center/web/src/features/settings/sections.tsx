@@ -51,6 +51,7 @@ import { ProjectQualitySettingsPanel } from './ProjectQualitySettingsPanel';
 import { ProjectRoutingSettingsPanel } from './ProjectRoutingSettingsPanel';
 import { ProjectTeamPanel } from './ProjectTeamPanel';
 import { ResearchSettingsPanel } from './ResearchSettingsPanel';
+import { RuntimeAccessPanel } from './RuntimeAccessPanel';
 import { SettingRow } from './SettingRow';
 import { AdvancedBody, RuntimeBody, WorkspacesBody } from './SettingsPage';
 import type { ResolvedSetting, SettingScope } from './useSettings';
@@ -246,15 +247,18 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		icon: Cpu,
 		kind: 'display',
 		render: (ctx) => (
-			<RuntimeBody
-				overview={ctx.overview}
-				runtimeProviders={ctx.runtimeProviders}
-				runtimeProviderConfiguration={ctx.runtimeProviderConfiguration}
-				token={ctx.token}
-				onRefresh={ctx.onRefresh}
-				initialProviderId={ctx.initialProviderId}
-				onNavigate={ctx.closeSettings}
-			/>
+			<>
+				<RuntimeAccessPanel ctx={ctx} />
+				<RuntimeBody
+					overview={ctx.overview}
+					runtimeProviders={ctx.runtimeProviders}
+					runtimeProviderConfiguration={ctx.runtimeProviderConfiguration}
+					token={ctx.token}
+					onRefresh={ctx.onRefresh}
+					initialProviderId={ctx.initialProviderId}
+					onNavigate={ctx.closeSettings}
+				/>
+			</>
 		),
 	},
 	{
@@ -443,6 +447,7 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
  */
 export const SECTION_TO_SETTING_SECTION: Record<string, string> = {
 	general: 'worker',
+	'providers-cli': 'runtime',
 	autonomy: 'autonomy',
 	security: 'security',
 	research: 'research',

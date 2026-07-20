@@ -10771,6 +10771,42 @@
       "en": "Quality gate commands",
       "es": "Comandos de puertas de calidad"
     },
+    "app.settings.runtime.cli.enabled": {
+      "en": "CLI runtimes (platform-wide)",
+      "es": "Runtimes CLI (toda la plataforma)"
+    },
+    "app.settings.runtime.remote.enabled": {
+      "en": "Remote APIs (platform-wide)",
+      "es": "APIs remotas (toda la plataforma)"
+    },
+    "app.settings.runtime.ollama.enabled": {
+      "en": "Ollama (platform-wide)",
+      "es": "Ollama (toda la plataforma)"
+    },
+    "app.settings.runtime.nvidia.enabled": {
+      "en": "NVIDIA NIM (platform-wide)",
+      "es": "NVIDIA NIM (toda la plataforma)"
+    },
+    "app.settings.runtime.access.intro": {
+      "en": "Transports allowed across every project. A project can still veto one, but never enable what is off here.",
+      "es": "Transportes permitidos en todos los proyectos. Un proyecto puede vetar uno, pero nunca habilitar lo que aquí está apagado."
+    },
+    "app.settings.runtime.access.confirmTitle": {
+      "en": "Disable this transport platform-wide?",
+      "es": "¿Apagar este transporte en toda la plataforma?"
+    },
+    "app.settings.runtime.access.confirmBody": {
+      "en": "Every project loses this transport until you turn it back on, including runs already queued.",
+      "es": "Todos los proyectos pierden este transporte hasta que lo vuelvas a encender, incluidas las corridas ya en cola."
+    },
+    "app.settings.runtime.access.confirmAccept": {
+      "en": "Disable transport",
+      "es": "Apagar transporte"
+    },
+    "app.settings.runtime.access.confirmCancel": {
+      "en": "Keep it enabled",
+      "es": "Mantenerlo habilitado"
+    },
     "app.settings.project.runtime.cli.enabled": {
       "en": "Allow CLI runtimes",
       "es": "Permitir runtimes CLI"

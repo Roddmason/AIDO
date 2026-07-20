@@ -113,7 +113,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
                         "blocked",
                     ],
                 },
-                "summary": {"type": "string"},
+                "summary": {"type": "string", "minLength": 1},
                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                 "questions": {
                     "type": "array",
@@ -152,8 +152,22 @@ def product_owner_agent_contract() -> dict[str, Any]:
                                 "minItems": 2,
                                 "items": {"type": "string", "minLength": 1},
                             },
-                            "recommendation": {"type": "string", "minLength": 1},
-                            "defaultDecision": {"type": "string", "minLength": 1},
+                            "recommendation": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": (
+                                    "Copy of one element of this question's options array, character "
+                                    "for character. Never a prefix, a paraphrase, an index or a new value."
+                                ),
+                            },
+                            "defaultDecision": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": (
+                                    "Copy of one element of this question's options array, character "
+                                    "for character. Never a prefix, a paraphrase, an index or a new value."
+                                ),
+                            },
                             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                         },
                     },
@@ -237,7 +251,14 @@ def product_owner_agent_contract() -> dict[str, Any]:
                             "acceptanceCriteria",
                         ],
                         "properties": {
-                            "epicTitle": {"type": "string", "minLength": 1},
+                            "epicTitle": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": (
+                                    "Copy of one epics[].title from this same response, character for "
+                                    "character. A story may not reference an epic that is not declared."
+                                ),
+                            },
                             "title": {"type": "string", "minLength": 1},
                             "asA": {"type": "string", "minLength": 1},
                             "iWant": {"type": "string", "minLength": 1},
@@ -266,7 +287,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
                         },
                     },
                 },
-                "recommendedNextAction": {"type": "string"},
+                "recommendedNextAction": {"type": "string", "minLength": 1},
             },
         },
         "allowedTools": PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,

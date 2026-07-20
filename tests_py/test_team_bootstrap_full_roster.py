@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from local_control_center.agents.model_gateway_models import RolePolicyRecord
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
@@ -43,6 +44,24 @@ def test_every_scheduler_role_gets_a_model_policy(tmp_path: Path) -> None:
         roles = {str(policy["role"]) for policy in RoutingProfileStore(connection).list_role_policies()}
 
     assert set(ALL_ROLES) <= roles
+
+
+def test_seeded_policies_satisfy_the_api_response_contract(tmp_path: Path) -> None:
+    """Sembrar `preferred` con ids sueltos rompio GET /role-policies con 500 ResponseValidationError.
+
+    Ese 500 no se queda quieto: el panel de providers carga sus tres fuentes con un unico
+    Promise.all, asi que la lista de cuentas tambien quedaba vacia y el wizard perdia la credencial
+    guardada. Validar el contrato aqui es lo que convierte esa cascada en un rojo local.
+    """
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+
+        bootstrap_base_team_if_needed(connection)
+        policies = RoutingProfileStore(connection).list_role_policies()
+
+    assert policies
+    for policy in policies:
+        RolePolicyRecord.model_validate(policy)
 
 
 def test_bootstrap_does_not_overwrite_an_operator_edited_policy(tmp_path: Path) -> None:

@@ -48,6 +48,11 @@ def bootstrap_role_model_policies_if_needed(connection: sqlite3.Connection) -> l
     Un rol sin política caía al fallback silencioso a ``developer``, que enruta el trabajo a un
     perfil que no es el suyo sin avisar. Sembrar los 17 roles hace explícito el enrutamiento.
 
+    ``preferred`` se deja vacío a propósito: el contrato exige pares ``{provider, model}`` y en el
+    arranque todavía no se sabe qué modelos expone cada endpoint, así que sembrar preferencias
+    inventadas produciría candidatos inexistentes. Vacío significa "sin pin", y el orden lo resuelve
+    la selección de recursos; lo que importa aquí es que la fila exista con sus límites de costo.
+
     Returns:
         Los roles para los que se creó una política nueva.
     """
@@ -60,11 +65,9 @@ def bootstrap_role_model_policies_if_needed(connection: sqlite3.Connection) -> l
         profile = _PROFILE_BY_ROLE.get(role)
         if profile is None:
             continue
-        metadata = profile.get("metadata") or {}
         store.upsert_role_policy(
             {
                 "role": role,
-                "preferred": list(metadata.get("providerPreference") or []),
                 "maxCostPerTaskUsd": profile.get("maxCostPerRun", 0),
                 "maxTokensPerRun": profile.get("maxTokensPerRun", 0),
                 "requiresApprovalOverUsd": profile.get("requiresApprovalOverUsd"),

@@ -12,6 +12,7 @@ o la salida es inválida.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from contextlib import nullcontext
@@ -67,6 +68,8 @@ from .runtime_selection import (
 )
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
+
+logger = logging.getLogger(__name__)
 
 FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
@@ -174,6 +177,22 @@ def _enum_value(item: dict[str, Any], key: str, allowed: set[str], default: str,
     if value not in allowed:
         raise ProductOwnerOutputValidationError(f"{field}.{key} must be one of {sorted(allowed)}.")
     return value
+
+
+def _graded_enum_value(item: dict[str, Any], key: str, allowed: set[str], default: str, *, field: str) -> str:
+    """Coerce un enum *advisory* (confianza, severidad, valor, reversibilidad) a ``default`` si no valida.
+
+    Estos campos gradúan una prioridad, no deciden un flujo: rechazar un brief entero porque el modelo
+    escribió "very high" en vez de "high" es la misma clase de bloqueo que ya trababa el loop. El
+    default de cada campo es el lado conservador (``irreversible`` escala en vez de auto-decidir), así
+    que degradar nunca abre una puerta que el valor original mantenía cerrada.
+    """
+    raw = item.get(key)
+    value = str(raw or default).strip().lower()
+    if value in allowed:
+        return value
+    logger.warning("%s.%s %r is not one of %s; graded down to %r.", field, key, raw, sorted(allowed), default)
+    return default
 
 
 def _question_priority(question: dict[str, Any]) -> str:
@@ -362,6 +381,26 @@ class ProductOwnerAgent:
                 _bounded_text(decision.get("title"))
                 for decision in (assessment.get("unresolvedDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
             ],
+            # Lo ya zanjado es el hecho detectado más fuerte que existe. Sin estos dos bloques el
+            # prompt queda MENOS informativo después de responder que antes (la pregunta contestada
+            # sale de openQuestions y su respuesta no entra por ningún lado), así que el modelo
+            # vuelve a preguntar lo mismo turno tras turno y el loop no converge.
+            "resolvedFacts": [
+                {
+                    "question": _bounded_text(fact.get("question")),
+                    "answer": _bounded_text(fact.get("answer")),
+                    "answeredBy": str(fact.get("answeredBy") or ""),
+                }
+                for fact in (assessment.get("resolvedFacts") or [])[:PROMPT_COLLECTION_LIMIT]
+            ],
+            "settledDecisions": [
+                {
+                    "title": _bounded_text(decision.get("title")),
+                    "decision": _bounded_text(decision.get("decision")),
+                    "rationale": _bounded_text(decision.get("rationale")),
+                }
+                for decision in (assessment.get("settledDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
+            ],
         }
         if goal_statement:
             context["projectGoal"] = _bounded_text(goal_statement)
@@ -461,13 +500,17 @@ class ProductOwnerAgent:
             "scope, brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for "
             "approval. questions_required is accepted only as a legacy alias for needs_input. "
             "A user story represents user value (asA/iWant/soThat) and is never a technical task or duplicated "
-            "per technical role; technical implementation work belongs outside userStories. Record product "
+            "per technical role; technical implementation work belongs outside userStories. A userStories item "
+            "must therefore not carry any of these keys: " + ", ".join(sorted(TECHNICAL_STORY_KEYS)) + ". "
+            "Record product "
             "decisions in decisions with status open when a human/AIDO choice is still needed. Do not invent "
             "acceptance criteria without a story; each generated story must include at least one acceptance "
             "criterion. Every question is an impact-ranked object with category (one of "
             "scope/users/data/integration/compliance/nonfunctional/ux/risk/delivery), question, whyItMatters, "
             "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
             "options) and confidence (low/medium/high); do not ask about facts already present in the assessment. "
+            "resolvedFacts and settledDecisions are already settled: treat them as binding, never re-ask them "
+            "in any rewording, and never emit a question or a decision that contradicts them. "
             "recommendation and defaultDecision must repeat one option verbatim, never an index, a paraphrase or a "
             'new value: for options ["Keep Java 17", "Upgrade to Java 21"] a valid defaultDecision is "Keep Java 17".'
         )
@@ -538,7 +581,7 @@ class ProductOwnerAgent:
         return {
             "status": status,
             "summary": _required_text(payload, "summary", field="output"),
-            "confidence": _enum_value(payload, "confidence", CONFIDENCES, "medium", field="output"),
+            "confidence": _graded_enum_value(payload, "confidence", CONFIDENCES, "medium", field="output"),
             "questions": self._validate_questions(payload["questions"]),
             "assumptions": self._validate_assumptions(payload["assumptions"]),
             "blockingDecisions": decisions,
@@ -572,7 +615,7 @@ class ProductOwnerAgent:
             assumptions.append(
                 {
                     "statement": _required_text(item, "statement", field=f"assumptions[{index}]"),
-                    "confidence": _enum_value(
+                    "confidence": _graded_enum_value(
                         item, "confidence", CONFIDENCES, "medium", field=f"assumptions[{index}]"
                     ),
                     "validation": str(item.get("validation") or "").strip(),
@@ -612,14 +655,14 @@ class ProductOwnerAgent:
                         item.get("impact") or item.get("risk") or item.get("severity") or ""
                     ).strip(),
                     "requiresResearch": bool(item.get("requiresResearch", False)),
-                    "reversibility": _enum_value(
+                    "reversibility": _graded_enum_value(
                         item,
                         "reversibility",
                         REVERSIBILITIES,
                         "irreversible",
                         field=f"decisions[{index}]",
                     ),
-                    "confidence": _enum_value(
+                    "confidence": _graded_enum_value(
                         item, "confidence", CONFIDENCES, "low", field=f"decisions[{index}]"
                     ),
                 }
@@ -690,7 +733,9 @@ class ProductOwnerAgent:
             "asA": _required_text(item, "asA", field=field),
             "iWant": _required_text(item, "iWant", field=field),
             "soThat": _required_text(item, "soThat", field=field),
-            "businessValue": _enum_value(item, "businessValue", BUSINESS_VALUES, "medium", field=field),
+            "businessValue": _graded_enum_value(
+                item, "businessValue", BUSINESS_VALUES, "medium", field=field
+            ),
             "acceptanceCriteria": criteria,
         }
 
@@ -703,7 +748,7 @@ class ProductOwnerAgent:
                 raise ProductOwnerOutputValidationError(f"risks[{index}] must be an object.")
             risks.append(
                 {
-                    "severity": _enum_value(
+                    "severity": _graded_enum_value(
                         item,
                         "severity",
                         {"low", "medium", "high", "critical"},
@@ -807,9 +852,10 @@ class ProductOwnerAgentRunner:
         briefs = self.discovery.list_product_briefs(initiative_id=initiative_id)
         asked_questions = self.discovery.list_clarification_questions(initiative_id=initiative_id)
         open_questions = [question for question in asked_questions if question["status"] == "open"]
+        decisions = self.discovery.list_product_decisions(initiative_id=initiative_id)
         unresolved_decisions = [
             decision
-            for decision in self.discovery.list_product_decisions(initiative_id=initiative_id)
+            for decision in decisions
             if decision["status"] == "proposed" and bool((decision.get("metadata") or {}).get("blocking"))
         ]
         return {
@@ -821,7 +867,41 @@ class ProductOwnerAgentRunner:
             # fuerte que existe, así que debe suprimir la repregunta igual que una abierta.
             "askedQuestions": asked_questions,
             "unresolvedDecisions": unresolved_decisions,
+            "resolvedFacts": self._resolved_facts(asked_questions),
+            "settledDecisions": [
+                decision for decision in decisions if decision["status"] in {"accepted", "resolved"}
+            ],
         }
+
+    def _resolved_facts(self, asked_questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Empareja cada pregunta ya cerrada con su respuesta aceptada más reciente.
+
+        El dedup por texto solo suprime una repregunta idéntica; lo que impide reformularla es que el
+        modelo vea la respuesta. Una pregunta cerrada sin respuesta aceptada (p. ej. descartada) no
+        aporta un hecho y se omite.
+
+        Se acotan las ``PROMPT_COLLECTION_LIMIT`` cerradas más recientes: son justamente los hilos con
+        muchas preguntas acumuladas los que sufren este bug, y una consulta de respuestas por pregunta
+        serializaría el control plane sin aportar nada (el prompt tampoco lleva más que ese tope).
+        """
+        facts: list[dict[str, Any]] = []
+        closed = [question for question in asked_questions if question["status"] != "open"]
+        for question in closed[-PROMPT_COLLECTION_LIMIT:]:
+            accepted = [
+                answer
+                for answer in self.discovery.list_clarification_answers(question["id"])
+                if answer["status"] == "accepted"
+            ]
+            if not accepted:
+                continue
+            facts.append(
+                {
+                    "question": question["question"],
+                    "answer": accepted[-1]["answer"],
+                    "answeredBy": accepted[-1].get("answeredBy") or "",
+                }
+            )
+        return facts
 
     def _project_assessment_signals(self, project_id: str) -> dict[str, Any] | None:
         """Carga (o produce, si falta) el último project assessment del proyecto como señales acotadas.

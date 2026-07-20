@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_control_center.agents.product_owner_agent import ProductOwnerAgent, ProductOwnerAgentRunner
+import pytest
+
+from local_control_center.agents.product_owner_agent import (
+    ProductOwnerAgent,
+    ProductOwnerAgentRunner,
+    ProductOwnerOutputValidationError,
+)
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -73,6 +79,130 @@ def test_prompt_includes_project_goal_section() -> None:
     assert goal in prompt
     assert "projectGoal" in messages[1]["content"]
     assert goal in messages[1]["content"]
+
+
+def test_prompt_carries_resolved_facts_so_answered_questions_are_not_re_asked() -> None:
+    """Sin esto el prompt es MENOS informativo tras responder: la respuesta borraba su propia evidencia."""
+    agent = ProductOwnerAgent()
+    assessment = {
+        "idea": "Refactoriza y actualiza Spring Boot.",
+        "initiative": None,
+        "projectAssessment": None,
+        "resolvedFacts": [
+            {"question": "Which JDK version do we target?", "answer": "JDK 17", "answeredBy": "workspace"}
+        ],
+    }
+
+    prompt = agent.cli_prompt(idea=assessment["idea"], assessment=assessment)
+    messages = agent.model_messages(idea=assessment["idea"], assessment=assessment)
+
+    for payload in (prompt, messages[1]["content"]):
+        assert "resolvedFacts" in payload
+        assert "Which JDK version do we target?" in payload
+        assert "JDK 17" in payload
+
+
+def test_prompt_carries_settled_decisions() -> None:
+    agent = ProductOwnerAgent()
+    assessment = {
+        "idea": "Refactoriza y actualiza Spring Boot.",
+        "initiative": None,
+        "projectAssessment": None,
+        "settledDecisions": [
+            {
+                "title": "AIDO decide: frontend stack",
+                "decision": "Migrate to React",
+                "rationale": "Team skill",
+            }
+        ],
+    }
+
+    payload = agent.model_messages(idea=assessment["idea"], assessment=assessment)[1]["content"]
+
+    assert "settledDecisions" in payload
+    assert "Migrate to React" in payload
+
+
+def test_system_instruction_binds_the_agent_to_resolved_facts() -> None:
+    instruction = ProductOwnerAgent()._system_instruction()
+    assert "resolvedFacts" in instruction
+    assert "settledDecisions" in instruction
+
+
+def _valid_output(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "status": "backlog_ready",
+        "summary": "Upgrade Spring Boot.",
+        "confidence": "medium",
+        "questions": [],
+        "assumptions": [],
+        "decisions": [],
+        "productBriefPatch": {"title": "Upgrade"},
+        "epics": [{"title": "Migration"}],
+        "userStories": [
+            {
+                "epicTitle": "Migration",
+                "title": "Run on Java 17",
+                "asA": "developer",
+                "iWant": "the app on Java 17",
+                "soThat": "it stays supported",
+                "acceptanceCriteria": ["Builds on Java 17"],
+            }
+        ],
+        "risks": [],
+        "recommendedNextAction": "Approve the backlog.",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_advisory_enums_are_graded_down_instead_of_failing_the_whole_run() -> None:
+    """Un enum advisory fuera de catalogo graduaba el brief entero a failed_validation."""
+    output = ProductOwnerAgent().validate_output(
+        _valid_output(
+            confidence="very high",
+            risks=[{"severity": "catastrophic", "description": "Breaking API change"}],
+            userStories=[
+                {
+                    "epicTitle": "Migration",
+                    "title": "Run on Java 17",
+                    "asA": "developer",
+                    "iWant": "the app on Java 17",
+                    "soThat": "it stays supported",
+                    "businessValue": "critical",
+                    "acceptanceCriteria": ["Builds on Java 17"],
+                }
+            ],
+        )
+    )
+
+    assert output["confidence"] == "medium"
+    assert output["risks"][0]["severity"] == "medium"
+    assert output["userStories"][0]["businessValue"] == "medium"
+
+
+def test_an_unknown_reversibility_grades_to_the_conservative_side() -> None:
+    """Degradar nunca puede abrir una puerta: reversibilidad desconocida escala, no auto-decide."""
+    output = ProductOwnerAgent().validate_output(
+        _valid_output(
+            decisions=[{"title": "Pick a stack", "status": "proposed", "reversibility": "somewhat"}]
+        )
+    )
+    assert output["decisions"][0]["reversibility"] == "irreversible"
+
+
+def test_decision_status_stays_strict_because_it_routes_the_flow() -> None:
+    """``status`` no es advisory: decide si el backlog se retiene, asi que un valor invalido debe fallar."""
+    with pytest.raises(ProductOwnerOutputValidationError, match="status"):
+        ProductOwnerAgent().validate_output(
+            _valid_output(decisions=[{"title": "Pick a stack", "status": "kind-of-open"}])
+        )
+
+
+def test_system_instruction_declares_the_forbidden_technical_story_keys() -> None:
+    instruction = ProductOwnerAgent()._system_instruction()
+    for key in ("role", "agentRole", "technicalTask"):
+        assert key in instruction
 
 
 def test_prompt_unchanged_without_goal() -> None:

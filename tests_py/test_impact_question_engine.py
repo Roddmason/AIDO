@@ -81,6 +81,50 @@ def test_validate_impact_question_rejects_invented_option_with_actionable_error(
     assert "['Web', 'Mobile']" in message
 
 
+def test_validate_impact_question_anchors_a_truncated_option_to_its_full_label() -> None:
+    """Reproduce el bloqueo real: el modelo acorta la opcion a su prefijo y el loop quedaba trabado."""
+    normalized = validate_impact_question(
+        question(
+            options=["Inspect codebase for frontend tech", "Assume Angular"],
+            recommendation="Inspect codebase for frontend tech",
+            defaultDecision="Inspect codebase",
+        ),
+        index=1,
+    )
+    assert normalized["defaultDecision"] == "Inspect codebase for frontend tech"
+    assert normalized["defaultDecision"] in normalized["options"]
+
+
+def test_validate_impact_question_rejects_a_prefix_shared_by_several_options() -> None:
+    """Un prefijo ambiguo no es una truncacion recuperable: no se puede inferir la intencion."""
+    with pytest.raises(ImpactQuestionValidationError, match="defaultDecision"):
+        validate_impact_question(
+            question(
+                options=["Inspect codebase for frontend tech", "Inspect codebase for backend tech"],
+                recommendation="Inspect codebase for frontend tech",
+                defaultDecision="Inspect codebase",
+            )
+        )
+
+
+def test_validate_impact_question_rejects_a_prefix_that_cuts_a_word_in_half() -> None:
+    """Solo se ancla una truncacion en frontera de palabra; 'Insp' no identifica una opcion."""
+    with pytest.raises(ImpactQuestionValidationError, match="defaultDecision"):
+        validate_impact_question(
+            question(
+                options=["Inspect codebase", "Assume Angular"],
+                recommendation="Inspect codebase",
+                defaultDecision="Insp",
+            )
+        )
+
+
+def test_validate_impact_question_does_not_anchor_a_superstring_of_an_option() -> None:
+    """'Web y Mobile' no es una truncacion de 'Web': ampliar la opcion cambia la decision."""
+    with pytest.raises(ImpactQuestionValidationError, match="defaultDecision"):
+        validate_impact_question(question(defaultDecision="Web and Mobile"))
+
+
 def test_validate_impact_question_rejects_ambiguous_option_match() -> None:
     with pytest.raises(ImpactQuestionValidationError, match="defaultDecision"):
         validate_impact_question(
@@ -150,6 +194,44 @@ def test_engine_does_not_ask_data_already_detected_in_the_repository() -> None:
     result = ImpactQuestionEngine().select(candidates, detected_facts=detected)
     assert result["counts"]["suppressed"] == 2
     assert [q["category"] for q in result["turn"]] == ["data"]
+
+
+def test_engine_never_suppresses_a_blocking_question_by_bare_category() -> None:
+    """Suprimir una bloqueante por categoria deja el turno vacio: 'waiting decision' sin nada que responder."""
+    detected = detected_facts_from_assessment(brief={"scope": "Guided wizard."}, existing_questions=[])
+    blocking_scope = question(category="scope", question="Java 17 or Java 21?", blocking=True)
+
+    result = ImpactQuestionEngine().select([blocking_scope], detected_facts=detected)
+
+    assert result["counts"]["suppressed"] == 0
+    assert [item["question"] for item in result["turn"]] == ["Java 17 or Java 21?"]
+
+
+def test_engine_still_suppresses_a_blocking_question_already_asked_verbatim() -> None:
+    """El dedup exacto si es autoridad suficiente: la misma pregunta ya fue formulada."""
+    asked = question(category="scope", question="Java 17 or Java 21?", blocking=True)
+    detected = detected_facts_from_assessment(
+        brief=None,
+        existing_questions=[{"question": "Java 17 or Java 21?", "metadata": {"category": "scope"}}],
+    )
+
+    result = ImpactQuestionEngine().select([asked], detected_facts=detected)
+
+    assert result["counts"]["suppressed"] == 1
+    assert result["turn"] == []
+
+
+def test_engine_ranks_a_covered_category_below_an_uncovered_one() -> None:
+    """Una categoria ya cubierta degrada la prioridad, no elimina la pregunta."""
+    detected = detected_facts_from_assessment(brief={"scope": "Guided wizard."}, existing_questions=[])
+    candidates = [
+        question(category="scope", question="Blocking scope?", blocking=True),
+        question(category="data", question="Blocking data?", blocking=True),
+    ]
+
+    turn = ImpactQuestionEngine().select(candidates, detected_facts=detected)["turn"]
+
+    assert [item["question"] for item in turn] == ["Blocking data?", "Blocking scope?"]
 
 
 def test_engine_validation_propagates_for_malformed_candidates() -> None:

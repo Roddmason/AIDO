@@ -165,6 +165,7 @@ CONFIDENCES = {"low", "medium", "high"}
 MAX_QUESTIONS_PER_TURN = 5
 MIN_OPTIONS = 2
 BLOCKING_IMPACT = 1000
+COVERED_CATEGORY_PENALTY = 500
 CONFIDENCE_IMPACT = {"low": 100, "medium": 50, "high": 20}
 CATEGORY_IMPACT = {
     "compliance": 50,
@@ -205,13 +206,32 @@ def _option_key(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).casefold()
 
 
+def _truncation_matches(target: str, options: list[str]) -> list[str]:
+    """Opciones de las que ``target`` es una truncación en frontera de palabra.
+
+    El modelo tiende a citar la opción por su encabezado ("Inspect codebase" por "Inspect codebase for
+    frontend tech"). Solo se acepta esa dirección: que la opción *empiece* con el valor emitido. La
+    inversa ("Web and Mobile" por "Web") no es una truncación sino una ampliación que cambiaría la
+    decisión, así que no se contempla. La frontera de palabra evita que un corte a mitad de token
+    ("Insp") identifique una opción por accidente.
+    """
+    if not target:
+        return []
+    return [
+        option
+        for option in options
+        if (key := _option_key(option)) != target and key.startswith(target) and key[len(target)] == " "
+    ]
+
+
 def _resolve_option(value: str, options: list[str], *, index: int, field: str) -> str:
     """Ancla ``value`` a la opción canónica equivalente; falla si no hay exactamente una coincidencia.
 
-    El modelo suele emitir la opción con otra caja, un prefijo de enumeración o un punto final. Esa
-    variación tipográfica no es un error de producto, así que se coerce a la opción canónica (mismo
-    criterio tolerante que ``normalize_category``). Una opción inventada o ambigua sigue fallando:
-    el valor persistido debe ser miembro exacto de ``options``.
+    El modelo suele emitir la opción con otra caja, un prefijo de enumeración o un punto final, o bien
+    la acorta a su encabezado. Ni la variación tipográfica ni la truncación son errores de producto,
+    así que ambas se coercen a la opción canónica (mismo criterio tolerante que ``normalize_category``);
+    la equivalencia exacta tiene precedencia sobre la truncación. Una opción inventada o ambigua sigue
+    fallando: el valor persistido debe ser miembro exacto de ``options``.
 
     Raises:
         ImpactQuestionValidationError: si ninguna opción equivale a ``value`` o si más de una lo hace.
@@ -220,13 +240,18 @@ def _resolve_option(value: str, options: list[str], *, index: int, field: str) -
         return value
     target = _option_key(value)
     matches = [option for option in options if _option_key(option) == target]
+    variation = "typographic variation"
+    if not matches:
+        matches = _truncation_matches(target, options)
+        variation = "truncated to its leading words"
     if len(matches) == 1:
         logger.warning(
-            "questions[%s].%s %r coerced to option %r (typographic variation).",
+            "questions[%s].%s %r coerced to option %r (%s).",
             index,
             field,
             value,
             matches[0],
+            variation,
         )
         return matches[0]
     raise ImpactQuestionValidationError(
@@ -243,12 +268,18 @@ def question_dedup_key(question: dict[str, Any]) -> str:
     return f"{question.get('category')}:{_slug(question.get('question', ''))}"
 
 
-def impact_score(question: dict[str, Any]) -> int:
-    """Puntúa el impacto: el bloqueo domina, luego la menor confianza y el peso de la categoría."""
+def impact_score(question: dict[str, Any], *, category_covered: bool = False) -> int:
+    """Puntúa el impacto: el bloqueo domina, luego la menor confianza y el peso de la categoría.
+
+    ``category_covered`` degrada una pregunta cuya categoría ya está cubierta por el brief. La
+    penalización es menor que ``BLOCKING_IMPACT`` a propósito: una bloqueante en categoría cubierta
+    debe seguir ganándole a cualquier no bloqueante.
+    """
     blocking = BLOCKING_IMPACT if question.get("blocking") else 0
     confidence = CONFIDENCE_IMPACT.get(str(question.get("confidence")), CONFIDENCE_IMPACT["high"])
     category = CATEGORY_IMPACT.get(str(question.get("category")), 10)
-    return blocking + confidence + category
+    covered = COVERED_CATEGORY_PENALTY if category_covered else 0
+    return blocking + confidence + category - covered
 
 
 def validate_impact_question(item: Any, *, index: int = 0) -> dict[str, Any]:
@@ -346,8 +377,11 @@ class ImpactQuestionEngine:
     def select(self, candidates: list[Any], *, detected_facts: set[str] | None = None) -> dict[str, Any]:
         """Valida, descarta lo ya detectado, ordena por impacto y separa el turno (≤max) de lo diferido.
 
-        Una candidata se descarta si su clave puntual o su categoría ya están en ``detected_facts``.
-        Las diferidas conservan su ``defaultDecision`` para poder avanzar sin haberlas preguntado.
+        Una candidata se descarta si su clave puntual ya está en ``detected_facts``. Que su *categoría*
+        esté cubierta por el brief no es autoridad suficiente para descartar una bloqueante —hacerlo
+        vaciaba el turno y dejaba el loop en "waiting decision" sin nada que responder—, así que en ese
+        caso solo se degrada su prioridad. Las diferidas conservan su ``defaultDecision`` para poder
+        avanzar sin haberlas preguntado.
 
         Raises:
             ImpactQuestionValidationError: si alguna candidata no cumple el contrato de ocho campos.
@@ -357,11 +391,15 @@ class ImpactQuestionEngine:
         kept: list[dict[str, Any]] = []
         suppressed: list[dict[str, Any]] = []
         for question in validated:
-            if question_dedup_key(question) in detected or question["category"] in detected:
+            covered_category = question["category"] in detected
+            if question_dedup_key(question) in detected or (covered_category and not question["blocking"]):
                 suppressed.append(question)
             else:
                 kept.append(question)
-        ranked = sorted(kept, key=lambda question: -impact_score(question))
+        ranked = sorted(
+            kept,
+            key=lambda question: -impact_score(question, category_covered=question["category"] in detected),
+        )
         turn = ranked[: self.max_per_turn]
         deferred = ranked[self.max_per_turn :]
         return {

@@ -233,6 +233,12 @@ function pythonCommandForScript(script) {
 	return { command: 'uv', args: ['run', 'python', '-c', script] };
 }
 
+/**
+ * Seeds the performance profile the AIResourceManager overlays on the synced catalog model.
+ * The model id MUST be the one `/api/tags` advertises (`controlled-model`): the manager rejects any
+ * candidate the endpoint does not currently report (`runtime_model_not_available`), so a profile for
+ * a model the mock never serves is filtered out and no resource satisfies the developer roles.
+ */
 function seedControlledAIResource() {
 	const dbPath = path.join(scratchDir, 'platform.sqlite');
 	const script = `
@@ -244,7 +250,7 @@ with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
     initialize_platform_schema(connection)
     AIResourceManager(connection).upsert_model_performance({
         "providerId": "ollama_remote",
-        "model": "qwen2.5-coder",
+        "model": "controlled-model",
         "runtime": "local",
         "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
         "contextWindow": 128000,

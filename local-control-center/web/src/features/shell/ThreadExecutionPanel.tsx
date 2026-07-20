@@ -546,6 +546,7 @@ function eventTitle(type: string): string {
 		operator_note_added: 'Operator note',
 		execution_cancelled: 'Execution cancelled',
 		runtime_selected: 'Runtime selected',
+		runtime_failover: 'Runtime failover',
 		agent_running: 'Agent working',
 		workspace_check: 'Workspace',
 		runtime_check: 'Runtime',

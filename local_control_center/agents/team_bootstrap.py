@@ -12,23 +12,63 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from local_control_center.team_scheduler.scheduler import team_member_defaults
+from local_control_center.team_scheduler.scheduler import ALL_ROLES, team_member_defaults
 
 from .repository import AgentsRepository
+from .routing_profiles import RoutingProfileStore
 
 BASE_TEAM_PROFILES: tuple[dict[str, Any], ...] = tuple(team_member_defaults())
+_PROFILE_BY_ROLE: dict[str, dict[str, Any]] = {
+    str(profile["role"]): profile for profile in BASE_TEAM_PROFILES
+}
 
 
 def bootstrap_base_team_if_needed(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Create missing active base roles without overwriting existing active profiles for the same role."""
-    active_roles = {
-        str(row["role"])
-        for row in connection.execute("SELECT role FROM agent_profiles WHERE status = 'active'").fetchall()
-    }
+    """Crea los perfiles base que falten, identificándolos por id y no por rol.
+
+    El guard va por id a propósito: un runtime singleton (``product_owner_agent`` sobre el rol
+    ``product_owner``, ``git_workspace_agent`` sobre ``devops_engineer``) ocupa el rol y, con un
+    guard por rol, suprimía para siempre la creación del perfil base correspondiente. El operador
+    veía un roster incompleto sin explicación. Sigue sin sobrescribirse ningún perfil existente.
+    """
+    existing_ids = {str(row["id"]) for row in connection.execute("SELECT id FROM agent_profiles").fetchall()}
     repository = AgentsRepository(connection)
     created: list[dict[str, Any]] = []
     for profile in BASE_TEAM_PROFILES:
-        if profile["role"] in active_roles:
+        if profile["id"] in existing_ids:
             continue
         created.append(repository.upsert_agent_profile(profile))
+    bootstrap_role_model_policies_if_needed(connection)
     return created
+
+
+def bootstrap_role_model_policies_if_needed(connection: sqlite3.Connection) -> list[str]:
+    """Crea la política de modelo que falte para cada rol del scheduler, sin pisar las existentes.
+
+    Un rol sin política caía al fallback silencioso a ``developer``, que enruta el trabajo a un
+    perfil que no es el suyo sin avisar. Sembrar los 17 roles hace explícito el enrutamiento.
+
+    Returns:
+        Los roles para los que se creó una política nueva.
+    """
+    store = RoutingProfileStore(connection)
+    existing_roles = {str(policy["role"]) for policy in store.list_role_policies()}
+    seeded: list[str] = []
+    for role in ALL_ROLES:
+        if role in existing_roles:
+            continue
+        profile = _PROFILE_BY_ROLE.get(role)
+        if profile is None:
+            continue
+        metadata = profile.get("metadata") or {}
+        store.upsert_role_policy(
+            {
+                "role": role,
+                "preferred": list(metadata.get("providerPreference") or []),
+                "maxCostPerTaskUsd": profile.get("maxCostPerRun", 0),
+                "maxTokensPerRun": profile.get("maxTokensPerRun", 0),
+                "requiresApprovalOverUsd": profile.get("requiresApprovalOverUsd"),
+            }
+        )
+        seeded.append(role)
+    return seeded

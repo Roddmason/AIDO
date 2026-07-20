@@ -400,16 +400,21 @@ def test_runtime_preferences_round_trip_with_default_profiles(tmp_path: Path) ->
 
 
 def test_runtime_settings_are_registered_for_global_and_project_policy(tmp_path: Path) -> None:
+    """Todo transporte llega habilitado; la barrera real es la credencial, no un flag apagado.
+
+    La politica es una conjuncion global AND proyecto, asi que apagar el flag de proyecto sigue
+    bastando para vetar un transporte en un repositorio concreto.
+    """
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
         policy = repo.runtime_execution_policy(project_id="project-runtime")
 
-    assert policy["global"]["cliEnabled"] is False
-    assert policy["global"]["remoteEnabled"] is False
+    assert policy["global"]["cliEnabled"] is True
+    assert policy["global"]["remoteEnabled"] is True
     assert policy["global"]["ollamaEnabled"] is True
-    assert policy["global"]["nvidiaEnabled"] is False
+    assert policy["global"]["nvidiaEnabled"] is True
     assert policy["project"]["cliEnabled"] is True
     assert policy["project"]["remoteEnabled"] is True
     assert policy["project"]["allowedProviders"] == []

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
 from local_control_center.agents.providers.base import ProviderHealth
+from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -758,6 +759,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
         },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", fail_if_health_checked)
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", fail_if_health_checked)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", fail_if_health_checked)
     store, client, _headers = create_client(tmp_path, monkeypatch)
     enable_remote_provider_accounts(store)
@@ -803,6 +805,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
         },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", failed_provider)
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", failed_provider)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", failed_provider)
     store, client, headers = create_client(tmp_path, monkeypatch)
     enable_remote_provider_accounts(store)
@@ -861,6 +864,8 @@ def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     monkeypatch.setattr(OpenAICompatibleProvider, "list_models", lambda _self: [])
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", healthy_provider)
+    monkeypatch.setattr(NvidiaNimProvider, "list_models", lambda _self: [])
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", healthy_provider)
     monkeypatch.setattr(AnthropicAPIProvider, "list_models", lambda _self: [])
     store, client, headers = create_client(tmp_path, monkeypatch)
@@ -883,8 +888,7 @@ def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_
         assert provider["executable"] is True
         assert provider["healthStatus"] == "healthy"
         assert any(
-            "AIDO_ENABLE_REAL_PROVIDER_CALLS" in warning
-            for warning in provider["configurationWarnings"]
+            "AIDO_ENABLE_REAL_PROVIDER_CALLS" in warning for warning in provider["configurationWarnings"]
         )
 
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")

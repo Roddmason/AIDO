@@ -388,6 +388,10 @@ export function RuntimeSetupPanel({
 						? accountById.get(wizardProviderId)?.metadata?.freeTierDeclaredByOperator === true
 						: false
 				}
+				initialCredentialRef={
+					wizardProviderId ? (accountById.get(wizardProviderId)?.credentialRef ?? '') : ''
+				}
+				initialBaseUrl={wizardProviderId ? (accountById.get(wizardProviderId)?.baseUrl ?? '') : ''}
 				onClose={() => setWizardOpen(false)}
 				onSaved={() => void refreshHealth()}
 			/>

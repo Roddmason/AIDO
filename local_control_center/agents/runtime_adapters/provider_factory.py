@@ -189,8 +189,14 @@ class ProviderFactoryAdapter:
             # Un 429 sin registrar deja al provider luciendo sano y los agentes lo reeligen en cada
             # intento; el cooldown persistido es lo que lo saca de la seleccion hasta que se repone.
             if error.code == _TOO_MANY_REQUESTS:
+                # El cooldown se indexa por el providerId canonico de la cuenta: get_provider_account
+                # resuelve por `provider_id OR id`, asi que usar el token del caller podria escribir
+                # una clave que la lectura de disponibilidad nunca vuelve a encontrar.
                 self._record_provider_rate_limit(
-                    connection, provider_id=provider_id, model=model, error=error
+                    connection,
+                    provider_id=str(account["providerId"]),
+                    model=model,
+                    error=error,
                 )
             return _result(
                 status="unavailable",

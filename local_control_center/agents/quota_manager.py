@@ -889,6 +889,34 @@ class QuotaManager:
             "windows": windows,
         }
 
+    def providers_in_cooldown(self) -> set[str]:
+        """Reúne los providers cuya cuota está agotada ahora mismo, según el cooldown persistido.
+
+        Lo escribe :meth:`record_rate_limit` cuando el proveedor responde 429 o declara crédito
+        agotado. Ante cualquier problema de lectura devuelve vacío: esta señal es auxiliar y su
+        fallo no puede dejar a la instalación sin runtimes.
+
+        La vigencia se compara como fecha y no como texto en SQL: ``utc_now`` emite milisegundos
+        con sufijo ``Z`` mientras que el cooldown se guarda con ``isoformat`` (microsegundos y
+        offset ``+00:00``), así que comparar cadenas ataría el resultado a que ninguno de los dos
+        formatos cambie nunca.
+        """
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT provider_id, cooldown_until FROM provider_limits
+                WHERE enabled = 1 AND cooldown_until IS NOT NULL
+                """
+            ).fetchall()
+        except sqlite3.Error:
+            return set()
+        now = self._now()
+        return {
+            str(row["provider_id"])
+            for row in rows
+            if (cooldown := _parse_utc(row["cooldown_until"])) is not None and cooldown > now
+        }
+
     def record_rate_limit(
         self,
         *,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.error import HTTPError
 
+from local_control_center.agents.product_owner_agent_contract import is_product_owner_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.runtime_adapters import ProviderFactoryAdapter
@@ -89,6 +90,57 @@ def test_recording_a_rate_limit_never_masks_the_transport_error(tmp_path: Path) 
             model="llama3",
             error=HTTPError(url="http://x", code=429, msg="Too Many Requests", hdrs=None, fp=None),
         )
+
+
+def test_a_cli_without_quota_stops_being_a_product_owner_runtime(tmp_path: Path) -> None:
+    """`is_product_owner_runtime` corta en productOwnerExecutable para CLIs e ignora `executable`."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+
+        QuotaManager(connection).record_rate_limit(
+            provider_id="codex_cli", model="*", retry_after_seconds=900
+        )
+        statuses = {
+            str(item["id"]): item
+            for item in RuntimeStatusService(connection).list_provider_statuses()
+        }
+
+    codex = statuses["codex_cli"]
+    assert codex["executable"] is False
+    assert codex["available"] is False
+    assert codex["canRunPrompt"] is False
+    assert codex["productOwnerExecutable"] is False
+    assert is_product_owner_runtime(codex) is False
+
+
+def test_an_exhausted_provider_keeps_its_more_actionable_reason(tmp_path: Path) -> None:
+    """Una causa reparable (falta credencial) es mas util que 'espera el cooldown'; no debe pisarse."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "anthropic_api",
+                "displayName": "Anthropic API",
+                "providerType": "api",
+                "apiFormat": "anthropic",
+                "providerFamily": "anthropic_api",
+                "enabled": True,
+            }
+        )
+
+        before = {
+            str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()
+        }["anthropic_api"]
+        assert before["executable"] is False, "fixture must start non-executable"
+
+        QuotaManager(connection).record_rate_limit(
+            provider_id="anthropic_api", model="*", retry_after_seconds=900
+        )
+        after = {
+            str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()
+        }["anthropic_api"]
+
+    assert after["reason"] == before["reason"]
 
 
 def test_providers_without_a_cooldown_are_left_untouched(tmp_path: Path) -> None:

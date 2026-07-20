@@ -28,6 +28,7 @@ from .model_gateway import cached_ollama_status
 from .provider_accounts import ProviderAccountStore
 from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .providers.factory import provider_account_requires_credential
+from .quota_manager import QuotaManager
 from .runtime_provider_config import (
     DEFAULT_OLLAMA_BASE_URL,
     KNOWN_PROVIDER_DEFAULT_BASE_URLS,
@@ -814,42 +815,35 @@ class RuntimeStatusService:
                 )
         return self._demote_exhausted_providers(statuses)
 
-    def _providers_in_cooldown(self) -> set[str]:
-        """Reúne los providers cuya cuota está agotada ahora mismo, según el cooldown persistido.
-
-        Lo escribe ``QuotaManager.record_rate_limit`` cuando el proveedor responde 429 o declara
-        crédito agotado. Ante cualquier problema al leerlo se devuelve vacío: un fallo de esta
-        señal auxiliar no puede dejar a la instalación sin runtimes.
-        """
-        try:
-            rows = self.connection.execute(
-                """
-                SELECT DISTINCT provider_id FROM provider_limits
-                WHERE enabled = 1
-                  AND cooldown_until IS NOT NULL
-                  AND cooldown_until > ?
-                """,
-                (utc_now(),),
-            ).fetchall()
-        except sqlite3.Error:
-            return set()
-        return {str(row["provider_id"]) for row in rows}
-
     def _demote_exhausted_providers(self, statuses: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Marca como no ejecutable todo provider en cooldown de cuota.
 
         Un provider sin tokens sigue estando configurado y autenticado, así que sin esto se veía
         ejecutable y los agentes lo seguían eligiendo hasta fallar en cada intento.
+
+        ``productOwnerExecutable`` se apaga explícitamente porque ``is_product_owner_runtime``
+        corta en ese campo para los runtimes CLI y jamás consulta ``executable``: sin apagarlo, un
+        CLI sin cuota seguiría siendo elegible para el ProductOwner.
+
+        La razón solo se reescribe cuando el provider venía ejecutable. Si ya estaba caído por una
+        causa reparable (credencial faltante, cuenta deshabilitada), esa causa es más accionable
+        que "espera a que expire el cooldown" y no debe pisarse.
         """
-        exhausted = self._providers_in_cooldown()
+        exhausted = QuotaManager(self.connection).providers_in_cooldown()
         if not exhausted:
             return statuses
         for status in statuses:
             if str(status.get("id")) not in exhausted:
                 continue
+            was_executable = status.get("executable") is True
             status["executable"] = False
+            status["available"] = False
             status["canRunPrompt"] = False
-            status["reason"] = "Provider quota is exhausted; it stays unavailable until its cooldown expires."
+            status["productOwnerExecutable"] = False
+            if was_executable:
+                status["reason"] = (
+                    "Provider quota is exhausted; it stays unavailable until its cooldown expires."
+                )
         return statuses
 
     def runtime_provider_status(self, *, project_id: str | None = None) -> dict[str, Any]:

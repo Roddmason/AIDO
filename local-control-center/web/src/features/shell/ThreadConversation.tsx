@@ -471,8 +471,9 @@ export function ThreadConversation({
 			</div>
 		);
 	} else {
-		const pendingDecision =
-			detail.decisions.find((decision) => decision.status === 'pending') ?? null;
+		// Every pending decision must be answerable: the loop only resumes once the whole batch is
+		// resolved, so rendering just the first one left the thread blocked with no way forward.
+		const pendingDecisions = detail.decisions.filter((decision) => decision.status === 'pending');
 		const researchArtifacts = detail.artifacts.filter(
 			(artifact) => artifact.kind === 'research_report',
 		);
@@ -519,10 +520,11 @@ export function ThreadConversation({
 								)}
 							</div>
 
-							{pendingDecision ? (
+							{pendingDecisions.map((decision, index) => (
 								<m.section
-									ref={decisionRef}
-									tabIndex={-1}
+									key={decision.id}
+									ref={index === 0 ? decisionRef : undefined}
+									tabIndex={index === 0 ? -1 : undefined}
 									className="thread-decision-console"
 									aria-label={t('app.threads.decisionTitle', 'Decision needed')}
 									variants={panelTransition}
@@ -532,22 +534,29 @@ export function ThreadConversation({
 									<div className="thread-decision-head">
 										<AlertTriangle aria-hidden="true" size={15} />
 										<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
+										{pendingDecisions.length > 1 ? (
+											<span className="thread-decision-progress">
+												{t('app.threads.decisionProgress', '{current} of {total}')
+													.replace('{current}', String(index + 1))
+													.replace('{total}', String(pendingDecisions.length))}
+											</span>
+										) : null}
 									</div>
-									<p>{pendingDecision.prompt}</p>
+									<p>{decision.prompt}</p>
 									<div className="thread-decision-options">
-										{pendingDecision.options.map((option) => (
+										{decision.options.map((option) => (
 											<Button
 												key={option}
 												variant="secondary"
 												disabled={busy}
-												onClick={() => resolveDecision(pendingDecision.id, option)}
+												onClick={() => resolveDecision(decision.id, option)}
 											>
 												{option}
 											</Button>
 										))}
 									</div>
 								</m.section>
-							) : null}
+							))}
 
 							{researchArtifacts.map((artifact) => (
 								<ThreadResearchCard key={artifact.id} artifact={artifact} />
@@ -581,7 +590,7 @@ export function ThreadConversation({
 						threadStatus={threadStatus}
 						events={consoleEvents}
 						messages={executionMessages}
-						pendingDecision={pendingDecision}
+						pendingDecision={pendingDecisions[0] ?? null}
 						workerStatus={workerStatus}
 						workerBusy={workerBusy}
 						syncing={eventStream.loading}

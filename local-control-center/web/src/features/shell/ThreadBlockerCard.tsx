@@ -180,9 +180,13 @@ function ThreadBlockerCard({
 	const [primaryAction, ...secondaryActions] = card.actions;
 	const hasDestructiveAction = card.actions.some((action) => action.confirmationRequired);
 	const detail = detailsText(card);
-	// The cause is now a first-class fact on the card, so the disclosure only repeats it when the
-	// backend reported a machine reason that differs from it.
-	const technicalReason = card.reason && card.reason !== card.cause ? card.reason : '';
+	// `cause` is the raw runtime string, which for some blockers is an internal validator message the
+	// operator cannot act on (e.g. "questions[1].defaultDecision must be one of options"). When the
+	// backend classified the blocker well enough to have human copy for it, that copy is the fact we
+	// show; the raw string always stays reachable in the technical disclosure rather than replacing it.
+	const humanCause = card.causeKey ? t(card.causeKey, card.causeFallback ?? '') : '';
+	const rawCause = card.reason || card.cause;
+	const technicalReason = rawCause && rawCause !== (humanCause || card.cause) ? rawCause : '';
 	const dismissId = `${card.key}:dismiss`;
 
 	const runExecute = async (action: BlockerActionModel, payload?: JsonObject) => {
@@ -362,7 +366,8 @@ function ThreadBlockerCard({
 				<div>
 					<dt>{t('app.threads.remediation.factCause', 'Cause')}</dt>
 					<dd>
-						{card.cause ||
+						{humanCause ||
+							card.cause ||
 							t('app.threads.remediation.causeUnknown', 'The runtime reported no machine cause.')}
 					</dd>
 				</div>

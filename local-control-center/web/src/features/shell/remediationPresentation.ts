@@ -30,6 +30,12 @@ type BlockerCopy = {
 	explanationFallback: string;
 	impactKey: string;
 	impactFallback: string;
+	/**
+	 * Plain-language stand-in for the "Cause" fact, for blockers whose raw runtime string is an
+	 * internal message the operator cannot act on. The raw string stays in the technical disclosure.
+	 */
+	causeKey?: string;
+	causeFallback?: string;
 	/** When the fix lives in Settings, the section a contextual primary action should open. */
 	settingsSection?: string;
 	/** Label key for that contextual primary (defaults to the generic "Open configuration"). */
@@ -287,6 +293,8 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 			'The ProductOwnerAgent did not produce a validated brief or backlog for this loop.',
 		impactKey: 'app.threads.remediation.blocker.product_owner_output_invalid.impact',
 		impactFallback: 'Without a validated brief or backlog, planning and execution cannot continue.',
+		causeKey: 'app.threads.remediation.blocker.product_owner_output_invalid.cause',
+		causeFallback: 'The runtime answered in a shape the strict product contract rejected.',
 		settingsSection: 'team',
 		settingsLabelKey: 'app.threads.remediation.action.openTeam',
 		settingsLabelFallback: 'Open team',
@@ -529,6 +537,9 @@ export type BlockerCardModel = {
 	impactFallback: string;
 	/** The machine cause the backend reported (already secret-redacted), shown as the "Cause" fact. */
 	cause: string;
+	/** Plain-language override for the "Cause" fact when the machine cause is not operator-actionable. */
+	causeKey?: string;
+	causeFallback?: string;
 	/** The blocker's raw reason (from payload), shown inside the collapsed technical detail. */
 	reason: string;
 	/** Actions the user can take, the primary repair first. */
@@ -667,6 +678,8 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 			impactKey: copy.impactKey,
 			impactFallback: copy.impactFallback,
 			cause: first.technicalReason || reason || first.description,
+			causeKey: copy.causeKey,
+			causeFallback: copy.causeFallback,
 			reason,
 			actions: withPrimaryFirst(actions),
 			remediations: records,

@@ -71,6 +71,10 @@ class AIResourceRequest:
     allowed_provider_ids: list[str] | None = None
     preferred_provider_ids: list[str] = field(default_factory=list)
     blocked_resources: list[dict[str, Any]] = field(default_factory=list)
+    #: Candidatos descartados por haber fallado en este mismo turno. Va aparte de
+    #: ``blocked_resources`` a propósito: ese contador se audita como política de rol y mezclar
+    #: exclusiones de transporte lo falsearía.
+    excluded_resources: list[dict[str, Any]] = field(default_factory=list)
     context_token_limit: int | None = None
     role_policy_id: str | None = None
     allow_remote: bool = True
@@ -505,6 +509,7 @@ class AIResourceManager:
                     "allowCli": request.allow_cli,
                     "allowApi": request.allow_api,
                     "blockedResourceCount": len(request.blocked_resources),
+                    "failoverExcludedCount": len(request.excluded_resources),
                     "contextTokenLimit": request.context_token_limit,
                 },
                 "providerPreferenceOrder": provider_preference,
@@ -1110,6 +1115,8 @@ class AIResourceManager:
             return "provider_not_allowed_for_agent"
         if self._blocked_by_role_policy(model, request.blocked_resources):
             return "role_blocks_candidate"
+        if self._blocked_by_role_policy(model, request.excluded_resources):
+            return "runtime_failover_excluded"
         if (
             request.context_token_limit is not None
             and request.context_token_limit > 0

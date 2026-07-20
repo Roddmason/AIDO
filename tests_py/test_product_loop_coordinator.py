@@ -8031,3 +8031,75 @@ def test_operator_max_rework_policy_overrides_default(
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
         assert "Maximum rework rounds (1)" in result["reason"]
         assert len(runtime.run_payloads) == 2
+
+
+class _TransportFlakyRuntime(_ControlledRuntime):
+    """Falla el primer run con un error de transporte y responde bien en el reintento."""
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.run_payloads:
+            self.run_payloads.append(payload)
+            raise ConnectionError("connection refused by provider")
+        return super().run(payload)
+
+
+class _SemanticFailingRuntime(_ControlledRuntime):
+    """Falla siempre con una violacion de contrato, que jamas debe reintentarse en otro proveedor."""
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        raise ValueError("DeveloperAgent model output must be a JSON object.")
+
+
+def test_a_transport_failure_is_retried_on_another_runtime(tmp_path: Path) -> None:
+    runtime = _TransportFlakyRuntime()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        # A second, free remote provider. With one provider there is nowhere to fail over to and
+        # refusing to retry would be correct, so a real alternative is what makes this a regression.
+        _seed_remote_api_resource(
+            connection,
+            provider_id="nvidia_nim",
+            model="nvidia/nemotron-coder",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+        )
+        _enable_remote_provider_for_resource_selection(connection, pricing_mode="free")
+        project = _workspace_project(connection, tmp_path, "developer-transport-failover")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement transport failover.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+    # The crashed attempt plus at least one retry: the loop no longer dies on a flaky transport.
+    assert len(runtime.run_payloads) >= 2
+
+
+def test_a_contract_violation_is_never_retried_on_another_runtime(tmp_path: Path) -> None:
+    """Reintentar un fallo semantico en otro proveedor repite el mismo error y lo paga."""
+    runtime = _SemanticFailingRuntime()
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "developer-semantic-no-failover")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator.run_user_message(
+            project_id=project["id"],
+            message="Never fail over a contract violation.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+    assert len(runtime.run_payloads) == 1

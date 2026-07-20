@@ -49,6 +49,14 @@ from local_control_center.agents.product_owner_agent_contract import (
 )
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
+from local_control_center.agents.runtime_failover import (
+    MAX_FAILOVER_ATTEMPTS,
+    FailureClass,
+    classify_runtime_failure,
+    exclusion_for,
+    is_affordable_candidate,
+    should_failover,
+)
 from local_control_center.agents.security_agent import SecurityAgentRunner
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
@@ -5807,6 +5815,154 @@ class ProductLoopCoordinator:
         run.workspace = workspace
         return None
 
+    def _failover_replacement(
+        self,
+        *,
+        run: _UserMessageRun,
+        payload: dict[str, Any],
+        attempts: list[dict[str, Any]],
+        provider_id: str,
+        failed_model: str,
+    ) -> dict[str, Any] | None:
+        """Elige otro proveedor para reintentar, o ``None`` si ninguno es viable ni asequible.
+
+        El ``task_id`` lleva sufijo por intento porque cada selección inserta una fila inmutable de
+        routing: sin el sufijo, el snapshot de costo del hilo sumaría runtimes que nunca corrieron.
+
+        No relaja jamás la política de transporte del rol ni el tope de costo: el failover solo se
+        mueve dentro de lo que la política ya permitía.
+        """
+        excluded = [
+            exclusion_for(
+                FailureClass(str(item["failureClass"])),
+                provider_id=str(item["providerId"]),
+                model=str(item["model"]),
+            )
+            for item in attempts
+        ]
+        policy = self._resource_role_policy("developer")
+        # Instancia nueva: AIResourceManager memoiza el estado de runtimes por proyecto y no lo
+        # invalida, asi que reusar la anterior devolveria el mismo proveedor ya caido.
+        manager = AIResourceManager(self.connection)
+        try:
+            decision = manager.select_resource(
+                AIResourceRequest(
+                    project_id=run.project_id,
+                    workflow_run_id=run.loop["id"],
+                    agent_id="developer",
+                    task_id=f"{run.task_id}:f{len(attempts)}",
+                    task_type="developer.implement",
+                    risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
+                    routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
+                    required_capabilities=["chat"],
+                    preferred_provider_ids=policy["preferredProviderIds"],
+                    blocked_resources=policy["blockedResources"],
+                    excluded_resources=excluded,
+                    context_token_limit=policy["maxTokensPerRun"],
+                    role_policy_id=policy["rolePolicyId"],
+                    allow_remote=policy["allowRemote"],
+                    allow_local=policy["allowLocal"],
+                    allow_cli=policy["allowCli"],
+                    allow_api=policy["allowApi"],
+                    free_tier_only=policy["freeTierOnly"],
+                    allow_unknown_cost=policy["allowUnknownCost"],
+                    require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
+                    require_approval_over_usd=policy["requiresApprovalOverUsd"],
+                ),
+                record=True,
+            )
+        except Exception:
+            return None
+        selected = decision.get("selected") if isinstance(decision, dict) else None
+        if not selected:
+            return None
+        affordable, cost_reason = is_affordable_candidate(
+            decision, requires_approval_over_usd=policy["requiresApprovalOverUsd"]
+        )
+        if not affordable:
+            attempts[-1]["costDecision"] = f"runtime_failover_cost_capped: {cost_reason}"
+            return None
+        next_runtime_id = str(selected.get("providerId") or "").strip()
+        next_model = str(selected.get("model") or "").strip()
+        # Se compara el par y no solo el proveedor: una falla de transporte excluye un modelo
+        # puntual, asi que otro modelo del mismo endpoint sigue siendo un reintento legitimo.
+        if not next_runtime_id or (next_runtime_id, next_model) == (provider_id, failed_model):
+            return None
+        next_payload = dict(payload)
+        next_payload["preferredRuntime"] = next_runtime_id
+        if selected.get("model"):
+            next_payload["model"] = selected["model"]
+        else:
+            next_payload.pop("model", None)
+        next_payload["resourceSelection"] = self._public_resource_decision(decision)
+        return next_payload
+
+    def _run_with_failover(
+        self,
+        *,
+        runtime: Any,
+        payload: dict[str, Any],
+        run: _UserMessageRun,
+        attempts: list[dict[str, Any]],
+        thread_id: str | None,
+    ) -> dict[str, Any]:
+        """Ejecuta el runtime y, ante una falla de transporte o cuota, reintenta en otro proveedor.
+
+        Solo reintenta lo que dice algo del proveedor y no del trabajo: un fallo de contrato se
+        propaga tal cual, porque repetirlo en otro modelo gasta dinero para obtener el mismo error.
+        El reemplazo debe además caber en el tope de costo del rol; si no cabe, se propaga la falla
+        y el operador decide.
+
+        Cada intento queda registrado en ``attempts`` y anunciado como evento del hilo: un cambio
+        de proveedor silencioso que además puede gastar es peor que un loop lento.
+
+        Raises:
+            Exception: la última falla, cuando no corresponde failover o no queda candidato viable.
+        """
+        current_payload = payload
+        for attempt in range(MAX_FAILOVER_ATTEMPTS + 1):
+            try:
+                return runtime.run(current_payload)
+            except Exception as error:
+                failure = classify_runtime_failure(error)
+                failed_provider = str(current_payload.get("preferredRuntime") or "")
+                failed_model = str(current_payload.get("model") or "")
+                attempts.append(
+                    {
+                        "attempt": attempt,
+                        "providerId": failed_provider,
+                        "model": failed_model,
+                        "failureClass": failure.value,
+                        "reason": str(redact_secrets(str(error))),
+                    }
+                )
+                if not should_failover(failure) or attempt == MAX_FAILOVER_ATTEMPTS:
+                    raise
+                replacement = self._failover_replacement(
+                    run=run,
+                    payload=current_payload,
+                    attempts=attempts,
+                    provider_id=failed_provider,
+                    failed_model=failed_model,
+                )
+                if replacement is None:
+                    raise
+                current_payload = replacement
+                self._record_thread_event(
+                    thread_id=thread_id,
+                    event_type="runtime_failover",
+                    agent_role="developer",
+                    payload={
+                        "loopId": run.loop["id"],
+                        "runtimeId": current_payload.get("preferredRuntime"),
+                        "previousRuntimeId": failed_provider,
+                        "failureClass": failure.value,
+                        "attempt": attempt,
+                        "reason": attempts[-1]["reason"],
+                    },
+                )
+        raise RuntimeError("runtime_failover_exhausted")
+
     def _execute_developer_phase(self, run: _UserMessageRun) -> dict[str, Any] | None:
         """Construye el payload del DeveloperAgent y lo ejecuta en el workspace aislado.
 
@@ -5860,10 +6016,19 @@ class ProductLoopCoordinator:
             and execution_resource.get("preferredRuntime") == effective_preferred_runtime
         ):
             developer_payload["model"] = execution_resource["model"]
+        failover_attempts: list[dict[str, Any]] = []
         try:
-            runtime_result = runtime.run(developer_payload)
+            runtime_result = self._run_with_failover(
+                runtime=runtime,
+                payload=developer_payload,
+                run=run,
+                attempts=failover_attempts,
+                thread_id=thread_id,
+            )
         except Exception as error:
             reason = str(redact_secrets(str(error)))
+            if failover_attempts:
+                reason = f"runtime_failover_exhausted: {reason}"
             blocked_result = self._block_run(
                 loop,
                 stage="runtime",
@@ -5878,6 +6043,7 @@ class ProductLoopCoordinator:
                     "runtime": readiness,
                     "teamSchedule": team_schedule,
                     "agentTaskIds": [task["id"] for task in agent_tasks],
+                    "failoverAttempts": failover_attempts,
                 },
                 thread_id=thread_id,
             )

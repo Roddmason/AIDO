@@ -65,7 +65,7 @@ REGISTRY: list[SettingDescriptor] = [
         section="runtime",
         project_section=None,
         type="boolean",
-        default=False,
+        default=True,
         label_key="app.settings.runtime.cli.enabled",
     ),
     SettingDescriptor(
@@ -73,7 +73,7 @@ REGISTRY: list[SettingDescriptor] = [
         section="runtime",
         project_section=None,
         type="boolean",
-        default=False,
+        default=True,
         label_key="app.settings.runtime.remote.enabled",
     ),
     SettingDescriptor(
@@ -89,7 +89,7 @@ REGISTRY: list[SettingDescriptor] = [
         section="runtime",
         project_section=None,
         type="boolean",
-        default=False,
+        default=True,
         label_key="app.settings.runtime.nvidia.enabled",
     ),
     SettingDescriptor(

@@ -63,6 +63,7 @@ from local_control_center.product_loop.metadata import strip_untrusted_resource_
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
@@ -2871,6 +2872,18 @@ class ProductLoopCoordinator:
             return runtime_id
         return None
 
+    def _persisted_runtime_order(self) -> list[str]:
+        """Devuelve el orden de runtimes elegido por el operador, o vacío si no hay ninguno.
+
+        Sin preferencias registradas ``get_preferences`` levanta ``KeyError``; eso no es un error
+        de operación sino la instalación por defecto, así que degrada a lista vacía.
+        """
+        try:
+            preferences = RuntimeConfigRepository(self.connection).get_preferences()
+        except KeyError:
+            return []
+        return [str(item) for item in (preferences.get("runtimeOrder") or []) if str(item).strip()]
+
     def _product_owner_resource_selection(
         self,
         *,
@@ -2911,7 +2924,10 @@ class ProductLoopCoordinator:
                 if str(row["provider_family"] or "") == runtime_family
                 or (runtime_family == "ollama" and str(row["api_format"] or "") == "ollama")
             )
+        # La preferencia persistida va primero: es lo que escribe la remediación switch_runtime, que
+        # hasta ahora reportaba éxito sobre un valor que nadie leía.
         for provider_id in [
+            *self._persisted_runtime_order(),
             *resource_policy["preferredProviderIds"],
             *ordered_contract_providers,
         ]:

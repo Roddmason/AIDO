@@ -47,7 +47,7 @@ type WizardStep = 'provider' | 'credential' | 'models' | 'validate' | 'roles';
 const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate', 'roles'];
 
 type TestOutcome = { ok: boolean; latencyMs?: number; sample?: string; error?: string | null };
-type CredentialMode = 'none' | 'key' | 'ref';
+type CredentialMode = 'none' | 'key' | 'ref' | 'keep';
 type GeminiPricingMode = 'free' | 'configured';
 const GEMINI_MODEL_PRIORITY = [
 	'gemini-3.5-flash',
@@ -98,7 +98,16 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function defaultCredentialMode(entry: ProviderCatalogEntry | undefined): CredentialMode {
+/**
+ * Reopening the wizard on a configured account must not demand the secret again: the vault never
+ * returns it, so 'keep' reuses the stored reference and only the fields the operator came to change
+ * are touched.
+ */
+function defaultCredentialMode(
+	entry: ProviderCatalogEntry | undefined,
+	storedCredentialRef: string,
+): CredentialMode {
+	if (storedCredentialRef.trim()) return 'keep';
 	return entry?.authKind === 'optional_api_key' ? 'none' : 'key';
 }
 
@@ -108,6 +117,8 @@ export function AddProviderWizard({
 	initialProviderId,
 	initialPricingMode,
 	initialFreeTierAttested = false,
+	initialCredentialRef = '',
+	initialBaseUrl = '',
 	onClose,
 	onSaved,
 }: {
@@ -116,6 +127,8 @@ export function AddProviderWizard({
 	initialProviderId?: string | null;
 	initialPricingMode?: 'unknown' | GeminiPricingMode | null;
 	initialFreeTierAttested?: boolean;
+	initialCredentialRef?: string;
+	initialBaseUrl?: string;
 	onClose: () => void;
 	onSaved: () => void;
 }) {
@@ -160,12 +173,12 @@ export function AddProviderWizard({
 		const seedEntry = catalogEntry(first);
 		setStep('provider');
 		setProviderId(first);
-		setCredMode(defaultCredentialMode(seedEntry));
+		setCredMode(defaultCredentialMode(seedEntry, initialCredentialRef));
 		setGeminiPricingMode(initialPricingMode === 'configured' ? 'configured' : 'free');
 		setGeminiFreeTierAttested(initialFreeTierAttested);
 		clearApiKey();
-		setCredentialRef('');
-		setBaseUrl(seedEntry?.defaultBaseUrl ?? '');
+		setCredentialRef(initialCredentialRef);
+		setBaseUrl(initialBaseUrl || (seedEntry?.defaultBaseUrl ?? ''));
 		setDiscovered([]);
 		setSelected(new Set());
 		setValidation(null);
@@ -176,7 +189,15 @@ export function AddProviderWizard({
 		void getModelGatewayRolePolicies()
 			.then((payload) => setRolePolicies(payload.rolePolicies))
 			.catch(() => setRolePolicies([]));
-	}, [open, initialProviderId, initialPricingMode, initialFreeTierAttested, clearApiKey]);
+	}, [
+		open,
+		initialProviderId,
+		initialPricingMode,
+		initialFreeTierAttested,
+		initialCredentialRef,
+		initialBaseUrl,
+		clearApiKey,
+	]);
 
 	const writableBackend = useMemo(
 		() =>
@@ -226,19 +247,32 @@ export function AddProviderWizard({
 	};
 	const auth = AUTH_META[entry.authKind];
 	const cost = COST_META[costForModels(discovered)];
+	/** Only offered while editing an account that already has a credential stored in the vault. */
+	const keepCredentialOption =
+		providerId === initialProviderId && initialCredentialRef.trim()
+			? [
+					{
+						value: 'keep',
+						label: t('app.providers.wizard.credModeKeep', 'Keep current'),
+					},
+				]
+			: [];
 
 	const selectProvider = (id: string) => {
 		const selectedEntry = catalogEntry(id);
 		const restoresInitialAccount = id === initialProviderId;
+		const storedRef = restoresInitialAccount ? initialCredentialRef : '';
 		setProviderId(id);
-		setCredMode(defaultCredentialMode(selectedEntry));
+		setCredMode(defaultCredentialMode(selectedEntry, storedRef));
 		setGeminiPricingMode(
 			restoresInitialAccount && initialPricingMode === 'configured' ? 'configured' : 'free',
 		);
 		setGeminiFreeTierAttested(restoresInitialAccount && initialFreeTierAttested);
 		clearApiKey();
-		setCredentialRef('');
-		setBaseUrl(selectedEntry?.defaultBaseUrl ?? '');
+		setCredentialRef(storedRef);
+		setBaseUrl(
+			(restoresInitialAccount ? initialBaseUrl : '') || (selectedEntry?.defaultBaseUrl ?? ''),
+		);
 		setError('');
 	};
 
@@ -262,6 +296,18 @@ export function AddProviderWizard({
 				return false;
 			}
 			let ref = credentialRef.trim();
+			if (credMode === 'keep') {
+				ref = initialCredentialRef.trim();
+				if (!ref) {
+					setError(
+						t(
+							'app.providers.wizard.errorCredentialMissing',
+							'This provider has no stored credential yet; enter an API key or a reference.',
+						),
+					);
+					return false;
+				}
+			}
 			if (entry.authKind !== 'none' && credMode === 'ref' && !ref) {
 				setError(t('app.providers.wizard.errorCredentialRef', 'Enter the credential reference.'));
 				return false;
@@ -564,6 +610,7 @@ export function AddProviderWizard({
 								value={credMode}
 								onChange={(value) => setCredMode(value as CredentialMode)}
 								options={[
+									...keepCredentialOption,
 									{ value: 'key', label: t('app.providers.wizard.credModeKey', 'API key') },
 									{ value: 'ref', label: t('app.providers.wizard.credModeRef', 'Reference') },
 								]}
@@ -575,6 +622,7 @@ export function AddProviderWizard({
 								value={credMode}
 								onChange={(value) => setCredMode(value as CredentialMode)}
 								options={[
+									...keepCredentialOption,
 									{
 										value: 'none',
 										label: t('app.providers.wizard.credModeNone', 'No credential'),
@@ -583,6 +631,14 @@ export function AddProviderWizard({
 									{ value: 'ref', label: t('app.providers.wizard.credModeRef', 'Reference') },
 								]}
 							/>
+						) : null}
+						{credMode === 'keep' ? (
+							<p className="field-help">
+								{t(
+									'app.providers.wizard.credentialKeepHelp',
+									'Keeping the stored credential — change any other setting without re-entering the API key.',
+								)}
+							</p>
 						) : null}
 
 						{entry.needsBaseUrl ? (

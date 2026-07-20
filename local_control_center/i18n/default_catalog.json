@@ -163,6 +163,18 @@
       "en": "Reference",
       "es": "Referencia"
     },
+    "app.providers.wizard.credModeKeep": {
+      "en": "Keep current",
+      "es": "Mantener la actual"
+    },
+    "app.providers.wizard.credentialKeepHelp": {
+      "en": "Keeping the stored credential — change any other setting without re-entering the API key.",
+      "es": "Se mantiene la credencial guardada: puedes cambiar cualquier otro ajuste sin reingresar la clave API."
+    },
+    "app.providers.wizard.errorCredentialMissing": {
+      "en": "This provider has no stored credential yet; enter an API key or a reference.",
+      "es": "Este proveedor aún no tiene una credencial guardada; ingresa una clave API o una referencia."
+    },
     "app.providers.wizard.baseUrl": {
       "en": "Base URL",
       "es": "URL base"

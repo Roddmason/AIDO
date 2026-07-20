@@ -467,7 +467,9 @@ class ProductOwnerAgent:
             "criterion. Every question is an impact-ranked object with category (one of "
             "scope/users/data/integration/compliance/nonfunctional/ux/risk/delivery), question, whyItMatters, "
             "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
-            "options) and confidence (low/medium/high); do not ask about facts already present in the assessment."
+            "options) and confidence (low/medium/high); do not ask about facts already present in the assessment. "
+            "recommendation and defaultDecision must repeat one option verbatim, never an index, a paraphrase or a "
+            'new value: for options ["Keep Java 17", "Upgrade to Java 21"] a valid defaultDecision is "Keep Java 17".'
         )
 
     def validate_epic_expansion_output(self, output: dict[str, Any], *, epic_title: str) -> None:
@@ -803,11 +805,8 @@ class ProductOwnerAgentRunner:
         if initiative["projectId"] != project_id:
             raise ValueError("ProductOwnerAgent initiative does not belong to the project.")
         briefs = self.discovery.list_product_briefs(initiative_id=initiative_id)
-        open_questions = [
-            question
-            for question in self.discovery.list_clarification_questions(initiative_id=initiative_id)
-            if question["status"] == "open"
-        ]
+        asked_questions = self.discovery.list_clarification_questions(initiative_id=initiative_id)
+        open_questions = [question for question in asked_questions if question["status"] == "open"]
         unresolved_decisions = [
             decision
             for decision in self.discovery.list_product_decisions(initiative_id=initiative_id)
@@ -818,6 +817,9 @@ class ProductOwnerAgentRunner:
             "initiative": initiative,
             "brief": briefs[0] if briefs else None,
             "openQuestions": open_questions,
+            # Toda pregunta ya formulada, respondida o no: una respondida es el hecho detectado más
+            # fuerte que existe, así que debe suprimir la repregunta igual que una abierta.
+            "askedQuestions": asked_questions,
             "unresolvedDecisions": unresolved_decisions,
         }
 
@@ -1521,7 +1523,7 @@ class ProductOwnerAgentRunner:
         epic_expansion = self._epic_expansion_context(epic) if epic else None
         detected_facts = detected_facts_from_assessment(
             brief=assessment.get("brief"),
-            existing_questions=assessment.get("openQuestions"),
+            existing_questions=assessment.get("askedQuestions") or assessment.get("openQuestions"),
         )
         repair: dict[str, Any] | None = None
         attempt_payload = payload

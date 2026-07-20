@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from urllib.error import HTTPError
 
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.time import utc_now
@@ -25,9 +26,12 @@ from ..providers.factory import (
     provider_account_policy_kind,
     provider_account_requires_credential,
 )
+from ..quota_manager import QuotaManager
 from ..runtime_provider_config import runtime_provider_configuration_for_account
 from .common import _ArtifactRecorder, _redact_text, _result
 from .models import RuntimeExecutionRequest, RuntimeExecutionResult
+
+_TOO_MANY_REQUESTS = 429
 
 
 class ProviderFactoryAdapter:
@@ -49,6 +53,25 @@ class ProviderFactoryAdapter:
             artifact_root=artifact_root,
             adapter_id=provider_family,
         )
+
+    @staticmethod
+    def _record_provider_rate_limit(
+        connection: sqlite3.Connection, *, provider_id: str, model: str, error: HTTPError
+    ) -> None:
+        """Registra la evidencia de 429 para sacar al provider de la selección hasta que se reponga.
+
+        Es una señal auxiliar: si el registro falla, el error de transporte original debe seguir
+        reportándose igual, así que la excepción se traga a propósito.
+        """
+        try:
+            QuotaManager(connection).record_rate_limit(
+                provider_id=provider_id,
+                model=model or "*",
+                headers=dict(getattr(error, "headers", None) or {}),
+                error_class="rate_limited",
+            )
+        except Exception:
+            return
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         """Resolve policy/account first, then delegate chat transport to the selected provider."""
@@ -161,6 +184,19 @@ class ProviderFactoryAdapter:
                     temperature=request.input.get("temperature"),
                     maxTokens=request.input.get("maxTokens"),
                 )
+            )
+        except HTTPError as error:
+            # Un 429 sin registrar deja al provider luciendo sano y los agentes lo reeligen en cada
+            # intento; el cooldown persistido es lo que lo saca de la seleccion hasta que se repone.
+            if error.code == _TOO_MANY_REQUESTS:
+                self._record_provider_rate_limit(
+                    connection, provider_id=provider_id, model=model, error=error
+                )
+            return _result(
+                status="unavailable",
+                started_at=started_at,
+                reason=f"{self.display_name} execution failed: provider_request_failed",
+                redacted=True,
             )
         except Exception:
             return _result(

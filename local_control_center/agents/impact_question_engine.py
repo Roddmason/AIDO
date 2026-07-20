@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from typing import Any
 
 QUESTION_CATEGORIES = {
@@ -184,10 +185,53 @@ class ImpactQuestionValidationError(ValueError):
 
 
 def _required_text(item: dict[str, Any], key: str, *, index: int) -> str:
-    value = str(item.get(key) or "").strip()
+    raw = item.get(key)
+    value = "" if raw is None else str(raw).strip()
     if not value:
         raise ImpactQuestionValidationError(f"questions[{index}].{key} is required.")
     return value
+
+
+# Guillemets and curly quotes, escaped so the source stays free of ambiguous glyphs.
+_QUOTE_CHARS = "\u00ab\u00bb\u201c\u201d\u2018\u2019"
+
+
+def _option_key(text: str) -> str:
+    """Normaliza una opción para comparar intención, no bytes: enumeración, comillas, punto final y caja."""
+    normalized = unicodedata.normalize("NFKC", str(text or "")).strip()
+    normalized = re.sub(r"^\s*(?:[-*•]|\(?\d+[.)])\s*", "", normalized)
+    normalized = normalized.strip("\"'" + _QUOTE_CHARS).strip()
+    normalized = normalized.rstrip(".").strip()
+    return re.sub(r"\s+", " ", normalized).casefold()
+
+
+def _resolve_option(value: str, options: list[str], *, index: int, field: str) -> str:
+    """Ancla ``value`` a la opción canónica equivalente; falla si no hay exactamente una coincidencia.
+
+    El modelo suele emitir la opción con otra caja, un prefijo de enumeración o un punto final. Esa
+    variación tipográfica no es un error de producto, así que se coerce a la opción canónica (mismo
+    criterio tolerante que ``normalize_category``). Una opción inventada o ambigua sigue fallando:
+    el valor persistido debe ser miembro exacto de ``options``.
+
+    Raises:
+        ImpactQuestionValidationError: si ninguna opción equivale a ``value`` o si más de una lo hace.
+    """
+    if value in options:
+        return value
+    target = _option_key(value)
+    matches = [option for option in options if _option_key(option) == target]
+    if len(matches) == 1:
+        logger.warning(
+            "questions[%s].%s %r coerced to option %r (typographic variation).",
+            index,
+            field,
+            value,
+            matches[0],
+        )
+        return matches[0]
+    raise ImpactQuestionValidationError(
+        f"questions[{index}].{field} must be one of options; got {value!r}, options are {options!r}."
+    )
 
 
 def _slug(text: str) -> str:
@@ -214,10 +258,14 @@ def validate_impact_question(item: Any, *, index: int = 0) -> dict[str, Any]:
     desconocidos caen a ``DEFAULT_QUESTION_CATEGORY`` con auditoría en log (la categoría solo
     afecta priorización/dedup, no la corrección del brief).
 
+    ``recommendation`` y ``defaultDecision`` toleran variación tipográfica (caja, prefijo de
+    enumeración, comillas, punto final) y se anclan a la opción canónica equivalente; el valor
+    devuelto siempre es miembro exacto de ``options``. Una opción inventada o ambigua sí falla.
+
     Raises:
         ImpactQuestionValidationError: si falta un campo, un tipo no coincide o un enum es inválido
             (confidence fuera de catálogo, options con menos de dos opciones, o
-            recommendation/defaultDecision que no figuran entre las options).
+            recommendation/defaultDecision sin equivalencia unívoca entre las options).
     """
     if not isinstance(item, dict):
         raise ImpactQuestionValidationError(f"questions[{index}] must be an object.")
@@ -247,12 +295,18 @@ def validate_impact_question(item: Any, *, index: int = 0) -> dict[str, Any]:
         raise ImpactQuestionValidationError(
             f"questions[{index}].options must list at least {MIN_OPTIONS} non-empty strings."
         )
-    recommendation = _required_text(item, "recommendation", index=index)
-    default_decision = _required_text(item, "defaultDecision", index=index)
-    if recommendation not in normalized_options:
-        raise ImpactQuestionValidationError(f"questions[{index}].recommendation must be one of options.")
-    if default_decision not in normalized_options:
-        raise ImpactQuestionValidationError(f"questions[{index}].defaultDecision must be one of options.")
+    recommendation = _resolve_option(
+        _required_text(item, "recommendation", index=index),
+        normalized_options,
+        index=index,
+        field="recommendation",
+    )
+    default_decision = _resolve_option(
+        _required_text(item, "defaultDecision", index=index),
+        normalized_options,
+        index=index,
+        field="defaultDecision",
+    )
     return {
         "category": category,
         "question": _required_text(item, "question", index=index),

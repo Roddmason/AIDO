@@ -276,6 +276,25 @@ class ProductDiscoveryRepository:
             raise KeyError(f"Initiative not found: {initiative_id}")
         return row_to_initiative(row)
 
+    def find_initiative_by_thread(self, project_id: str, thread_id: str) -> dict[str, Any] | None:
+        """Recupera la iniciativa que ya cubre un hilo, o ``None`` si el hilo aún no tiene una.
+
+        Es lo que hace pegajosa la iniciativa entre turnos: sin ella cada corrida del ProductOwner
+        crearía una iniciativa nueva y perdería las preguntas ya formuladas, repreguntando lo mismo.
+        El desempate por ``rowid`` no es opcional: ``created_at`` tiene resolución de milisegundos y
+        el id es un uuid aleatorio, así que dos filas del mismo milisegundo ordenarían al azar.
+        """
+        row = self.connection.execute(
+            """
+            SELECT * FROM initiatives
+            WHERE project_id = ? AND json_extract(metadata, '$.threadId') = ?
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT 1
+            """,
+            (project_id, thread_id),
+        ).fetchone()
+        return row_to_initiative(row) if row else None
+
     def list_initiatives(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """Lista iniciativas (todas o por proyecto), más recientes primero."""
         if project_id:

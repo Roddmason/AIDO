@@ -62,6 +62,37 @@ def test_validate_impact_question_rejects_invalid_contracts(overrides: dict[str,
         validate_impact_question(question(**overrides))
 
 
+@pytest.mark.parametrize(
+    "emitted",
+    ["web", "WEB", " Web ", "1. Web", "- Web", "Web.", '"Web"', "«Web»"],
+)
+def test_validate_impact_question_anchors_typographic_option_variants(emitted: str) -> None:
+    normalized = validate_impact_question(question(recommendation=emitted, defaultDecision=emitted))
+    assert normalized["recommendation"] == "Web"
+    assert normalized["defaultDecision"] == "Web"
+    assert normalized["defaultDecision"] in normalized["options"]
+
+
+def test_validate_impact_question_rejects_invented_option_with_actionable_error() -> None:
+    with pytest.raises(ImpactQuestionValidationError) as error:
+        validate_impact_question(question(defaultDecision="Desktop"))
+    message = str(error.value)
+    assert "'Desktop'" in message
+    assert "['Web', 'Mobile']" in message
+
+
+def test_validate_impact_question_rejects_ambiguous_option_match() -> None:
+    with pytest.raises(ImpactQuestionValidationError, match="defaultDecision"):
+        validate_impact_question(
+            question(options=["Web", "web."], recommendation="Web", defaultDecision="WEB")
+        )
+
+
+def test_validate_impact_question_reports_non_string_default_decision_as_option_mismatch() -> None:
+    with pytest.raises(ImpactQuestionValidationError, match="must be one of options"):
+        validate_impact_question(question(defaultDecision=0))
+
+
 def test_validate_impact_question_coerces_known_category_synonyms() -> None:
     assert validate_impact_question(question(category="Performance"))["category"] == "nonfunctional"
     assert validate_impact_question(question(category="usability"))["category"] == "ux"

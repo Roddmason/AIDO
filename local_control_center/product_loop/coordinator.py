@@ -1610,7 +1610,13 @@ class ProductLoopCoordinator:
         title: str,
         result: dict[str, Any],
         output: dict[str, Any],
+        thread_id: str | None = None,
     ) -> dict[str, Any]:
+        """Resuelve la iniciativa del turno, reusando la que ya cubre el hilo antes de crear una nueva.
+
+        Sin la reutilización por hilo cada turno arrancaría con una iniciativa vacía y el
+        ProductOwner volvería a preguntar lo que ya se respondió.
+        """
         initiative = result.get("initiative")
         if isinstance(initiative, dict) and initiative.get("id"):
             try:
@@ -1623,6 +1629,13 @@ class ProductLoopCoordinator:
                 return self.discovery.get_initiative(str(initiative_id))
             except KeyError:
                 pass
+        if thread_id:
+            existing = self.discovery.find_initiative_by_thread(project_id, thread_id)
+            if existing is not None:
+                return existing
+        metadata: dict[str, Any] = {"source": "product_loop_coordinator"}
+        if thread_id:
+            metadata["threadId"] = thread_id
         return self.discovery.create_initiative(
             {
                 "projectId": project_id,
@@ -1631,7 +1644,7 @@ class ProductLoopCoordinator:
                 "status": "discovery",
                 "priority": "medium",
                 "owner": PRODUCT_OWNER_AGENT_ID,
-                "metadata": {"source": "product_loop_coordinator"},
+                "metadata": metadata,
             }
         )
 
@@ -4704,6 +4717,13 @@ class ProductLoopCoordinator:
         }
         if goal_statement:
             product_owner_payload["goalStatement"] = goal_statement
+        # Sin la iniciativa del hilo el agente no ve el brief ni las preguntas ya formuladas, y
+        # vuelve a preguntar lo mismo en cada turno.
+        thread_initiative = (
+            self.discovery.find_initiative_by_thread(project_id, thread_id) if thread_id else None
+        )
+        if thread_initiative is not None:
+            product_owner_payload["initiativeId"] = thread_initiative["id"]
         try:
             product_owner_result = product_owner.run(product_owner_payload)
         except Exception as error:
@@ -4841,6 +4861,7 @@ class ProductLoopCoordinator:
                 title=resolved_title,
                 result=product_owner_result,
                 output=output,
+                thread_id=thread_id,
             )
             brief = self._persist_product_brief(
                 project_id=project_id,

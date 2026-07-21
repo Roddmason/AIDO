@@ -4848,7 +4848,10 @@ class ProductLoopCoordinator:
                 task_id=product_owner_task_id,
                 agent_id=PRODUCT_OWNER_AGENT_ID,
                 reason="ProductLoopCoordinator ProductOwnerAgent workspace",
-                branch_name=f"codex/product-owner-{stable_task_suffix(thread_id, loop['id'])}",
+                branch_name=(
+                    f"{self._work_branch_prefix(project_id)}/product-owner-"
+                    f"{stable_task_suffix(thread_id, loop['id'])}"
+                ),
                 base_branch=self._resolve_project_base_branch(project_id),
                 reuse_existing=True,
             )
@@ -5839,6 +5842,21 @@ class ProductLoopCoordinator:
         run.team_assignments = team_assignments
         return None
 
+    def _work_branch_prefix(self, project_id: str) -> str:
+        """Prefijo configurable de las ramas de trabajo (``project.git.workBranchPrefix``).
+
+        Se sanitiza como segmento de rama seguro; vacío o inseguro cae al default ``codex``.
+        """
+        from local_control_center.workspaces_projects.git_worktrees import slugify_branch_segment
+
+        raw = str(
+            resolve_setting_value(
+                connection=self.connection, key="project.git.workBranchPrefix", project_id=project_id
+            )
+            or "codex"
+        ).strip()
+        return slugify_branch_segment(raw) if raw else "codex"
+
     def _resolve_project_base_branch(self, project_id: str) -> str:
         """Rama base del proyecto (``project.git.baseBranch``) sobre la que se abren los worktrees.
 
@@ -5926,7 +5944,10 @@ class ProductLoopCoordinator:
                 task_id=task_id,
                 agent_id=DEVELOPER_AGENT_ID,
                 reason="ProductLoopCoordinator durable execution workspace",
-                branch_name=f"codex/product-loop-{stable_task_suffix(thread_id, loop['id'])}",
+                branch_name=(
+                    f"{self._work_branch_prefix(project_id)}/product-loop-"
+                    f"{stable_task_suffix(thread_id, loop['id'])}"
+                ),
                 base_branch=self._resolve_project_base_branch(project_id),
                 reuse_existing=True,
             )

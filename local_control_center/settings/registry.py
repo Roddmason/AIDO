@@ -290,6 +290,14 @@ REGISTRY: list[SettingDescriptor] = [
         default=False,
         label_key="app.settings.git.requireCiGreen",
     ),
+    SettingDescriptor(
+        key="project.git.workBranchPrefix",
+        section="git",
+        project_section="git",
+        type="string",
+        default="codex",
+        label_key="app.settings.git.workBranchPrefix",
+    ),
 ]
 
 _REGISTRY_BY_KEY: dict[str, SettingDescriptor] = {d.key: d for d in REGISTRY}

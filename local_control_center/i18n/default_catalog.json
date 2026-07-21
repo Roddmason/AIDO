@@ -10775,6 +10775,10 @@
       "en": "Require green CI before auto-merge",
       "es": "Exigir CI verde antes del auto-merge"
     },
+    "app.settings.git.workBranchPrefix": {
+      "en": "Work branch prefix",
+      "es": "Prefijo de las ramas de trabajo"
+    },
     "app.settings.security.shellProfile": {
       "en": "Shell permission profile",
       "es": "Perfil de permisos de shell"

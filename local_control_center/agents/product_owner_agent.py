@@ -51,6 +51,7 @@ from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
     PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
     PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
+    TECHNICAL_STORY_KEYS,
     product_owner_agent_contract,
     product_owner_agent_readiness,
 )
@@ -102,7 +103,6 @@ REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 4_000
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
-TECHNICAL_STORY_KEYS = {"role", "agentRole", "taskRole", "technicalTask", "implementationTask"}
 
 
 class ProductOwnerOutputValidationError(ValueError):
@@ -157,11 +157,21 @@ def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
 
 
 def _string_list(value: Any, *, field: str) -> list[str]:
+    """Normaliza una lista de strings tolerando ``None`` y descartando entradas vacías/no-string.
+
+    ``None`` (campo omitido por el modelo) se trata como lista vacía; una entrada null o en blanco se
+    descarta con auditoría en log en vez de rechazar la salida entera (mismo criterio que
+    ``_graded_enum_value``: no bloquear por ruido recuperable). Un tipo que no es lista ni ``None``
+    —un dict o un número donde se espera una lista— sí es un error de contrato y falla. La obligación
+    de que un campo NO quede vacío (p. ej. ``acceptanceCriteria``) se hace cumplir aparte por el caller.
+    """
+    if value is None:
+        return []
     if not isinstance(value, list):
         raise ProductOwnerOutputValidationError(f"{field} must be a string list.")
-    items = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+    items = [item.strip() for item in value if isinstance(item, str) and item.strip()]
     if len(items) != len(value):
-        raise ProductOwnerOutputValidationError(f"{field} must contain only non-empty strings.")
+        logger.warning("%s dropped %d empty or non-string entries.", field, len(value) - len(items))
     return items
 
 
@@ -592,9 +602,6 @@ class ProductOwnerAgent:
             "userStories": user_stories,
             "risks": self._validate_risks(payload["risks"]),
             "recommendedNextAction": _required_text(payload, "recommendedNextAction", field="output"),
-            "modelCompleteness": payload.get("completeness")
-            if isinstance(payload.get("completeness"), dict)
-            else {},
         }
 
     def _validate_questions(self, value: Any) -> list[dict[str, Any]]:

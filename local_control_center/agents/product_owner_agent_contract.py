@@ -17,6 +17,10 @@ from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAM
 from .runtime_selection import is_ollama_runtime, runtime_provider_family
 
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
+# Claves que delatan una historia técnica (tarea por rol de agente) en vez de valor de usuario. Viven
+# aquí, junto al esquema, como regla de contrato: la usan tanto el `description` del esquema como el
+# validador, de modo que ambos comparten una sola fuente y no pueden derivar.
+TECHNICAL_STORY_KEYS = frozenset({"role", "agentRole", "taskRole", "technicalTask", "implementationTask"})
 PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(MODEL_PROVIDER_FAMILIES)]
 PRODUCT_OWNER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
 PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
@@ -34,20 +38,14 @@ PRODUCT_OWNER_AGENT_RUNTIME_ORDER = [
     "codex_cli",
     "claude_code_cli",
     *_LEGACY_REMOTE_RUNTIME_ORDER,
-    *sorted(
-        REMOTE_MODEL_PROVIDER_FAMILIES - {"gemini", *_LEGACY_REMOTE_RUNTIME_ORDER}
-    ),
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - {"gemini", *_LEGACY_REMOTE_RUNTIME_ORDER}),
 ]
 PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS = 240
 
 
 def _product_owner_runtime_order_id(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
-    return (
-        runtime_id
-        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
-        else runtime_provider_family(runtime)
-    )
+    return runtime_id if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES else runtime_provider_family(runtime)
 
 
 def _product_owner_runtime_cost_rank(runtime: dict[str, Any]) -> int:
@@ -242,6 +240,10 @@ def product_owner_agent_contract() -> dict[str, Any]:
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "description": (
+                            "A user story is end-user value (asA/iWant/soThat), never a technical task. "
+                            "Do not add any of these keys: " + ", ".join(sorted(TECHNICAL_STORY_KEYS)) + "."
+                        ),
                         "required": [
                             "epicTitle",
                             "title",

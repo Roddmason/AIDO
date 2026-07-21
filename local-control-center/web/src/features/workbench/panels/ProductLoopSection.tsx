@@ -51,6 +51,7 @@ type ProductLoopSectionProps = {
 
 type LoopState = NonNullable<ProjectProductLoopResponse>;
 type AgentTask = LoopState['tasks'][number];
+type LoopQuestion = LoopState['questions'][number];
 
 /** A labelled value block; renders nothing when the value is empty so optional fields stay quiet. */
 function Labeled({ label, children }: { label: string; children: ReactNode }) {
@@ -83,6 +84,43 @@ function metadataList(metadata: unknown, key: string): string[] {
 function metadataText(metadata: unknown, key: string): string {
 	const value = metadataRecord(metadata)[key];
 	return typeof value === 'string' ? value.trim() : '';
+}
+
+/** One clarification question: its options, and — once resolved — the recorded answer, so an answered
+ *  question is legible instead of an identical unanswered-looking card that invites a repeat. */
+function QuestionCard({ question }: { question: LoopQuestion }) {
+	const { t } = useI18n();
+	const options = metadataList(question.metadata, 'options');
+	const recommendation = metadataText(question.metadata, 'recommendation');
+	const defaultDecision = metadataText(question.metadata, 'defaultDecision');
+	const answer = metadataText(question.metadata, 'aidoDecision');
+	const isChosen = (option: string): boolean =>
+		answer ? option === answer : option === recommendation || option === defaultDecision;
+	return (
+		<article className="card">
+			<div className="inline">
+				<Badge tone={toneForStatus(question.status)}>{question.status}</Badge>
+				<span className="muted">{question.priority}</span>
+			</div>
+			<p className="card-body">{question.question}</p>
+			{answer ? (
+				<Labeled label={t('app.workbench.loop.questions.answer', 'Answer')}>
+					<Badge tone="ok">{answer}</Badge>
+				</Labeled>
+			) : null}
+			{options.length ? (
+				<Labeled label={t('app.workbench.loop.questions.options', 'Options')}>
+					<div className="inline">
+						{options.map((option) => (
+							<Badge key={option} tone={isChosen(option) ? 'ok' : 'info'}>
+								{option}
+							</Badge>
+						))}
+					</div>
+				</Labeled>
+			) : null}
+		</article>
+	);
 }
 
 function tasksByAgent(
@@ -148,13 +186,13 @@ export function ProductLoopSection({
 				/>
 			);
 		}
+		const openQuestions = questions.filter((question) => question.status === 'open');
+		const answeredQuestions = questions.filter((question) => question.status !== 'open');
 		return (
 			<div className="stack">
 				<div className="inline">
 					<Button
-						disabled={
-							!actions?.onAidoDecide || !questions.some((question) => question.status === 'open')
-						}
+						disabled={!actions?.onAidoDecide || !openQuestions.length}
 						icon={<Sparkles size={16} aria-hidden="true" />}
 						loading={actions?.busy}
 						onClick={actions?.onAidoDecide}
@@ -163,36 +201,24 @@ export function ProductLoopSection({
 						{t('app.workbench.loop.questions.aidoDecide', 'AIDO decide')}
 					</Button>
 				</div>
-				{questions.map((question) => {
-					const options = metadataList(question.metadata, 'options');
-					const recommendation = metadataText(question.metadata, 'recommendation');
-					const defaultDecision = metadataText(question.metadata, 'defaultDecision');
-					return (
-						<article className="card" key={question.id}>
-							<div className="inline">
-								<Badge tone={toneForStatus(question.status)}>{question.status}</Badge>
-								<span className="muted">{question.priority}</span>
-							</div>
-							<p className="card-body">{question.question}</p>
-							{options.length ? (
-								<Labeled label={t('app.workbench.loop.questions.options', 'Options')}>
-									<div className="inline">
-										{options.map((option) => (
-											<Badge
-												key={option}
-												tone={
-													option === recommendation || option === defaultDecision ? 'ok' : 'info'
-												}
-											>
-												{option}
-											</Badge>
-										))}
-									</div>
-								</Labeled>
-							) : null}
-						</article>
-					);
-				})}
+				{openQuestions.map((question) => (
+					<QuestionCard key={question.id} question={question} />
+				))}
+				{answeredQuestions.length ? (
+					<Disclosure
+						headingLevel={4}
+						title={t('app.workbench.loop.questions.answered', '{count} answered').replace(
+							'{count}',
+							String(answeredQuestions.length),
+						)}
+					>
+						<div className="stack">
+							{answeredQuestions.map((question) => (
+								<QuestionCard key={question.id} question={question} />
+							))}
+						</div>
+					</Disclosure>
+				) : null}
 			</div>
 		);
 	}

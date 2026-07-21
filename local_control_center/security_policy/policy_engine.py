@@ -255,12 +255,15 @@ def evaluate_git_workspace_command(
     args = [str(item) for item in argv[2:]]
     git_operation = str(input_payload.get("gitOperation") or "")
     network_required = bool(input_payload.get("networkRequired"))
-    if network_required and not (subcommand == "ls-remote" and git_operation == "remote_test"):
+    if network_required and not (
+        (subcommand == "ls-remote" and git_operation == "remote_test")
+        or (subcommand == "push" and git_operation == "push_branch")
+    ):
         categories.append("git_workspace_unapproved_network_denied")
         return {
             "decision": "deny",
             "riskLevel": "high",
-            "reason": "Git workspace network access is limited to explicit remote tests.",
+            "reason": "Git workspace network access is limited to explicit remote tests and branch pushes.",
             "categories": categories,
         }
     if subcommand in GIT_WORKSPACE_READ_COMMANDS:
@@ -294,6 +297,52 @@ def evaluate_git_workspace_command(
             "riskLevel": "medium",
             "reason": "Git init is allowlisted for project repository setup.",
             "categories": [*categories, "git_workspace_command", "git_init"],
+        }
+    if subcommand == "push":
+        if (
+            git_operation != "push_branch"
+            or not network_required
+            or len(args) != 2
+            or not _is_safe_remote_name(args[0])
+            or not _is_safe_git_arg(args[1])
+        ):
+            categories.append("git_workspace_push_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git push is limited to `push <remote> <branch>` (no force/refspec) with push_branch.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "high",
+            "reason": "Git branch push is allowlisted for the configured landing flow.",
+            "categories": [*categories, "git_workspace_command", "git_push_branch"],
+        }
+    if subcommand == "merge":
+        merge_ok = (
+            len(args) == 4
+            and args[0] == "--no-ff"
+            and args[1] == "-m"
+            and bool(str(args[2]).strip())
+            and not str(args[2]).startswith("-")
+            and _is_safe_git_arg(args[3])
+            and args[3] not in GIT_PROTECTED_BRANCHES
+        )
+        abort_ok = args == ["--abort"]
+        if git_operation != "merge_work_branch" or not (merge_ok or abort_ok):
+            categories.append("git_workspace_merge_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git merge is limited to `merge --no-ff -m <msg> <work-branch>` or `merge --abort`.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git work-branch merge into the checked-out base is allowlisted for landing.",
+            "categories": [*categories, "git_workspace_command", "git_merge_work_branch"],
         }
     if subcommand == "add":
         if git_operation != "stage_changes" or args != ["-A"]:
@@ -414,6 +463,23 @@ def evaluate_git_workspace_command(
                 "riskLevel": "medium",
                 "reason": "Git default branch rename is allowlisted for project repository setup.",
                 "categories": [*categories, "git_workspace_command", "git_init_default_branch"],
+            }
+        if git_operation == "advance_base_after_merge":
+            # El primitivo verifica el fast-forward (merge-base) ANTES de pedir este avance; la
+            # policy fija la forma exacta para que no pueda mover refs arbitrarios ni forzar hist.
+            if len(args) != 3 or args[0] != "-f" or not all(_is_safe_git_arg(arg) for arg in args[1:]):
+                categories.append("git_workspace_branch_advance_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git base advance is limited to `branch -f <base> <landing-ref>`.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Fast-forward base advance after a verified landing merge is allowlisted.",
+                "categories": [*categories, "git_workspace_command", "git_branch_advance_base"],
             }
         if git_operation == "delete_branch":
             if (

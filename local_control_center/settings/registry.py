@@ -266,6 +266,22 @@ REGISTRY: list[SettingDescriptor] = [
         enum=("direct_push", "auto_pr", "manual_pr"),
         label_key="app.settings.git.integrationMode",
     ),
+    SettingDescriptor(
+        key="project.git.remoteName",
+        section="git",
+        project_section="git",
+        type="string",
+        default="origin",
+        label_key="app.settings.git.remoteName",
+    ),
+    SettingDescriptor(
+        key="project.git.autoDeleteBranch",
+        section="git",
+        project_section="git",
+        type="boolean",
+        default=True,
+        label_key="app.settings.git.autoDeleteBranch",
+    ),
 ]
 
 _REGISTRY_BY_KEY: dict[str, SettingDescriptor] = {d.key: d for d in REGISTRY}

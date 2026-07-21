@@ -670,6 +670,7 @@ class ProductLoopCoordinator:
                 workspace_id=workspace_id,
                 loop_id=str(loop["id"]),
                 title=str(loop.get("title") or ""),
+                loop=loop,
             )
         except Exception as error:
             landing = {"status": "landing_failed", "reason": redact_secrets(str(error))}

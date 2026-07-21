@@ -358,6 +358,24 @@ def create_git_worktree(
         source_branch = (
             source_branch_result["stdout"].strip() if source_branch_result["returnCode"] == 0 else None
         )
+        if base_branch != "HEAD" and source_commit is None:
+            # La rama base configurada (p. ej. project.git.baseBranch=dev) no existe en este repo;
+            # se forkea de HEAD para no degradar el aislamiento git a copia de fuente.
+            base_branch = "HEAD"
+            head_commit_result = run_brokered_git(
+                connection=connection,
+                root=root,
+                project_id=project_id,
+                workspace_id=control_workspace_id,
+                workspace_path=repo_path,
+                cwd=repo_path,
+                args=["rev-parse", "HEAD"],
+                task_id=f"{task_id}.head_commit",
+            )
+            traces.append(head_commit_result["trace"])
+            source_commit = (
+                head_commit_result["stdout"].strip() if head_commit_result["returnCode"] == 0 else None
+            )
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
         result = run_brokered_git(
             connection=connection,
@@ -392,6 +410,10 @@ def create_git_worktree(
     if not is_git_repository(repo_path):
         return {"status": "degraded_not_git_repo"}
     source_commit = git_head_commit(repo_path, base_branch)
+    if base_branch != "HEAD" and source_commit is None:
+        # La rama base configurada no existe en este repo; forkear de HEAD (ver path brokered).
+        base_branch = "HEAD"
+        source_commit = git_head_commit(repo_path, "HEAD")
     source_branch = git_current_branch(repo_path)
     branch_error = git_branch_name_error(repo_path, resolved_branch_name)
     if branch_error:

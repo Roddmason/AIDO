@@ -4810,6 +4810,7 @@ class ProductLoopCoordinator:
                 agent_id=PRODUCT_OWNER_AGENT_ID,
                 reason="ProductLoopCoordinator ProductOwnerAgent workspace",
                 branch_name=f"codex/product-owner-{stable_task_suffix(thread_id, loop['id'])}",
+                base_branch=self._resolve_project_base_branch(project_id),
                 reuse_existing=True,
             )
         except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:
@@ -5799,6 +5800,17 @@ class ProductLoopCoordinator:
         run.team_assignments = team_assignments
         return None
 
+    def _resolve_project_base_branch(self, project_id: str) -> str:
+        """Rama base del proyecto (``project.git.baseBranch``) sobre la que se abren los worktrees.
+
+        Por defecto ``dev`` (modelo equipo-real). ``create_git_worktree`` cae a ``HEAD`` si la rama
+        configurada no existe en el repo, así que un proyecto sin ``dev`` nunca queda sin aislar.
+        """
+        value = resolve_setting_value(
+            connection=self.connection, key="project.git.baseBranch", project_id=project_id
+        )
+        return str(value or "dev").strip() or "dev"
+
     def _prepare_developer_execution(self, run: _UserMessageRun) -> dict[str, Any] | None:
         """Resuelve runtime y recurso del DeveloperAgent, asigna workspace y transiciona a executing.
 
@@ -5876,6 +5888,7 @@ class ProductLoopCoordinator:
                 agent_id=DEVELOPER_AGENT_ID,
                 reason="ProductLoopCoordinator durable execution workspace",
                 branch_name=f"codex/product-loop-{stable_task_suffix(thread_id, loop['id'])}",
+                base_branch=self._resolve_project_base_branch(project_id),
                 reuse_existing=True,
             )
         except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:

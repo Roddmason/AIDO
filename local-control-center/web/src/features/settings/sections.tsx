@@ -17,6 +17,7 @@ import {
 	Cpu,
 	FlaskConical,
 	FolderTree,
+	GitBranch,
 	Globe,
 	KeyRound,
 	Lock,
@@ -130,12 +131,19 @@ const SETTING_ENUM_LABELS: Record<string, Record<string, { key: string; fallback
 		recommended: { key: 'app.composer.permissions.recommended', fallback: 'Approve for me' },
 		autonomous: { key: 'app.composer.permissions.autonomous', fallback: 'Full access' },
 	},
-	'security.branch.policy': {
-		feature_branch: {
-			key: 'app.settings.enum.branch.featureBranch',
-			fallback: 'Feature branch first',
+	'project.git.integrationMode': {
+		direct_push: {
+			key: 'app.settings.enum.integrationMode.directPush',
+			fallback: 'Direct push to dev',
 		},
-		dev_direct: { key: 'app.settings.enum.branch.devDirect', fallback: 'Commit directly to dev' },
+		auto_pr: {
+			key: 'app.settings.enum.integrationMode.autoPr',
+			fallback: 'Auto PR (TL approves & merges)',
+		},
+		manual_pr: {
+			key: 'app.settings.enum.integrationMode.manualPr',
+			fallback: 'Manual PR (human approves)',
+		},
 	},
 	'security.shell.profile': {
 		plan: { key: 'app.settings.enum.shell.plan', fallback: 'Plan (read-only)' },
@@ -400,6 +408,17 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		),
 	},
 	{
+		id: 'git',
+		titleKey: 'app.settings.section.git',
+		titleFallback: 'Git',
+		icon: GitBranch,
+		kind: 'wired',
+		render: wiredSection(
+			'app.settings.intro.git',
+			'Base branch and how finished work lands: direct push, auto PR, or manual PR.',
+		),
+	},
+	{
 		id: 'workspaces',
 		titleKey: 'app.settings.section.workspaces',
 		titleFallback: 'Workspaces',
@@ -456,6 +475,7 @@ export const SECTION_TO_SETTING_SECTION: Record<string, string> = {
 	routing: 'runtime',
 	quality: 'quality',
 	'project-security': 'security',
+	git: 'git',
 	internet: 'internet',
 	budget: 'budget',
 };

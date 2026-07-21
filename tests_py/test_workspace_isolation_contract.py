@@ -407,3 +407,41 @@ def test_archive_deletes_the_work_branch_ref_not_just_the_worktree(
     repository.archive_workspace(workspace["id"], reason="done", delete_branch=True)
 
     assert run_git(["rev-parse", "--verify", "codex/product-loop-gc123"], cwd=repo).returncode != 0
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_worktree_forks_from_configured_base_branch_and_falls_back_to_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El worktree se abre sobre la rama base configurada; si no existe, cae a HEAD sin degradar.
+
+    Habilita ``project.git.baseBranch``: el loop puede forkear de ``dev`` en vez del HEAD actual, y
+    un proyecto que no tenga esa rama nunca pierde el aislamiento git (cae a HEAD).
+    """
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "base-repo"
+    create_git_repo(repo)
+    assert run_git(["branch", "integration"], cwd=repo).returncode == 0
+    project = store.create_project(name="Base", path=repo, template_id="other")
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+
+    on_integration = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="base-exists",
+        agent_id="developer",
+        branch_name="codex/base-exists",
+        base_branch="integration",
+    )
+    store.connection.commit()
+    assert on_integration["isolationType"] == "git_worktree"
+    assert on_integration["metadata"]["gitWorktree"]["baseBranch"] == "integration"
+
+    fell_back = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="base-missing",
+        agent_id="developer",
+        branch_name="codex/base-missing",
+        base_branch="does-not-exist",
+    )
+    assert fell_back["isolationType"] == "git_worktree"
+    assert fell_back["metadata"]["gitWorktree"]["baseBranch"] == "HEAD"

@@ -295,6 +295,40 @@ def evaluate_git_workspace_command(
             "reason": "Git init is allowlisted for project repository setup.",
             "categories": [*categories, "git_workspace_command", "git_init"],
         }
+    if subcommand == "add":
+        if git_operation != "stage_changes" or args != ["-A"]:
+            categories.append("git_workspace_add_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git add is limited to `add -A` with gitOperation=stage_changes.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": "Git add -A is allowlisted to stage the isolated worktree before commit.",
+            "categories": [*categories, "git_workspace_command", "git_add"],
+        }
+    if subcommand == "commit":
+        message_ok = (
+            len(args) >= 2 and args[-2] == "-m" and bool(args[-1].strip()) and not args[-1].startswith("-")
+        )
+        prefix_ok = args[:-2] in ([], ["--allow-empty"])
+        if git_operation != "commit_changes" or not message_ok or not prefix_ok:
+            categories.append("git_workspace_commit_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git commit is limited to `commit [--allow-empty] -m <message>` with commit_changes.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git commit is allowlisted to persist agent work on the isolated worktree branch.",
+            "categories": [*categories, "git_workspace_command", "git_commit"],
+        }
     if subcommand == "remote":
         if args == ["-v"]:
             return {

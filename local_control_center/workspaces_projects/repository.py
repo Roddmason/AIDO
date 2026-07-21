@@ -23,7 +23,12 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 from .cleanup import capture_workspace_snapshot
-from .git_worktrees import create_git_worktree, git_available, remove_git_worktree
+from .git_worktrees import (
+    create_git_worktree,
+    delete_git_branch,
+    git_available,
+    remove_git_worktree,
+)
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
 COPY_IGNORED_PARTS = {
@@ -138,6 +143,7 @@ class WorkspacesRepository:
         base_branch: str = "HEAD",
         branch_name: str | None = None,
         devcontainer: dict[str, Any] | None = None,
+        reuse_existing: bool = False,
     ) -> dict[str, Any]:
         """Asigna un workspace aislado a la tarea y registra su allocation activa.
 
@@ -146,8 +152,14 @@ class WorkspacesRepository:
         workspace (más ``git_branches`` cuando hay worktree) y la allocation; el commit lo hace
         el caller.
 
+        Con ``reuse_existing`` una tarea que ya tiene un workspace activo devuelve ese mismo
+        workspace en lugar de fallar: es como el product loop mantiene UNA rama estable por hilo
+        entre turnos en vez de crear una ``codex/product-*-<hash>`` por mensaje. El guard de
+        conflicto se conserva por defecto (contrato fail-closed de ``issue_to_patch``).
+
         Raises:
-            WorkspaceConflictError: si la tarea ya tiene un workspace en estado activo.
+            WorkspaceConflictError: si la tarea ya tiene un workspace activo y ``reuse_existing``
+                es falso.
             WorkspaceIsolationError: si la fuente no existe, supera límites o el worktree falla.
         """
         placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
@@ -160,6 +172,8 @@ class WorkspacesRepository:
             (project_id, task_id, *sorted(ACTIVE_WORKSPACE_STATUSES)),
         ).fetchone()
         if existing:
+            if reuse_existing:
+                return self.get_workspace(existing["id"])
             raise WorkspaceConflictError(f"Task {task_id} already has active workspace {existing['id']}")
 
         workspace_id = f"workspace-{uuid.uuid4()}"
@@ -458,13 +472,18 @@ class WorkspacesRepository:
         ).fetchall()
         return [row_to_workspace(row) for row in rows]
 
-    def archive_workspace(self, workspace_id: str, *, reason: str = "") -> dict[str, Any]:
+    def archive_workspace(
+        self, workspace_id: str, *, reason: str = "", delete_branch: bool = False
+    ) -> dict[str, Any]:
         """Archiva el workspace, persiste el motivo en metadata y libera su allocation.
 
         Si está aislado por git worktree intenta removerlo y, solo si la limpieza tuvo éxito,
-        marca su rama como ``archived``. En la misma conexión actualiza ``workspaces`` (estado,
-        ``archived_at`` y metadata con ``archiveReason``/``gitWorktreeCleanup``) y pasa la
-        allocation activa a ``released``; el commit lo hace el caller.
+        marca su rama como ``archived``. Con ``delete_branch`` además borra el ref de la rama de
+        trabajo (``git branch -D``) para no acumular ramas ``codex/product-*`` en el repo del
+        proyecto; las ramas protegidas (main/master) nunca se borran. En la misma conexión
+        actualiza ``workspaces`` (estado, ``archived_at`` y metadata con ``archiveReason``/
+        ``gitWorktreeCleanup``/``gitBranchCleanup``) y pasa la allocation activa a ``released``; el
+        commit lo hace el caller.
 
         Raises:
             KeyError: si el workspace no existe.
@@ -522,6 +541,26 @@ class WorkspacesRepository:
                     """,
                     (timestamp, workspace_id),
                 )
+                if delete_branch:
+                    branch = str((metadata.get("gitWorktree") or {}).get("branchName") or "")
+                    branch_cleanup = delete_git_branch(
+                        repo_path=self._project_path(workspace["projectId"]),
+                        branch_name=branch,
+                        connection=self.connection,
+                        root=self.root,
+                        project_id=workspace["projectId"],
+                        workspace_id=workspace_id,
+                    )
+                    metadata["gitBranchCleanup"] = branch_cleanup
+                    if branch_cleanup["status"] == "deleted":
+                        self.connection.execute(
+                            """
+                            UPDATE git_branches
+                            SET status = 'deleted', updated_at = ?
+                            WHERE workspace_id = ?
+                            """,
+                            (timestamp, workspace_id),
+                        )
         self.connection.execute(
             """
             UPDATE workspaces

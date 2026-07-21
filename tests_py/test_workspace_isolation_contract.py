@@ -10,7 +10,10 @@ from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
 from local_control_center.security_policy.git_command_runner import git_available, run_git
-from local_control_center.workspaces_projects.repository import WorkspacesRepository
+from local_control_center.workspaces_projects.repository import (
+    WorkspaceConflictError,
+    WorkspacesRepository,
+)
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
@@ -332,3 +335,75 @@ def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
     persisted = store.evidence.get_evidence_package(evidence["id"])
     assert persisted["id"] == evidence["id"]
     assert any(ref["kind"] == "workspace_snapshot" for ref in persisted["diffRefs"])
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_reuse_existing_returns_the_same_workspace_instead_of_conflicting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El loop reutiliza un workspace estable por hilo en vez de crear uno nuevo por turno.
+
+    Sin ``reuse_existing`` el guard de conflicto sigue fail-closed (contrato de issue_to_patch);
+    con ``reuse_existing`` una segunda asignacion de la misma tarea devuelve el mismo workspace y
+    la misma rama, evitando la proliferacion de ramas ``codex/product-*-<hash>`` por turno.
+    """
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "reuse-repo"
+    create_git_repo(repo)
+    project = store.create_project(name="Reuse", path=repo, template_id="other")
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+
+    first = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="product-loop-stable123",
+        agent_id="developer",
+        branch_name="codex/product-loop-stable123",
+    )
+    store.connection.commit()
+
+    with pytest.raises(WorkspaceConflictError):
+        repository.allocate_workspace(
+            project_id=project["id"],
+            task_id="product-loop-stable123",
+            agent_id="developer",
+            branch_name="codex/product-loop-stable123",
+        )
+
+    reused = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="product-loop-stable123",
+        agent_id="developer",
+        branch_name="codex/product-loop-stable123",
+        reuse_existing=True,
+    )
+
+    assert reused["id"] == first["id"]
+    assert reused["metadata"]["gitWorktree"]["branchName"] == first["metadata"]["gitWorktree"]["branchName"]
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_archive_deletes_the_work_branch_ref_not_just_the_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Al archivar con ``delete_branch`` se borra el ref de la rama, no solo el worktree.
+
+    Sin esto las ramas ``codex/product-*`` quedaban para siempre en el repo del proyecto.
+    """
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "gc-repo"
+    create_git_repo(repo)
+    project = store.create_project(name="GC", path=repo, template_id="other")
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+
+    workspace = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="product-loop-gc123",
+        agent_id="developer",
+        branch_name="codex/product-loop-gc123",
+    )
+    store.connection.commit()
+    assert run_git(["rev-parse", "--verify", "codex/product-loop-gc123"], cwd=repo).returncode == 0
+
+    repository.archive_workspace(workspace["id"], reason="done", delete_branch=True)
+
+    assert run_git(["rev-parse", "--verify", "codex/product-loop-gc123"], cwd=repo).returncode != 0

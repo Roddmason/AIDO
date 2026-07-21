@@ -465,6 +465,64 @@ def remove_git_worktree(
     return {"status": "removed"}
 
 
+def delete_git_branch(
+    *,
+    repo_path: Path,
+    branch_name: str,
+    connection: sqlite3.Connection | None = None,
+    root: Path | None = None,
+    project_id: str | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """Borra el ref de una rama de trabajo (``git branch -D``); devuelve ``deleted`` o el motivo.
+
+    Debe correr DESPUÉS de remover el worktree (una rama con worktree activo no se puede borrar).
+    Rechaza nombres inseguros/protegidos (HEAD/main/master vía ``_branch_name_static_error``), de
+    modo que la rama de integración base nunca puede eliminarse por esta vía.
+    """
+    if not git_available():
+        return {"status": "delete_failed_git_unavailable"}
+    if not branch_name or _branch_name_static_error(branch_name):
+        return {"status": "delete_skipped_invalid_branch", "branchName": branch_name}
+    if connection is not None and root is not None and project_id and workspace_id:
+        control_workspace_id = _ensure_control_workspace(
+            connection,
+            project_id=project_id,
+            path=repo_path,
+            task_id="worktree-branch-delete-git-control",
+        )
+        result = run_brokered_git(
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=control_workspace_id,
+            workspace_path=repo_path,
+            cwd=repo_path,
+            args=["branch", "-D", branch_name],
+            task_id="branch_delete",
+            git_operation="delete_branch",
+        )
+        traces = [result["trace"]]
+        if result["returnCode"] != 0:
+            return {
+                "status": "delete_failed",
+                "branchName": branch_name,
+                "stderr": result["stderr"].strip()[:1000] or result["reason"],
+                "toolCalls": traces,
+                "policyDecisionIds": _policy_ids(traces),
+            }
+        return {
+            "status": "deleted",
+            "branchName": branch_name,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    result = run_git(["-C", str(repo_path), "branch", "-D", branch_name])
+    if result.returncode != 0:
+        return {"status": "delete_failed", "branchName": branch_name, "stderr": result.stderr.strip()[:1000]}
+    return {"status": "deleted", "branchName": branch_name}
+
+
 def _parse_porcelain_status(output: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for line in output.splitlines():

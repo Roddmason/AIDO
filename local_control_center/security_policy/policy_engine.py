@@ -45,6 +45,7 @@ PROFILE_DEFAULTS: dict[str, str] = {
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
 GIT_WORKSPACE_WRITE_COMMANDS = {"branch", "checkout"}
+GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "HEAD"}
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
 GIT_BRANCH_MUTATION_FLAGS = {
     "-d",
@@ -379,6 +380,26 @@ def evaluate_git_workspace_command(
                 "riskLevel": "medium",
                 "reason": "Git default branch rename is allowlisted for project repository setup.",
                 "categories": [*categories, "git_workspace_command", "git_init_default_branch"],
+            }
+        if git_operation == "delete_branch":
+            if (
+                len(args) != 2
+                or args[0] not in {"-D", "--delete"}
+                or not _is_safe_git_arg(args[1])
+                or args[1] in GIT_PROTECTED_BRANCHES
+            ):
+                categories.append("git_workspace_branch_delete_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch delete is limited to -D of a safe non-protected work branch.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git work-branch delete is allowlisted for workspace GC.",
+                "categories": [*categories, "git_workspace_command", "git_branch_delete"],
             }
         if git_operation == "create_branch":
             if any(arg in GIT_BRANCH_MUTATION_FLAGS or arg.startswith("-") for arg in args):

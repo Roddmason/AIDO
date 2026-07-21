@@ -1,20 +1,42 @@
 #!/bin/sh
-# AIDO secret-scanning pre-commit hook.
-# Blocks commits that introduce secrets into staged changes.
-# Mirrors `pnpm run security:secrets` but scoped to the staged diff for speed.
+# AIDO pre-commit hook.
+# Blocks commits that (1) introduce secrets or (2) leave staged Python unformatted or lint-dirty.
+# Mirrors `pnpm run security:secrets` + `format:py:check`/`lint:py`, scoped to the staged diff for speed.
 # Activate per clone with:  git config core.hooksPath .githooks
 set -e
 
-if ! command -v gitleaks >/dev/null 2>&1; then
+# --- 1) Secret scanning (gitleaks) over the staged diff ---
+if command -v gitleaks >/dev/null 2>&1; then
+	if ! gitleaks git --staged --redact --config .gitleaks.toml; then
+		echo "pre-commit: gitleaks found potential secrets in staged changes — commit blocked." >&2
+		echo "            review the findings above; never commit .env files, keys, tokens or credentials." >&2
+		exit 1
+	fi
+else
 	echo "pre-commit: gitleaks is not on PATH — staged changes were NOT secret-scanned." >&2
 	echo "            install gitleaks (https://github.com/gitleaks/gitleaks) to enable this gate." >&2
-	exit 0
 fi
 
-if gitleaks git --staged --redact --config .gitleaks.toml; then
-	exit 0
+# --- 2) Python format + lint (ruff), scoped to the staged .py files only ---
+# Scoping to staged files means a commit is blocked only when IT introduces drift, never by
+# unrelated pre-existing drift elsewhere in the tree (e.g. a file another session is still editing).
+staged_py=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+if [ -n "$staged_py" ]; then
+	if command -v uv >/dev/null 2>&1; then
+		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --extra dev ruff format --check --; then
+			echo "pre-commit: ruff found unformatted staged Python — commit blocked." >&2
+			echo "            run 'uv run --extra dev ruff format .' and re-stage." >&2
+			exit 1
+		fi
+		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --extra dev ruff check --; then
+			echo "pre-commit: ruff check found lint errors in staged Python — commit blocked." >&2
+			echo "            run 'uv run --extra dev ruff check --fix .' and re-stage." >&2
+			exit 1
+		fi
+	else
+		echo "pre-commit: uv is not on PATH — staged Python was NOT format/lint-checked." >&2
+		echo "            install uv (https://docs.astral.sh/uv/) to enable this gate." >&2
+	fi
 fi
 
-echo "pre-commit: gitleaks found potential secrets in staged changes — commit blocked." >&2
-echo "            review the findings above; never commit .env files, keys, tokens or credentials." >&2
-exit 1
+exit 0

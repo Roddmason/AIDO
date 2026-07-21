@@ -445,3 +445,51 @@ def test_worktree_forks_from_configured_base_branch_and_falls_back_to_head(
     )
     assert fell_back["isolationType"] == "git_worktree"
     assert fell_back["metadata"]["gitWorktree"]["baseBranch"] == "HEAD"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_commit_workspace_changes_persists_agent_work_on_the_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El trabajo del agente pasa de patch efímero a commit real sobre la rama de la HU."""
+    from local_control_center.workspaces_projects.git_worktrees import commit_workspace_changes
+
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "commit-repo"
+    create_git_repo(repo)
+    project = store.create_project(name="Commit", path=repo, template_id="other")
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+    workspace = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id="commit-task",
+        agent_id="developer",
+        branch_name="codex/commit-task",
+    )
+    store.connection.commit()
+    workspace_path = Path(workspace["path"])
+    (workspace_path / "feature.py").write_text("x = 1\n", encoding="utf-8")
+
+    result = commit_workspace_changes(
+        workspace_path=workspace_path,
+        message="Feature: add feature.py",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+    )
+    store.connection.commit()
+
+    assert result["status"] == "committed", result
+    assert result["commit"]
+    show = run_git(["-C", str(workspace_path), "show", "--name-only", "HEAD"])
+    assert "feature.py" in show.stdout
+
+    again = commit_workspace_changes(
+        workspace_path=workspace_path,
+        message="noop",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+    )
+    assert again["status"] == "nothing_to_commit"

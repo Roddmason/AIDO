@@ -545,6 +545,117 @@ def delete_git_branch(
     return {"status": "deleted", "branchName": branch_name}
 
 
+def _ensure_git_identity(worktree_path: Path) -> None:
+    """Configura una identidad de autor por defecto en el worktree si el repo no tiene ninguna.
+
+    Un ``git commit`` falla sin ``user.name``/``user.email``. Se setea sólo cuando faltan (no pisa
+    la identidad existente del proyecto). Es configuración de infraestructura del aislamiento, por
+    eso corre por ``run_git`` directo y no como tool call de agente.
+    """
+    existing = run_git(["-C", str(worktree_path), "config", "user.email"])
+    if existing.returncode == 0 and existing.stdout.strip():
+        return
+    run_git(["-C", str(worktree_path), "config", "user.name", "AIDO"])
+    run_git(["-C", str(worktree_path), "config", "user.email", "aido@local"])
+
+
+def commit_workspace_changes(
+    *,
+    workspace_path: Path,
+    message: str,
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+    workspace_id: str,
+    allow_empty: bool = False,
+) -> dict[str, Any]:
+    """Commitea los cambios del worktree del workspace a su rama de trabajo (``add -A`` + ``commit``).
+
+    Es como el trabajo del agente deja de ser un patch efímero y pasa a ser un commit real sobre la
+    rama de la HU (habilita PR/merge/GC reales). ``git add``/``commit`` van por el ToolBroker con
+    su rastro de policy. Devuelve ``committed`` con el sha, ``nothing_to_commit`` si no había cambios
+    (sin ``allow_empty``), o el motivo del fallo.
+    """
+    if not git_available():
+        return {"status": "commit_failed_git_unavailable"}
+    _ensure_git_identity(workspace_path)
+    traces: list[dict[str, Any]] = []
+    stage = run_brokered_git(
+        connection=connection,
+        root=root,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        workspace_path=workspace_path,
+        cwd=workspace_path,
+        args=["add", "-A"],
+        task_id="commit_stage",
+        git_operation="stage_changes",
+    )
+    traces.append(stage["trace"])
+    if stage["returnCode"] != 0:
+        return {
+            "status": "commit_failed",
+            "stderr": stage["stderr"].strip()[:1000] or stage["reason"],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    if not allow_empty:
+        pending = run_brokered_git(
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            cwd=workspace_path,
+            args=["status", "--porcelain"],
+            task_id="commit_status",
+        )
+        traces.append(pending["trace"])
+        if pending["returnCode"] == 0 and not pending["stdout"].strip():
+            return {
+                "status": "nothing_to_commit",
+                "toolCalls": traces,
+                "policyDecisionIds": _policy_ids(traces),
+            }
+    commit_args = ["commit", "-m", message] if not allow_empty else ["commit", "--allow-empty", "-m", message]
+    commit = run_brokered_git(
+        connection=connection,
+        root=root,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        workspace_path=workspace_path,
+        cwd=workspace_path,
+        args=commit_args,
+        task_id="commit_create",
+        git_operation="commit_changes",
+    )
+    traces.append(commit["trace"])
+    if commit["returnCode"] != 0:
+        return {
+            "status": "commit_failed",
+            "stderr": commit["stderr"].strip()[:1000] or commit["reason"],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    head = run_brokered_git(
+        connection=connection,
+        root=root,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        workspace_path=workspace_path,
+        cwd=workspace_path,
+        args=["rev-parse", "HEAD"],
+        task_id="commit_head",
+    )
+    traces.append(head["trace"])
+    return {
+        "status": "committed",
+        "commit": head["stdout"].strip() if head["returnCode"] == 0 else None,
+        "toolCalls": traces,
+        "policyDecisionIds": _policy_ids(traces),
+    }
+
+
 def _parse_porcelain_status(output: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for line in output.splitlines():

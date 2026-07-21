@@ -21,7 +21,10 @@ from local_control_center.agents.ai_resource_manager import AIResourceManager, A
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.agents.usage_ledger import UsageLedger
-from local_control_center.product_loop.repository import ProductLoopRepository
+from local_control_center.product_loop.repository import (
+    ProductLoopRepository,
+    stable_task_suffix,
+)
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads.repository import ThreadsRepository
@@ -418,3 +421,13 @@ def test_missing_thread_returns_404(tmp_path: Path) -> None:
     """Un hilo inexistente responde 404, no un snapshot vacío."""
     _, client = _client(tmp_path)
     assert client.get("/api/v1/threads/thread-does-not-exist/cost-performance").status_code == 404
+
+
+def test_stable_task_suffix_is_stable_per_thread_and_git_safe() -> None:
+    """El sufijo estable no cambia entre turnos del mismo hilo y es seguro como segmento de rama."""
+    first = stable_task_suffix("thread-abc123def456", "product-loop-11111111-aaaa")
+    second = stable_task_suffix("thread-abc123def456", "product-loop-22222222-bbbb")
+    assert first == second, "el mismo hilo comparte una identidad estable entre turnos"
+    assert first.isalnum() and 0 < len(first) <= 12
+    assert stable_task_suffix("thread-otro-hilo", "product-loop-x") != first
+    assert stable_task_suffix(None, "") == "workspace"

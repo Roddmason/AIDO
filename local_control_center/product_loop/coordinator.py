@@ -89,7 +89,7 @@ from local_control_center.workspaces_projects.repository import (
 )
 
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
-from .repository import ProductLoopRepository
+from .repository import ProductLoopRepository, stable_task_suffix
 
 PRODUCT_LOOP_STATES = [
     "goal_received",
@@ -546,9 +546,7 @@ class ProductLoopCoordinator:
     @staticmethod
     def _approved_resource_selections_from_durable(durable: dict[str, Any]) -> list[dict[str, Any]]:
         resource_approval = (
-            durable.get("resourceApproval")
-            if isinstance(durable.get("resourceApproval"), dict)
-            else {}
+            durable.get("resourceApproval") if isinstance(durable.get("resourceApproval"), dict) else {}
         )
         approvals = resource_approval.get("approvedResourceSelections")
         if resource_approval.get("status") != "approved" or not isinstance(approvals, list):
@@ -597,9 +595,7 @@ class ProductLoopCoordinator:
         try:
             action = self.jobs.get_action_request(action_id)
         except KeyError as error:
-            raise ProductLoopTransitionError(
-                f"Delivery approval action not found: {action_id}."
-            ) from error
+            raise ProductLoopTransitionError(f"Delivery approval action not found: {action_id}.") from error
         if action["jobId"] != job_id:
             raise ProductLoopTransitionError(
                 f"Delivery approval action {action_id} is not scoped to job {job_id}."
@@ -616,13 +612,9 @@ class ProductLoopCoordinator:
                 f"Delivery approval action {action_id} has unexpected type {action['actionType']}."
             )
         if action["status"] == "pending" and decision == "accept":
-            action = self.jobs.approve_action(job_id, action_id, reason=reason, actor=actor)[
-                "actionRequest"
-            ]
+            action = self.jobs.approve_action(job_id, action_id, reason=reason, actor=actor)["actionRequest"]
         elif action["status"] == "pending" and decision == "request_changes":
-            action = self.jobs.deny_action(job_id, action_id, reason=reason, actor=actor)[
-                "actionRequest"
-            ]
+            action = self.jobs.deny_action(job_id, action_id, reason=reason, actor=actor)["actionRequest"]
         return {
             "type": "resolve_delivery_approval_action",
             "decision": decision,
@@ -1510,9 +1502,7 @@ class ProductLoopCoordinator:
             },
         )
 
-    def _attach_thread_artifacts(
-        self, *, thread_id: str | None, artifacts: list[dict[str, Any]]
-    ) -> None:
+    def _attach_thread_artifacts(self, *, thread_id: str | None, artifacts: list[dict[str, Any]]) -> None:
         if not thread_id:
             return
         threads = ThreadsRepository(self.connection)
@@ -1578,14 +1568,14 @@ class ProductLoopCoordinator:
                 return True
         return False
 
-    def _product_owner_flow_status(
-        self, result: dict[str, Any], output: dict[str, Any] | None = None
-    ) -> str:
+    def _product_owner_flow_status(self, result: dict[str, Any], output: dict[str, Any] | None = None) -> str:
         output = output if output is not None else self._product_owner_output(result)
         status = str(result.get("status") or "").strip().lower()
         output_status = str(output.get("status") or "").strip().lower()
         questions = output.get("questions") or result.get("questions") or []
-        decisions = output.get("decisions") or result.get("blockingDecisions") or result.get("decisions") or []
+        decisions = (
+            output.get("decisions") or result.get("blockingDecisions") or result.get("decisions") or []
+        )
         if status in {"runtime_unavailable", "failed_validation", "failed"}:
             return "blocked"
         if status in {"needs_input", "questions_required"} or output_status in {
@@ -1987,7 +1977,12 @@ class ProductLoopCoordinator:
         product_owner_output_id: str | None,
     ) -> list[dict[str, Any]]:
         persisted = result.get("epics")
-        if isinstance(persisted, list) and persisted and isinstance(persisted[0], dict) and "epic" in persisted[0]:
+        if (
+            isinstance(persisted, list)
+            and persisted
+            and isinstance(persisted[0], dict)
+            and "epic" in persisted[0]
+        ):
             return persisted
         if not output.get("epics") or not output.get("userStories"):
             return []
@@ -2084,11 +2079,7 @@ class ProductLoopCoordinator:
         git_state: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         stories = self._stories_from_backlog(backlog)
-        existing = [
-            task
-            for story in stories
-            for task in self.backlog.list_agent_tasks(story_id=story["id"])
-        ]
+        existing = [task for story in stories for task in self.backlog.list_agent_tasks(story_id=story["id"])]
         if existing:
             return existing
         payload = {
@@ -2106,7 +2097,8 @@ class ProductLoopCoordinator:
                 "changedFiles": (git_state or {}).get("changedFiles") or [],
             },
             "intentClassification": (team_schedule or {}).get("intent") or {},
-            "risk": (team_schedule or {}).get("risk") or ((team_schedule or {}).get("intent") or {}).get("risk"),
+            "risk": (team_schedule or {}).get("risk")
+            or ((team_schedule or {}).get("intent") or {}).get("risk"),
             "availableTeam": (team_schedule or {}).get("roles") or [],
             "teamSchedule": team_schedule or {},
         }
@@ -2201,9 +2193,16 @@ class ProductLoopCoordinator:
         return tasks
 
     def _team_mode(self, request_meta: dict[str, Any]) -> str:
-        mode = str(
-            request_meta.get("teamMode") or request_meta.get("team_mode") or request_meta.get("mode") or "balanced"
-        ).strip().lower()
+        mode = (
+            str(
+                request_meta.get("teamMode")
+                or request_meta.get("team_mode")
+                or request_meta.get("mode")
+                or "balanced"
+            )
+            .strip()
+            .lower()
+        )
         return mode if mode in MODES else "balanced"
 
     def _team_risk(
@@ -2333,7 +2332,12 @@ class ProductLoopCoordinator:
 
     @staticmethod
     def _resource_context_tokens_estimate(request_meta: dict[str, Any]) -> int:
-        for key in ("contextTokensEstimate", "context_tokens_estimate", "estimatedTokens", "estimated_tokens"):
+        for key in (
+            "contextTokensEstimate",
+            "context_tokens_estimate",
+            "estimatedTokens",
+            "estimated_tokens",
+        ):
             value = request_meta.get(key)
             if value is None or value == "":
                 continue
@@ -2728,9 +2732,7 @@ class ProductLoopCoordinator:
             if str(role_plan.get("role") or "").strip()
         }
         task_roles = {
-            str(task.get("role") or "").strip()
-            for task in agent_tasks
-            if str(task.get("role") or "").strip()
+            str(task.get("role") or "").strip() for task in agent_tasks if str(task.get("role") or "").strip()
         }
         return sorted(role for role in task_roles if role not in scheduled_roles)
 
@@ -2820,7 +2822,9 @@ class ProductLoopCoordinator:
         return assignments
 
     @staticmethod
-    def _runtime_provider_usage(runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    def _runtime_provider_usage(
+        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
             if not isinstance(source, dict):
                 continue
@@ -2831,7 +2835,9 @@ class ProductLoopCoordinator:
         return None
 
     @staticmethod
-    def _runtime_actual_cost_usd(runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None) -> float | None:
+    def _runtime_actual_cost_usd(
+        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
+    ) -> float | None:
         for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
             if not isinstance(source, dict):
                 continue
@@ -2842,7 +2848,9 @@ class ProductLoopCoordinator:
         return None
 
     @staticmethod
-    def _runtime_latency_ms(runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None) -> int | None:
+    def _runtime_latency_ms(
+        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
+    ) -> int | None:
         for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
             if not isinstance(source, dict):
                 continue
@@ -2932,9 +2940,7 @@ class ProductLoopCoordinator:
         ).fetchone()
         return bool(row and str(row["api_format"] or "") == "ollama")
 
-    def _developer_runtime_id_for_resource_selection(
-        self, selected: dict[str, Any]
-    ) -> str | None:
+    def _developer_runtime_id_for_resource_selection(self, selected: dict[str, Any]) -> str | None:
         allowed_runtimes = DEVELOPER_AGENT_CLI_RUNTIMES | DEVELOPER_AGENT_MODEL_RUNTIMES
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
@@ -3123,7 +3129,9 @@ class ProductLoopCoordinator:
             )
         return {}
 
-    def _developer_execution_resource_mapping_blockers(self, team_schedule: dict[str, Any]) -> list[dict[str, Any]]:
+    def _developer_execution_resource_mapping_blockers(
+        self, team_schedule: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         roles = [
             role_plan
             for role_plan in team_schedule.get("roles") or []
@@ -3185,7 +3193,8 @@ class ProductLoopCoordinator:
         execution_roles = [
             role_plan
             for role_plan in roles
-            if role_plan.get("kind") in {"build", "review"} or "code_edit" in (role_plan.get("capabilities") or [])
+            if role_plan.get("kind") in {"build", "review"}
+            or "code_edit" in (role_plan.get("capabilities") or [])
         ]
         fallback = execution_roles or roles
         return [(fallback[0], None)] if fallback else []
@@ -3512,7 +3521,7 @@ class ProductLoopCoordinator:
     ) -> bool:
         autonomy = request_meta.get("autonomy")
         if autonomy is None:
-            autonomy = (result.get("autonomy") or output.get("autonomy") or {})
+            autonomy = result.get("autonomy") or output.get("autonomy") or {}
         if isinstance(autonomy, str):
             return autonomy.strip().lower() in {"guided", "recommended"}
         if isinstance(autonomy, dict):
@@ -3522,7 +3531,9 @@ class ProductLoopCoordinator:
 
     @staticmethod
     def _research_policy(request_meta: dict[str, Any]) -> dict[str, Any]:
-        policy = request_meta.get("researchPolicy") if isinstance(request_meta.get("researchPolicy"), dict) else {}
+        policy = (
+            request_meta.get("researchPolicy") if isinstance(request_meta.get("researchPolicy"), dict) else {}
+        )
         nested_policy = request_meta.get("policy") if isinstance(request_meta.get("policy"), dict) else {}
         nested_research = (
             nested_policy.get("research") if isinstance(nested_policy.get("research"), dict) else {}
@@ -3543,13 +3554,17 @@ class ProductLoopCoordinator:
     @staticmethod
     def _is_high_impact_technical_decision(decision: dict[str, Any]) -> bool:
         category = str(decision.get("category") or decision.get("type") or "").strip().lower()
-        impact = str(
-            decision.get("impact")
-            or decision.get("risk")
-            or decision.get("severity")
-            or decision.get("priority")
-            or ""
-        ).strip().lower()
+        impact = (
+            str(
+                decision.get("impact")
+                or decision.get("risk")
+                or decision.get("severity")
+                or decision.get("priority")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         text = " ".join(
             str(decision.get(key) or "")
             for key in ("title", "question", "decision", "recommendation", "rationale")
@@ -3598,7 +3613,9 @@ class ProductLoopCoordinator:
     ) -> dict[str, Any]:
         policy = self._research_policy(request_meta)
         decision_titles = [
-            str(decision.get("title") or decision.get("decision") or decision.get("recommendation") or "").strip()
+            str(
+                decision.get("title") or decision.get("decision") or decision.get("recommendation") or ""
+            ).strip()
             for decision in decisions
         ]
         query = (
@@ -3612,7 +3629,7 @@ class ProductLoopCoordinator:
             "messageId": message_id,
             "projectId": project_id,
             "workspaceId": workspace_id,
-            "taskId": f"product-loop-research-{loop_id.replace('product-loop-', '')[:12]}",
+            "taskId": f"product-loop-research-{stable_task_suffix(thread_id, loop_id)}",
             "query": f"{query} Original request: {message}",
             "maxSources": policy.get("maxSources") or 5,
             "sources": [],
@@ -3685,7 +3702,9 @@ class ProductLoopCoordinator:
             reason=reason,
             trigger="operator_cancelled",
             actor=actor,
-            context_patch=self._durable_run_patch(loop, {"status": CANCELLED_STATE, "cancelledReason": reason}),
+            context_patch=self._durable_run_patch(
+                loop, {"status": CANCELLED_STATE, "cancelledReason": reason}
+            ),
             thread_id=thread_id,
         )
         return self._run_result(cancelled, status=CANCELLED_STATE, reason=reason)
@@ -4400,7 +4419,9 @@ class ProductLoopCoordinator:
             title=resolved_title,
             session_id=session_id,
             thread_id=thread_id,
-            message_id=request_meta.get("messageId") if isinstance(request_meta.get("messageId"), str) else None,
+            message_id=request_meta.get("messageId")
+            if isinstance(request_meta.get("messageId"), str)
+            else None,
             message_metadata=request_meta,
             actor=actor,
         )
@@ -4564,13 +4585,15 @@ class ProductLoopCoordinator:
         request_meta = run.request_meta
         preferred_runtime = run.preferred_runtime
         product_owner = run.product_owner
-        product_owner_task_id = f"product-owner-{loop['id'].replace('product-loop-', '')[:12]}"
+        product_owner_task_id = f"product-owner-{stable_task_suffix(thread_id, loop['id'])}"
         try:
-            product_owner_resource_decision, product_owner_resource_blocker = self._product_owner_resource_selection(
-                project_id=project_id,
-                loop_id=loop["id"],
-                task_id=product_owner_task_id,
-                request_meta=request_meta,
+            product_owner_resource_decision, product_owner_resource_blocker = (
+                self._product_owner_resource_selection(
+                    project_id=project_id,
+                    loop_id=loop["id"],
+                    task_id=product_owner_task_id,
+                    request_meta=request_meta,
+                )
             )
         except Exception as error:
             reason = f"AIResourceManager failed to select a ProductOwnerAgent resource: {redact_secrets(str(error))}"
@@ -4644,12 +4667,11 @@ class ProductLoopCoordinator:
         )
         if hasattr(product_owner, "status"):
             try:
-                product_owner_readiness = product_owner.status(preferred_runtime=product_owner_effective_runtime)
-            except Exception as error:
-                reason = (
-                    "ProductOwnerAgent runtime readiness check failed: "
-                    f"{redact_secrets(str(error))}"
+                product_owner_readiness = product_owner.status(
+                    preferred_runtime=product_owner_effective_runtime
                 )
+            except Exception as error:
+                reason = f"ProductOwnerAgent runtime readiness check failed: {redact_secrets(str(error))}"
                 product_owner_readiness = {
                     "executable": False,
                     "status": "failed",
@@ -4668,7 +4690,8 @@ class ProductLoopCoordinator:
             agent_role="product_owner",
             payload={
                 "loopId": loop["id"],
-                "runtimeId": product_owner_readiness.get("selectedRuntimeId") or product_owner_effective_runtime,
+                "runtimeId": product_owner_readiness.get("selectedRuntimeId")
+                or product_owner_effective_runtime,
                 "executable": bool(product_owner_readiness.get("executable")),
                 "reason": product_owner_readiness.get("reason"),
                 "resourceSelection": product_owner_resource_decision,
@@ -4786,7 +4809,8 @@ class ProductLoopCoordinator:
                 task_id=product_owner_task_id,
                 agent_id=PRODUCT_OWNER_AGENT_ID,
                 reason="ProductLoopCoordinator ProductOwnerAgent workspace",
-                branch_name=f"codex/product-owner-{loop['id'][-12:]}",
+                branch_name=f"codex/product-owner-{stable_task_suffix(thread_id, loop['id'])}",
+                reuse_existing=True,
             )
         except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:
             return self._block_run(
@@ -4898,11 +4922,17 @@ class ProductLoopCoordinator:
             output = self._product_owner_output(product_owner_result)
             product_owner_status = self._product_owner_flow_status(product_owner_result, output=output)
         except ProductOwnerOutputValidationError as error:
-            raw_output = product_owner_result.get("output") if isinstance(product_owner_result, dict) else None
+            raw_output = (
+                product_owner_result.get("output") if isinstance(product_owner_result, dict) else None
+            )
             details = {
                 "status": "failed_validation",
-                "outputStatus": product_owner_result.get("status") if isinstance(product_owner_result, dict) else None,
-                "reason": product_owner_result.get("reason") if isinstance(product_owner_result, dict) else None,
+                "outputStatus": product_owner_result.get("status")
+                if isinstance(product_owner_result, dict)
+                else None,
+                "reason": product_owner_result.get("reason")
+                if isinstance(product_owner_result, dict)
+                else None,
                 "outputType": type(raw_output).__name__,
             }
             product_owner_context = {
@@ -5321,7 +5351,9 @@ class ProductLoopCoordinator:
             return self._block_run(
                 loop,
                 stage="product_owner",
-                reason=str(product_owner_result.get("reason") or "ProductOwnerAgent did not produce a usable output."),
+                reason=str(
+                    product_owner_result.get("reason") or "ProductOwnerAgent did not produce a usable output."
+                ),
                 actor=actor,
                 details=product_owner_result,
                 durable_context={"productOwner": product_owner_context},
@@ -5347,8 +5379,7 @@ class ProductLoopCoordinator:
                 loop,
                 stage="research",
                 reason=(
-                    "ResearchAgent evidence is required before accepting high-impact technical "
-                    "decisions."
+                    "ResearchAgent evidence is required before accepting high-impact technical decisions."
                 ),
                 actor=actor,
                 details={
@@ -5479,7 +5510,9 @@ class ProductLoopCoordinator:
                 git_state=git_state,
             )
         except Exception as error:
-            reason = f"TeamScheduler failed to create the preliminary role schedule: {redact_secrets(str(error))}"
+            reason = (
+                f"TeamScheduler failed to create the preliminary role schedule: {redact_secrets(str(error))}"
+            )
             failed_team_schedule = self._failed_team_schedule(phase="preliminary", reason=reason)
             return self._block_run(
                 loop,
@@ -5803,7 +5836,7 @@ class ProductLoopCoordinator:
                     "agentTaskIds": [task["id"] for task in agent_tasks],
                 },
                 thread_id=thread_id,
-        )
+            )
         resource_preferred_runtime = str(execution_resource.get("preferredRuntime") or "").strip() or None
         effective_preferred_runtime = resource_preferred_runtime or preferred_runtime
         try:
@@ -5835,14 +5868,15 @@ class ProductLoopCoordinator:
                 loop, stage="runtime", reason=reason, actor=actor, details=readiness, thread_id=thread_id
             )
 
-        task_id = f"product-loop-{loop['id'].replace('product-loop-', '')[:12]}"
+        task_id = f"product-loop-{stable_task_suffix(thread_id, loop['id'])}"
         try:
             workspace = WorkspacesRepository(self.connection, root=effective_root).allocate_workspace(
                 project_id=project_id,
                 task_id=task_id,
                 agent_id=DEVELOPER_AGENT_ID,
                 reason="ProductLoopCoordinator durable execution workspace",
-                branch_name=f"codex/product-loop-{loop['id'][-12:]}",
+                branch_name=f"codex/product-loop-{stable_task_suffix(thread_id, loop['id'])}",
+                reuse_existing=True,
             )
         except (WorkspaceConflictError, WorkspaceIsolationError, ValueError, KeyError) as error:
             return self._block_run(
@@ -6454,9 +6488,7 @@ class ProductLoopCoordinator:
             _fsm_patch=_fsm_patch,
         )
         if updated["state"] in TERMINAL_STATES:
-            RemediationActionsRepository(self.connection).resolve_pending_for_loop_in_transaction(
-                loop_id
-            )
+            RemediationActionsRepository(self.connection).resolve_pending_for_loop_in_transaction(loop_id)
         return updated
 
     def _apply_transition(
@@ -7006,9 +7038,7 @@ class ProductLoopCoordinator:
         target_key = _normalize_key(target_type) or "loop"
         effective_target_id = str(target_id or "").strip()
         if action_key == "request_changes" and not effective_target_id:
-            raise ProductLoopTransitionError(
-                "Feedback action request_changes requires a traceable target."
-            )
+            raise ProductLoopTransitionError("Feedback action request_changes requires a traceable target.")
         if target_key == "loop" and not effective_target_id:
             effective_target_id = loop_id
         if action_key in TARGET_REQUIRED_ACTIONS and not effective_target_id:

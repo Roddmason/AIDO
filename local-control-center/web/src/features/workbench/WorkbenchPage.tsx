@@ -538,7 +538,7 @@ export function WorkbenchPage({
 
 	const loopSections = buildProductLoopSections({
 		conversation: sessionChats.length,
-		questions: loop.data?.questions.length ?? 0,
+		questions: loop.data?.questions.filter((question) => question.status === 'open').length ?? 0,
 		brief: loop.data?.brief ? 1 : 0,
 		assumptions: loop.data?.assumptions.length ?? 0,
 		decisions: loop.data?.decisions.length ?? 0,

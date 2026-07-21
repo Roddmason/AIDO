@@ -205,6 +205,48 @@ def test_system_instruction_declares_the_forbidden_technical_story_keys() -> Non
         assert key in instruction
 
 
+def test_user_story_schema_documents_the_forbidden_technical_keys() -> None:
+    """La regla de no-tarea-técnica vive en el esquema, así ambas ramas del prompt la llevan."""
+    from local_control_center.agents.product_owner_agent_contract import TECHNICAL_STORY_KEYS
+
+    item = ProductOwnerAgent().contract()["outputSchema"]["properties"]["userStories"]["items"]
+    for key in TECHNICAL_STORY_KEYS:
+        assert key in item["description"]
+
+
+def test_null_brief_list_field_is_tolerated_as_empty_not_a_hard_failure() -> None:
+    """Un campo de lista en null lo trataba como error fatal; ahora baja la completitud, no bloquea."""
+    output = ProductOwnerAgent().validate_output(
+        _valid_output(productBriefPatch={"title": "T", "goals": None})
+    )
+    assert output["productBriefPatch"]["goals"] == []
+
+
+def test_brief_list_field_drops_blank_entries_instead_of_rejecting_the_whole_output() -> None:
+    output = ProductOwnerAgent().validate_output(
+        _valid_output(productBriefPatch={"title": "T", "successMetrics": ["Real metric", "", "  "]})
+    )
+    assert output["productBriefPatch"]["successMetrics"] == ["Real metric"]
+
+
+def test_acceptance_criteria_still_fails_closed_when_empty_after_dropping_blanks() -> None:
+    story = {
+        "epicTitle": "Migration",
+        "title": "Run on Java 17",
+        "asA": "developer",
+        "iWant": "the app on Java 17",
+        "soThat": "it stays supported",
+        "acceptanceCriteria": [None, ""],
+    }
+    with pytest.raises(ProductOwnerOutputValidationError, match="acceptanceCriteria"):
+        ProductOwnerAgent().validate_output(_valid_output(userStories=[story]))
+
+
+def test_validate_output_no_longer_carries_the_unread_model_completeness_key() -> None:
+    output = ProductOwnerAgent().validate_output(_valid_output(completeness={"score": 99}))
+    assert "modelCompleteness" not in output
+
+
 def test_prompt_unchanged_without_goal() -> None:
     agent = ProductOwnerAgent()
     assessment = {"idea": "Add onboarding.", "initiative": None, "projectAssessment": None}

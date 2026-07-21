@@ -8227,6 +8227,14 @@
       "en": "AIDO surfaces impact questions here once discovery runs against this workspace.",
       "es": "AIDO mostrará aquí las preguntas por impacto cuando la discovery se ejecute sobre este workspace."
     },
+    "app.workbench.loop.questions.answer": {
+      "en": "Answer",
+      "es": "Respuesta"
+    },
+    "app.workbench.loop.questions.answered": {
+      "en": "{count} answered",
+      "es": "{count} respondidas"
+    },
     "app.workbench.loop.brief.emptyTitle": {
       "en": "No product brief yet",
       "es": "Aún no hay brief de producto"

@@ -1297,6 +1297,10 @@ def test_nvidia_provider_type_cannot_bypass_runtime_policy(
             "UPDATE provider_accounts SET provider_type = 'local' WHERE provider_id = ?",
             ("nvidia-policy-type-corrupted",),
         )
+        # Los transportes vienen habilitados por defecto. Para verificar que el providerType
+        # spoofeado no evade la policy se apaga el transporte remoto: la familia nvidia_nim se fuerza
+        # a kind 'api', así que debe seguir denegada aunque el registro figure como 'local'.
+        RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", False)
 
     blocked = client.post(
         "/api/v1/model-gateway/providers/nvidia-policy-type-corrupted/embeddings",

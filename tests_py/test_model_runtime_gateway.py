@@ -3763,6 +3763,10 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "codex_cli")
+    # Los transportes vienen habilitados por defecto; este tramo verifica el fail-closed, así que se
+    # apaga runtime.cli.enabled explícitamente antes de exigir el 403.
+    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        RuntimeConfigRepository(connection).set_runtime_setting("runtime.cli.enabled", False)
 
     disabled = client.post(
         "/api/v1/model-gateway/route/execute",

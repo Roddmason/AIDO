@@ -81,7 +81,10 @@ from local_control_center.shared.time import iso_after_seconds, utc_now
 from local_control_center.team_scheduler.scheduler import MODES, RISKS, schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import SIMILARITY_ACTIONS, ThreadMemoryService
-from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
+from local_control_center.workspaces_projects.git_worktrees import (
+    capture_git_diff,
+    commit_workspace_changes,
+)
 from local_control_center.workspaces_projects.repository import (
     WorkspaceConflictError,
     WorkspaceIsolationError,
@@ -6336,6 +6339,23 @@ class ProductLoopCoordinator:
                     resource_learning,
                 )
             return blocked_result
+        if workspace["isolationType"] == "git_worktree" and review.get("changedFiles"):
+            # El trabajo capturado como evidencia se persiste como commit real en la rama de la HU,
+            # para que el aterrizaje (merge/PR) tenga commits y no solo un patch. Best-effort: si el
+            # commit falla, el loop continúa con la evidencia ya capturada como hasta ahora.
+            try:
+                commit_result = commit_workspace_changes(
+                    workspace_path=Path(workspace["path"]),
+                    message=f"AIDO product loop iteration: {task_id}",
+                    connection=self.connection,
+                    root=effective_root,
+                    project_id=project_id,
+                    workspace_id=workspace["id"],
+                )
+            except Exception as error:
+                # Señal auxiliar: un fallo de commit nunca debe tumbar el loop; se registra y sigue.
+                commit_result = {"status": "commit_failed", "reason": redact_secrets(str(error))}
+            review = {**review, "commit": commit_result}
         run.runtime_status = runtime_status
         run.evidence_ids = evidence_ids
         run.review = review

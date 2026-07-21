@@ -24,6 +24,20 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 
+def stable_task_suffix(thread_id: str | None, loop_id: str) -> str:
+    """Sufijo estable por hilo para nombrar workspace/rama/task del loop.
+
+    Deriva del ``thread_id`` para que TODOS los turnos del mismo hilo compartan una identidad
+    —una rama estable reutilizada, no una ``codex/product-*-<hash>`` por mensaje— y cae al
+    ``loop_id`` cuando no hay hilo. Es determinista y seguro como segmento de rama git (solo
+    caracteres alfanuméricos, hasta 12). ``cost_performance`` reusa este mismo helper para
+    correlacionar costo por hilo con el mismo esquema.
+    """
+    source = str(thread_id or loop_id or "")
+    normalized = "".join(char for char in source.lower() if char.isalnum())
+    return normalized[-12:] or "workspace"
+
+
 def row_to_product_loop(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``product_loops`` al dict camelCase del contrato."""
     return {

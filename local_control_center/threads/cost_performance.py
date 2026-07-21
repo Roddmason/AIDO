@@ -23,7 +23,10 @@ from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.usage_ledger import UsageLedger
-from local_control_center.product_loop.repository import ProductLoopRepository
+from local_control_center.product_loop.repository import (
+    ProductLoopRepository,
+    stable_task_suffix,
+)
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.team_scheduler.scheduler import MODES
 
@@ -33,19 +36,22 @@ DEVELOPER_ROLE = "developer"
 DEFAULT_TEAM_MODE = "balanced"
 
 
-def _task_prefixes_for_loop(loop_id: str) -> list[str]:
-    """Deriva los prefijos de ``task_id`` que el coordinator asigna a un ``loopId``.
-
-    Espeja ``ProductLoopCoordinator``: la ejecución del developer usa ``product-loop-<12>`` (y subtareas
-    como ``.review_diff`` que comparten ese prefijo), el product owner ``product-owner-<12>`` y el research
-    ``product-loop-research-<12>``. El slice de 12 caracteres se toma del id sin el prefijo ``product-loop-``.
-    """
-    derived = loop_id.replace("product-loop-", "")[:12]
+def _task_prefixes_for_suffix(suffix: str) -> list[str]:
+    """Prefijos de ``task_id`` del coordinator para un sufijo dado (developer/product-owner/research)."""
     return [
-        f"product-loop-{derived}",
-        f"product-owner-{derived}",
-        f"product-loop-research-{derived}",
+        f"product-loop-{suffix}",
+        f"product-owner-{suffix}",
+        f"product-loop-research-{suffix}",
     ]
+
+
+def _task_prefixes_for_loop(loop_id: str) -> list[str]:
+    """Esquema legacy por ``loopId``: sufijo = ``loop_id`` sin el prefijo, primeros 12 caracteres.
+
+    Se conserva para correlacionar el costo de turnos anteriores al esquema estable por hilo
+    (``stable_task_suffix``); el desarrollo actual usa un único sufijo por hilo.
+    """
+    return _task_prefixes_for_suffix(loop_id.replace("product-loop-", "")[:12])
 
 
 class ThreadCostPerformanceService:
@@ -68,7 +74,7 @@ class ThreadCostPerformanceService:
         """
         thread = self.threads.get_thread(thread_id)
         loop_ids = self._loop_ids(thread_id)
-        prefixes = self._task_prefixes(loop_ids)
+        prefixes = self._task_prefixes(thread_id, loop_ids)
         usage_rows = self.usage.list_usage_for_task_prefixes(prefixes)
         decisions = self._routing_decisions(prefixes)
         model_chosen, reason, cheaper = self._routing_view(decisions)
@@ -97,8 +103,13 @@ class ThreadCostPerformanceService:
                 ordered.append(loop_id)
         return ordered
 
-    def _task_prefixes(self, loop_ids: list[str]) -> list[str]:
+    def _task_prefixes(self, thread_id: str, loop_ids: list[str]) -> list[str]:
         prefixes: list[str] = []
+        # Esquema estable actual: una identidad por hilo compartida por todos sus turnos.
+        for prefix in _task_prefixes_for_suffix(stable_task_suffix(thread_id, "")):
+            if prefix not in prefixes:
+                prefixes.append(prefix)
+        # Esquema legacy por loop: correlaciona turnos previos al sufijo estable por hilo.
         for loop_id in loop_ids:
             for prefix in _task_prefixes_for_loop(loop_id):
                 if prefix not in prefixes:

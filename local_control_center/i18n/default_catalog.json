@@ -9591,6 +9591,10 @@
       "en": "Security",
       "es": "Seguridad"
     },
+    "app.settings.section.git": {
+      "en": "Git flow",
+      "es": "Flujo Git"
+    },
     "app.settings.section.research": {
       "en": "Research",
       "es": "Investigación"
@@ -10727,6 +10731,10 @@
       "en": "Project-level overrides of the security posture.",
       "es": "Overrides a nivel de proyecto de la postura de seguridad."
     },
+    "app.settings.intro.git": {
+      "en": "Base branch and how finished work lands: direct push, auto PR, or manual PR.",
+      "es": "Rama base y cómo aterriza el trabajo terminado: push directo, PR automático o PR manual."
+    },
     "app.settings.intro.internet": {
       "en": "Web access policy for this project.",
       "es": "Política de acceso web para este proyecto."
@@ -10747,9 +10755,13 @@
       "en": "Gitleaks scan enforced",
       "es": "Escaneo gitleaks obligatorio"
     },
-    "app.settings.security.branchPolicy": {
-      "en": "Branch policy",
-      "es": "Política de ramas"
+    "app.settings.git.baseBranch": {
+      "en": "Base branch",
+      "es": "Rama base"
+    },
+    "app.settings.git.integrationMode": {
+      "en": "Integration mode",
+      "es": "Modo de integración"
     },
     "app.settings.security.shellProfile": {
       "en": "Shell permission profile",
@@ -10835,13 +10847,17 @@
       "en": "Default runtime mode",
       "es": "Modo de runtime por defecto"
     },
-    "app.settings.enum.branch.featureBranch": {
-      "en": "Feature branch first",
-      "es": "Primero rama feature"
+    "app.settings.enum.integrationMode.directPush": {
+      "en": "Direct push to dev",
+      "es": "Push directo a dev"
     },
-    "app.settings.enum.branch.devDirect": {
-      "en": "Commit directly to dev",
-      "es": "Commit directo a dev"
+    "app.settings.enum.integrationMode.autoPr": {
+      "en": "Auto PR (TL approves & merges)",
+      "es": "PR automático (el LT aprueba y mergea)"
+    },
+    "app.settings.enum.integrationMode.manualPr": {
+      "en": "Manual PR (human approves)",
+      "es": "PR manual (aprueba un humano)"
     },
     "app.settings.enum.shell.plan": {
       "en": "Plan (read-only)",

@@ -199,15 +199,6 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.security.gitleaksEnforced",
     ),
     SettingDescriptor(
-        key="security.branch.policy",
-        section="security",
-        project_section="security",
-        type="enum",
-        default="feature_branch",
-        enum=("feature_branch", "dev_direct"),
-        label_key="app.settings.security.branchPolicy",
-    ),
-    SettingDescriptor(
         key="security.shell.profile",
         section="security",
         project_section="security",
@@ -257,6 +248,23 @@ REGISTRY: list[SettingDescriptor] = [
         type="string_list",
         default=[],
         label_key="app.settings.quality.gateCommands",
+    ),
+    SettingDescriptor(
+        key="project.git.baseBranch",
+        section="git",
+        project_section="git",
+        type="string",
+        default="dev",
+        label_key="app.settings.git.baseBranch",
+    ),
+    SettingDescriptor(
+        key="project.git.integrationMode",
+        section="git",
+        project_section="git",
+        type="enum",
+        default="manual_pr",
+        enum=("direct_push", "auto_pr", "manual_pr"),
+        label_key="app.settings.git.integrationMode",
     ),
 ]
 

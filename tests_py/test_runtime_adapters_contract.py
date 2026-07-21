@@ -458,10 +458,7 @@ def test_credentialed_ollama_adapter_fails_closed_on_chat_redirect(
 
     assert result.status == "unavailable"
     assert [item["method"] for item in state["originRequests"]] == ["GET", "POST"]
-    assert all(
-        item["authorization"] == "Bearer origin-only-ollama-token"
-        for item in state["originRequests"]
-    )
+    assert all(item["authorization"] == "Bearer origin-only-ollama-token" for item in state["originRequests"])
     assert state["targetRequests"] == []
 
 
@@ -572,10 +569,7 @@ def test_anthropic_adapter_fails_closed_on_health_and_chat_redirects(tmp_path: P
 
     assert health["status"] == "unavailable"
     assert result.status == "unavailable"
-    assert all(
-        item["xApiKey"] == "origin-only-anthropic-token"
-        for item in state["originRequests"]
-    )
+    assert all(item["xApiKey"] == "origin-only-anthropic-token" for item in state["originRequests"])
     assert state["targetRequests"] == []
 
 

@@ -377,7 +377,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             discovery_repository().create_product_decision(
                 {
                     "projectId": project_id,
-                    "initiativeId": loop.get("initiativeId") or (briefs[0]["initiativeId"] if briefs else None),
+                    "initiativeId": loop.get("initiativeId")
+                    or (briefs[0]["initiativeId"] if briefs else None),
                     "briefId": briefs[0]["id"] if briefs else None,
                     "title": "Approve product backlog",
                     "status": "accepted",

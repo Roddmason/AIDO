@@ -496,12 +496,16 @@ class N8nIntegrationService:
         )
         return repo.get_thread(thread["id"])
 
-    def _add_message(self, *, project_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _add_message(
+        self, *, project_id: str, payload: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         thread_id = required_text(
             payload.get("threadId") or payload.get("thread_id"),
             "Thread id is required.",
         )
-        content = required_text(payload.get("content") or payload.get("message"), "Message content is required.")
+        content = required_text(
+            payload.get("content") or payload.get("message"), "Message content is required."
+        )
         repo = ThreadsRepository(self.connection)
         thread = repo.get_thread(thread_id)
         if thread["projectId"] != project_id:
@@ -523,7 +527,9 @@ class N8nIntegrationService:
         )
         return repo.get_thread(thread_id), message
 
-    def _get_status(self, *, project_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    def _get_status(
+        self, *, project_id: str, payload: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         thread_id = optional_text(payload.get("threadId") or payload.get("thread_id"))
         if not thread_id:
             self.events.record_audit(
@@ -557,6 +563,7 @@ class N8nIntegrationService:
             "eventCount": len(events),
             "updatedAt": thread["updatedAt"],
         }
+
 
 def validate_event_allowlist(values: list[str]) -> list[str]:
     """Normaliza y valida la allowlist de eventos n8n."""

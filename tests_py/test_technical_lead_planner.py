@@ -150,9 +150,7 @@ def test_frontend_backend_story_generates_frontend_backend_and_qa_tasks() -> Non
     qa_task = next(task for task in tasks if task["role"] == "qa_engineer")
     implementation_task_ids = {task["id"] for task in tasks if task["role"] != "qa_engineer"}
     qa_dependencies = {
-        dep["dependsOnTaskId"]
-        for dep in result["task_dependencies"]
-        if dep["taskId"] == qa_task["id"]
+        dep["dependsOnTaskId"] for dep in result["task_dependencies"] if dep["taskId"] == qa_task["id"]
     }
     assert qa_dependencies == implementation_task_ids
     assert result["branch_worktree_plan"]["branchName"] == "codex/checkout"
@@ -253,13 +251,20 @@ def test_security_risk_activates_security_and_pentester_tasks() -> None:
     assert {"security_engineer", "pentester"} <= roles
     security_ids = {gate["id"] for gate in result["quality_gates"]}
     assert {"security_scan", "threat_model", "pentest"} <= security_ids
-    assert any(handoff["fromRole"] == "security_engineer" and handoff["toRole"] == "pentester" for handoff in result["assignment_handoffs"])
+    assert any(
+        handoff["fromRole"] == "security_engineer" and handoff["toRole"] == "pentester"
+        for handoff in result["assignment_handoffs"]
+    )
 
 
 def test_pentest_is_created_only_for_high_risk_or_exposed_surface() -> None:
     security_only = TechnicalLeadPlanner().plan(
         _base_payload(
-            productBrief={"id": "brief-token", "title": "Rotate tokens", "scope": "Internal credential rotation"},
+            productBrief={
+                "id": "brief-token",
+                "title": "Rotate tokens",
+                "scope": "Internal credential rotation",
+            },
             userStories=[
                 {
                     "id": "story-token-rotation",

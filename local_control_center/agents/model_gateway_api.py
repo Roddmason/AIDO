@@ -388,11 +388,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     ) -> dict[str, Any]:
         """Require an enabled endpoint-scoped operator/discovery model manifest."""
         manifest = next(
-            (
-                item
-                for item in providers().list_models(provider_id)
-                if str(item.get("model") or "") == model
-            ),
+            (item for item in providers().list_models(provider_id) if str(item.get("model") or "") == model),
             None,
         )
         if manifest is None:
@@ -606,10 +602,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=409, detail=detail) from error
         _validate_real_discovery_credentials(account)
         try:
-            discovered = [
-                item.model_dump(by_alias=True)
-                for item in provider.list_models()
-            ]
+            discovered = [item.model_dump(by_alias=True) for item in provider.list_models()]
         except NvidiaNimCapabilityError as error:
             status_code = 502 if error.code.startswith("provider_") else 409
             raise HTTPException(status_code=status_code, detail=error.code) from error

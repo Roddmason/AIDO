@@ -76,6 +76,7 @@ def validate_provider_base_url(
                     )
     return candidate.rstrip("/")
 
+
 PROVIDER_HEALTH_RESET_FIELDS = {
     "providerType",
     "provider_type",
@@ -297,17 +298,13 @@ class ProviderAccountStore:
             and deployment_mode == "hosted_trial"
             and (terms_mode != "evaluation" or pricing_mode != "unknown")
         ):
-            raise ValueError(
-                "NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown."
-            )
+            raise ValueError("NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown.")
         if (
             provider_family == "gemini"
             and pricing_mode == "free"
             and metadata.get("freeTierDeclaredByOperator") is not True
         ):
-            raise ValueError(
-                "Gemini pricingMode free requires metadata.freeTierDeclaredByOperator=true."
-            )
+            raise ValueError("Gemini pricingMode free requires metadata.freeTierDeclaredByOperator=true.")
         now = utc_now()
         self.connection.execute(
             """

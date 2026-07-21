@@ -116,9 +116,7 @@ def test_n8n_configure_rejects_events_outside_external_automation_contract(
     assert response.status_code == 422
 
 
-def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(tmp_path: Path, monkeypatch) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     target = _target(client, headers, project["id"])
@@ -366,9 +364,7 @@ def test_n8n_inbound_webhook_creates_thread_with_scoped_token(tmp_path: Path, mo
     assert [message["content"] for message in messages] == ["Create a QA checklist."]
 
 
-def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(tmp_path: Path, monkeypatch) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     _target(client, headers, project["id"])

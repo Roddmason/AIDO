@@ -133,9 +133,7 @@ class RuntimeConfigRepository:
             raise ValueError("Project runtime settings require scope_id.")
         if scope == "general" and scope_id is not None:
             raise ValueError("General runtime settings must not include scope_id.")
-        SettingsRepository(self.connection).set_value(
-            key, scope, scope_id, validate_value(descriptor, value)
-        )
+        SettingsRepository(self.connection).set_value(key, scope, scope_id, validate_value(descriptor, value))
 
     def runtime_execution_policy(self, *, project_id: str | None = None) -> dict[str, Any]:
         """Resolve global and project runtime policy from SQLite settings.

@@ -201,9 +201,27 @@ def architect_request(
 
 def test_architect_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
     ]
 
     readiness = architect_agent_readiness(statuses, preferred_runtime="openrouter")

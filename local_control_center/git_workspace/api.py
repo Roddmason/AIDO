@@ -57,9 +57,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/init", response_model=GitInitResponse)
-    async def init_git_repository(
-        project_id: str, body: GitInitRequest, request: Request
-    ) -> dict[str, Any]:
+    async def init_git_repository(project_id: str, body: GitInitRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
             return service().init_repository(project_id, default_branch=body.default_branch)
@@ -67,9 +65,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/remotes", response_model=GitRemoteMutationResponse)
-    async def add_git_remote(
-        project_id: str, body: GitRemoteAddRequest, request: Request
-    ) -> dict[str, Any]:
+    async def add_git_remote(project_id: str, body: GitRemoteAddRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
             return service().add_remote(project_id, name=body.name, url=body.url)

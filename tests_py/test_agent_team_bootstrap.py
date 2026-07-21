@@ -107,8 +107,7 @@ def test_phase36_materializes_team_profiles_and_member_defaults(tmp_path: Path) 
         assert {"team_profiles", "team_member_defaults", "agent_handoffs"} <= tables
 
         profile_roles = {
-            row["role"]
-            for row in runtime.connection.execute("SELECT role FROM team_profiles").fetchall()
+            row["role"] for row in runtime.connection.execute("SELECT role FROM team_profiles").fetchall()
         }
         default_roles = {
             row["role"]

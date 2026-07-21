@@ -398,23 +398,15 @@ def test_thread_remediation_presentation_has_specific_copy_for_product_loop_bloc
 def test_resource_manager_privacy_remediation_keeps_distinct_settings_repairs() -> None:
     presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
     catalog = json.loads(
-        (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(encoding="utf-8")
     )["translations"]
 
-    assert "settingsLabelKey: 'app.threads.remediation.action.configureLocalRuntime'" in (
-        presentation_source
-    )
+    assert "settingsLabelKey: 'app.threads.remediation.action.configureLocalRuntime'" in (presentation_source)
     assert "function actionDedupeKey(" in presentation_source
     assert "return `${record.actionType}:${section}`;" in presentation_source
 
-    privacy_title = catalog[
-        "app.threads.remediation.blocker.resource_manager_privacy_blocked.title"
-    ]
-    local_runtime_label = catalog[
-        "app.threads.remediation.action.configureLocalRuntime"
-    ]
+    privacy_title = catalog["app.threads.remediation.blocker.resource_manager_privacy_blocked.title"]
+    local_runtime_label = catalog["app.threads.remediation.action.configureLocalRuntime"]
     assert privacy_title == {
         "en": "Project privacy policy requires a local AI resource",
         "es": "La política de privacidad del proyecto exige un recurso de IA local",

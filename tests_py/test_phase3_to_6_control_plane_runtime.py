@@ -827,9 +827,7 @@ def test_tool_execution_can_force_complete_stdout_into_an_artifact(
         )["toolCall"]
 
         execution_result = tool_call["payload"]["executionResult"]
-        artifact = EvidenceRepository(connection).get_artifact_by_id(
-            execution_result["stdoutArtifactId"]
-        )
+        artifact = EvidenceRepository(connection).get_artifact_by_id(execution_result["stdoutArtifactId"])
 
     assert execution_calls[0]["truncate_output"] is False
     assert "stdout" not in execution_result
@@ -843,11 +841,7 @@ def test_restricted_subprocess_complete_capture_is_bounded_and_reports_overflow(
         argv=[
             sys.executable,
             "-c",
-            (
-                "import sys; "
-                f"sys.stdout.write('o' * {emitted_bytes}); "
-                f"sys.stderr.write('e' * {emitted_bytes})"
-            ),
+            (f"import sys; sys.stdout.write('o' * {emitted_bytes}); sys.stderr.write('e' * {emitted_bytes})"),
         ],
         cwd=str(tmp_path),
         workspace_path=str(tmp_path),
@@ -973,7 +967,11 @@ def test_generic_tool_call_cannot_claim_product_owner_internal_runtime_operation
             tool_call={
                 "tool": "shell",
                 "command": "python -c write-marker",
-                "argv": [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('bad')"],
+                "argv": [
+                    sys.executable,
+                    "-c",
+                    f"from pathlib import Path; Path({str(marker)!r}).write_text('bad')",
+                ],
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -1053,9 +1051,7 @@ def test_generic_agent_run_cannot_use_product_owner_profile_model_adapters(tmp_p
 
     assert result["decision"]["decision"] == "deny"
     assert result["toolCall"]["status"] == "denied"
-    assert "product_owner_generic_tool_call_denied" in result["decision"]["payload"][
-        "categories"
-    ]
+    assert "product_owner_generic_tool_call_denied" in result["decision"]["payload"]["categories"]
     assert adapter_calls == []
 
 
@@ -1065,9 +1061,7 @@ def test_product_owner_runtime_must_match_persisted_resource_decision(
 ) -> None:
     execution_calls: list[dict[str, object]] = []
     controlled_local_app_data = tmp_path / "local-app-data"
-    controlled_codex_home = (
-        controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "binding-test"
-    )
+    controlled_codex_home = controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "binding-test"
     controlled_codex_home.mkdir(parents=True)
     monkeypatch.setenv("LOCALAPPDATA", str(controlled_local_app_data))
     trusted_environment = {"CODEX_HOME": str(controlled_codex_home)}
@@ -1329,25 +1323,29 @@ def test_product_owner_runtime_must_match_persisted_resource_decision(
         )
 
     assert missing_decision_result["decision"]["decision"] == "deny"
-    assert "product_owner_resource_decision_denied" in missing_decision_result["decision"]["payload"][
-        "categories"
-    ]
+    assert (
+        "product_owner_resource_decision_denied"
+        in missing_decision_result["decision"]["payload"]["categories"]
+    )
     assert missing_environment_result["decision"]["decision"] == "deny"
-    assert "product_owner_runtime_environment_denied" in missing_environment_result["decision"][
-        "payload"
-    ]["categories"]
+    assert (
+        "product_owner_runtime_environment_denied"
+        in missing_environment_result["decision"]["payload"]["categories"]
+    )
     assert untrusted_environment_result["decision"]["decision"] == "deny"
-    assert "product_owner_runtime_environment_denied" in untrusted_environment_result["decision"][
-        "payload"
-    ]["categories"]
+    assert (
+        "product_owner_runtime_environment_denied"
+        in untrusted_environment_result["decision"]["payload"]["categories"]
+    )
     assert result["decision"]["decision"] == "deny"
     assert "product_owner_resource_decision_denied" in result["decision"]["payload"]["categories"]
     assert result["toolCall"]["status"] == "denied"
     assert network_capability_result["decision"]["decision"] == "deny"
     assert secret_capability_result["decision"]["decision"] == "deny"
-    assert "product_owner_capability_boundary_denied" in network_capability_result["decision"][
-        "payload"
-    ]["categories"]
+    assert (
+        "product_owner_capability_boundary_denied"
+        in network_capability_result["decision"]["payload"]["categories"]
+    )
     assert matching_result["decision"]["decision"] == "allow"
     assert matching_result["toolCall"]["status"] == "completed"
     assert missing_approval_result["decision"]["decision"] == "deny"
@@ -1365,9 +1363,7 @@ def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
     release_execution = threading.Event()
     execution_calls: list[dict[str, object]] = []
     controlled_local_app_data = tmp_path / "local-app-data"
-    controlled_codex_home = (
-        controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "atomic-test"
-    )
+    controlled_codex_home = controlled_local_app_data / "AIDO" / "product-owner-codex-homes" / "atomic-test"
     controlled_codex_home.mkdir(parents=True)
     monkeypatch.setenv("LOCALAPPDATA", str(controlled_local_app_data))
     trusted_environment = {"CODEX_HOME": str(controlled_codex_home)}
@@ -1501,9 +1497,9 @@ def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
     assert first_result["toolCall"]["status"] == "completed"
     assert second_result["decision"]["decision"] == "deny"
     assert second_result["toolCall"]["status"] == "denied"
-    assert "product_owner_resource_decision_replay_denied" in second_result["decision"]["payload"][
-        "categories"
-    ]
+    assert (
+        "product_owner_resource_decision_replay_denied" in second_result["decision"]["payload"]["categories"]
+    )
     assert routing_row is not None
     assert routing_row["usage_status"] == "completed"
     assert len(execution_calls) == 1
@@ -1617,9 +1613,7 @@ def test_tool_execution_fails_closed_when_required_stdout_capture_overflows(
         )["toolCall"]
 
         execution_result = tool_call["payload"]["executionResult"]
-        artifact = EvidenceRepository(connection).get_artifact_by_id(
-            execution_result["stdoutArtifactId"]
-        )
+        artifact = EvidenceRepository(connection).get_artifact_by_id(execution_result["stdoutArtifactId"])
 
     assert tool_call["status"] == "failed"
     assert execution_result["reason"] == "Required stdout exceeded the complete capture limit."

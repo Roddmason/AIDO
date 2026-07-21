@@ -196,12 +196,8 @@ def test_phase55_migrates_from_phase54_and_reenters_without_overwriting_executio
     with open_sqlite_connection(database) as connection:
         monkeypatch.setattr(migrations, "init_phase55_schema", lambda _connection: None)
         initialize_platform_schema(connection)
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 54"
-        ).fetchone()
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 55"
-        ).fetchone() is None
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 54").fetchone()
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 55").fetchone() is None
 
         monkeypatch.undo()
         migrations.init_phase55_schema(connection)
@@ -223,8 +219,7 @@ def test_phase55_migrates_from_phase54_and_reenters_without_overwriting_executio
         )
         migrations.init_phase55_schema(connection)
         tables = {
-            row["name"]
-            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         migration_count = connection.execute(
             "SELECT COUNT(*) AS total FROM schema_migrations WHERE version = 55"
@@ -246,10 +241,7 @@ def test_parallel_compare_overlaps_calls_and_persists_no_request_or_raw_provider
         {"nim-a": ("model-a",), "nim-b": ("model-b",)},
     )
     tracker = CallTracker()
-    adapters = {
-        provider_id: FakeChatProvider(provider_id, tracker)
-        for provider_id in ("nim-a", "nim-b")
-    }
+    adapters = {provider_id: FakeChatProvider(provider_id, tracker) for provider_id in ("nim-a", "nim-b")}
     try:
         result = AIExecutionService(
             connection,
@@ -293,10 +285,7 @@ def test_max_parallelism_one_serializes_provider_calls(tmp_path: Path) -> None:
         {"nim-a": ("model-a",), "nim-b": ("model-b",)},
     )
     tracker = CallTracker()
-    adapters = {
-        provider_id: FakeChatProvider(provider_id, tracker)
-        for provider_id in ("nim-a", "nim-b")
-    }
+    adapters = {provider_id: FakeChatProvider(provider_id, tracker) for provider_id in ("nim-a", "nim-b")}
     try:
         result = AIExecutionService(
             connection,
@@ -468,9 +457,7 @@ def test_single_provider_failure_is_terminal_and_redacted(tmp_path: Path) -> Non
     try:
         result = AIExecutionService(
             connection,
-            provider_resolver=lambda _provider_id: FakeChatProvider(
-                "nim-fail", tracker, fail=True
-            ),
+            provider_resolver=lambda _provider_id: FakeChatProvider("nim-fail", tracker, fail=True),
         ).execute(
             _plan(
                 project["id"],
@@ -602,9 +589,7 @@ def test_unknown_provider_usage_remains_null_and_unverified_in_quota_windows(
 
 def test_capability_mismatch_blocks_before_quota_or_provider_transport(tmp_path: Path) -> None:
     connection, project = _execution_context(tmp_path, {"nim-a": ("model-a",)})
-    connection.execute(
-        "UPDATE model_catalog SET api_family = 'embeddings' WHERE provider_id = 'nim-a'"
-    )
+    connection.execute("UPDATE model_catalog SET api_family = 'embeddings' WHERE provider_id = 'nim-a'")
     tracker = CallTracker()
     try:
         result = AIExecutionService(
@@ -700,9 +685,7 @@ def test_ai_execution_http_contract_is_typed_and_audit_contains_no_messages(
             "projectId": project["id"],
             "strategy": "single",
             "messages": [{"role": "user", "content": "HTTP-PROMPT-MUST-NOT-PERSIST"}],
-            "branches": [
-                {"providerId": "nim-api", "model": "model-api", "maxTokens": 64}
-            ],
+            "branches": [{"providerId": "nim-api", "model": "model-api", "maxTokens": 64}],
             "maxParallelism": 1,
             "minSuccessful": 1,
         },

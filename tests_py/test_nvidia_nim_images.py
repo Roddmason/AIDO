@@ -601,9 +601,7 @@ def test_visual_profile_deployment_mismatch_fails_before_transport(
                     if deployment_mode.startswith("self_hosted")
                     else "https://ai.api.nvidia.com/v1/genai/qwen/qwen-image"
                 ),
-                "credentialRef": "env:NVIDIA_UNUSED_VISUAL_KEY"
-                if deployment_mode == "hosted_trial"
-                else "",
+                "credentialRef": "env:NVIDIA_UNUSED_VISUAL_KEY" if deployment_mode == "hosted_trial" else "",
                 "enabled": True,
             }
         )

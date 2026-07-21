@@ -43,9 +43,7 @@ DEFAULT_SESSION_TIMEOUT_SECONDS = 900
 MAX_SESSION_TIMEOUT_SECONDS = 900
 _MAX_SESSION_LOG_BYTES = 1_000_000
 _TERMINATE_GRACE_SECONDS = 2.0
-_SUPPORTED_STREAMING_CLI_RUNTIMES = frozenset(
-    {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
-)
+_SUPPORTED_STREAMING_CLI_RUNTIMES = frozenset({"codex_cli", "claude_code_cli", "openhands", "swe_agent"})
 
 
 class ProcessOpener(Protocol):
@@ -255,7 +253,12 @@ def _run(
                 connection,
                 agent_run_id,
                 status="blocked",
-                output_payload={"cliSessionId": session_id, "status": "blocked", "reason": workspace_error, **finish},
+                output_payload={
+                    "cliSessionId": session_id,
+                    "status": "blocked",
+                    "reason": workspace_error,
+                    **finish,
+                },
             )
             return
 
@@ -290,7 +293,12 @@ def _run(
                 connection,
                 agent_run_id,
                 status="blocked",
-                output_payload={"cliSessionId": session_id, "status": "blocked", "reason": profile_error, **finish},
+                output_payload={
+                    "cliSessionId": session_id,
+                    "status": "blocked",
+                    "reason": profile_error,
+                    **finish,
+                },
             )
             return
 
@@ -326,7 +334,12 @@ def _run(
                 connection,
                 agent_run_id,
                 status="blocked",
-                output_payload={"cliSessionId": session_id, "status": "blocked", "reason": runtime_error, **finish},
+                output_payload={
+                    "cliSessionId": session_id,
+                    "status": "blocked",
+                    "reason": runtime_error,
+                    **finish,
+                },
             )
             return
 
@@ -416,7 +429,9 @@ def _run(
                 diff_summary={},
                 broker_summary=broker_summary,
             )
-            events.record_event(session_id, "failed", {"status": "blocked", "reason": reason, "blocked": True, **finish})
+            events.record_event(
+                session_id, "failed", {"status": "blocked", "reason": reason, "blocked": True, **finish}
+            )
             _update_agent_run(
                 connection,
                 agent_run_id,
@@ -578,7 +593,12 @@ def _run(
                 connection,
                 agent_run_id,
                 status="runtime_failed",
-                output_payload={"cliSessionId": session_id, "status": "runtime_failed", "reason": reason, **finish},
+                output_payload={
+                    "cliSessionId": session_id,
+                    "status": "runtime_failed",
+                    "reason": reason,
+                    **finish,
+                },
             )
         except Exception:
             pass
@@ -848,7 +868,12 @@ def _developer_agent_profile_error(profile: dict[str, Any], *, runtime: str) -> 
     if allowed_tools and "shell" not in allowed_tools and "*" not in allowed_tools:
         return "DeveloperAgent profile does not allow shell execution through ToolBroker."
     allowed_runtimes = set(profile.get("allowedRuntimes") or [])
-    if allowed_runtimes and runtime not in allowed_runtimes and "cli" not in allowed_runtimes and "*" not in allowed_runtimes:
+    if (
+        allowed_runtimes
+        and runtime not in allowed_runtimes
+        and "cli" not in allowed_runtimes
+        and "*" not in allowed_runtimes
+    ):
         return f"DeveloperAgent profile does not allow runtime {runtime}."
     return None
 
@@ -891,18 +916,14 @@ def _runtime_readiness_error(
     return None
 
 
-def _selected_runtime_account(
-    repository: RuntimeConfigRepository, runtime: str
-) -> dict[str, Any] | None:
+def _selected_runtime_account(repository: RuntimeConfigRepository, runtime: str) -> dict[str, Any] | None:
     accounts = [account for account in repository.list_runtime_accounts(runtime) if account.get("enabled")]
     if not accounts:
         return None
     return next((account for account in accounts if account.get("isDefault")), accounts[0])
 
 
-def _runtime_capability_enabled(
-    connection: sqlite3.Connection, *, runtime: str, capability: str
-) -> bool:
+def _runtime_capability_enabled(connection: sqlite3.Connection, *, runtime: str, capability: str) -> bool:
     row = connection.execute(
         """
         SELECT enabled FROM runtime_capabilities
@@ -977,7 +998,9 @@ def _registered_workspace_error(
 
 def _registered_workspace_root(connection: sqlite3.Connection, *, workspace_id: str) -> Path | None:
     try:
-        row = connection.execute("SELECT path, status FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        row = connection.execute(
+            "SELECT path, status FROM workspaces WHERE id = ?", (workspace_id,)
+        ).fetchone()
     except sqlite3.Error:
         return None
     if row is None or row["status"] == "archived":
@@ -1220,7 +1243,11 @@ def _create_evidence_package(
         tool_calls=[broker_summary] if broker_summary else [],
         hashes={},
         evidence_source="cli_session_stream",
-        qa_verdict="passed" if status == "completed" else "failed" if status in {"runtime_failed", "timed_out"} else "blocked",
+        qa_verdict="passed"
+        if status == "completed"
+        else "failed"
+        if status in {"runtime_failed", "timed_out"}
+        else "blocked",
     )
     for artifact_id in artifact_ids:
         EvidenceRepository(connection).attach_artifact_to_evidence(

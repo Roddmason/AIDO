@@ -60,8 +60,7 @@ def test_migration_creates_thread_memory_tables(tmp_path: Path) -> None:
         assert names >= MEMORY_TABLES
 
         functionality_columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(functionality_registry)").fetchall()
+            row["name"] for row in connection.execute("PRAGMA table_info(functionality_registry)").fetchall()
         }
         assert {
             "id",
@@ -158,9 +157,7 @@ def test_reindex_existing_functionality_updates_changed_fingerprint_without_id_c
 
         assert second["id"] == first["id"]
         assert second["fingerprint"] != first["fingerprint"]
-        assert [(row["id"], row["fingerprint"]) for row in rows] == [
-            (second["id"], second["fingerprint"])
-        ]
+        assert [(row["id"], row["fingerprint"]) for row in rows] == [(second["id"], second["fingerprint"])]
 
 
 def test_reindex_thread_memory_extracts_file_paths_from_artifacts_and_decisions(tmp_path: Path) -> None:

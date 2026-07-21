@@ -252,9 +252,7 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
             story["id"],
             sibling_story["id"],
         }
-        guest_criterion = next(
-            item for item in body["acceptanceCriteria"] if item["id"] == criterion["id"]
-        )
+        guest_criterion = next(item for item in body["acceptanceCriteria"] if item["id"] == criterion["id"])
         assert guest_criterion["storyId"] == story["id"]
         assert guest_criterion["criterion"] == "Guest checkout completes without an account."
         assert [item["id"] for item in body["storyDependencies"]] == [story_dependency["id"]]
@@ -611,7 +609,9 @@ def test_aido_decide_answers_questions_and_records_product_decisions(tmp_path: P
         url = f"/api/v1/projects/{project_id}/product-loop/{loop['id']}/aido-decide"
 
         assert client.post(url, json={"reason": "Use defaults."}).status_code == 403
-        response = client.post(url, json={"reason": "Use high-confidence defaults."}, headers={"X-Local-Control-Token": token})
+        response = client.post(
+            url, json={"reason": "Use high-confidence defaults."}, headers={"X-Local-Control-Token": token}
+        )
 
         assert response.status_code == 200
         body = response.json()

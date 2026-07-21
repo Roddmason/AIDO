@@ -126,7 +126,10 @@ class ThreadCoordinator:
             )
         message_metadata = self._public_message_metadata(metadata)
         effective_user_mode = str(
-            message_metadata.get("userMode") or message_metadata.get("user_mode") or user_mode or "aido_decide"
+            message_metadata.get("userMode")
+            or message_metadata.get("user_mode")
+            or user_mode
+            or "aido_decide"
         )
         # A `mode` equal to a similarity action means the operator already took the deduplication
         # decision in the new-thread intake; re-blocking here would ask the same question twice.
@@ -363,11 +366,7 @@ class ThreadCoordinator:
             )
             if defer_followup:
                 thread = current
-            elif (
-                can_resume_decision
-                and similarity_candidate_id
-                and resolution_mode != "create_new_anyway"
-            ):
+            elif can_resume_decision and similarity_candidate_id and resolution_mode != "create_new_anyway":
                 if resolution_mode not in SIMILARITY_ACTIONS:
                     raise ValueError(f"Unknown similarity action: {resolution}")
                 metadata = (
@@ -696,11 +695,11 @@ class ThreadCoordinator:
         if not isinstance(runtime_status, dict):
             runtime_status = {}
         raw_providers = runtime_status.get("providers")
-        providers = [
-            dict(provider)
-            for provider in raw_providers
-            if isinstance(provider, dict)
-        ] if isinstance(raw_providers, list) else []
+        providers = (
+            [dict(provider) for provider in raw_providers if isinstance(provider, dict)]
+            if isinstance(raw_providers, list)
+            else []
+        )
         selected_provider = next(
             (
                 provider

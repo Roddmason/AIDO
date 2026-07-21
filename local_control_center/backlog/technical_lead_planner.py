@@ -349,21 +349,28 @@ def _criteria_for_story(story: dict[str, Any], criteria: list[dict[str, Any]]) -
     ]
 
 
-def _role_profile(role: str, member: dict[str, Any] | None, *, scope: set[str], risk_level: str) -> dict[str, Any]:
+def _role_profile(
+    role: str, member: dict[str, Any] | None, *, scope: set[str], risk_level: str
+) -> dict[str, Any]:
     mode = "critical" if risk_level in HIGH_RISKS else "balanced"
     base = resolve_role(role, scope=scope, risk=risk_level, mode=mode) if role in ALL_ROLES else {}
     member = member or {}
-    output_schema = member.get("outputSchema") or member.get("outputArtifactSchema") or base.get(
-        "outputArtifactSchema"
+    output_schema = (
+        member.get("outputSchema") or member.get("outputArtifactSchema") or base.get("outputArtifactSchema")
     )
     reviewer_policy = member.get("reviewerPolicy") or base.get("reviewerPolicy") or {}
     runtime_preference = (
-        member.get("runtimePreference") or member.get("allowedProviders") or base.get("runtimePreference") or []
+        member.get("runtimePreference")
+        or member.get("allowedProviders")
+        or base.get("runtimePreference")
+        or []
     )
     if not runtime_preference and base.get("runtime"):
         runtime_preference = [base["runtime"]]
     return {
-        "requiredTools": list(member.get("allowedTools") or member.get("toolsAllowed") or base.get("tools") or []),
+        "requiredTools": list(
+            member.get("allowedTools") or member.get("toolsAllowed") or base.get("tools") or []
+        ),
         "runtimePreference": list(runtime_preference),
         "outputSchema": output_schema or _default_output_schema(role),
         "reviewerRole": reviewer_policy.get("reviewerRole") or base.get("reviewer") or "technical_lead",
@@ -386,7 +393,9 @@ def _default_output_schema(role: str) -> dict[str, Any]:
     }
 
 
-def _story_scope(story: dict[str, Any], product_brief: dict[str, Any], assessment: dict[str, Any]) -> set[str]:
+def _story_scope(
+    story: dict[str, Any], product_brief: dict[str, Any], assessment: dict[str, Any]
+) -> set[str]:
     text = _haystack(story, product_brief, assessment.get("summary"), assessment.get("changedFiles"))
     scope: set[str] = set()
     if any(hint in text for hint in FRONTEND_HINTS):
@@ -429,8 +438,10 @@ def _pentest_active(
     assessment: dict[str, Any],
 ) -> bool:
     text = _haystack(story, criteria, product_brief, intent, risk_context, assessment)
-    return risk_context["level"] in HIGH_RISKS or "pentest" in text or any(
-        hint in text for hint in EXPOSED_SURFACE_HINTS
+    return (
+        risk_context["level"] in HIGH_RISKS
+        or "pentest" in text
+        or any(hint in text for hint in EXPOSED_SURFACE_HINTS)
     )
 
 
@@ -515,12 +526,18 @@ def _roles_for_story(
     if "data" in scope:
         roles.append("data_engineer")
     available_implementation_roles = [
-        role for role in roles if role in IMPLEMENTATION_ROLES and (not available_roles or role in available_roles)
+        role
+        for role in roles
+        if role in IMPLEMENTATION_ROLES and (not available_roles or role in available_roles)
     ]
     if not available_implementation_roles:
-        fallback = "backend_engineer" if "backend_engineer" in available_roles else next(
-            (role for role in ROLE_ORDER if role in available_roles and role in IMPLEMENTATION_ROLES),
-            "backend_engineer",
+        fallback = (
+            "backend_engineer"
+            if "backend_engineer" in available_roles
+            else next(
+                (role for role in ROLE_ORDER if role in available_roles and role in IMPLEMENTATION_ROLES),
+                "backend_engineer",
+            )
         )
         roles.append(fallback)
     if _technical_lead_active(
@@ -583,7 +600,9 @@ def _task_title(role: str, story: dict[str, Any]) -> str:
     return f"{label}: {story['title']}"
 
 
-def _branch_name(payload: dict[str, Any], product_brief: dict[str, Any], stories: list[dict[str, Any]]) -> str:
+def _branch_name(
+    payload: dict[str, Any], product_brief: dict[str, Any], stories: list[dict[str, Any]]
+) -> str:
     intent = payload.get("intentClassification") or {}
     suggested = str(intent.get("suggestedBranchName") or "").strip()
     if suggested:
@@ -631,7 +650,9 @@ def _task_dependencies(tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
                 {"taskId": task["id"], "dependsOnTaskId": technical_lead["id"]} for task in implementation
             )
         if architect:
-            dependencies.extend({"taskId": task["id"], "dependsOnTaskId": architect["id"]} for task in implementation)
+            dependencies.extend(
+                {"taskId": task["id"], "dependsOnTaskId": architect["id"]} for task in implementation
+            )
         if security:
             dependencies.extend(
                 {"taskId": security["id"], "dependsOnTaskId": task["id"]} for task in implementation
@@ -639,7 +660,9 @@ def _task_dependencies(tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
         if pentester and security:
             dependencies.append({"taskId": pentester["id"], "dependsOnTaskId": security["id"]})
         if devops:
-            dependencies.extend({"taskId": devops["id"], "dependsOnTaskId": task["id"]} for task in implementation)
+            dependencies.extend(
+                {"taskId": devops["id"], "dependsOnTaskId": task["id"]} for task in implementation
+            )
         if qa:
             upstream = [*implementation]
             if security:
@@ -684,7 +707,9 @@ def _handoff_record(
     }
 
 
-def _assignment_handoffs(tasks: list[dict[str, Any]], dependencies: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _assignment_handoffs(
+    tasks: list[dict[str, Any]], dependencies: list[dict[str, str]]
+) -> list[dict[str, Any]]:
     by_id = {task["id"]: task for task in tasks}
     handoffs: list[dict[str, Any]] = []
     for dependency in dependencies:
@@ -734,7 +759,9 @@ def _assignment_handoffs(tasks: list[dict[str, Any]], dependencies: list[dict[st
             if task["role"] not in {"qa_engineer", "security_engineer"}:
                 continue
             reviewer_role = task.get("reviewerRole") or "technical_lead"
-            reviewer_task = next((candidate for candidate in story_tasks if candidate["role"] == reviewer_role), None)
+            reviewer_task = next(
+                (candidate for candidate in story_tasks if candidate["role"] == reviewer_role), None
+            )
             handoffs.append(
                 _handoff_record(
                     from_task_id=task["id"],
@@ -843,7 +870,9 @@ class TechnicalLeadPlanner:
                 available_roles=available_roles,
             )
             for role in roles:
-                profile = _role_profile(role, team_by_role.get(role), scope=story_scope, risk_level=risk_context["level"])
+                profile = _role_profile(
+                    role, team_by_role.get(role), scope=story_scope, risk_level=risk_context["level"]
+                )
                 task_id = f"tlp-{_slug(str(story['id']))}-{_slug(role)}"
                 tasks.append(
                     {

@@ -25,6 +25,7 @@ GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/opena
 GEMINI_CONTEXT_WINDOW = 1_048_576
 GEMINI_MAX_OUTPUT_TOKENS = 65_536
 
+
 class GeminiProvider(OpenAICompatibleProvider):
     """Proveedor Gemini con identidad, credenciales y metadatos propios."""
 

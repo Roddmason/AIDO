@@ -40,9 +40,7 @@ class OpenRouterProvider(OpenAICompatibleProvider):
             provider_id=provider_id,
             base_url=resolved_base_url,
             credential_ref=(
-                credential_ref
-                if credential_ref is not None
-                else None if is_legacy_provider else ""
+                credential_ref if credential_ref is not None else None if is_legacy_provider else ""
             ),
             use_legacy_fallbacks=is_legacy_provider,
         )

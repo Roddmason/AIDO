@@ -232,8 +232,12 @@ def _intent_scores(prompt: str, file_signals: Mapping[str, bool]) -> dict[str, i
     return scores
 
 
-def _risk_for(intents: Sequence[str], prompt: str, file_signals: Mapping[str, bool], git_state: Mapping[str, Any]) -> str:
-    if "security" in intents and any(_contains_keyword(prompt, keyword) for keyword in SECURITY_CRITICAL_KEYWORDS):
+def _risk_for(
+    intents: Sequence[str], prompt: str, file_signals: Mapping[str, bool], git_state: Mapping[str, Any]
+) -> str:
+    if "security" in intents and any(
+        _contains_keyword(prompt, keyword) for keyword in SECURITY_CRITICAL_KEYWORDS
+    ):
         return "critical"
     if "migration" in intents or "architecture" in intents:
         return "high"
@@ -294,7 +298,9 @@ def _gates_for(intents: Sequence[str], file_signals: Mapping[str, bool], risk: s
     return gates
 
 
-def _confidence(scores: Mapping[str, int], intents: Sequence[str], prompt: str, runtime_available: bool | None) -> float:
+def _confidence(
+    scores: Mapping[str, int], intents: Sequence[str], prompt: str, runtime_available: bool | None
+) -> float:
     if runtime_available is False:
         return 0.95
     if not prompt:

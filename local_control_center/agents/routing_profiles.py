@@ -348,9 +348,7 @@ class RoutingProfileStore:
                 now,
             ),
         )
-        row = self.connection.execute(
-            "SELECT * FROM provider_limits WHERE id = ?", (limit_id,)
-        ).fetchone()
+        row = self.connection.execute("SELECT * FROM provider_limits WHERE id = ?", (limit_id,)).fetchone()
         return row_to_provider_limit(row)
 
     def patch_provider_limit(self, limit_id: str, body: dict[str, Any]) -> dict[str, Any]:

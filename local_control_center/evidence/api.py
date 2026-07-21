@@ -90,9 +90,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail="Artifact file is missing.")
         if generated_image_only:
             try:
-                content, detected_media_type, _suffix, _width, _height = read_validated_image(
-                    artifact_path
-                )
+                content, detected_media_type, _suffix, _width, _height = read_validated_image(artifact_path)
             except ImageValidationError as error:
                 raise HTTPException(status_code=409, detail=error.code) from error
         else:

@@ -281,16 +281,10 @@ class QuotaManager:
             ).fetchone()
             usage[window.kind] = {
                 "requests": int(row["committed_requests"] + row["reserved_requests"]) if row else 0,
-                "tokens": int(
-                    row["committed_tokens"] + row["unverified_tokens"] + row["reserved_tokens"]
-                )
+                "tokens": int(row["committed_tokens"] + row["unverified_tokens"] + row["reserved_tokens"])
                 if row
                 else 0,
-                "cost": float(
-                    row["known_cost_usd"]
-                    + row["unverified_cost_usd"]
-                    + row["reserved_cost_usd"]
-                )
+                "cost": float(row["known_cost_usd"] + row["unverified_cost_usd"] + row["reserved_cost_usd"])
                 if row
                 else 0.0,
             }
@@ -340,8 +334,7 @@ class QuotaManager:
                 quota_pressure=1.0,
             )
         has_cost_guard = (
-            policy["max_cost_per_request_usd"] is not None
-            or policy["monthly_budget_usd"] is not None
+            policy["max_cost_per_request_usd"] is not None or policy["monthly_budget_usd"] is not None
         )
         if (
             estimated_cost_usd is None
@@ -869,9 +862,7 @@ class QuotaManager:
                         "unverifiedTokens": int(row["unverified_tokens"]) if row else 0,
                         "reservedTokens": int(row["reserved_tokens"]) if row else 0,
                         "knownCostUsd": float(row["known_cost_usd"]) if row else 0.0,
-                        "unverifiedCostUsd": float(row["unverified_cost_usd"])
-                        if row
-                        else 0.0,
+                        "unverifiedCostUsd": float(row["unverified_cost_usd"]) if row else 0.0,
                         "reservedCostUsd": float(row["reserved_cost_usd"]) if row else 0.0,
                     }
                 )
@@ -933,9 +924,7 @@ class QuotaManager:
             now = self._now()
             effective = self._resolve_policy(provider_id, normalized_model)
             fallback_seconds = (
-                int(effective["fallback_retry_after_seconds"])
-                if effective is not None
-                else 300
+                int(effective["fallback_retry_after_seconds"]) if effective is not None else 300
             )
             header_retry_after = next(
                 (
@@ -998,18 +987,12 @@ class QuotaManager:
                         cooldown.isoformat(),
                         timestamp,
                         timestamp,
-                        inherited["unknown_limit_strategy"]
-                        if inherited is not None
-                        else "conservative",
+                        inherited["unknown_limit_strategy"] if inherited is not None else "conservative",
                         inherited["max_concurrency"] if inherited is not None else None,
                         inherited["window_timezone"] if inherited is not None else "UTC",
                         inherited["enabled"] if inherited is not None else 1,
-                        inherited["fallback_retry_after_seconds"]
-                        if inherited is not None
-                        else 300,
-                        inherited["max_cost_per_request_usd"]
-                        if inherited is not None
-                        else None,
+                        inherited["fallback_retry_after_seconds"] if inherited is not None else 300,
+                        inherited["max_cost_per_request_usd"] if inherited is not None else None,
                         timestamp,
                         timestamp,
                     ),

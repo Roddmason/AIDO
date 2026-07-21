@@ -84,9 +84,7 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 
 
 @contextmanager
-def _nvidia_http_server(
-    *, redirect_url: str | None = None
-) -> Iterator[tuple[str, dict[str, Any]]]:
+def _nvidia_http_server(*, redirect_url: str | None = None) -> Iterator[tuple[str, dict[str, Any]]]:
     state: dict[str, Any] = {
         "modelCalls": 0,
         "chatCalls": 0,
@@ -112,9 +110,7 @@ def _nvidia_http_server(
             state["authorization"].append(self.headers.get("Authorization"))
             state["requests"].append({"method": "GET", "path": self.path})
             if self.path.endswith("/health/ready"):
-                self._write_json(
-                    {"object": "health.response", "message": "ready", "ready": True}
-                )
+                self._write_json({"object": "health.response", "message": "ready", "ready": True})
                 return
             self._write_json({"object": "list", "data": [{"id": "nvidia/test-model"}]})
 
@@ -325,9 +321,7 @@ def test_nonhosted_nvidia_endpoint_does_not_inherit_hosted_or_global_configurati
 ) -> None:
     monkeypatch.setenv("AIDO_NVIDIA_BASE_URL", "https://global-nvidia.example.invalid/v1")
     monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "global-secret-must-not-be-used")
-    monkeypatch.setenv(
-        "AIDO_OPENAI_COMPATIBLE_BASE_URL", "https://generic-global.example.invalid/v1"
-    )
+    monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", "https://generic-global.example.invalid/v1")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-self-hosted")
@@ -359,17 +353,11 @@ def test_named_provider_keeps_explicit_empty_endpoint_fields_without_canonical_f
     api_format: str,
     provider_family: str,
 ) -> None:
-    monkeypatch.setenv(
-        "AIDO_OPENAI_COMPATIBLE_BASE_URL", "https://canonical-openai.example.invalid/v1"
-    )
+    monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", "https://canonical-openai.example.invalid/v1")
     monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "canonical-openai-secret")
-    monkeypatch.setenv(
-        "AIDO_OPENROUTER_BASE_URL", "https://canonical-openrouter.example.invalid/v1"
-    )
+    monkeypatch.setenv("AIDO_OPENROUTER_BASE_URL", "https://canonical-openrouter.example.invalid/v1")
     monkeypatch.setenv("AIDO_OPENROUTER_API_KEY", "canonical-openrouter-secret")
-    monkeypatch.setenv(
-        "AIDO_ANTHROPIC_BASE_URL", "https://canonical-anthropic.example.invalid/v1"
-    )
+    monkeypatch.setenv("AIDO_ANTHROPIC_BASE_URL", "https://canonical-anthropic.example.invalid/v1")
     monkeypatch.setenv("AIDO_ANTHROPIC_API_KEY", "canonical-anthropic-secret")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
@@ -406,9 +394,7 @@ def test_self_hosted_nvidia_chat_executes_without_fabricated_bearer(
             "nvidia-self-hosted-no-auth",
             {"baseUrl": base_url, "credentialRef": ""},
         )
-        provider = ProviderAdapterFactory(connection).resolve_for_execution(
-            "nvidia-self-hosted-no-auth"
-        )
+        provider = ProviderAdapterFactory(connection).resolve_for_execution("nvidia-self-hosted-no-auth")
 
         response = provider.chat_completion(
             ModelRequest(
@@ -607,9 +593,7 @@ def test_runtime_status_surfaces_endpoint_identity_and_family_without_generation
         repository = RuntimeConfigRepository(connection)
         repository.set_runtime_setting("runtime.remote.enabled", True)
         repository.set_runtime_setting("runtime.nvidia.enabled", True)
-        repository.upsert_installation(
-            {"runtimeId": "nvidia-status-team-a", "kind": "api", "enabled": True}
-        )
+        repository.upsert_installation({"runtimeId": "nvidia-status-team-a", "kind": "api", "enabled": True})
 
         status = next(
             item
@@ -742,9 +726,7 @@ def test_named_endpoint_profiles_and_security_selection_keep_endpoint_scope(
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         developer_profile = DeveloperAgentRunner(connection, root=tmp_path)._create_profile(runtime)
-        product_owner_profile = ProductOwnerAgentRunner(connection, root=tmp_path)._ensure_profile(
-            runtime
-        )
+        product_owner_profile = ProductOwnerAgentRunner(connection, root=tmp_path)._ensure_profile(runtime)
         architect_profile = ArchitectAgentRunner(connection, root=tmp_path)._ensure_profile(runtime)
         security_runner = SecurityAgentRunner(connection, root=tmp_path)
         selected_security_runtime = security_runner._model_runtime("nvidia-team-a")

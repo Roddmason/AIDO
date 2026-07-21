@@ -103,13 +103,15 @@ class RemediationActionsRepository:
         def same_action_identity(row: sqlite3.Row) -> bool:
             existing_payload = json_loads(row["payload_json"], {})
             if action_type == "open_settings_section":
-                return str(existing_payload.get("section") or "").strip() == str(
-                    clean_payload.get("section") or ""
-                ).strip()
+                return (
+                    str(existing_payload.get("section") or "").strip()
+                    == str(clean_payload.get("section") or "").strip()
+                )
             if action_type == "answer_question":
-                return str(existing_payload.get("decisionId") or "").strip() == str(
-                    clean_payload.get("decisionId") or ""
-                ).strip()
+                return (
+                    str(existing_payload.get("decisionId") or "").strip()
+                    == str(clean_payload.get("decisionId") or "").strip()
+                )
             return True
 
         existing = next((row for row in existing_rows if same_action_identity(row)), None)

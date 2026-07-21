@@ -1058,9 +1058,7 @@ class SecurityAgentRunner:
         workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
         workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
         model_runtime = (
-            self._model_runtime(payload.get("preferredRuntime"))
-            if payload.get("runModelAnalysis")
-            else None
+            self._model_runtime(payload.get("preferredRuntime")) if payload.get("runModelAnalysis") else None
         )
         profile = self._ensure_profile(model_runtime)
         job_result = self.jobs.create_job(

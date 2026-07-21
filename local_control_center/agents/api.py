@@ -144,13 +144,11 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     ):
         raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
     if not isinstance(allowed_providers, list) or not all(
-        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item))
-        for item in allowed_providers
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item)) for item in allowed_providers
     ):
         raise HTTPException(status_code=422, detail="Allowed providers must be compact catalog ids.")
     if not isinstance(allowed_runtimes, list) or not all(
-        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item))
-        for item in allowed_runtimes
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item)) for item in allowed_runtimes
     ):
         raise HTTPException(status_code=422, detail="Allowed runtimes must be compact catalog ids.")
     for field in ("routingProfileId", "roleModelPolicyId"):
@@ -197,9 +195,7 @@ def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]
         if values is None:
             continue
         if not isinstance(values, list) or not all(
-            isinstance(item, str)
-            and (item == "*" or pattern.match(item))
-            for item in values
+            isinstance(item, str) and (item == "*" or pattern.match(item)) for item in values
         ):
             raise HTTPException(status_code=422, detail=f"{field} must contain compact catalog ids.")
     for field in ("defaultRuntimePolicy", "reviewerPolicy"):

@@ -168,9 +168,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=N8nWebhookTargetResponse,
     )
-    async def configure_n8n(
-        body: N8nWebhookTargetCreateRequest, request: Request
-    ) -> dict[str, Any]:
+    async def configure_n8n(body: N8nWebhookTargetCreateRequest, request: Request) -> dict[str, Any]:
         """Configura el target n8n usando la ruta canónica solicitada por el contrato."""
         require_write(request)
         try:

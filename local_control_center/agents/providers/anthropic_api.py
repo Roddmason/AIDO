@@ -75,11 +75,7 @@ class AnthropicAPIProvider(ModelProvider):
             credential_ref
             if credential_ref is not None
             else (
-                (
-                    runtime_configuration.configured_env_ref("apiKey")
-                    if runtime_configuration
-                    else None
-                )
+                (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
                 or "env:AIDO_ANTHROPIC_API_KEY"
                 if is_legacy_provider
                 else ""

@@ -42,10 +42,7 @@ def test_migration_creates_thread_tables(tmp_path: Path) -> None:
         rows = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         names = {row["name"] for row in rows}
         assert names >= THREAD_TABLES
-        columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(project_threads)").fetchall()
-        }
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(project_threads)").fetchall()}
         assert {
             "archived_at",
             "archived_by",

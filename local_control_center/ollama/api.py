@@ -460,11 +460,14 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         )
         health = _health_payload(endpoint_id, provider)
         if health["status"] != "available":
-            providers().record_health_check(provider_id=endpoint_id, status=str(health["status"]), payload=health)
-            raise HTTPException(status_code=503, detail=redact_secrets(health.get("message") or "unavailable"))
+            providers().record_health_check(
+                provider_id=endpoint_id, status=str(health["status"]), payload=health
+            )
+            raise HTTPException(
+                status_code=503, detail=redact_secrets(health.get("message") or "unavailable")
+            )
         stored = [
-            providers().upsert_model(_model_payload(endpoint_id, model))
-            for model in health.get("models", [])
+            providers().upsert_model(_model_payload(endpoint_id, model)) for model in health.get("models", [])
         ]
         providers().record_health_check(provider_id=endpoint_id, status="available", payload=health)
         audit(

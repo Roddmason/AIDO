@@ -571,10 +571,7 @@ class ModelRouter:
                 return "free_tier_sensitive_data_blocked"
             if provider_type not in LOCAL_PROVIDER_TYPES and not bool(model.get("freeTier")):
                 return "free_tier_model_required"
-            if (
-                provider_type in REMOTE_PROVIDER_TYPES
-                and not provider_account_is_declared_free(provider)
-            ):
+            if provider_type in REMOTE_PROVIDER_TYPES and not provider_account_is_declared_free(provider):
                 return "free_tier_account_not_confirmed"
         if (
             request.context_tokens_estimate
@@ -755,8 +752,7 @@ class ModelRouter:
             - privacy_penalty * 0.20
         )
         if (
-            request.mode in {"free_first", *FREE_TIER_MODES}
-            or self._free_tier_only(request, role_policy)
+            request.mode in {"free_first", *FREE_TIER_MODES} or self._free_tier_only(request, role_policy)
         ) and estimate.get("freeTier"):
             score += 0.35
         if request.mode == "max_performance" and model["supportsReasoning"]:
@@ -788,11 +784,16 @@ class ModelRouter:
     ) -> bool:
         """Whether request or role policy must fail closed instead of using paid fallback."""
         requested_mode = request.mode.strip().lower().replace("-", "_")
-        policy_mode = str(
-            (role_policy or {}).get("routingProfileId")
-            or (role_policy or {}).get("routing_profile_id")
-            or ""
-        ).strip().lower().replace("-", "_")
+        policy_mode = (
+            str(
+                (role_policy or {}).get("routingProfileId")
+                or (role_policy or {}).get("routing_profile_id")
+                or ""
+            )
+            .strip()
+            .lower()
+            .replace("-", "_")
+        )
         return requested_mode in FREE_TIER_MODES or policy_mode in FREE_TIER_MODES
 
     def _benchmark_index(self, role: str) -> dict[tuple[str, str, str], dict[str, Any]]:

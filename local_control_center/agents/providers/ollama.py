@@ -52,9 +52,7 @@ class OllamaProvider(ModelProvider):
         credential_ref: str | None = None,
     ):
         is_legacy_provider = provider_id in {"ollama", "local_ollama"}
-        runtime_configuration = (
-            runtime_provider_configuration("ollama") if is_legacy_provider else None
-        )
+        runtime_configuration = runtime_provider_configuration("ollama") if is_legacy_provider else None
         resolved_base_url = (
             base_url
             if base_url is not None

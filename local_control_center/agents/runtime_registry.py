@@ -603,9 +603,7 @@ def build_product_owner_agent_argv(
         )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
     extra_args = (
-        PRODUCT_OWNER_CODEX_EXTRA_ARGS
-        if runtime_id == "codex_cli"
-        else PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
+        PRODUCT_OWNER_CODEX_EXTRA_ARGS if runtime_id == "codex_cli" else PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
     )
     request = RuntimeRequest.model_validate(
         {

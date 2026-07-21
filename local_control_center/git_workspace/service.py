@@ -754,7 +754,9 @@ class GitWorkspaceService:
                 "policyDecisionIds": [],
             }
         if not shutil.which("git"):
-            response = self._base_unavailable_response(ctx=ctx, reason="Git executable was not found on PATH.")
+            response = self._base_unavailable_response(
+                ctx=ctx, reason="Git executable was not found on PATH."
+            )
             return {
                 **response,
                 "defaultBranch": default_branch,
@@ -971,7 +973,9 @@ class GitWorkspaceService:
             if response_status == "completed"
             else result.stderr.strip() or result.reason
         )
-        self._update_remote_test_metadata(project_id=project_id, name=name, status=response_status, reason=reason)
+        self._update_remote_test_metadata(
+            project_id=project_id, name=name, status=response_status, reason=reason
+        )
         response = {
             "status": response_status,
             "reason": reason,

@@ -112,8 +112,7 @@ def test_a_cli_without_quota_stops_being_a_product_owner_runtime(tmp_path: Path)
             provider_id="codex_cli", model="*", retry_after_seconds=900
         )
         statuses = {
-            str(item["id"]): item
-            for item in RuntimeStatusService(connection).list_provider_statuses()
+            str(item["id"]): item for item in RuntimeStatusService(connection).list_provider_statuses()
         }
 
     codex = statuses["codex_cli"]
@@ -139,17 +138,17 @@ def test_an_exhausted_provider_keeps_its_more_actionable_reason(tmp_path: Path) 
             }
         )
 
-        before = {
-            str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()
-        }["anthropic_api"]
+        before = {str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()}[
+            "anthropic_api"
+        ]
         assert before["executable"] is False, "fixture must start non-executable"
 
         QuotaManager(connection).record_rate_limit(
             provider_id="anthropic_api", model="*", retry_after_seconds=900
         )
-        after = {
-            str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()
-        }["anthropic_api"]
+        after = {str(i["id"]): i for i in RuntimeStatusService(connection).list_provider_statuses()}[
+            "anthropic_api"
+        ]
 
     assert after["reason"] == before["reason"]
 

@@ -298,9 +298,7 @@ def test_provider_preference_breaks_equal_scores_deterministically(
         "codex_cli",
         "claude_code_cli",
     ]
-    assert decision["policyResult"]["selectionOrder"] == (
-        "score_desc_provider_preference_asc_identity_asc"
-    )
+    assert decision["policyResult"]["selectionOrder"] == ("score_desc_provider_preference_asc_identity_asc")
 
 
 @pytest.mark.parametrize(
@@ -351,8 +349,7 @@ def test_catalogued_runtime_does_not_invent_unadvertised_capabilities(
 
     assert decision["selected"] is None
     assert any(
-        item["providerId"] == "codex_cli"
-        and item["reason"] == f"missing_capabilities:{required_capability}"
+        item["providerId"] == "codex_cli" and item["reason"] == f"missing_capabilities:{required_capability}"
         for item in decision["rejected"]
     )
 
@@ -418,9 +415,7 @@ def test_remote_ollama_endpoint_cannot_satisfy_local_private_policy(
         )
 
     assert decision["selected"] is None
-    rejected = next(
-        item for item in decision["rejected"] if item["providerId"] == "ollama_remote"
-    )
+    rejected = next(item for item in decision["rejected"] if item["providerId"] == "ollama_remote")
     assert rejected["reason"] == "privacy_blocks_remote"
 
 
@@ -549,9 +544,7 @@ def test_legacy_performance_profile_does_not_hide_catalogued_executable_runtime(
         )
 
     assert decision["selected"]["providerId"] == "codex_cli"
-    assert decision["policyResult"]["candidateInventory"] == (
-        "model_catalog_with_performance_overlay"
-    )
+    assert decision["policyResult"]["candidateInventory"] == ("model_catalog_with_performance_overlay")
     assert any(item["providerId"] == "nvidia_nim" for item in decision["rejected"])
 
 
@@ -572,9 +565,7 @@ def test_resource_request_rejects_provider_outside_agent_runtime_contract(
                 "configured": True,
                 "available": True,
                 "executable": True,
-                "capabilities": ["chat", "code_edit"]
-                if provider_id == "codex_cli"
-                else ["chat"],
+                "capabilities": ["chat", "code_edit"] if provider_id == "codex_cli" else ["chat"],
                 "reason": "Controlled executable runtime.",
             }
             for provider_id in ("codex_cli", "unsupported_chat")
@@ -618,9 +609,7 @@ def test_resource_request_rejects_provider_outside_agent_runtime_contract(
         )
 
     assert decision["selected"]["providerId"] == "codex_cli"
-    rogue = next(
-        item for item in decision["rejected"] if item["providerId"] == "unsupported_chat"
-    )
+    rogue = next(item for item in decision["rejected"] if item["providerId"] == "unsupported_chat")
     assert rogue["reason"] == "provider_not_allowed_for_agent"
 
 
@@ -754,8 +743,7 @@ def test_first_failed_catalogued_runtime_outcome_preserves_zero_success_rate(
         failed_candidate = next(
             item
             for item in rescored["candidates"]
-            if item["providerId"] == selected["providerId"]
-            and item["model"] == selected["model"]
+            if item["providerId"] == selected["providerId"] and item["model"] == selected["model"]
         )
 
     assert observed["observedSuccessRate"] == 0.0
@@ -1284,10 +1272,7 @@ def test_explicit_profile_must_exist_in_runtime_truth(
             "model": "ghost-model",
             "runtime": runtime,
             "profileSource": "explicit",
-            "reason": (
-                "runtime_not_executable: "
-                "Provider ghost_cli is not configured in runtime status."
-            ),
+            "reason": ("runtime_not_executable: Provider ghost_cli is not configured in runtime status."),
         }
     ]
 

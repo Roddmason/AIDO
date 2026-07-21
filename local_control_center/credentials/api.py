@@ -223,7 +223,9 @@ def _resolve_create_fields(body: CredentialCreateRequest) -> tuple[str, str | No
     source = _normalize_source(body.backend_kind or body.source)
     raw_ref = str(body.locator or body.credential_ref or "").strip()
     if _is_raw_secret_reference(raw_ref):
-        raise CredentialError("credentialRef must point to a supported credential reference, never a raw secret.")
+        raise CredentialError(
+            "credentialRef must point to a supported credential reference, never a raw secret."
+        )
     parsed_source = source
     locator = raw_ref
     if body.credential_ref and ":" in raw_ref:

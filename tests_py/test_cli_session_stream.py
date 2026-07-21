@@ -241,9 +241,7 @@ def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path)
         ("swe_agent", ["sweagent", "run", "--problem_statement.text=work"]),
     ],
 )
-def test_streaming_session_supports_all_cli_runtimes(
-    tmp_path: Path, runtime: str, argv: list[str]
-) -> None:
+def test_streaming_session_supports_all_cli_runtimes(tmp_path: Path, runtime: str, argv: list[str]) -> None:
     connection = _connection(tmp_path)
     try:
         _workspace(connection, tmp_path)
@@ -293,7 +291,9 @@ def test_streaming_session_can_be_cancelled(tmp_path: Path) -> None:
 
         types = [event["type"] for event in CliSessionEventStore(connection).list_events(session_id)]
         assert types[-1] == "cancelled"
-        row = connection.execute("SELECT status, logs_artifact_id FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
+        row = connection.execute(
+            "SELECT status, logs_artifact_id FROM cli_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
         assert row["status"] == "cancelled"
         assert row["logs_artifact_id"] is not None
         assert cancel_cli_session(session_id) is False  # already finished

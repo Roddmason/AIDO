@@ -284,25 +284,19 @@ class WorkspacesRepository:
         """
         source_workspace = self.get_workspace(source_workspace_id)
         if source_workspace["projectId"] != project_id:
-            raise WorkspaceIsolationError(
-                "Prompt workspace source must belong to the requested project."
-            )
+            raise WorkspaceIsolationError("Prompt workspace source must belong to the requested project.")
 
         project_path = self._project_path(project_id).resolve(strict=False)
         source_path = Path(source_workspace["path"]).resolve(strict=False)
         controlled_root = _ephemeral_prompt_workspace_root()
         if _is_strict_descendant(controlled_root, project_path) or controlled_root == project_path:
-            raise WorkspaceIsolationError(
-                "Ephemeral prompt workspace root must be outside the project tree."
-            )
+            raise WorkspaceIsolationError("Ephemeral prompt workspace root must be outside the project tree.")
 
         workspace_uuid = str(uuid.uuid4())
         workspace_id = f"workspace-{workspace_uuid}"
         workspace_path = (controlled_root / workspace_uuid).resolve(strict=False)
         if not _is_strict_descendant(workspace_path, controlled_root):
-            raise WorkspaceIsolationError(
-                "Ephemeral prompt workspace path escaped its controlled root."
-            )
+            raise WorkspaceIsolationError("Ephemeral prompt workspace path escaped its controlled root.")
         if workspace_path == source_path or _is_strict_descendant(workspace_path, source_path):
             raise WorkspaceIsolationError(
                 "Ephemeral prompt workspace must be outside the source workspace tree."
@@ -372,7 +366,9 @@ class WorkspacesRepository:
                 ),
             )
         except sqlite3.Error:
-            self.connection.execute("DELETE FROM workspace_allocations WHERE workspace_id = ?", (workspace_id,))
+            self.connection.execute(
+                "DELETE FROM workspace_allocations WHERE workspace_id = ?", (workspace_id,)
+            )
             self.connection.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
             shutil.rmtree(workspace_path, ignore_errors=True)
             raise
@@ -481,9 +477,7 @@ class WorkspacesRepository:
         prompt_workspace = metadata.get("ephemeralPromptWorkspace")
         if isinstance(prompt_workspace, dict):
             controlled_root = _ephemeral_prompt_workspace_root()
-            recorded_root = Path(str(prompt_workspace.get("controlledRoot") or "")).resolve(
-                strict=False
-            )
+            recorded_root = Path(str(prompt_workspace.get("controlledRoot") or "")).resolve(strict=False)
             workspace_path = Path(workspace["path"]).resolve(strict=False)
             cleanup: dict[str, Any] = {
                 "kind": "ephemeral_prompt_workspace_cleanup",

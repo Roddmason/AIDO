@@ -1629,13 +1629,17 @@ class ProductLoopCoordinator:
         initiative = result.get("initiative")
         if isinstance(initiative, dict) and initiative.get("id"):
             try:
-                return self.discovery.get_initiative(str(initiative["id"]))
+                return self._stamp_initiative_thread(
+                    self.discovery.get_initiative(str(initiative["id"])), thread_id
+                )
             except KeyError:
                 pass
         initiative_id = result.get("initiativeId") or output.get("initiativeId")
         if initiative_id:
             try:
-                return self.discovery.get_initiative(str(initiative_id))
+                return self._stamp_initiative_thread(
+                    self.discovery.get_initiative(str(initiative_id)), thread_id
+                )
             except KeyError:
                 pass
         if thread_id:
@@ -1656,6 +1660,25 @@ class ProductLoopCoordinator:
                 "metadata": metadata,
             }
         )
+
+    def _stamp_initiative_thread(self, initiative: dict[str, Any], thread_id: str | None) -> dict[str, Any]:
+        """Estampa ``threadId`` en una iniciativa reusada que aún no lo tiene.
+
+        El Runner real crea la iniciativa sin ``metadata.threadId``; sin este sello,
+        ``find_initiative_by_thread`` falla el turno siguiente y el hilo arranca con una iniciativa
+        nueva, perdiendo brief, preguntas y respuestas previas (el PO vuelve a preguntar todo).
+        """
+        if not thread_id:
+            return initiative
+        metadata = initiative.get("metadata") if isinstance(initiative.get("metadata"), dict) else {}
+        if metadata.get("threadId") == thread_id:
+            return initiative
+        try:
+            return self.discovery.update_initiative(
+                initiative["id"], {"metadata": {**metadata, "threadId": thread_id}}
+            )
+        except KeyError:
+            return initiative
 
     def _brief_payload(self, *, title: str, result: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
         brief = dict(result.get("brief") or output.get("productBriefPatch") or {})
@@ -1747,6 +1770,56 @@ class ProductLoopCoordinator:
         options = question.get("options") or metadata.get("options") or []
         return [str(item) for item in options if str(item).strip()]
 
+    def _runner_persisted(
+        self, result: dict[str, Any] | None, key: str, prefix: str
+    ) -> list[dict[str, Any]] | None:
+        """Registros con id que el Runner real ya persistió, o ``None`` si no persistió (stub/tests).
+
+        Cuando existen, son la fuente de verdad y se reusan; el ``output`` id-less del modelo se usa solo
+        como camino de respaldo para el runner de prueba, que no toca la base.
+        """
+        if not isinstance(result, dict):
+            return None
+        records = [
+            record
+            for record in result.get(key) or []
+            if isinstance(record, dict) and str(record.get("id") or "").startswith(prefix)
+        ]
+        return records or None
+
+    def _reuse_persisted(self, item: dict[str, Any], prefix: str, getter: Any) -> dict[str, Any] | None:
+        record_id = str(item.get("id") or "")
+        if not record_id.startswith(prefix):
+            return None
+        try:
+            return getter(record_id)
+        except KeyError:
+            return None
+
+    def _ensure_product_owner_thread_decision(
+        self,
+        threads: Any,
+        thread_id: str,
+        *,
+        record_id: str,
+        meta_key: str,
+        title: str,
+        prompt: str,
+        options: list[str],
+        source_message_id: str | None,
+    ) -> None:
+        """Crea la decisión de hilo para un registro del PO una sola vez (idempotente por ``record_id``)."""
+        for decision in threads.list_decisions(thread_id):
+            metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
+            if metadata.get(meta_key) == record_id:
+                return
+        decision_metadata = {"source": PRODUCT_OWNER_AGENT_ID, meta_key: record_id}
+        if source_message_id:
+            decision_metadata["sourceMessageId"] = source_message_id
+        threads.create_decision(
+            thread_id=thread_id, title=title, prompt=prompt, options=options, metadata=decision_metadata
+        )
+
     def _persist_clarification_questions(
         self,
         *,
@@ -1755,55 +1828,61 @@ class ProductLoopCoordinator:
         output: dict[str, Any],
         thread_id: str | None,
         source_message_id: str | None = None,
+        result: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Reusa las preguntas que el Runner real ya persistió; solo crea cuando no persistió (stub).
+
+        El Runner ya inserta las preguntas de aclaración; iterar el ``output`` id-less del modelo volvía
+        a insertarlas (filas duplicadas cada turno, y las del Runner quedaban ``open`` contaminando el
+        prompt siguiente). Aquí se reusa el registro persistido por id y se surface como decisión de hilo
+        una sola vez.
+        """
         records: list[dict[str, Any]] = []
         threads = ThreadsRepository(self.connection) if thread_id else None
-        for item in output.get("questions") or []:
+        persisted = self._runner_persisted(result, "questions", "clarification-question-")
+        for item in persisted if persisted is not None else (output.get("questions") or []):
             if not isinstance(item, dict):
                 continue
-            if str(item.get("id") or "").startswith("clarification-question-"):
-                try:
-                    record = self.discovery.get_clarification_question(str(item["id"]))
-                    records.append(record)
-                    continue
-                except KeyError:
-                    pass
-            question_text = str(item.get("question") or item.get("prompt") or "").strip()
-            if not question_text:
-                continue
-            record = self.discovery.create_clarification_question(
-                {
-                    "projectId": project_id,
-                    "initiativeId": initiative_id,
-                    "question": question_text,
-                    "priority": item.get("priority") or "high" if item.get("blocking", True) else "medium",
-                    "askedBy": PRODUCT_OWNER_AGENT_ID,
-                    "metadata": {
-                        "source": PRODUCT_OWNER_AGENT_ID,
-                        "category": item.get("category") or "product",
-                        "whyItMatters": item.get("whyItMatters") or "",
-                        "blocking": bool(item.get("blocking", True)),
-                        "options": self._question_options(item),
-                        "recommendation": item.get("recommendation") or "",
-                        "defaultDecision": item.get("defaultDecision") or "",
-                        "confidence": item.get("confidence") or "low",
-                    },
-                }
+            record = self._reuse_persisted(
+                item, "clarification-question-", self.discovery.get_clarification_question
             )
+            if record is None:
+                question_text = str(item.get("question") or item.get("prompt") or "").strip()
+                if not question_text:
+                    continue
+                record = self.discovery.create_clarification_question(
+                    {
+                        "projectId": project_id,
+                        "initiativeId": initiative_id,
+                        "question": question_text,
+                        "priority": item.get("priority") or "high"
+                        if item.get("blocking", True)
+                        else "medium",
+                        "askedBy": PRODUCT_OWNER_AGENT_ID,
+                        "metadata": {
+                            "source": PRODUCT_OWNER_AGENT_ID,
+                            "category": item.get("category") or "product",
+                            "whyItMatters": item.get("whyItMatters") or "",
+                            "blocking": bool(item.get("blocking", True)),
+                            "options": self._question_options(item),
+                            "recommendation": item.get("recommendation") or "",
+                            "defaultDecision": item.get("defaultDecision") or "",
+                            "confidence": item.get("confidence") or "low",
+                        },
+                    }
+                )
             records.append(record)
             if threads and thread_id:
-                decision_metadata = {
-                    "source": PRODUCT_OWNER_AGENT_ID,
-                    "clarificationQuestionId": record["id"],
-                }
-                if source_message_id:
-                    decision_metadata["sourceMessageId"] = source_message_id
-                threads.create_decision(
-                    thread_id=thread_id,
+                question_text = str(record.get("question") or item.get("question") or "")
+                self._ensure_product_owner_thread_decision(
+                    threads,
+                    thread_id,
+                    record_id=record["id"],
+                    meta_key="clarificationQuestionId",
                     title=question_text[:120],
                     prompt=question_text,
-                    options=self._question_options(item),
-                    metadata=decision_metadata,
+                    options=self._question_options(record) or self._question_options(item),
+                    source_message_id=source_message_id,
                 )
         return records
 
@@ -1816,58 +1895,65 @@ class ProductLoopCoordinator:
         output: dict[str, Any],
         thread_id: str | None,
         source_message_id: str | None = None,
+        result: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Reusa las decisiones que el Runner real ya persistió; solo crea cuando no persistió (stub).
+
+        Igual que las preguntas, iterar el ``output`` id-less duplicaba las filas que el Runner ya
+        insertó y las decisiones escaladas aparecían dos veces en el hilo. Se reusa el registro por id;
+        sus opciones vienen del ``metadata.options`` persistido (o del modelo en el camino de respaldo).
+        """
         records: list[dict[str, Any]] = []
         threads = ThreadsRepository(self.connection) if thread_id else None
-        for item in output.get("decisions") or []:
+        persisted = self._runner_persisted(result, "blockingDecisions", "product-decision-")
+        for item in persisted if persisted is not None else (output.get("decisions") or []):
             if not isinstance(item, dict):
                 continue
-            if str(item.get("id") or "").startswith("product-decision-"):
-                try:
-                    records.append(self.discovery.get_product_decision(str(item["id"])))
+            record = self._reuse_persisted(item, "product-decision-", self.discovery.get_product_decision)
+            if record is None:
+                title = str(item.get("title") or item.get("decision") or "").strip()
+                if not title:
                     continue
-                except KeyError:
-                    pass
-            title = str(item.get("title") or item.get("decision") or "").strip()
-            if not title:
-                continue
-            blocking = bool(item.get("blocking", False))
-            raw_status = str(item.get("status") or "").strip().lower()
-            status = raw_status or ("proposed" if blocking else "accepted")
-            record = self.discovery.create_product_decision(
-                {
-                    "projectId": project_id,
-                    "initiativeId": initiative_id,
-                    "briefId": brief_id,
-                    "title": title,
-                    "status": status,
-                    "context": item.get("question") or title,
-                    "decision": item.get("decision") or item.get("recommendation") or "",
-                    "rationale": item.get("rationale") or "",
-                    "consequences": item.get("consequences") or [],
-                    "decidedBy": PRODUCT_OWNER_AGENT_ID if status in {"accepted", "resolved"} else "",
-                    "decidedAt": utc_now() if status in {"accepted", "resolved"} else None,
-                    "metadata": {
-                        "source": PRODUCT_OWNER_AGENT_ID,
-                        "blocking": blocking,
-                        "confidence": item.get("confidence") or "low",
-                        "category": item.get("category") or item.get("type") or "",
-                        "impact": item.get("impact") or item.get("risk") or item.get("severity") or "",
-                        "requiresResearch": bool(item.get("requiresResearch", False)),
-                    },
-                }
-            )
+                blocking = bool(item.get("blocking", False))
+                raw_status = str(item.get("status") or "").strip().lower()
+                status = raw_status or ("proposed" if blocking else "accepted")
+                record = self.discovery.create_product_decision(
+                    {
+                        "projectId": project_id,
+                        "initiativeId": initiative_id,
+                        "briefId": brief_id,
+                        "title": title,
+                        "status": status,
+                        "context": item.get("question") or title,
+                        "decision": item.get("decision") or item.get("recommendation") or "",
+                        "rationale": item.get("rationale") or "",
+                        "consequences": item.get("consequences") or [],
+                        "decidedBy": PRODUCT_OWNER_AGENT_ID if status in {"accepted", "resolved"} else "",
+                        "decidedAt": utc_now() if status in {"accepted", "resolved"} else None,
+                        "metadata": {
+                            "source": PRODUCT_OWNER_AGENT_ID,
+                            "blocking": blocking,
+                            "confidence": item.get("confidence") or "low",
+                            "category": item.get("category") or item.get("type") or "",
+                            "impact": item.get("impact") or item.get("risk") or item.get("severity") or "",
+                            "requiresResearch": bool(item.get("requiresResearch", False)),
+                            "options": self._question_options(item),
+                        },
+                    }
+                )
             records.append(record)
+            status = str(record.get("status") or "").strip().lower()
             if threads and thread_id and status not in {"accepted", "resolved"}:
-                decision_metadata = {"source": PRODUCT_OWNER_AGENT_ID, "productDecisionId": record["id"]}
-                if source_message_id:
-                    decision_metadata["sourceMessageId"] = source_message_id
-                threads.create_decision(
-                    thread_id=thread_id,
+                title = str(record.get("title") or item.get("title") or "")
+                self._ensure_product_owner_thread_decision(
+                    threads,
+                    thread_id,
+                    record_id=record["id"],
+                    meta_key="productDecisionId",
                     title=title[:120],
-                    prompt=str(item.get("question") or title),
-                    options=self._question_options(item),
-                    metadata=decision_metadata,
+                    prompt=str(record.get("context") or item.get("question") or title),
+                    options=self._question_options(record) or self._question_options(item),
+                    source_message_id=source_message_id,
                 )
         return records
 
@@ -4965,6 +5051,7 @@ class ProductLoopCoordinator:
                 output=output,
                 thread_id=thread_id,
                 source_message_id=thread["messageId"],
+                result=product_owner_result,
             )
             product_decisions = self._persist_product_decisions(
                 project_id=project_id,
@@ -4973,6 +5060,7 @@ class ProductLoopCoordinator:
                 output=output,
                 thread_id=thread_id,
                 source_message_id=thread["messageId"],
+                result=product_owner_result,
             )
             pending_thread_decisions = self._pending_product_owner_thread_decisions(thread_id)
         except Exception as error:

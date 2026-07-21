@@ -1173,6 +1173,9 @@ class ProductOwnerAgentRunner:
                     "source": PRODUCT_OWNER_AGENT_ID,
                     "taskId": task_id,
                     "blocking": blocking,
+                    # Persist the options so the coordinator can surface the decision as an answerable
+                    # thread decision by reusing this row instead of re-inserting a duplicate.
+                    "options": list(decision.get("options") or []),
                     "autonomy": audit,
                 },
             }

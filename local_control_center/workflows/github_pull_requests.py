@@ -177,6 +177,162 @@ def _decode_json_response(raw: bytes) -> Any:
         return {"raw": raw.decode("utf-8", errors="replace")}
 
 
+def _github_api_call(
+    config: GitHubPullRequestConfig,
+    *,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None,
+    operation: str,
+    success_statuses: set[int],
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    """Llama a la API de GitHub con auditoría redactada y sin lanzar por fallos HTTP/red/timeout.
+
+    Devuelve ``status: ok`` con ``httpStatus``/``response`` cuando el código está en
+    ``success_statuses``; cualquier otro resultado vuelve como ``status: failed`` con la causa.
+    """
+    url = config.api_base_url.rstrip("/") + path
+    headers = _headers(config.token)
+    request_audit = {
+        "method": method,
+        "url": url,
+        "headers": _sanitize_headers(headers),
+        "body": redact_secrets(payload or {}),
+        "repository": config.repository,
+        "remote": config.remote,
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            response_body = _decode_json_response(response.read())
+            http_status = int(response.status)
+    except urllib.error.HTTPError as error:
+        return {
+            "status": "failed",
+            "reason": f"GitHub {operation} returned HTTP {error.code}.",
+            "httpStatus": int(error.code),
+            "request": request_audit,
+            "response": redact_secrets(_decode_json_response(error.read())),
+        }
+    except urllib.error.URLError as error:
+        return {
+            "status": "failed",
+            "reason": f"GitHub {operation} request failed: {error.reason}",
+            "httpStatus": None,
+            "request": request_audit,
+            "response": {},
+        }
+    except TimeoutError as error:
+        return {
+            "status": "failed",
+            "reason": f"GitHub {operation} timed out: {error}",
+            "httpStatus": None,
+            "request": request_audit,
+            "response": {},
+        }
+    if http_status not in success_statuses:
+        return {
+            "status": "failed",
+            "reason": f"GitHub {operation} returned HTTP {http_status}.",
+            "httpStatus": http_status,
+            "request": request_audit,
+            "response": redact_secrets(response_body),
+        }
+    return {
+        "status": "ok",
+        "httpStatus": http_status,
+        "request": request_audit,
+        "response": redact_secrets(response_body) if isinstance(response_body, dict) else {},
+    }
+
+
+def _repo_api_path(config: GitHubPullRequestConfig, suffix: str) -> str:
+    return (
+        "/repos/"
+        + urllib.parse.quote(config.owner, safe="")
+        + "/"
+        + urllib.parse.quote(config.repo, safe="")
+        + suffix
+    )
+
+
+def merge_github_pull_request(
+    config: GitHubPullRequestConfig,
+    *,
+    number: int,
+    merge_method: str = "merge",
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    """Mergea un PR (``PUT /pulls/{n}/merge``); ``status: merged`` solo si GitHub confirma el merge."""
+    result = _github_api_call(
+        config,
+        method="PUT",
+        path=_repo_api_path(config, f"/pulls/{int(number)}/merge"),
+        payload={"merge_method": merge_method},
+        operation="merge pull request",
+        success_statuses={200},
+        timeout_seconds=timeout_seconds,
+    )
+    if result["status"] != "ok":
+        return result
+    merged = bool((result.get("response") or {}).get("merged"))
+    return {
+        **result,
+        "status": "merged" if merged else "failed",
+        "reason": "GitHub pull request merged." if merged else "GitHub did not confirm the merge.",
+        "sha": (result.get("response") or {}).get("sha"),
+    }
+
+
+def delete_github_branch(
+    config: GitHubPullRequestConfig,
+    *,
+    branch: str,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    """Borra la rama remota tras el merge (``DELETE /git/refs/heads/{branch}``)."""
+    result = _github_api_call(
+        config,
+        method="DELETE",
+        path=_repo_api_path(config, "/git/refs/heads/" + urllib.parse.quote(branch, safe="")),
+        payload=None,
+        operation="delete branch",
+        success_statuses={204},
+        timeout_seconds=timeout_seconds,
+    )
+    if result["status"] != "ok":
+        return result
+    return {**result, "status": "deleted", "reason": "GitHub branch reference deleted."}
+
+
+def get_github_combined_status(
+    config: GitHubPullRequestConfig,
+    *,
+    ref: str,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    """Estado combinado de CI para un ref (``GET /commits/{ref}/status``): success/pending/failure."""
+    result = _github_api_call(
+        config,
+        method="GET",
+        path=_repo_api_path(config, "/commits/" + urllib.parse.quote(ref, safe="") + "/status"),
+        payload=None,
+        operation="combined status",
+        success_statuses={200},
+        timeout_seconds=timeout_seconds,
+    )
+    if result["status"] != "ok":
+        return result
+    state = str((result.get("response") or {}).get("state") or "pending")
+    return {**result, "status": "ok", "state": state}
+
+
 def create_github_pull_request(
     config: GitHubPullRequestConfig,
     *,

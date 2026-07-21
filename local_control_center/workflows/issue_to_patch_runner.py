@@ -35,8 +35,10 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.security_policy.git_command_runner import git_available
 from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -50,6 +52,8 @@ from local_control_center.workflows.repository import ISSUE_TO_PATCH_STEPS, Work
 from local_control_center.workspaces_projects.cleanup import capture_workspace_snapshot
 from local_control_center.workspaces_projects.git_worktrees import (
     capture_git_diff,
+    git_remote_exists,
+    push_branch_to_remote,
     run_brokered_git,
     slugify_branch_segment,
 )
@@ -1503,6 +1507,43 @@ class IssueToPatchRunner:
             "diffSummary": diff_summary,
         }
 
+    def _push_promoted_branch_for_pr(self, *, project_id: str, branch: str) -> dict[str, Any]:
+        """Publica la rama promovida en el remoto git del proyecto antes del POST del PR.
+
+        Devuelve ``pushed``/``skipped_no_remote`` (sin remoto local se conserva el comportamiento
+        previo) o el fallo del push; nunca lanza.
+        """
+        try:
+            project = ProjectsRepository(self.connection).get_project(project_id)
+            repo_path = Path(str(project.get("path") or "")).resolve(strict=False)
+            remote = (
+                str(
+                    resolve_setting_value(
+                        connection=self.connection, key="project.git.remoteName", project_id=project_id
+                    )
+                    or "origin"
+                ).strip()
+                or "origin"
+            )
+            if not git_remote_exists(
+                repo_path=repo_path,
+                remote=remote,
+                connection=self.connection,
+                root=self.root,
+                project_id=project_id,
+            ):
+                return {"status": "skipped_no_remote", "remote": remote}
+            return push_branch_to_remote(
+                repo_path=repo_path,
+                remote=remote,
+                branch=branch,
+                connection=self.connection,
+                root=self.root,
+                project_id=project_id,
+            )
+        except Exception as error:
+            return {"status": "push_failed", "reason": str(redact_secrets(str(error)))}
+
     def create_pull_request_from_promoted_branch(
         self,
         run_id: str,
@@ -1672,14 +1713,44 @@ class IssueToPatchRunner:
             configured = False
         else:
             configured = True
-            github_result = create_github_pull_request(
-                github_config,
-                title=pr_title,
-                head=promoted_branch_name,
-                base=resolved_base_branch,
-                body=pr_body,
+            # GitHub rechaza con 422 un PR cuya head no existe en el remoto: publicar la rama
+            # promovida ANTES del POST. Si el proyecto no tiene remoto git local se mantiene el
+            # comportamiento previo (el POST reporta el fallo real).
+            branch_push = self._push_promoted_branch_for_pr(
+                project_id=project_id, branch=promoted_branch_name
             )
-            if github_result.get("status") == "created":
+            if branch_push.get("status") not in {"pushed", "skipped_no_remote"}:
+                final_status = PR_FAILED_STATUS
+                qa_verdict = "failed"
+                final_reason = "Promoted branch push failed before PR creation: " + str(
+                    branch_push.get("stderr") or branch_push.get("reason") or branch_push["status"]
+                )
+                github_result = {
+                    "status": "failed",
+                    "reason": final_reason,
+                    "branchPush": branch_push,
+                    "request": None,
+                    "response": {},
+                }
+                pull_request = {
+                    "status": "failed",
+                    "repository": github_config.repository,
+                    "head": promoted_branch_name,
+                    "base": resolved_base_branch,
+                    "reason": final_reason,
+                }
+                github_result_status = "push_failed"
+            else:
+                github_result = create_github_pull_request(
+                    github_config,
+                    title=pr_title,
+                    head=promoted_branch_name,
+                    base=resolved_base_branch,
+                    body=pr_body,
+                )
+                github_result = {**github_result, "branchPush": branch_push}
+                github_result_status = str(github_result.get("status") or "")
+            if github_result_status == "created":
                 final_status = PR_CREATED_STATUS
                 qa_verdict = "evidence_collected"
                 final_reason = "GitHub pull request created from promoted branch."

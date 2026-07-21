@@ -18,7 +18,16 @@ from typing import Any
 
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.settings.resolver import resolve_setting_value
+from local_control_center.workflows.github_pull_requests import (
+    GitHubPullRequestConfigError,
+    create_github_pull_request,
+    delete_github_branch,
+    get_github_combined_status,
+    github_pull_request_config_from_env,
+    merge_github_pull_request,
+)
 from local_control_center.workspaces_projects.git_worktrees import (
+    git_head_commit,
     git_remote_exists,
     merge_work_branch_into_base,
     push_branch_to_remote,
@@ -26,6 +35,27 @@ from local_control_center.workspaces_projects.git_worktrees import (
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 PR_MODES = {"auto_pr", "manual_pr"}
+
+
+def technical_lead_gate(loop: dict[str, Any] | None) -> dict[str, Any]:
+    """Veredicto del Technical Lead para auto-aprobar el aterrizaje de un loop entregado.
+
+    Aprueba solo si la corrida durable muestra trabajo real (review con archivos cambiados) y el
+    QA no reportó ``failed``; Security/Architect bloquean el loop ANTES de llegar a delivered,
+    así que un loop entregado ya pasó esos gates. Fail-closed: sin contexto durable, rechaza.
+    """
+    reasons: list[str] = []
+    durable = ((loop or {}).get("context") or {}).get("durableRun") or {}
+    if not durable:
+        return {"approve": False, "reasons": ["Loop has no durable run context to review."]}
+    review = durable.get("review") or {}
+    if not review.get("changedFiles"):
+        reasons.append("Review evidence has no changed files to land.")
+    runtime_result = durable.get("runtimeResult") or {}
+    qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
+    if qa_verdict == "failed":
+        reasons.append("QA verdict is failed; the work must be reworked, not landed.")
+    return {"approve": not reasons, "reasons": reasons, "qaVerdict": qa_verdict or "unknown"}
 
 
 class ProductLoopDeliveryService:
@@ -45,12 +75,13 @@ class ProductLoopDeliveryService:
         return value
 
     def git_configuration(self, project_id: str) -> dict[str, Any]:
-        """Config git efectiva del proyecto (modo, base, remoto, borrado de rama)."""
+        """Config git efectiva del proyecto (modo, base, remoto, borrado de rama, gate de CI)."""
         return {
             "integrationMode": self._setting("project.git.integrationMode", project_id, "manual_pr"),
             "baseBranch": self._setting("project.git.baseBranch", project_id, "dev"),
             "remoteName": self._setting("project.git.remoteName", project_id, "origin"),
             "autoDeleteBranch": bool(self._setting("project.git.autoDeleteBranch", project_id, True)),
+            "requireCiGreen": bool(self._setting("project.git.requireCiGreen", project_id, False)),
         }
 
     def land(
@@ -60,6 +91,7 @@ class ProductLoopDeliveryService:
         workspace_id: str,
         loop_id: str,
         title: str = "",
+        loop: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Aterriza el trabajo del workspace del loop según el modo de integración del proyecto.
 
@@ -158,7 +190,8 @@ class ProductLoopDeliveryService:
             result["status"] = "landed"
             return result
 
-        # Modos de PR: publicar la rama de trabajo; la creación/aprobación del PR corre aparte.
+        # Modos de PR: publicar la rama de trabajo y, en auto_pr, dejar que el Technical Lead
+        # apruebe y mergee el PR sin humano (gateado por QA/Security y opcionalmente CI verde).
         result["push"] = push_branch_to_remote(
             repo_path=repo_path,
             remote=remote,
@@ -171,5 +204,52 @@ class ProductLoopDeliveryService:
         if result["push"].get("status") != "pushed":
             result["status"] = "landing_blocked"
             return result
-        result["status"] = "pending_auto_pr" if effective_mode == "auto_pr" else "pending_manual_pr"
+        if effective_mode == "manual_pr":
+            result["status"] = "pending_manual_pr"
+            return result
+
+        gate = technical_lead_gate(loop)
+        result["technicalLeadGate"] = gate
+        if not gate["approve"]:
+            # LT o QA encontraron algo: se itera sobre la MISMA rama publicada, sin merge.
+            result["status"] = "lt_rejected"
+            return result
+        try:
+            config = github_pull_request_config_from_env()
+        except GitHubPullRequestConfigError as error:
+            # Sin credenciales de PR no hay merge automático: la rama queda publicada y el
+            # aterrizaje espera un humano (equivale a manual_pr, con el motivo explícito).
+            result["status"] = "pending_manual_pr"
+            result["reason"] = str(error)
+            return result
+        pull_request = create_github_pull_request(
+            config,
+            title=title or f"AIDO: {work_branch}",
+            head=work_branch,
+            base=base_branch,
+            body=f"Automated delivery for product loop `{loop_id}`.",
+        )
+        result["pullRequest"] = pull_request
+        if pull_request.get("status") != "created":
+            result["status"] = "landing_blocked"
+            return result
+        if bool(configuration["requireCiGreen"]):
+            head_commit = git_head_commit(repo_path, work_branch) or work_branch
+            ci = get_github_combined_status(config, ref=head_commit)
+            result["ciStatus"] = ci
+            if ci.get("state") != "success":
+                # El PR queda abierto esperando el verde de CI; no se mergea sin evidencia.
+                result["status"] = "pr_created_ci_pending"
+                return result
+        merged = merge_github_pull_request(config, number=int(pull_request["number"]))
+        result["merge"] = merged
+        if merged.get("status") != "merged":
+            result["status"] = "pr_created_merge_failed"
+            return result
+        if auto_delete:
+            result["remoteBranchCleanup"] = delete_github_branch(config, branch=work_branch)
+        result["archive"] = self.workspaces.archive_workspace(
+            workspace_id, reason="Product loop auto_pr delivery merged.", delete_branch=auto_delete
+        )["metadata"].get("gitBranchCleanup") or {"status": "kept"}
+        result["status"] = "landed"
         return result

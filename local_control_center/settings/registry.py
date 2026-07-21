@@ -282,6 +282,14 @@ REGISTRY: list[SettingDescriptor] = [
         default=True,
         label_key="app.settings.git.autoDeleteBranch",
     ),
+    SettingDescriptor(
+        key="project.git.requireCiGreen",
+        section="git",
+        project_section="git",
+        type="boolean",
+        default=False,
+        label_key="app.settings.git.requireCiGreen",
+    ),
 ]
 
 _REGISTRY_BY_KEY: dict[str, SettingDescriptor] = {d.key: d for d in REGISTRY}

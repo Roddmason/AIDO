@@ -10771,6 +10771,10 @@
       "en": "Delete work branch after landing",
       "es": "Borrar la rama de trabajo tras aterrizar"
     },
+    "app.settings.git.requireCiGreen": {
+      "en": "Require green CI before auto-merge",
+      "es": "Exigir CI verde antes del auto-merge"
+    },
     "app.settings.security.shellProfile": {
       "en": "Shell permission profile",
       "es": "Perfil de permisos de shell"

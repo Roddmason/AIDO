@@ -237,9 +237,7 @@ def test_routing_selects_remote_ollama_endpoint_when_local_has_no_model(
             json=endpoint_payload("ollama-remote-lan", remote_url, kind="remote"),
         )
         local_health = client.post("/api/v1/ollama/endpoints/ollama-local/health", headers=headers)
-        remote_synced = client.post(
-            "/api/v1/ollama/endpoints/ollama-remote-lan/sync-models", headers=headers
-        )
+        remote_synced = client.post("/api/v1/ollama/endpoints/ollama-remote-lan/sync-models", headers=headers)
         response = client.post(
             "/api/v1/model-gateway/route/preview",
             headers=headers,

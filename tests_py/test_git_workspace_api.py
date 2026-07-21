@@ -88,7 +88,9 @@ def test_git_init_completed_for_project_without_git_creates_default_branch_and_n
     assert "__pycache__/" in gitignore
     assert run_git(["branch", "--show-current"], cwd=project_path).stdout.strip() == "dev"
     assert run_git(["rev-parse", "--verify", "HEAD"], cwd=project_path).returncode != 0
-    assert not any("commit" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+    assert not any(
+        "commit" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls()
+    )
 
 
 def test_git_init_defaults_to_dev_when_branch_not_supplied(
@@ -150,7 +152,10 @@ def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
     assert run_git(["remote", "get-url", "origin"], cwd=project_path).stdout.strip() == (
         "git@github.com:aido/example.git"
     )
-    assert any("remote add origin" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+    assert any(
+        "remote add origin" in call["payload"].get("command", "")
+        for call in store.agents.list_agent_tool_calls()
+    )
 
 
 def test_git_remote_with_embedded_token_is_blocked_before_git_remote_add(
@@ -171,7 +176,10 @@ def test_git_remote_with_embedded_token_is_blocked_before_git_remote_add(
     assert body["status"] == "blocked"
     assert "token" in body["reason"].lower() or "credential" in body["reason"].lower()
     assert run_git(["remote"], cwd=project_path).stdout.strip() == ""
-    assert not any("remote add origin" in call["payload"].get("command", "") for call in store.agents.list_agent_tool_calls())
+    assert not any(
+        "remote add origin" in call["payload"].get("command", "")
+        for call in store.agents.list_agent_tool_calls()
+    )
 
 
 def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected_base(

@@ -6,7 +6,6 @@ import sqlite3
 import pytest
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
-from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.agents.model_router import ModelRouter, RoutingRequest
 from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
@@ -16,6 +15,7 @@ from local_control_center.agents.provider_catalog import (
     enrich_catalog_model,
     provider_catalog_entry,
 )
+from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.shared import migrations
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -249,9 +249,7 @@ def test_phase56_enriches_stale_unmodified_provider_sync(tmp_path, monkeypatch) 
     assert dict(model) == {"context_window": 1_048_576, "free_tier": 1}
 
 
-def test_phase56_demotes_unattested_legacy_free_account_with_invalid_metadata(
-    tmp_path, monkeypatch
-) -> None:
+def test_phase56_demotes_unattested_legacy_free_account_with_invalid_metadata(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
@@ -272,9 +270,7 @@ def test_phase56_demotes_unattested_legacy_free_account_with_invalid_metadata(
     assert account["pricing_mode"] == "unknown"
 
 
-def test_phase56_does_not_point_product_owner_at_conflicting_routing_profile(
-    tmp_path, monkeypatch
-) -> None:
+def test_phase56_does_not_point_product_owner_at_conflicting_routing_profile(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:

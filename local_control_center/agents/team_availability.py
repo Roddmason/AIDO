@@ -36,8 +36,7 @@ def _candidate_provider_ids(profile: dict[str, Any], provider_statuses: list[dic
             {
                 provider_id
                 for provider in provider_statuses
-                if (provider_id := str(provider.get("id") or "").strip())
-                and provider_id not in candidates
+                if (provider_id := str(provider.get("id") or "").strip()) and provider_id not in candidates
             }
         )
         return [*candidates, *configured]

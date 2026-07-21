@@ -548,7 +548,9 @@ class ThreadSimilarityService:
         paths: list[str] = []
         for row in rows:
             stored_value = row["value"]
-            parsed_value = json_loads(stored_value, stored_value) if isinstance(stored_value, str) else stored_value
+            parsed_value = (
+                json_loads(stored_value, stored_value) if isinstance(stored_value, str) else stored_value
+            )
             for path in _extract_file_paths(parsed_value):
                 if path not in paths:
                     paths.append(path)

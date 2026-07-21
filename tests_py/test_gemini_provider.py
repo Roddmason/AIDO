@@ -219,9 +219,7 @@ def test_gemini_credential_conflict_isolated_in_aggregate_status(
     monkeypatch.setenv("GEMINI_API_KEY", "secret-b")
     monkeypatch.setenv("AIDO_GEMINI_MODEL", "gemini-3.5-flash")
 
-    configurations = {
-        item["id"]: item for item in list_runtime_provider_configurations()
-    }
+    configurations = {item["id"]: item for item in list_runtime_provider_configurations()}
     assert configurations["gemini"]["configured"] is False
     assert "Conflicting credential environment variables" in configurations["gemini"]["reason"]
     assert "secret-a" not in str(configurations)

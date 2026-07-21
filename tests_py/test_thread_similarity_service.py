@@ -39,8 +39,7 @@ def test_migration_creates_thread_similarity_tables(tmp_path: Path) -> None:
         assert names >= SIMILARITY_TABLES
 
         index_columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(thread_memory_index)").fetchall()
+            row["name"] for row in connection.execute("PRAGMA table_info(thread_memory_index)").fetchall()
         }
         assert {
             "id",

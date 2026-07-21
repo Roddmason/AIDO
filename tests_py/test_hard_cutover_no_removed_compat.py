@@ -103,26 +103,38 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
     )
     initialize_platform_schema(store.connection)
 
-    assert client.post(
-        "/api/v1/sessions",
-        headers=headers,
-        json={"projectId": project_id, "name": "blocked"},
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/chats",
-        headers=headers,
-        json={"projectId": project_id, "prompt": "blocked"},
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/pipelines",
-        headers=headers,
-        json={"projectId": project_id, "title": "blocked"},
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/legacy/sessions",
-        headers=headers,
-        json={"projectId": project_id, "name": "blocked"},
-    ).status_code == 405
+    assert (
+        client.post(
+            "/api/v1/sessions",
+            headers=headers,
+            json={"projectId": project_id, "name": "blocked"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/chats",
+            headers=headers,
+            json={"projectId": project_id, "prompt": "blocked"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/pipelines",
+            headers=headers,
+            json={"projectId": project_id, "title": "blocked"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/legacy/sessions",
+            headers=headers,
+            json={"projectId": project_id, "name": "blocked"},
+        ).status_code
+        == 405
+    )
 
     overview = client.get("/api/v1/overview").json()
     removed_workspace_key = "workspace" + "State"
@@ -134,15 +146,13 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
     legacy_sessions = client.get("/api/v1/legacy/sessions").json()["sessions"]
     legacy_chats = client.get("/api/v1/legacy/chats").json()["chats"]
     legacy_pipelines = client.get("/api/v1/legacy/pipelines").json()["pipelines"]
-    assert next(item for item in legacy_sessions if item["id"] == session["id"])["metadata"][
-        "legacyReadOnly"
-    ]
+    assert next(item for item in legacy_sessions if item["id"] == session["id"])["metadata"]["legacyReadOnly"]
     assert next(item for item in legacy_chats if item["id"] == chat["id"])["metadata"]["legacy"][
         "migratedToThreadId"
     ].startswith("thread-legacy-")
-    assert next(item for item in legacy_pipelines if item["id"] == pipeline["id"])["metadata"][
-        "legacy"
-    ]["migratedToMessageId"].startswith("thread-msg-legacy-")
+    assert next(item for item in legacy_pipelines if item["id"] == pipeline["id"])["metadata"]["legacy"][
+        "migratedToMessageId"
+    ].startswith("thread-msg-legacy-")
 
     threads = client.get(f"/api/v1/threads?projectId={project_id}").json()["threads"]
     migrated_thread = next(item for item in threads if item["id"] == f"thread-legacy-{session['id']}")
@@ -181,10 +191,7 @@ def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(tmp_path: 
     assert store.connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
     assert store.connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
     assert store.connection.execute("SELECT COUNT(*) AS total FROM pipelines").fetchone()["total"] == 0
-    assert (
-        store.connection.execute("SELECT COUNT(*) AS total FROM thread_messages").fetchone()["total"]
-        >= 1
-    )
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM thread_messages").fetchone()["total"] >= 1
 
 
 def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
@@ -204,8 +211,7 @@ def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
         path
         for path in mounted_paths
         if ("legacy" in path.lower() or "compat" in path.lower())
-        and path
-        not in {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"}
+        and path not in {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"}
     }
     assert non_cutover_legacy == set()
 

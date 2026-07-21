@@ -13,17 +13,17 @@ from threading import Barrier
 import pytest
 from fastapi.testclient import TestClient
 
-from local_control_center.agents.quota_manager import (
-    QuotaAdmissionDenied,
-    QuotaManager,
-    QuotaRequest,
-    QuotaStateConflict,
-)
 from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.capabilities import ProviderHttpResponse
 from local_control_center.agents.providers.nvidia_nim import (
     NvidiaNimCapabilityError,
     NvidiaNimProvider,
+)
+from local_control_center.agents.quota_manager import (
+    QuotaAdmissionDenied,
+    QuotaManager,
+    QuotaRequest,
+    QuotaStateConflict,
 )
 from local_control_center.app import create_app
 from local_control_center.shared.db import open_sqlite_connection
@@ -69,25 +69,16 @@ def test_phase54_migrates_from_phase53_reenters_without_overwriting_policy(
             WHERE id = 'nvidia_nim:*'
             """
         )
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 53"
-        ).fetchone()
-        assert connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 54"
-        ).fetchone() is None
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 53").fetchone()
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 54").fetchone() is None
 
         monkeypatch.undo()
         migrations.init_phase54_schema(connection)
         migrations.init_phase54_schema(connection)
 
-        columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(provider_limits)")
-        }
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(provider_limits)")}
         tables = {
-            row["name"]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         preserved = connection.execute(
             "SELECT rpm, current_window_json FROM provider_limits WHERE id = 'nvidia_nim:*'"
@@ -128,9 +119,7 @@ def test_specific_disabled_policy_is_unguarded_instead_of_falling_back_to_wildca
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
     with open_sqlite_connection(database_path) as connection:
         initialize_platform_schema(connection)
-        connection.execute(
-            "UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'"
-        )
+        connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         connection.execute(
             """
             INSERT INTO provider_limits
@@ -148,19 +137,11 @@ def test_specific_disabled_policy_is_unguarded_instead_of_falling_back_to_wildca
         )
         manager = QuotaManager(connection, clock=clock)
 
-        first = manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="specific", reserved_tokens=10)
-        )
-        second = manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="specific", reserved_tokens=10)
-        )
-        wildcard = manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="other", reserved_tokens=10)
-        )
+        first = manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="specific", reserved_tokens=10))
+        second = manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="specific", reserved_tokens=10))
+        wildcard = manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="other", reserved_tokens=10))
         with pytest.raises(QuotaAdmissionDenied, match="blocked_concurrency"):
-            manager.acquire(
-                QuotaRequest(provider_id="nvidia_nim", model="other", reserved_tokens=10)
-            )
+            manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="other", reserved_tokens=10))
 
     assert first.limit_id == "nvidia_nim:specific"
     assert first.guarded is False
@@ -258,9 +239,7 @@ def test_request_and_token_guards_deny_without_adding_a_second_reservation(
             (configured,),
         )
         manager = QuotaManager(connection, clock=clock)
-        manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="guarded", reserved_tokens=first_tokens)
-        )
+        manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="guarded", reserved_tokens=first_tokens))
 
         with pytest.raises(QuotaAdmissionDenied) as captured:
             manager.acquire(
@@ -307,9 +286,7 @@ def test_per_request_monthly_cost_cooldown_and_unknown_cost_strategy(
         manager = QuotaManager(connection, clock=clock)
 
         with pytest.raises(QuotaAdmissionDenied) as unknown:
-            manager.acquire(
-                QuotaRequest(provider_id="nvidia_nim", model="paid", reserved_tokens=10)
-            )
+            manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="paid", reserved_tokens=10))
         with pytest.raises(QuotaAdmissionDenied) as per_request:
             manager.acquire(
                 QuotaRequest(
@@ -385,13 +362,9 @@ def test_minute_day_and_month_windows_reset_on_iana_timezone_boundaries(
             """
         )
         manager = QuotaManager(connection, clock=clock)
-        manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="boundary", reserved_tokens=10)
-        )
+        manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="boundary", reserved_tokens=10))
         with pytest.raises(QuotaAdmissionDenied, match="rpm_limit_exceeded"):
-            manager.acquire(
-                QuotaRequest(provider_id="nvidia_nim", model="boundary", reserved_tokens=10)
-            )
+            manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="boundary", reserved_tokens=10))
 
         clock.current = datetime(2026, 7, 1, 4, 0, 0, tzinfo=UTC)
         after_local_midnight = manager.acquire(
@@ -517,13 +490,9 @@ def test_release_before_dispatch_restores_capacity_idempotently(
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
     with open_sqlite_connection(database_path) as connection:
         initialize_platform_schema(connection)
-        connection.execute(
-            "UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'"
-        )
+        connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         manager = QuotaManager(connection, clock=clock)
-        lease = manager.acquire(
-            QuotaRequest(provider_id="nvidia_nim", model="release", reserved_tokens=50)
-        )
+        lease = manager.acquire(QuotaRequest(provider_id="nvidia_nim", model="release", reserved_tokens=50))
 
         released = manager.release(lease.id, reason="cancelled_before_transport")
         repeated = manager.release(lease.id, reason="cancelled_before_transport")
@@ -600,9 +569,7 @@ def test_stale_lease_expiry_releases_exact_mapped_reservations_once(
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
     with open_sqlite_connection(database_path) as connection:
         initialize_platform_schema(connection)
-        connection.execute(
-            "UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'"
-        )
+        connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         manager = QuotaManager(connection, clock=clock)
         stale = manager.acquire(
             QuotaRequest(
@@ -710,9 +677,7 @@ def test_rate_limit_observations_parse_bounded_retry_after_without_overwriting_p
         "delta_seconds",
         "configured_fallback",
     ]
-    assert observations[0]["rateLimitHeaders"] == {
-        "x-ratelimit-remaining-requests": "0"
-    }
+    assert observations[0]["rateLimitHeaders"] == {"x-ratelimit-remaining-requests": "0"}
     assert observations[-1]["errorClass"] == "provider_rate_limit"
     assert "secret" not in str(observations).lower()
 

@@ -80,7 +80,10 @@ class DurableImageArtifactStore:
             raise ImageArtifactError("image_artifact_not_found") from error
         metadata = artifact.get("metadata") if isinstance(artifact.get("metadata"), dict) else {}
         mime_type = str(metadata.get("mimeType") or "")
-        if artifact.get("kind") not in ALLOWED_INPUT_ARTIFACT_KINDS or mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+        if (
+            artifact.get("kind") not in ALLOWED_INPUT_ARTIFACT_KINDS
+            or mime_type not in ALLOWED_IMAGE_MIME_TYPES
+        ):
             raise ImageArtifactError("image_artifact_media_forbidden")
         path = self._confined_path(str(artifact.get("path") or ""))
         if not path.exists() or not path.is_file():

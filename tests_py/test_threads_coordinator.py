@@ -207,8 +207,7 @@ def test_coordinator_blocks_when_runtime_is_unavailable(tmp_path: Path) -> None:
         runtime_validation = next(
             row
             for row in remediation_rows
-            if row["blocker_type"] == "runtime_not_executable"
-            and row["action_type"] == "validate_runtime"
+            if row["blocker_type"] == "runtime_not_executable" and row["action_type"] == "validate_runtime"
         )
         validation_payload = json.loads(runtime_validation["payload_json"])
         assert validation_payload["runtimeId"] == "codex_cli"

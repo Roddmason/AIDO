@@ -342,9 +342,7 @@ def test_catalog_preset_creates_distinct_nvidia_instances_with_explicit_modes(
 
     catalog = client.get("/api/v1/providers/catalog")
     assert catalog.status_code == 200
-    nvidia_preset = next(
-        item for item in catalog.json()["providers"] if item["id"] == "nvidia_nim"
-    )
+    nvidia_preset = next(item for item in catalog.json()["providers"] if item["id"] == "nvidia_nim")
     assert nvidia_preset["providerFamily"] == "nvidia_nim"
     assert nvidia_preset["deploymentMode"] == "hosted_trial"
     assert nvidia_preset["apiFamily"] == "chat_completions"
@@ -485,9 +483,7 @@ def test_generic_provider_api_cannot_bypass_hosted_trial_invariants(
 
     assert created.status_code == 400, created.text
     assert patched.status_code == 400, patched.text
-    assert client.get(
-        "/api/v1/model-gateway/providers/nvidia-hosted-generic-invalid"
-    ).status_code == 404
+    assert client.get("/api/v1/model-gateway/providers/nvidia-hosted-generic-invalid").status_code == 404
     canonical = client.get("/api/v1/model-gateway/providers/nvidia_nim").json()["provider"]
     assert canonical["termsMode"] == "evaluation"
     assert canonical["pricingMode"] == "unknown"
@@ -564,9 +560,7 @@ def test_explicit_catalog_instance_collision_returns_409_without_overwrite(
         "credentialRef": "env:NVIDIA_COLLISION_API_KEY",
     }
 
-    created = client.post(
-        "/api/v1/provider-accounts/from-catalog", headers=headers, json=original_payload
-    )
+    created = client.post("/api/v1/provider-accounts/from-catalog", headers=headers, json=original_payload)
     collided = client.post(
         "/api/v1/provider-accounts/from-catalog",
         headers=headers,

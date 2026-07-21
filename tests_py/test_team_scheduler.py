@@ -135,9 +135,7 @@ def test_refactor_frontend_backend_activates_tl_backend_frontend_and_qa_only() -
     plan = schedule_team(scope=["refactor", "backend", "frontend"], risk="medium", mode="balanced")
     selected = _roles(plan)
     assert {"technical_lead", "backend_engineer", "frontend_engineer", "qa_engineer"} <= selected
-    assert {"mobile_engineer", "database_engineer", "data_engineer", "security_engineer"}.isdisjoint(
-        selected
-    )
+    assert {"mobile_engineer", "database_engineer", "data_engineer", "security_engineer"}.isdisjoint(selected)
 
 
 def test_infra_and_research_intents_activate_their_specialists_without_full_roster() -> None:

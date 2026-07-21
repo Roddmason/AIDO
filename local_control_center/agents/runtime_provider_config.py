@@ -244,9 +244,7 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         kind="api",
         variables=(
             RuntimeConfigVariableSpec("apiKey", "AIDO_ANTHROPIC_API_KEY", secret=True),
-            RuntimeConfigVariableSpec(
-                "baseUrl", "AIDO_ANTHROPIC_BASE_URL", secret=False, required=False
-            ),
+            RuntimeConfigVariableSpec("baseUrl", "AIDO_ANTHROPIC_BASE_URL", secret=False, required=False),
             RuntimeConfigVariableSpec("model", "AIDO_ANTHROPIC_MODEL", secret=False),
         ),
     ),
@@ -344,11 +342,7 @@ def _resolve_runtime_variable(
     ``GEMINI_API_KEY`` without inspecting or inheriting the broader ``GOOGLE_API_KEY`` variable.
     """
     selectable_names = (variable_spec.name, *variable_spec.aliases)
-    observed = {
-        name: value
-        for name in selectable_names
-        if (value := _env_value(environ, name)) is not None
-    }
+    observed = {name: value for name in selectable_names if (value := _env_value(environ, name)) is not None}
     if variable_spec.secret and len(set(observed.values())) > 1:
         raise AmbiguousRuntimeProviderCredentialError(
             provider_id=provider_id,
@@ -394,8 +388,7 @@ def runtime_provider_configuration(
         return RuntimeProviderConfiguration(
             spec=spec,
             variables=tuple(
-                RuntimeConfigVariable(spec=variable_spec, value=None)
-                for variable_spec in spec.variables
+                RuntimeConfigVariable(spec=variable_spec, value=None) for variable_spec in spec.variables
             ),
             resolution_error=(
                 f"Conflicting credential environment variables are set for {spec.display_name}: "

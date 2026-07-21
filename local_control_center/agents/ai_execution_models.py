@@ -77,7 +77,9 @@ class AIExecutionPlan(AIExecutionContract):
             if self.min_successful != 1:
                 raise ValueError("parallel_compare requires minSuccessful=1")
         elif branch_count < 2 or not 2 <= self.min_successful <= branch_count:
-            raise ValueError("quorum requires at least two branches and minSuccessful between 2 and branch count")
+            raise ValueError(
+                "quorum requires at least two branches and minSuccessful between 2 and branch count"
+            )
         message_bytes = sum(
             len(message.role.encode("utf-8")) + len(message.content.encode("utf-8"))
             for message in self.messages

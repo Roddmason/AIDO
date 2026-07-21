@@ -32,9 +32,7 @@ SECRET_VALUE_PATTERN = re.compile(
     r")",
     re.I,
 )
-GIT_REMOTE_LINE_PATTERN = re.compile(
-    r"(?m)^(?P<prefix>\S+\s+)(?P<url>\S+)(?P<suffix>\s+\((?:fetch|push)\))$"
-)
+GIT_REMOTE_LINE_PATTERN = re.compile(r"(?m)^(?P<prefix>\S+\s+)(?P<url>\S+)(?P<suffix>\s+\((?:fetch|push)\))$")
 
 
 def _strip_url_userinfo(value: str) -> str:

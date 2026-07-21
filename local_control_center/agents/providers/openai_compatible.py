@@ -61,9 +61,7 @@ class OpenAICompatibleProvider(ModelProvider):
         credential_required: bool = True,
         use_legacy_fallbacks: bool = True,
     ):
-        runtime_configuration = (
-            runtime_provider_configuration(provider_id) if use_legacy_fallbacks else None
-        )
+        runtime_configuration = runtime_provider_configuration(provider_id) if use_legacy_fallbacks else None
         resolved_base_url = (
             base_url
             if base_url is not None
@@ -79,11 +77,7 @@ class OpenAICompatibleProvider(ModelProvider):
         resolved_credential_ref = (
             credential_ref
             if credential_ref is not None
-            else (
-                runtime_configuration.configured_env_ref("apiKey")
-                if runtime_configuration
-                else ""
-            )
+            else (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else "")
         )
         self.provider_id = provider_id
         self.base_url = resolved_base_url.rstrip("/")
@@ -186,8 +180,10 @@ class OpenAICompatibleProvider(ModelProvider):
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
         """Postea a `/chat/completions` y normaliza la respuesta. Raises si falta credencial/URL."""
         credential = self._credential()
-        if not self.base_url or (self.credential_required and not credential) or (
-            self.credential_ref and not credential
+        if (
+            not self.base_url
+            or (self.credential_required and not credential)
+            or (self.credential_ref and not credential)
         ):
             raise RuntimeError("Provider is missing base_url or credential_ref")
         payload = json.dumps(request.model_dump(by_alias=True, exclude_none=True)).encode("utf-8")

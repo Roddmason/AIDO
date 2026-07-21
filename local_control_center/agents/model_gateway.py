@@ -478,9 +478,7 @@ class ModelGateway:
                 or account.get("credentialRef")
                 or ""
             )
-            policy_decision = RuntimeConfigRepository(
-                self.repository.connection
-            ).runtime_policy_decision(
+            policy_decision = RuntimeConfigRepository(self.repository.connection).runtime_policy_decision(
                 provider_id=provider_id,
                 provider_family=str(account.get("providerFamily") or ""),
                 kind=provider_account_policy_kind(account),
@@ -489,10 +487,7 @@ class ModelGateway:
             if not policy_decision.get("allowed"):
                 return {
                     "status": "blocked",
-                    "reason": str(
-                        policy_decision.get("reason")
-                        or "Runtime execution is blocked by policy."
-                    ),
+                    "reason": str(policy_decision.get("reason") or "Runtime execution is blocked by policy."),
                     "runtimeType": resolved_runtime,
                 }
             try:

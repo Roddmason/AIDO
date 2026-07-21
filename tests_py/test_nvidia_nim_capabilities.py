@@ -116,8 +116,7 @@ def test_phase53_adds_adapter_profile_and_backfills_auto(
         initialize_platform_schema(connection)
 
         phase52_columns = {
-            str(row["name"])
-            for row in connection.execute("PRAGMA table_info(provider_accounts)").fetchall()
+            str(row["name"]) for row in connection.execute("PRAGMA table_info(provider_accounts)").fetchall()
         }
         phase52_migration = connection.execute(
             "SELECT version FROM schema_migrations WHERE version = 52"
@@ -135,9 +134,7 @@ def test_phase53_adds_adapter_profile_and_backfills_auto(
             str(row["name"]): row
             for row in connection.execute("PRAGMA table_info(provider_accounts)").fetchall()
         }
-        migration = connection.execute(
-            "SELECT version FROM schema_migrations WHERE version = 53"
-        ).fetchone()
+        migration = connection.execute("SELECT version FROM schema_migrations WHERE version = 53").fetchone()
         store = ProviderAccountStore(connection)
         account = store.get_provider_account("nvidia_nim")
         store.patch_provider_account("nvidia_nim", {"adapterProfile": "nvidia_openai_chat"})
@@ -182,9 +179,7 @@ def test_provider_account_round_trips_explicit_adapter_profile(tmp_path: Path) -
             status="healthy",
             payload={"status": "available"},
         )
-        patched = store.patch_provider_account(
-            "nvidia-embedding-hosted", {"adapterProfile": "auto"}
-        )
+        patched = store.patch_provider_account("nvidia-embedding-hosted", {"adapterProfile": "auto"})
 
     assert created["adapterProfile"] == "nvidia_openai_embeddings"
     assert patched["adapterProfile"] == "auto"
@@ -236,11 +231,11 @@ def test_hosted_embedding_uses_versioned_root_body_and_bearer(
             headers={"content-type": "application/json"},
             json_body={
                 "object": "list",
-                    "model": "nvidia/nv-embedqa-e5-v5",
-                    "data": [
-                        {"object": "embedding", "index": 0, "embedding": [0.25, -0.5]},
-                        {"object": "embedding", "index": 1, "embedding": [0.5, -0.25]},
-                    ],
+                "model": "nvidia/nv-embedqa-e5-v5",
+                "data": [
+                    {"object": "embedding", "index": 0, "embedding": [0.25, -0.5]},
+                    {"object": "embedding", "index": 1, "embedding": [0.5, -0.25]},
+                ],
                 "usage": {"prompt_tokens": 2, "total_tokens": 2},
             },
         )
@@ -348,10 +343,7 @@ def test_hosted_rerank_uses_model_root_and_reranking(
     monkeypatch.setenv("NVIDIA_RERANK_TEST_KEY", "hosted-rerank-secret")
     provider = NvidiaNimProvider(
         provider_id="nvidia-rerank-hosted",
-        base_url=(
-            "https://ai.api.nvidia.com/v1/retrieval/"
-            "nvidia/llama-nemotron-rerank-1b-v2"
-        ),
+        base_url=("https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2"),
         credential_ref="env:NVIDIA_RERANK_TEST_KEY",
         deployment_mode="hosted_trial",
         api_family="rerank",
@@ -368,9 +360,7 @@ def test_hosted_rerank_uses_model_root_and_reranking(
         )
     )
 
-    assert calls[0].url.endswith(
-        "/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2/reranking"
-    )
+    assert calls[0].url.endswith("/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2/reranking")
     assert calls[0].headers["Authorization"] == "Bearer hosted-rerank-secret"
     assert calls[0].json_body == {
         "model": "nvidia/llama-nemotron-rerank-1b-v2",
@@ -714,9 +704,10 @@ def test_model_gateway_requires_matching_manifest_capability_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with provider_server(
-        {"/v1/embeddings": {"data": [{"index": 0, "embedding": [0.1]}]}}
-    ) as (base_url, calls):
+    with provider_server({"/v1/embeddings": {"data": [{"index": 0, "embedding": [0.1]}]}}) as (
+        base_url,
+        calls,
+    ):
         client = create_client(tmp_path, monkeypatch)
         headers = auth_headers(client)
         created = client.post(
@@ -766,9 +757,7 @@ def test_model_gateway_self_hosted_rerank_executes_without_bearer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with provider_server(
-        {"/v1/ranking": {"rankings": [{"index": 0, "logit": 0.8}]}}
-    ) as (base_url, calls):
+    with provider_server({"/v1/ranking": {"rankings": [{"index": 0, "logit": 0.8}]}}) as (base_url, calls):
         client = create_client(tmp_path, monkeypatch)
         headers = auth_headers(client)
         created = client.post(
@@ -845,10 +834,7 @@ def test_rerank_discovery_requires_explicit_manifest_without_network(
                 "adapterProfile": "nvidia_hosted_rerank",
                 "termsMode": "evaluation",
                 "pricingMode": "unknown",
-                "baseUrl": (
-                    "https://ai.api.nvidia.com/v1/retrieval/"
-                    "nvidia/llama-nemotron-rerank-1b-v2"
-                ),
+                "baseUrl": ("https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2"),
                 "credentialRef": "env:NVIDIA_RERANK_MANIFEST_KEY",
                 "enabled": True,
             },
@@ -1653,9 +1639,7 @@ def test_incomplete_embedding_and_rerank_responses_are_rejected() -> None:
         transport=incomplete_embedding,
     )
     with pytest.raises(NvidiaNimCapabilityError, match="provider_response_invalid"):
-        embedding_provider.embed(
-            EmbeddingRequest(model="nvidia/embed", input=["first", "second"])
-        )
+        embedding_provider.embed(EmbeddingRequest(model="nvidia/embed", input=["first", "second"]))
 
     def incomplete_rerank(_request: ProviderHttpRequest) -> ProviderHttpResponse:
         return ProviderHttpResponse(
@@ -1785,9 +1769,10 @@ def test_provider_error_body_and_bearer_are_not_returned_or_audited(
 ) -> None:
     secret = "provider-secret-never-return"
     monkeypatch.setenv("NVIDIA_REDACTION_TEST_KEY", secret)
-    with provider_server(
-        {"/v1/embeddings": {"__status__": 500, "error": f"raw body {secret}"}}
-    ) as (base_url, calls):
+    with provider_server({"/v1/embeddings": {"__status__": 500, "error": f"raw body {secret}"}}) as (
+        base_url,
+        calls,
+    ):
         client = create_client(tmp_path, monkeypatch)
         headers = auth_headers(client)
         created = client.post(

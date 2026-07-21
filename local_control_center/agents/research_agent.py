@@ -144,7 +144,9 @@ def _duckduckgo_web_search_provider(query: str, max_sources: int) -> list[dict[s
         with urlopen(request, timeout=WEB_SEARCH_TIMEOUT_SECONDS) as response:
             content = response.read(MAX_WEB_SEARCH_BYTES + 1)
             if len(content) > MAX_WEB_SEARCH_BYTES:
-                raise ResearchAgentValidationError("ResearchAgent web search response exceeds the fetch limit.")
+                raise ResearchAgentValidationError(
+                    "ResearchAgent web search response exceeds the fetch limit."
+                )
             content_type = response.headers.get_content_charset() or "utf-8"
     except (HTTPError, URLError, TimeoutError) as error:
         raise ResearchAgentValidationError(f"ResearchAgent web search failed: {error}") from error
@@ -303,7 +305,9 @@ class ResearchAgentRunner:
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         query = str(payload.get("query") or metadata.get("query") or "").strip()
         if not query:
-            raise ResearchAgentValidationError("ResearchAgent requires at least one source or a research query.")
+            raise ResearchAgentValidationError(
+                "ResearchAgent requires at least one source or a research query."
+            )
         if not self._web_search_allowed(metadata):
             raise ResearchAgentValidationError("ResearchAgent web search is disabled by policy.")
         if self.web_search_provider is None:
@@ -432,9 +436,7 @@ class ResearchAgentRunner:
             normalized.append(
                 {
                     "title": _required_text(decision, "title", field=f"technicalDecisions[{index}]"),
-                    "decision": _required_text(
-                        decision, "decision", field=f"technicalDecisions[{index}]"
-                    ),
+                    "decision": _required_text(decision, "decision", field=f"technicalDecisions[{index}]"),
                     "sourceCitations": citations,
                 }
             )
@@ -549,7 +551,10 @@ class ResearchAgentRunner:
         return {
             "action": "review_research_blocker",
             "summary": "Review the ResearchAgent blocker and retry with compliant official sources.",
-            "steps": ["Inspect the persisted research findings.", "Retry after correcting the source policy issue."],
+            "steps": [
+                "Inspect the persisted research findings.",
+                "Retry after correcting the source policy issue.",
+            ],
         }
 
     def _persist_findings(

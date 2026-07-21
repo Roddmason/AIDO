@@ -429,9 +429,7 @@ def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:
         initialize_platform_schema(connection)
         names = {
             row["name"]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index'"
-            ).fetchall()
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
         }
         assert expected_indexes <= names
         assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone()

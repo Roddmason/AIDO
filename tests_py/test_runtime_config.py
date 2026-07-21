@@ -215,9 +215,7 @@ def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
             WHERE provider_id = 'litellm'
             """
         )
-        connection.execute(
-            "UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'litellm'"
-        )
+        connection.execute("UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'litellm'")
         account = next(
             item
             for item in ProviderAccountStore(connection).list_provider_accounts()
@@ -421,9 +419,7 @@ def test_runtime_settings_are_registered_for_global_and_project_policy(tmp_path:
     assert policy["project"]["defaultMode"] == "hybrid"
 
 
-def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AIDO_CODEX_COMMAND", raising=False)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "false")
 
@@ -525,7 +521,9 @@ def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatc
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.remote.enabled", True)
-        repo.set_runtime_setting("project.runtime.remote.enabled", False, scope="project", scope_id="project-a")
+        repo.set_runtime_setting(
+            "project.runtime.remote.enabled", False, scope="project", scope_id="project-a"
+        )
         repo.upsert_installation(
             {
                 "runtimeId": "openai_compatible",
@@ -829,9 +827,7 @@ def test_chat_only_cli_with_mismatched_executable_fails_prompt_execution_closed(
     assert "does not match" in codex["reason"]
 
 
-def test_stale_persisted_codex_version_cannot_authorize_product_owner(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_stale_persisted_codex_version_cannot_authorize_product_owner(tmp_path: Path, monkeypatch) -> None:
     def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
         return {
             "runtime": runtime_id,
@@ -1011,9 +1007,7 @@ def _install_claude_cli(repo: RuntimeConfigRepository) -> None:
     )
 
 
-def test_cli_becomes_executable_when_native_auth_probe_confirms_login(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_cli_becomes_executable_when_native_auth_probe_confirms_login(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
     monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)
@@ -1047,9 +1041,7 @@ def test_cli_becomes_executable_when_native_auth_probe_confirms_login(
     assert account["configurationSource"] == "native_cli_status"
 
 
-def test_cli_logged_out_probe_reports_login_command_and_blocks_execution(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_cli_logged_out_probe_reports_login_command_and_blocks_execution(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AIDO_CLAUDE_COMMAND", raising=False)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
     monkeypatch.setattr(RuntimeRegistry, "detect", _claude_only_detect)

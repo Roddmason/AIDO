@@ -261,7 +261,8 @@ def _execute_thread_product_loop_job(
                 "planOnlyStage": payload.get("planOnlyStage") or run_metadata.get("planOnlyStage"),
                 "planOnlyReason": payload.get("planOnlyReason") or run_metadata.get("planOnlyReason"),
                 "planOnlyQueuedAt": payload.get("planOnlyQueuedAt") or run_metadata.get("planOnlyQueuedAt"),
-                "remediationActionId": payload.get("remediationActionId") or run_metadata.get("remediationActionId"),
+                "remediationActionId": payload.get("remediationActionId")
+                or run_metadata.get("remediationActionId"),
                 "approvedResourceSelections": approved_resource_selections,
                 "retryOfLoopId": payload.get("retryOfLoopId") or run_metadata.get("retryOfLoopId"),
                 "retryStage": payload.get("retryStage") or run_metadata.get("retryStage"),

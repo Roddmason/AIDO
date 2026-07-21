@@ -83,9 +83,9 @@ def _write_fake_gitleaks(bin_dir: Path) -> None:
     script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
     command = bin_dir / ("gitleaks.cmd" if os.name == "nt" else "gitleaks")
     if os.name == "nt":
-        command.write_text(f"@echo off\n\"{sys.executable}\" \"{script}\" %*\n", encoding="utf-8")
+        command.write_text(f'@echo off\n"{sys.executable}" "{script}" %*\n', encoding="utf-8")
     else:
-        command.write_text(f"#!/usr/bin/env sh\n\"{sys.executable}\" \"{script}\" \"$@\"\n", encoding="utf-8")
+        command.write_text(f'#!/usr/bin/env sh\n"{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
         command.chmod(0o755)
 
 
@@ -178,7 +178,9 @@ def test_worker_run_once_executes_queued_thread_job(monkeypatch, tmp_path: Path)
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "completed"
         assert ThreadsRepository(runtime.connection).get_thread(thread["id"])["status"] == "awaiting_approval"
         assert captured == {"thread_id": thread["id"], "project_id": project["id"]}
-        event_types = [event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])]
+        event_types = [
+            event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])
+        ]
         assert "worker_started" in event_types
         assert "worker_claimed" in event_types
     finally:
@@ -324,7 +326,9 @@ def test_worker_run_once_leaves_job_queued_when_preflight_fails(monkeypatch, tmp
         assert "runtime" in body["reason"].lower()
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
         assert ThreadsRepository(runtime.connection).get_thread(thread["id"])["status"] == "queued"
-        event_types = [event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])]
+        event_types = [
+            event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])
+        ]
         assert "worker_failed" in event_types
         actions = _pending_remediation_actions(runtime.connection, thread["id"])
         assert ("runtime_not_executable", "open_settings_section") in actions
@@ -357,7 +361,9 @@ def test_worker_run_once_requires_gitleaks(monkeypatch, tmp_path: Path) -> None:
         assert body["status"] == "blocked"
         assert "gitleaks" in body["reason"].lower()
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
-        event_types = [event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])]
+        event_types = [
+            event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])
+        ]
         assert "worker_failed" in event_types
         actions = _pending_remediation_actions(runtime.connection, thread["id"])
         assert ("gitleaks_missing", "open_settings_section") in actions
@@ -508,9 +514,7 @@ def test_run_worker_once_remediation_resolves_when_referenced_job_already_comple
         runtime.close()
 
 
-def test_thread_research_job_block_creates_network_remediation(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_thread_research_job_block_creates_network_remediation(monkeypatch, tmp_path: Path) -> None:
     def blocked_research_run(_self, _payload):
         return {
             "status": "research_blocked",
@@ -607,7 +611,9 @@ def test_worker_pause_records_thread_event_for_queued_job(tmp_path: Path) -> Non
         assert response.status_code == 200, response.text
         assert response.json()["paused"] is True
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
-        event_types = [event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])]
+        event_types = [
+            event["type"] for event in ThreadsRepository(runtime.connection).list_events(thread["id"])
+        ]
         assert "worker_paused" in event_types
     finally:
         runtime.close()
@@ -679,7 +685,5 @@ def test_run_batch_prunes_stale_http_telemetry(tmp_path: Path) -> None:
         )
     worker_runtime._run_batch_once()
     with open_sqlite_connection(db_path) as connection:
-        throttled = connection.execute(
-            "SELECT id FROM events WHERE id = 'event-old-http-2'"
-        ).fetchone()
+        throttled = connection.execute("SELECT id FROM events WHERE id = 'event-old-http-2'").fetchone()
     assert throttled is not None

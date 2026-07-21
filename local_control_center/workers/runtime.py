@@ -443,7 +443,9 @@ class LocalWorkerRuntime:
             return
         reason = str(payload.get("reason") or "").strip()
         stage = str(payload.get("remediationStage") or "").strip()
-        details = payload.get("remediationDetails") if isinstance(payload.get("remediationDetails"), dict) else {}
+        details = (
+            payload.get("remediationDetails") if isinstance(payload.get("remediationDetails"), dict) else {}
+        )
         if not stage:
             return
         BlockerRemediationService(connection, root=self.cwd).create_for_blocked_run(

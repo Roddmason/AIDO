@@ -135,9 +135,7 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         transport: HttpTransport | None = None,
     ):
         is_legacy_provider = provider_id == "nvidia_nim"
-        runtime_configuration = (
-            runtime_provider_configuration(provider_id) if is_legacy_provider else None
-        )
+        runtime_configuration = runtime_provider_configuration(provider_id) if is_legacy_provider else None
         resolved_base_url = (
             base_url
             if base_url is not None
@@ -229,9 +227,7 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
                         error_class="NvidiaNimRateLimit",
                     )
                 except sqlite3.Error as error:
-                    raise NvidiaNimCapabilityError(
-                        "provider_rate_limit_persistence_failed"
-                    ) from error
+                    raise NvidiaNimCapabilityError("provider_rate_limit_persistence_failed") from error
             raise NvidiaNimCapabilityError("provider_rate_limited")
         if response.status_code < 200 or response.status_code >= 300:
             raise NvidiaNimCapabilityError("provider_request_failed")
@@ -331,9 +327,7 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
                     RerankResult(
                         index=index,
                         relevanceScore=score,
-                        passage=RerankPassage.model_validate(passage)
-                        if isinstance(passage, dict)
-                        else None,
+                        passage=RerankPassage.model_validate(passage) if isinstance(passage, dict) else None,
                     )
                 )
             if seen_indices != set(range(len(request.passages))):
@@ -481,9 +475,7 @@ class NvidiaNimVisualProvider(NvidiaNimProvider):
                 else set()
             ),
             "image_editing": (
-                {"nvidia_qwen_image_editing_infer", "nvidia_openai_image_editing"}
-                if self_hosted
-                else set()
+                {"nvidia_qwen_image_editing_infer", "nvidia_openai_image_editing"} if self_hosted else set()
             ),
         }
         if self.adapter_profile not in allowed_profiles[expected]:
@@ -520,14 +512,16 @@ class NvidiaNimVisualProvider(NvidiaNimProvider):
     def _decoded_image(payload: dict[str, Any], *, openai_compatible: bool) -> bytes:
         if openai_compatible:
             outputs = payload.get("data")
-            raw_image = outputs[0].get("b64_json") if isinstance(outputs, list) and len(outputs) == 1 and isinstance(outputs[0], dict) else None
+            raw_image = (
+                outputs[0].get("b64_json")
+                if isinstance(outputs, list) and len(outputs) == 1 and isinstance(outputs[0], dict)
+                else None
+            )
         else:
             outputs = payload.get("artifacts")
             artifact = (
                 outputs[0]
-                if isinstance(outputs, list)
-                and len(outputs) == 1
-                and isinstance(outputs[0], dict)
+                if isinstance(outputs, list) and len(outputs) == 1 and isinstance(outputs[0], dict)
                 else None
             )
             if artifact is None:

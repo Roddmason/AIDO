@@ -273,14 +273,10 @@ def _api_provider_status(
     configuration_error = str((configuration and configuration.resolution_error) or "").strip()
     configured = bool(
         not configuration_error
-        and (
-            (configuration and configuration.configured)
-            or (has_base_url and has_credential and has_model)
-        )
+        and ((configuration and configuration.configured) or (has_base_url and has_credential and has_model))
     )
     authenticated = bool(
-        not configuration_error
-        and (has_credential or (credential_status == "unverified" and healthy))
+        not configuration_error and (has_credential or (credential_status == "unverified" and healthy))
     )
     available = configured and healthy
     installation_enabled = _runtime_installation_enabled(runtime_installation)
@@ -785,8 +781,7 @@ class RuntimeStatusService:
                     _api_provider_status(
                         self.connection,
                         account,
-                        runtime_installations.get(provider_id)
-                        or runtime_installations.get(provider_family),
+                        runtime_installations.get(provider_id) or runtime_installations.get(provider_family),
                         provider_capabilities,
                         policy_decision,
                         configurations.get(provider_id),

@@ -1478,13 +1478,13 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
-                        "providerId": "nvidia_nim",
-                        "providerType": "api",
-                        "apiFormat": "openai_compatible",
-                        "deploymentMode": "self_hosted_development",
-                        "termsMode": "accepted",
-                        "pricingMode": "free",
-                        "baseUrl": f"{base_url}/v1",
+                    "providerId": "nvidia_nim",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "deploymentMode": "self_hosted_development",
+                    "termsMode": "accepted",
+                    "pricingMode": "free",
+                    "baseUrl": f"{base_url}/v1",
                     "credentialRef": "env:NVIDIA_NIM_API_KEY",
                     "enabled": True,
                     "healthStatus": "healthy",
@@ -3029,8 +3029,22 @@ def test_codex_native_auth_probe_uses_exit_code(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/codex.exe")
     results = {
-        0: {"executed": True, "blocked": False, "timedOut": False, "returnCode": 0, "stdout": "Logged in using ChatGPT", "stderr": ""},
-        1: {"executed": True, "blocked": False, "timedOut": False, "returnCode": 1, "stdout": "", "stderr": "Not logged in"},
+        0: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": "Logged in using ChatGPT",
+            "stderr": "",
+        },
+        1: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 1,
+            "stdout": "",
+            "stderr": "Not logged in",
+        },
     }
     current = {"code": 0}
     monkeypatch.setattr(
@@ -3230,11 +3244,14 @@ def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(tm
     ]
     assert "workspace-write" not in command
     assert command[-2:] == ["--", "Return JSON only"]
-    assert validate_product_owner_runtime_argv(
-        runtime_id="codex_cli",
-        argv=command,
-        workspace_path=str(tmp_path),
-    ) is None
+    assert (
+        validate_product_owner_runtime_argv(
+            runtime_id="codex_cli",
+            argv=command,
+            workspace_path=str(tmp_path),
+        )
+        is None
+    )
 
 
 def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Path) -> None:
@@ -3303,11 +3320,14 @@ def test_product_owner_claude_command_uses_plan_permission_mode(tmp_path: Path) 
     assert "--no-session-persistence" in command
     assert "--tools=" in command
     assert "acceptEdits" not in command
-    assert validate_product_owner_runtime_argv(
-        runtime_id="claude_code_cli",
-        argv=command,
-        workspace_path=str(tmp_path),
-    ) is None
+    assert (
+        validate_product_owner_runtime_argv(
+            runtime_id="claude_code_cli",
+            argv=command,
+            workspace_path=str(tmp_path),
+        )
+        is None
+    )
 
 
 def test_product_owner_runtime_rejects_explicit_argv_override(tmp_path: Path) -> None:

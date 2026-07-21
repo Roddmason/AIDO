@@ -247,9 +247,27 @@ def test_developer_agent_status_reports_contract_and_no_executable_runtime(
 
 def test_developer_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
     statuses = [
-        {"id": "openrouter", "providerFamily": "openrouter", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "nvidia_nim", "providerFamily": "nvidia_nim", "executable": True, "configured": True, "capabilities": ["chat"]},
-        {"id": "anthropic_api", "providerFamily": "anthropic_api", "executable": True, "configured": True, "capabilities": ["chat"]},
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
     ]
 
     readiness = developer_agent_readiness(statuses, preferred_runtime="nvidia_nim")
@@ -619,9 +637,7 @@ def test_developer_agent_forwards_story_specs_to_qa_agent(
             captured.update(kwargs)
             return super().run_for_context(**kwargs)
 
-    monkeypatch.setattr(
-        "local_control_center.agents.developer_agent.QAAgentRunner", SpyQAAgentRunner
-    )
+    monkeypatch.setattr("local_control_center.agents.developer_agent.QAAgentRunner", SpyQAAgentRunner)
     spec = "## Epic: Onboarding\n### HU-1: registro\n- Criterio: se crea la cuenta."
 
     result = DeveloperAgentRunner(store.connection, root=tmp_path).run(

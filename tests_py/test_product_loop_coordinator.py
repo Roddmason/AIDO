@@ -1054,9 +1054,7 @@ def test_retry_loop_remediation_rolls_back_job_when_loop_supersede_fails(
             (thread_id, loop_id),
         ).fetchone()
         assert action_row is not None
-        initial_event_ids = {
-            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
-        }
+        initial_event_ids = {event["id"] for event in ThreadsRepository(connection).list_events(thread_id)}
 
         def fail_supersede(*args: Any, **kwargs: Any) -> dict[str, Any]:
             raise RuntimeError("forced retry supersede failure")
@@ -1247,9 +1245,7 @@ def test_retry_loop_remediation_rolls_back_when_thread_queue_persistence_fails(
         ).fetchone()
         assert action_row is not None
         initial_loop = coordinator.get(result["loop"]["id"])
-        initial_event_ids = {
-            event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
-        }
+        initial_event_ids = {event["id"] for event in ThreadsRepository(connection).list_events(thread_id)}
         original_set_status = ThreadsRepository.set_status
         original_record_event = ThreadsRepository.record_event
 
@@ -1548,7 +1544,10 @@ def test_continue_plan_only_remediation_keeps_queued_job_when_thread_status_upda
         assert execution["execution"]["status"] == "queued"
         assert execution["execution"]["action"] == "continue_plan_only"
         assert execution["execution"]["threadStatusUpdate"]["status"] == "failed"
-        assert "controlled plan-only thread status crashed" in execution["execution"]["threadStatusUpdate"]["reason"]
+        assert (
+            "controlled plan-only thread status crashed"
+            in execution["execution"]["threadStatusUpdate"]["reason"]
+        )
         assert plan_job["status"] == "queued"
         assert plan_job["payload"]["planOnly"] is True
         assert superseded_loop["state"] == "cancelled"
@@ -1674,9 +1673,7 @@ def test_git_not_initialized_block_creates_git_init_remediation(tmp_path: Path) 
             """,
             (thread_id,),
         ).fetchall()
-        payloads = {
-            row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows
-        }
+        payloads = {row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows}
         assert result["status"] == "blocked"
         assert ("git_not_initialized", "git_init") in actions
         assert ("git_not_initialized", "retry_loop") in actions
@@ -1721,9 +1718,7 @@ def test_run_user_message_blocks_when_git_status_crashes(tmp_path: Path) -> None
             """,
             (thread_id,),
         ).fetchall()
-        payloads = {
-            row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows
-        }
+        payloads = {row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows}
         durable = result["loop"]["context"]["durableRun"]
         assert result["status"] == "blocked"
         assert durable["blockedStage"] == "git"
@@ -1790,7 +1785,9 @@ def test_block_run_creates_generic_retry_when_remediation_mapping_crashes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def crash_remediations(self: BlockerRemediationService, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_remediations(
+        self: BlockerRemediationService, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled remediation mapping crashed")
 
     monkeypatch.setattr(
@@ -1970,9 +1967,10 @@ def test_run_user_message_incomplete_idea_awaits_user_without_developer_executio
         assert resolved_decision["resolution"] == "operations lead"
         answers = ProductDiscoveryRepository(connection).list_clarification_answers(questions[0]["id"])
         assert answers[0]["answer"] == "operations lead"
-        assert ProductDiscoveryRepository(connection).get_clarification_question(questions[0]["id"])[
-            "status"
-        ] == "answered"
+        assert (
+            ProductDiscoveryRepository(connection).get_clarification_question(questions[0]["id"])["status"]
+            == "answered"
+        )
         transitions = [item["toState"] for item in result["transitions"]]
         assert transitions[-2:] == ["discovery", "awaiting_user"]
         assert "backlog_ready" not in transitions
@@ -2511,7 +2509,9 @@ def test_run_user_message_awaits_user_with_generic_retry_when_remediation_mappin
         )
     )
 
-    def crash_remediations(self: BlockerRemediationService, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_remediations(
+        self: BlockerRemediationService, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled remediation mapping crashed")
 
     monkeypatch.setattr(
@@ -2702,9 +2702,12 @@ def test_run_user_message_blocks_high_impact_technical_decision_when_research_re
         jobs = JobsRepository(connection).list_jobs(project["id"])
         research_jobs = [job for job in jobs if job["kind"] == "thread.research.run"]
         assert len(research_jobs) == 1
-        assert research_jobs[0]["payload"]["metadata"]["researchPolicy"][
-            "requireForHighImpactTechnicalDecisions"
-        ] is True
+        assert (
+            research_jobs[0]["payload"]["metadata"]["researchPolicy"][
+                "requireForHighImpactTechnicalDecisions"
+            ]
+            is True
+        )
         assert ("research_required", "run_worker_once") in actions
         assert ("research_required", "retry_loop") in actions
 
@@ -2737,7 +2740,8 @@ def test_run_user_message_brief_ready_persists_brief_and_artifacts(tmp_path: Pat
         assert briefs[0]["title"] == "Guided onboarding"
         assert result["loop"]["context"]["durableRun"]["briefApproval"]["status"] == "approval_required"
         artifact_names = {
-            artifact["metadata"].get("name") for artifact in EvidenceRepository(connection).list_all_artifacts()
+            artifact["metadata"].get("name")
+            for artifact in EvidenceRepository(connection).list_all_artifacts()
         }
         assert {"product_owner_output.json", "product_brief.json"} <= artifact_names
         transitions = [item["toState"] for item in result["transitions"]]
@@ -2817,7 +2821,8 @@ def test_run_user_message_backlog_ready_persists_backlog_and_generates_agent_tas
         assert technical_lead.payloads[0]["userStories"][0]["id"] == stories[0]["id"]
         assert runtime.run_payloads[0]["agentTasks"][0]["id"] == tasks[0]["id"]
         artifact_names = {
-            artifact["metadata"].get("name") for artifact in EvidenceRepository(connection).list_all_artifacts()
+            artifact["metadata"].get("name")
+            for artifact in EvidenceRepository(connection).list_all_artifacts()
         }
         assert {"product_owner_output.json", "product_brief.json", "backlog.json"} <= artifact_names
 
@@ -2931,20 +2936,27 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
             assignment_roles
         )
         assert all(assignment["handoffId"] for assignment in assignments)
-        assert (
-            connection.execute(
-                "SELECT COUNT(*) AS total FROM agent_handoffs WHERE project_id = ?",
-                (project["id"],),
-            ).fetchone()["total"]
-            == len(assignments)
-        )
+        assert connection.execute(
+            "SELECT COUNT(*) AS total FROM agent_handoffs WHERE project_id = ?",
+            (project["id"],),
+        ).fetchone()["total"] == len(assignments)
         team_schedule = result["loop"]["context"]["durableRun"]["teamSchedule"]
         assert team_schedule["mode"] == "balanced"
         assert "backend_engineer" in team_schedule["summary"]["roles"]
-        assert all(role["resourceDecision"]["selected"]["providerId"] == "ollama" for role in team_schedule["roles"])
-        assert all(assignment["metadata"]["resourceDecision"]["selected"]["model"] == "qwen2.5-coder" for assignment in assignments)
+        assert all(
+            role["resourceDecision"]["selected"]["providerId"] == "ollama" for role in team_schedule["roles"]
+        )
+        assert all(
+            assignment["metadata"]["resourceDecision"]["selected"]["model"] == "qwen2.5-coder"
+            for assignment in assignments
+        )
         assert runtime.run_payloads[0]["teamSchedule"]["schedulerVersion"] == 2
-        assert runtime.run_payloads[0]["teamSchedule"]["roles"][0]["resourceDecision"]["policyResult"]["opaqueMlUsed"] is False
+        assert (
+            runtime.run_payloads[0]["teamSchedule"]["roles"][0]["resourceDecision"]["policyResult"][
+                "opaqueMlUsed"
+            ]
+            is False
+        )
         assert runtime.run_payloads[0]["preferredRuntime"] == "ollama"
         assert runtime.run_payloads[0]["model"] == "qwen2.5-coder"
         assert runtime.run_payloads[0]["resourceSelection"]["providerId"] == "ollama"
@@ -3044,9 +3056,7 @@ def test_run_user_message_resource_manager_can_drive_nvidia_api_runtime(
         )
 
         team_schedule = result["loop"]["context"]["durableRun"]["teamSchedule"]
-        execution_role = next(
-            role for role in team_schedule["roles"] if role["role"] == "backend_engineer"
-        )
+        execution_role = next(role for role in team_schedule["roles"] if role["role"] == "backend_engineer")
 
         assert result["status"] == "awaiting_approval"
         assert execution_role["resourceDecision"]["selected"]["providerId"] == "nvidia_nim"
@@ -3115,10 +3125,7 @@ def test_run_user_message_ignores_untrusted_unknown_cost_policy_metadata(
         assert "requireApprovalForUnknownCost" not in request_meta
         assert "require_approval_for_unknown_cost" not in request_meta
         assert resource_decision["approvalRequired"] is True
-        assert (
-            resource_decision["policyResult"]["unknownCostPolicy"]["action"]
-            == "require_approval"
-        )
+        assert resource_decision["policyResult"]["unknownCostPolicy"]["action"] == "require_approval"
         assert product_owner.status_calls == 0
         assert product_owner.run_payloads == []
         assert runtime.run_payloads == []
@@ -3305,7 +3312,9 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
         assert approved_product_owner.run_payloads[0]["model"] == "nvidia/nemotron-coder"
         assert product_owner_context["resourceDecision"]["approvalRequired"] is True
         assert product_owner_context["resourceDecision"]["approvalSatisfied"] is True
-        assert product_owner_context["resourceDecision"]["policyResult"]["approvalOverride"]["approved"] is True
+        assert (
+            product_owner_context["resourceDecision"]["policyResult"]["approvalOverride"]["approved"] is True
+        )
         assert approved_runtime.run_payloads == []
         assert ("resource_manager_approval_required", "approve_resource_decision") in followup_actions
         assert ("resource_manager_approval_required", "retry_loop") in followup_actions
@@ -3873,9 +3882,7 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
         assert resource_decision["policyResult"]["roleExecutionPolicy"]["allowCli"] is True
         assert resource_decision["policyResult"]["providerPreferenceOrder"].index(
             "codex_cli"
-        ) < resource_decision["policyResult"]["providerPreferenceOrder"].index(
-            "claude_code_cli"
-        )
+        ) < resource_decision["policyResult"]["providerPreferenceOrder"].index("claude_code_cli")
         assert (
             resource_decision["policyResult"]["candidateInventory"]
             == "model_catalog_with_performance_overlay"
@@ -3909,9 +3916,7 @@ def test_product_owner_resource_selection_obeys_its_mutable_role_policy_without_
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE model_catalog SET enabled = 0")
-        connection.execute(
-            "UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'codex_cli'"
-        )
+        connection.execute("UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'codex_cli'")
         project = _workspace_project(connection, tmp_path, f"po-policy-{policy_state}")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         if policy_state == "cli_disabled":
@@ -3934,9 +3939,7 @@ def test_product_owner_resource_selection_obeys_its_mutable_role_policy_without_
     assert decision["rejected"]
     assert {item["reason"] for item in decision["rejected"]} == {"role_blocks_cli"}
     expected_policy_id = "product_owner" if policy_state == "cli_disabled" else None
-    assert decision["policyResult"]["roleExecutionPolicy"]["rolePolicyId"] == (
-        expected_policy_id
-    )
+    assert decision["policyResult"]["roleExecutionPolicy"]["rolePolicyId"] == (expected_policy_id)
 
 
 def test_run_user_message_blocks_when_catalogued_runtime_is_not_executable(
@@ -4079,10 +4082,7 @@ def test_resource_manager_block_keeps_planning_context_in_durable_run(
         assert durable["agentTasks"]
         assert durable["teamSchedule"]["schedulerVersion"] == 2
         assert durable["teamSchedule"]["summary"]["resourceDecisionBlockedCount"] > 0
-        assert any(
-            role["resourceDecision"]["selected"] is None
-            for role in durable["teamSchedule"]["roles"]
-        )
+        assert any(role["resourceDecision"]["selected"] is None for role in durable["teamSchedule"]["roles"])
         assert runtime.run_payloads == []
 
 
@@ -4347,9 +4347,7 @@ def test_run_user_message_does_not_execute_developer_without_backlog_tasks(tmp_p
             """,
             (thread_id,),
         ).fetchall()
-        payloads = {
-            row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows
-        }
+        payloads = {row["action_type"]: json.loads(row["payload_json"] or "{}") for row in action_rows}
         for payload in payloads.values():
             assert payload["backlogArtifactId"]
             assert payload["agentTaskIds"] == []
@@ -4865,9 +4863,7 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
         assert {
             transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
         } == initial_transition_ids
-        assert {
-            job["id"] for job in JobsRepository(connection).list_jobs(project["id"])
-        } == initial_job_ids
+        assert {job["id"] for job in JobsRepository(connection).list_jobs(project["id"])} == initial_job_ids
         assert {
             request["id"] for request in JobsRepository(connection).list_action_requests()
         } == initial_action_request_ids
@@ -4875,9 +4871,10 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
         assert {
             event["id"] for event in ThreadsRepository(connection).list_events(thread_id)
         } == initial_thread_event_ids
-        assert BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])[
-            "status"
-        ] == "pending"
+        assert (
+            BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])["status"]
+            == "pending"
+        )
 
         monkeypatch.setattr(ThreadsRepository, "record_event", original_record_event)
         retry = BlockerRemediationService(connection, root=tmp_path).execute(
@@ -4902,16 +4899,19 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
         assert retried_loop["state"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["status"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["approval"]["actionRequestId"]
-        assert connection.execute(
-            """
+        assert (
+            connection.execute(
+                """
             SELECT COUNT(*) AS total
             FROM remediation_actions
             WHERE loop_id = ?
               AND blocker_type = 'approval_unavailable'
               AND status = 'pending'
             """,
-            (result["loop"]["id"],),
-        ).fetchone()["total"] == 0
+                (result["loop"]["id"],),
+            ).fetchone()["total"]
+            == 0
+        )
 
 
 def test_run_user_message_records_resource_learning_when_developer_runtime_crashes(tmp_path: Path) -> None:
@@ -5212,9 +5212,7 @@ def test_run_user_message_blocks_directory_runtime_without_changed_files(tmp_pat
         remediation_records = BlockerRemediationService(connection, root=tmp_path).repository.list_for_thread(
             thread_id
         )
-        view_diff = next(
-            action for action in remediation_records if action["actionType"] == "view_diff"
-        )
+        view_diff = next(action for action in remediation_records if action["actionType"] == "view_diff")
         retry = next(action for action in remediation_records if action["actionType"] == "retry_loop")
         assert view_diff["payload"]["workspaceId"]
         assert view_diff["payload"]["runtimeStatus"] == "completed"
@@ -5338,8 +5336,7 @@ def test_run_user_message_records_per_role_resource_usage_quality_learning(tmp_p
 
         durable = result["loop"]["context"]["durableRun"]
         observations = {
-            observation["role"]: observation
-            for observation in durable["resourceLearning"]["observations"]
+            observation["role"]: observation for observation in durable["resourceLearning"]["observations"]
         }
         cost_rows = connection.execute(
             """
@@ -5483,9 +5480,7 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         }
         initial_performance_evidence = {
             row["id"]: row["evidence_json"]
-            for row in connection.execute(
-                "SELECT id, evidence_json FROM ai_model_performance"
-            ).fetchall()
+            for row in connection.execute("SELECT id, evidence_json FROM ai_model_performance").fetchall()
         }
         original_record_event = ThreadsRepository.record_event
 
@@ -5522,9 +5517,7 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         assert {
             transition["id"] for transition in coordinator.list_transitions(result["loop"]["id"])
         } == initial_transition_ids
-        assert {
-            job["id"] for job in JobsRepository(connection).list_jobs(project["id"])
-        } == initial_job_ids
+        assert {job["id"] for job in JobsRepository(connection).list_jobs(project["id"])} == initial_job_ids
         assert {
             request["id"] for request in JobsRepository(connection).list_action_requests()
         } == initial_action_request_ids
@@ -5537,13 +5530,12 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         } == initial_cost_observation_ids
         assert {
             row["id"]: row["evidence_json"]
-            for row in connection.execute(
-                "SELECT id, evidence_json FROM ai_model_performance"
-            ).fetchall()
+            for row in connection.execute("SELECT id, evidence_json FROM ai_model_performance").fetchall()
         } == initial_performance_evidence
-        assert BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])[
-            "status"
-        ] == "pending"
+        assert (
+            BlockerRemediationService(connection, root=tmp_path).repository.get(retry_row["id"])["status"]
+            == "pending"
+        )
 
         monkeypatch.setattr(ThreadsRepository, "record_event", original_record_event)
         retry = BlockerRemediationService(connection, root=tmp_path).execute(
@@ -5571,16 +5563,19 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         assert retried_loop["context"]["durableRun"]["status"] == "awaiting_approval"
         assert retried_loop["context"]["durableRun"]["resourceLearning"]["status"] == "recorded"
         assert retried_loop["context"]["durableRun"]["approval"]["actionRequestId"]
-        assert connection.execute(
-            """
+        assert (
+            connection.execute(
+                """
             SELECT COUNT(*) AS total
             FROM remediation_actions
             WHERE loop_id = ?
               AND blocker_type = 'resource_learning_failed'
               AND status = 'pending'
             """,
-            (result["loop"]["id"],),
-        ).fetchone()["total"] == 0
+                (result["loop"]["id"],),
+            ).fetchone()["total"]
+            == 0
+        )
 
 
 def test_run_user_message_records_unknown_resource_usage_without_fabricating_tokens(tmp_path: Path) -> None:
@@ -5671,7 +5666,9 @@ def test_run_user_message_blocks_invalid_product_owner_output_with_remediation(
         assert durable["productOwner"]["resourceLearning"]["observations"][0]["role"] == "product_owner"
         assert "ProductOwnerAgent output" in result["reason"]
         assert runtime.run_payloads == []
-        assert ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
+        assert (
+            ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
+        )
         assert ("product_owner_output_invalid", "open_settings_section") in actions
         assert ("product_owner_output_invalid", "retry_loop") in actions
         assert any(
@@ -5738,7 +5735,9 @@ def test_run_user_message_records_product_owner_resource_learning_when_runtime_c
         assert "controlled ProductOwnerAgent runtime crashed" in result["reason"]
         assert product_owner.run_payloads
         assert runtime.run_payloads == []
-        assert ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
+        assert (
+            ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
+        )
         assert ("product_owner_output_invalid", "open_settings_section") in actions
         assert ("product_owner_output_invalid", "retry_loop") in actions
         assert any(
@@ -5799,7 +5798,10 @@ def test_product_owner_runtime_block_survives_resource_learning_persistence_cras
         assert durable["productOwner"]["status"] == "runtime_failed"
         assert durable["productOwner"]["resourceLearning"]["status"] == "persistence_failed"
         assert "controlled ProductOwnerAgent runtime crashed" in result["reason"]
-        assert "controlled ProductOwner block resource learning crashed" in durable["productOwner"]["resourceLearning"]["reason"]
+        assert (
+            "controlled ProductOwner block resource learning crashed"
+            in durable["productOwner"]["resourceLearning"]["reason"]
+        )
         assert product_owner.run_payloads
         assert runtime.run_payloads == []
         assert ("product_owner_output_invalid", "open_settings_section") in actions
@@ -5857,7 +5859,10 @@ def test_invalid_product_owner_output_block_survives_resource_learning_persisten
         assert durable["productOwner"]["status"] == "failed_validation"
         assert durable["productOwner"]["resourceLearning"]["status"] == "persistence_failed"
         assert "ProductOwnerAgent output" in result["reason"]
-        assert "controlled ProductOwner validation resource learning crashed" in durable["productOwner"]["resourceLearning"]["reason"]
+        assert (
+            "controlled ProductOwner validation resource learning crashed"
+            in durable["productOwner"]["resourceLearning"]["reason"]
+        )
         assert runtime.run_payloads == []
         assert ("product_owner_output_invalid", "open_settings_section") in actions
         assert ("product_owner_output_invalid", "retry_loop") in actions
@@ -5959,7 +5964,9 @@ def test_run_user_message_blocks_when_backlog_persistence_crashes(
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
 
-    def crash_persist_backlog(self: ProductLoopCoordinator, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_persist_backlog(
+        self: ProductLoopCoordinator, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled backlog persistence crashed")
 
     monkeypatch.setattr(
@@ -6139,7 +6146,9 @@ def test_run_user_message_blocks_when_product_owner_question_persistence_crashes
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
 
-    def crash_persist_questions(self: ProductLoopCoordinator, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_persist_questions(
+        self: ProductLoopCoordinator, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled ProductOwner question persistence crashed")
 
     monkeypatch.setattr(
@@ -6183,7 +6192,9 @@ def test_run_user_message_blocks_when_product_owner_decision_persistence_crashes
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
 
-    def crash_persist_decisions(self: ProductLoopCoordinator, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_persist_decisions(
+        self: ProductLoopCoordinator, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled ProductOwner decision persistence crashed")
 
     monkeypatch.setattr(
@@ -6293,7 +6304,10 @@ def test_run_user_message_blocks_existing_functionality_before_runtime_execution
         assert result["status"] == "blocked"
         assert result["loop"]["state"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "functionality_memory"
-        assert result["loop"]["context"]["durableRun"]["existingFunctionality"]["sourceThreadId"] == existing["id"]
+        assert (
+            result["loop"]["context"]["durableRun"]["existingFunctionality"]["sourceThreadId"]
+            == existing["id"]
+        )
         assert runtime.run_payloads == []
 
         thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
@@ -6318,9 +6332,7 @@ def test_run_user_message_blocks_existing_functionality_before_runtime_execution
             """,
             (thread_id,),
         ).fetchone()
-        action_payload = json.loads(
-            action_row["payload_json"]
-        )
+        action_payload = json.loads(action_row["payload_json"])
         assert action_payload["decisionId"] == decisions[0]["id"]
         assert action_payload["prompt"].startswith("Existing functionality detected:")
         assert action_payload["options"] == [
@@ -6329,7 +6341,10 @@ def test_run_user_message_blocks_existing_functionality_before_runtime_execution
             "performance_pass",
             "create_new_anyway",
         ]
-        assert action_payload["details"]["functionalityId"] == result["loop"]["context"]["durableRun"]["existingFunctionality"]["id"]
+        assert (
+            action_payload["details"]["functionalityId"]
+            == result["loop"]["context"]["durableRun"]["existingFunctionality"]["id"]
+        )
         execution = BlockerRemediationService(connection, root=tmp_path).execute(
             action_row["id"],
             platform=object(),
@@ -6425,7 +6440,10 @@ def test_run_user_message_blocks_existing_functionality_when_thread_event_persis
         assert result["status"] == "blocked"
         assert result["loop"]["state"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "functionality_memory"
-        assert result["loop"]["context"]["durableRun"]["existingFunctionality"]["sourceThreadId"] == existing["id"]
+        assert (
+            result["loop"]["context"]["durableRun"]["existingFunctionality"]["sourceThreadId"]
+            == existing["id"]
+        )
         assert runtime.run_payloads == []
 
         thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
@@ -6509,7 +6527,9 @@ def test_run_user_message_blocks_existing_functionality_with_generic_retry_when_
 ) -> None:
     runtime = _ControlledRuntime()
 
-    def crash_remediations(self: BlockerRemediationService, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def crash_remediations(
+        self: BlockerRemediationService, *args: Any, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         raise RuntimeError("controlled remediation mapping crashed")
 
     monkeypatch.setattr(
@@ -6619,8 +6639,13 @@ def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
             action for action in remediation_records if action["actionType"] == "run_gitleaks"
         )
         retry = next(action for action in remediation_records if action["actionType"] == "retry_loop")
-        assert run_gitleaks["payload"]["workspaceId"] == result["loop"]["context"]["durableRun"]["workspaceId"]
-        assert run_gitleaks["payload"]["workspacePath"] == result["loop"]["context"]["durableRun"]["workspacePath"]
+        assert (
+            run_gitleaks["payload"]["workspaceId"] == result["loop"]["context"]["durableRun"]["workspaceId"]
+        )
+        assert (
+            run_gitleaks["payload"]["workspacePath"]
+            == result["loop"]["context"]["durableRun"]["workspacePath"]
+        )
         assert run_gitleaks["payload"]["runtimeStatus"] == "completed"
         assert "backend_engineer" in run_gitleaks["payload"]["scheduledRoles"]
         assert run_gitleaks["payload"]["changedFiles"] == ["src/app.py"]
@@ -7697,7 +7722,10 @@ def test_continue_feedback_queues_real_product_loop_continuation(tmp_path: Path)
         assert continuation_job["payload"]["feedbackId"] == continued["feedback"]["id"]
         assert continuation_job["payload"]["runMetadata"]["continueOfLoopId"] == reworked["loop"]["id"]
         assert continuation_job["payload"]["runMetadata"]["feedbackId"] == continued["feedback"]["id"]
-        assert continuation_job["payload"]["runMetadata"]["continueReason"] == "Continue with the requested rework."
+        assert (
+            continuation_job["payload"]["runMetadata"]["continueReason"]
+            == "Continue with the requested rework."
+        )
         assert continuation_job["payload"]["runMetadata"]["teamMode"] == "critical"
         assert continuation_job["payload"]["runMetadata"]["risk"] == "high"
         assert continuation_job["payload"]["runMetadata"]["planOnly"] is True
@@ -7748,9 +7776,7 @@ def test_blocked_thread_without_stored_actions_gets_backfilled_remediations(
         ThreadsRepository(connection).set_status(thread_id, "blocked")
         connection.execute("DELETE FROM remediation_actions WHERE thread_id = ?", (thread_id,))
 
-        actions = BlockerRemediationService(connection, root=tmp_path).list_for_thread(
-            thread_id=thread_id
-        )
+        actions = BlockerRemediationService(connection, root=tmp_path).list_for_thread(thread_id=thread_id)
 
         action_types = {action["actionType"] for action in actions}
         assert "retry_loop" in action_types
@@ -7894,9 +7920,7 @@ def test_security_agent_receives_diff_artifact_and_story_specs(tmp_path: Path) -
 
 
 def test_security_agent_verdict_blocked_blocks_delivery(tmp_path: Path) -> None:
-    security = _SecurityGate(
-        verdict="blocked", reason="Critical security finding blocks completion."
-    )
+    security = _SecurityGate(verdict="blocked", reason="Critical security finding blocks completion.")
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)

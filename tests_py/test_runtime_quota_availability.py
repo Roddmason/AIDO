@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.error import HTTPError
 
+import pytest
+
 from local_control_center.agents.product_owner_agent_contract import is_product_owner_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.quota_manager import QuotaManager
@@ -27,8 +29,17 @@ def _ollama_status(connection) -> dict:
     return statuses["ollama"]
 
 
-def test_a_provider_without_quota_is_not_offered_as_executable(tmp_path: Path) -> None:
+def test_a_provider_without_quota_is_not_offered_as_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Sin esto un proveedor sin tokens sigue configurado y autenticado, y los agentes lo eligen."""
+    # El estado de Ollama sale de un probe de red real; sin daemon vivo el provider ya está caído por
+    # 'provider request failed' y la demotion por cuota no reescribe su motivo. Se fija un daemon
+    # disponible para ejercer la precondición real: un provider ejecutable que luego pierde la cuota.
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        lambda **_kwargs: {"provider": "ollama", "available": True, "models": ["llama3"], "reason": ""},
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(dict(OLLAMA_ACCOUNT))

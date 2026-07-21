@@ -545,6 +545,301 @@ def delete_git_branch(
     return {"status": "deleted", "branchName": branch_name}
 
 
+def git_remote_exists(
+    *,
+    repo_path: Path,
+    remote: str,
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+) -> bool:
+    """Indica si el repo tiene configurado el remoto dado (vía ``git remote -v`` auditado)."""
+    if not git_available() or not remote:
+        return False
+    control_workspace_id = _ensure_control_workspace(
+        connection, project_id=project_id, path=repo_path, task_id="landing-remote-check-git-control"
+    )
+    result = run_brokered_git(
+        connection=connection,
+        root=root,
+        project_id=project_id,
+        workspace_id=control_workspace_id,
+        workspace_path=repo_path,
+        cwd=repo_path,
+        args=["remote", "-v"],
+        task_id="landing_remote_check",
+    )
+    if result["returnCode"] != 0:
+        return False
+    return any(line.split("\t")[0] == remote for line in result["stdout"].splitlines() if "\t" in line)
+
+
+def push_branch_to_remote(
+    *,
+    repo_path: Path,
+    remote: str,
+    branch: str,
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+) -> dict[str, Any]:
+    """Pushea una rama al remoto configurado (``git push <remote> <branch>``, sin force ni refspec).
+
+    Es la pieza de red del aterrizaje: publica la rama base tras un merge local (``direct_push``)
+    o la rama de trabajo antes de abrir un PR. Corre por el ToolBroker con ``networkRequired``
+    explícito; la policy deniega cualquier flag de force o refspec.
+    """
+    if not git_available():
+        return {"status": "push_failed_git_unavailable"}
+    control_workspace_id = _ensure_control_workspace(
+        connection, project_id=project_id, path=repo_path, task_id="landing-push-git-control"
+    )
+    agents = AgentsRepository(connection)
+    profile = git_workspace_agent_profile(connection)
+    agent_run = agents.create_agent_run(
+        project_id=project_id,
+        agent_profile_id=profile["id"],
+        task_id="git_worktree.landing_push",
+        input_payload={
+            "operation": "git_workspace_command",
+            "gitOperation": "push_branch",
+            "workspaceId": control_workspace_id,
+            "argv": ["git", "push", remote, branch],
+        },
+        output_payload={},
+        status="running",
+    )
+    broker_result = ToolBroker(connection, artifact_root=root).evaluate_tool_call(
+        project_id=project_id,
+        agent_run_id=agent_run["id"],
+        agent_profile=profile,
+        tool_call={
+            "tool": "shell",
+            "command": f"git push {remote} {branch}",
+            "argv": ["git", "push", remote, branch],
+            "workspaceId": control_workspace_id,
+            "workspacePath": str(repo_path),
+            "path": str(repo_path),
+            "operation": "git_workspace_command",
+            "runtimeId": "git",
+            "gitOperation": "push_branch",
+            "capability": "git",
+            "networkRequired": True,
+            "secretsRequired": False,
+            "execute": True,
+            "timeoutSeconds": GIT_COMMAND_TIMEOUT_SECONDS,
+        },
+    )
+    tool_call = broker_result["toolCall"]
+    payload = tool_call.get("payload") or {}
+    execution_result = payload.get("executionResult") or {}
+    return_code = execution_result.get("returnCode")
+    status = "blocked" if execution_result.get("blocked") else "pushed" if return_code == 0 else "push_failed"
+    trace = {**_trace_from_tool_call(tool_call), "agentRunId": agent_run["id"]}
+    agents.update_agent_run_status(
+        agent_run["id"],
+        status="completed" if status == "pushed" else "failed",
+        output_payload={"status": status, "trace": trace},
+    )
+    return {
+        "status": status,
+        "remote": remote,
+        "branch": branch,
+        "stderr": str(execution_result.get("stderr") or "").strip()[:1000],
+        "toolCalls": [trace],
+        "policyDecisionIds": _policy_ids([trace]),
+    }
+
+
+def merge_work_branch_into_base(
+    *,
+    repo_path: Path,
+    work_branch: str,
+    base_branch: str,
+    message: str,
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+) -> dict[str, Any]:
+    """Mergea la rama de trabajo en la rama base del proyecto sin romper el árbol principal.
+
+    Dos caminos, ambos auditados por policy:
+    - Si el repo está parado EN la base y limpio, mergea ahí (``merge --no-ff``); ante conflicto
+      hace ``merge --abort`` y reporta ``merge_conflict`` sin dejar el árbol a medias.
+    - Si la base no está checked-out, abre un worktree temporal con una rama de aterrizaje desde
+      la base, mergea allí, verifica que el avance sea append-only (el primer padre del merge es
+      la punta actual de la base) y recién entonces mueve el ref (``branch -f base landing``).
+    Nunca toca la base si el working tree está sucio o el merge no aplica limpio.
+    """
+    if not git_available():
+        return {"status": "merge_failed_git_unavailable"}
+    traces: list[dict[str, Any]] = []
+    control_workspace_id = _ensure_control_workspace(
+        connection, project_id=project_id, path=repo_path, task_id="landing-merge-git-control"
+    )
+
+    def _repo_git(args: list[str], *, git_operation: str | None = None, task: str) -> dict[str, Any]:
+        result = run_brokered_git(
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=control_workspace_id,
+            workspace_path=repo_path,
+            cwd=repo_path,
+            args=args,
+            task_id=task,
+            git_operation=git_operation,
+        )
+        traces.append(result["trace"])
+        return result
+
+    base_tip = _repo_git(["rev-parse", base_branch], task="landing_base_tip")
+    if base_tip["returnCode"] != 0:
+        return {
+            "status": "base_branch_missing",
+            "baseBranch": base_branch,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    current = _repo_git(["branch", "--show-current"], task="landing_current_branch")
+    current_branch = current["stdout"].strip() if current["returnCode"] == 0 else ""
+
+    if current_branch == base_branch:
+        pending = _repo_git(["status", "--porcelain"], task="landing_base_status")
+        if pending["returnCode"] != 0 or pending["stdout"].strip():
+            return {
+                "status": "base_dirty",
+                "baseBranch": base_branch,
+                "toolCalls": traces,
+                "policyDecisionIds": _policy_ids(traces),
+            }
+        merged = _repo_git(
+            ["merge", "--no-ff", "-m", message, work_branch],
+            git_operation="merge_work_branch",
+            task="landing_merge",
+        )
+        if merged["returnCode"] != 0:
+            _repo_git(["merge", "--abort"], git_operation="merge_work_branch", task="landing_merge_abort")
+            return {
+                "status": "merge_conflict",
+                "stderr": merged["stderr"].strip()[:1000] or merged["reason"],
+                "toolCalls": traces,
+                "policyDecisionIds": _policy_ids(traces),
+            }
+        head = _repo_git(["rev-parse", "HEAD"], task="landing_base_head")
+        return {
+            "status": "merged",
+            "baseBranch": base_branch,
+            "baseCommit": head["stdout"].strip() if head["returnCode"] == 0 else None,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+
+    landing_suffix = uuid.uuid4().hex[:8]
+    landing_branch = f"aido/landing/{landing_suffix}"
+    landing_path = root / ".tmp" / "workspaces" / f"landing-{landing_suffix}"
+    created = create_git_worktree(
+        repo_path=repo_path,
+        worktree_path=landing_path,
+        task_id=f"landing-{landing_suffix}",
+        workspace_id=f"landing-{landing_suffix}",
+        base_branch=base_branch,
+        branch_name=landing_branch,
+        connection=connection,
+        root=root,
+        project_id=project_id,
+    )
+    if created.get("status") != "created":
+        return {
+            "status": "landing_worktree_failed",
+            "detail": created,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    landing_workspace_id = _ensure_control_workspace(
+        connection, project_id=project_id, path=landing_path, task_id=f"landing-merge-{landing_suffix}"
+    )
+
+    def _landing_git(args: list[str], *, git_operation: str | None = None, task: str) -> dict[str, Any]:
+        result = run_brokered_git(
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=landing_workspace_id,
+            workspace_path=landing_path,
+            cwd=landing_path,
+            args=args,
+            task_id=task,
+            git_operation=git_operation,
+        )
+        traces.append(result["trace"])
+        return result
+
+    def _cleanup_landing() -> None:
+        remove_git_worktree(
+            repo_path=repo_path,
+            worktree_path=landing_path,
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=landing_workspace_id,
+        )
+        delete_git_branch(
+            repo_path=repo_path,
+            branch_name=landing_branch,
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=landing_workspace_id,
+        )
+
+    _ensure_git_identity(landing_path)
+    merged = _landing_git(
+        ["merge", "--no-ff", "-m", message, work_branch],
+        git_operation="merge_work_branch",
+        task="landing_merge",
+    )
+    if merged["returnCode"] != 0:
+        _cleanup_landing()
+        return {
+            "status": "merge_conflict",
+            "stderr": merged["stderr"].strip()[:1000] or merged["reason"],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    first_parent = _landing_git(["rev-parse", f"{landing_branch}^1"], task="landing_first_parent")
+    if first_parent["returnCode"] != 0 or first_parent["stdout"].strip() != base_tip["stdout"].strip():
+        # La base se movió mientras aterrizábamos: abortar antes de mover el ref (append-only).
+        _cleanup_landing()
+        return {
+            "status": "base_moved_during_landing",
+            "baseBranch": base_branch,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    advanced = _repo_git(
+        ["branch", "-f", base_branch, landing_branch],
+        git_operation="advance_base_after_merge",
+        task="landing_advance_base",
+    )
+    landing_tip = _landing_git(["rev-parse", landing_branch], task="landing_tip")
+    _cleanup_landing()
+    if advanced["returnCode"] != 0:
+        return {
+            "status": "base_advance_failed",
+            "stderr": advanced["stderr"].strip()[:1000] or advanced["reason"],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    return {
+        "status": "merged",
+        "baseBranch": base_branch,
+        "baseCommit": landing_tip["stdout"].strip() if landing_tip["returnCode"] == 0 else None,
+        "toolCalls": traces,
+        "policyDecisionIds": _policy_ids(traces),
+    }
+
+
 def _ensure_git_identity(worktree_path: Path) -> None:
     """Configura una identidad de autor por defecto en el worktree si el repo no tiene ninguna.
 

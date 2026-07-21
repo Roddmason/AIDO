@@ -91,6 +91,7 @@ from local_control_center.workspaces_projects.repository import (
     WorkspacesRepository,
 )
 
+from .delivery import ProductLoopDeliveryService
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .repository import ProductLoopRepository, stable_task_suffix
 
@@ -650,6 +651,40 @@ class ProductLoopCoordinator:
         return self.repository.update_loop_context(
             loop["id"], context={**loop["context"], "durableRun": durable}
         )
+
+    def _land_delivered_work(self, loop: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Aterriza la rama de trabajo del loop recién entregado según ``project.git.integrationMode``.
+
+        Best-effort: un aterrizaje bloqueado o fallido se persiste como evidencia en el contexto
+        durable (``landing``) y como efecto, pero jamás revierte la entrega ya aprobada.
+        """
+        durable = self._durable_run_context(loop)
+        workspace_id = str(durable.get("workspaceId") or "").strip()
+        if not workspace_id:
+            return loop, None
+        project_id = str(loop["projectId"])
+        root = self.root if self.root is not None else Path(self._queue_root(project_id) or ".")
+        try:
+            landing = ProductLoopDeliveryService(self.connection, root=root).land(
+                project_id=project_id,
+                workspace_id=workspace_id,
+                loop_id=str(loop["id"]),
+                title=str(loop.get("title") or ""),
+            )
+        except Exception as error:
+            landing = {"status": "landing_failed", "reason": redact_secrets(str(error))}
+        durable["landing"] = redact_secrets(landing)
+        durable["updatedAt"] = utc_now()
+        loop = self.repository.update_loop_context(
+            loop["id"], context={**loop["context"], "durableRun": durable}
+        )
+        return loop, {
+            "type": "delivery_landing",
+            "status": str(landing.get("status") or "unknown"),
+            "effectiveMode": landing.get("effectiveMode"),
+            "degradedFrom": landing.get("degradedFrom"),
+            "baseBranch": landing.get("baseBranch"),
+        }
 
     def _delivery_thread_id(self, loop: dict[str, Any]) -> str:
         thread = self._durable_run_context(loop).get("thread")
@@ -6697,6 +6732,7 @@ class ProductLoopCoordinator:
                 actor=actor,
             )
             loop = self._record_delivery_approval_decision(loop, approval_effect)
+            loop, landing_effect = self._land_delivered_work(loop)
             thread_effect = self._sync_delivery_feedback_thread_state(
                 loop=loop,
                 decision=action,
@@ -6713,6 +6749,8 @@ class ProductLoopCoordinator:
             )
             if approval_effect:
                 effects.append(approval_effect)
+            if landing_effect:
+                effects.append(landing_effect)
             if thread_effect:
                 effects.append(thread_effect)
             return loop, effects

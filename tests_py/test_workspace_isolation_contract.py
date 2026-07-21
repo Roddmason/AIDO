@@ -493,3 +493,175 @@ def test_commit_workspace_changes_persists_agent_work_on_the_branch(
         workspace_id=workspace["id"],
     )
     assert again["status"] == "nothing_to_commit"
+
+
+def _committed_work_branch(
+    store: Any, tmp_path: Path, repo: Path, project: dict[str, Any], *, task: str
+) -> tuple[dict[str, Any], str]:
+    """Asigna un worktree, escribe y commitea un archivo; devuelve (workspace, rama de trabajo)."""
+    from local_control_center.workspaces_projects.git_worktrees import commit_workspace_changes
+
+    repository = WorkspacesRepository(store.connection, root=tmp_path)
+    workspace = repository.allocate_workspace(
+        project_id=project["id"],
+        task_id=task,
+        agent_id="developer",
+        branch_name=f"codex/{task}",
+    )
+    store.connection.commit()
+    workspace_path = Path(workspace["path"])
+    (workspace_path / f"{task}.py").write_text('"""Feature."""\n\nx = 1\n', encoding="utf-8")
+    result = commit_workspace_changes(
+        workspace_path=workspace_path,
+        message=f"Feature: {task}",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+        workspace_id=workspace["id"],
+    )
+    store.connection.commit()
+    assert result["status"] == "committed", result
+    return workspace, f"codex/{task}"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_merge_lands_the_work_branch_on_a_non_checked_out_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El merge aterriza en una base NO checked-out vía worktree temporal, sin tocar el árbol principal."""
+    from local_control_center.workspaces_projects.git_worktrees import merge_work_branch_into_base
+
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "land-repo"
+    create_git_repo(repo)
+    assert run_git(["branch", "devbase"], cwd=repo).returncode == 0
+    project = store.create_project(name="Land", path=repo, template_id="other")
+    _workspace, work_branch = _committed_work_branch(store, tmp_path, repo, project, task="land-task")
+
+    result = merge_work_branch_into_base(
+        repo_path=repo,
+        work_branch=work_branch,
+        base_branch="devbase",
+        message=f"Merge {work_branch} into devbase",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+    )
+    store.connection.commit()
+
+    assert result["status"] == "merged", result
+    show = run_git(["show", "devbase:land-task.py"], cwd=repo)
+    assert show.returncode == 0 and "x = 1" in show.stdout
+    # El árbol principal no cambió de rama ni quedó sucio.
+    assert run_git(["status", "--porcelain"], cwd=repo).stdout.strip() == ""
+    # La rama de aterrizaje temporal no queda colgando.
+    branches = run_git(["branch", "--list", "aido/landing/*"], cwd=repo).stdout
+    assert branches.strip() == ""
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_merge_lands_on_the_checked_out_base_and_conflict_aborts_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Merge directo cuando la base está checked-out; un conflicto aborta sin dejar el árbol a medias."""
+    from local_control_center.workspaces_projects.git_worktrees import (
+        git_current_branch,
+        merge_work_branch_into_base,
+    )
+
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "land-direct-repo"
+    create_git_repo(repo)
+    base = git_current_branch(repo)
+    assert base
+    project = store.create_project(name="LandDirect", path=repo, template_id="other")
+    _workspace, work_branch = _committed_work_branch(store, tmp_path, repo, project, task="direct-task")
+
+    result = merge_work_branch_into_base(
+        repo_path=repo,
+        work_branch=work_branch,
+        base_branch=base,
+        message=f"Merge {work_branch}",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+    )
+    assert result["status"] == "merged", result
+    assert (repo / "direct-task.py").exists()
+
+    # Conflicto: la base y una nueva rama de trabajo editan la misma línea de README.md.
+    _conflict_ws, conflict_branch = _committed_work_branch(
+        store, tmp_path, repo, project, task="conflict-task"
+    )
+    conflict_path = Path(_conflict_ws["path"]) / "README.md"
+    conflict_path.write_text("work version\n", encoding="utf-8")
+    from local_control_center.workspaces_projects.git_worktrees import commit_workspace_changes
+
+    commit_workspace_changes(
+        workspace_path=Path(_conflict_ws["path"]),
+        message="work edit",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+        workspace_id=_conflict_ws["id"],
+    )
+    (repo / "README.md").write_text("base version\n", encoding="utf-8")
+    assert run_git(["add", "README.md"], cwd=repo).returncode == 0
+    assert (
+        run_git(
+            ["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-m", "base edit"], cwd=repo
+        ).returncode
+        == 0
+    )
+
+    conflicted = merge_work_branch_into_base(
+        repo_path=repo,
+        work_branch=conflict_branch,
+        base_branch=base,
+        message="conflicting merge",
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+    )
+    assert conflicted["status"] == "merge_conflict", conflicted
+    assert run_git(["status", "--porcelain"], cwd=repo).stdout.strip() == ""
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_push_branch_publishes_to_the_configured_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El push publica la rama en el remoto configurado (bare local), auditado por policy."""
+    from local_control_center.workspaces_projects.git_worktrees import (
+        git_remote_exists,
+        push_branch_to_remote,
+    )
+
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    repo = tmp_path / "push-repo"
+    create_git_repo(repo)
+    bare = tmp_path / "remote.git"
+    assert run_git(["init", "--bare", str(bare)], cwd=tmp_path).returncode == 0
+    assert run_git(["remote", "add", "origin", str(bare)], cwd=repo).returncode == 0
+    project = store.create_project(name="Push", path=repo, template_id="other")
+    _workspace, work_branch = _committed_work_branch(store, tmp_path, repo, project, task="push-task")
+
+    assert git_remote_exists(
+        repo_path=repo, remote="origin", connection=store.connection, root=tmp_path, project_id=project["id"]
+    )
+    assert not git_remote_exists(
+        repo_path=repo, remote="missing", connection=store.connection, root=tmp_path, project_id=project["id"]
+    )
+
+    result = push_branch_to_remote(
+        repo_path=repo,
+        remote="origin",
+        branch=work_branch,
+        connection=store.connection,
+        root=tmp_path,
+        project_id=project["id"],
+    )
+    store.connection.commit()
+
+    assert result["status"] == "pushed", result
+    assert run_git(["rev-parse", "--verify", work_branch], cwd=bare).returncode == 0

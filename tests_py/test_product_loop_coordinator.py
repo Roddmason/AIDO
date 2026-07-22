@@ -16,6 +16,7 @@ from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
+from local_control_center.jobs_approvals import commands as jobs_approvals_commands
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import (
@@ -3400,6 +3401,157 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
         assert ("resource_manager_approval_required", "retry_loop") in followup_actions
 
 
+def _blocked_resource_approval_run(connection, tmp_path: Path, name: str) -> tuple[dict, dict]:
+    """Bloquea un loop en resource_manager por aprobación pendiente del ProductOwnerAgent."""
+    _seed_ai_resource(connection, capabilities=["code", "review", "tools", "reasoning", "json"])
+    _seed_remote_api_resource(
+        connection,
+        provider_id="nvidia_nim",
+        model="nvidia/nemotron-coder",
+        capabilities=["chat"],
+    )
+    _enable_remote_provider_for_resource_selection(connection)
+    project = _workspace_project(connection, tmp_path, name)
+    coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+    coordinator.routing_profiles.patch_role_policy(
+        "product_owner",
+        {
+            "routingProfileId": "balanced_best_value",
+            "allowCli": False,
+            "allowLocal": False,
+            "allowUnknownCost": False,
+            "requireApprovalForUnknownCost": True,
+        },
+    )
+    blocked = coordinator.run_user_message(
+        project_id=project["id"],
+        message="Implement backend onboarding readiness pending resource approval.",
+        preferred_runtime="ollama",
+        runtime_runner=_ControlledRuntime(),
+        git_service=_GitGate(),
+        product_owner_runner=_backlog_ready_po(),
+        assessment_runner=_AssessmentRunner(),
+        technical_lead_runner=_RoleTaskPlanner(["backend_engineer"]),
+        run_metadata={"teamMode": "balanced", "risk": "medium"},
+    )
+    assert blocked["status"] == "blocked"
+    assert blocked["loop"]["context"]["durableRun"]["blockedStage"] == "resource_manager"
+    return project, blocked
+
+
+def test_resource_manager_approval_block_creates_pending_action_request(tmp_path: Path) -> None:
+    """Un bloqueo por aprobación debe poblar /approvals, no solo dejar la remediación del thread."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-queue")
+        thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+
+        jobs = JobsRepository(connection)
+        pending = [
+            action
+            for action in jobs.list_action_requests()
+            if action["actionType"] == "product_loop.approve_resource_decision"
+        ]
+
+        assert len(pending) == 1
+        action = pending[0]
+        assert action["status"] == "pending"
+        assert action["projectId"] == project["id"]
+        assert action["payload"]["loopId"] == blocked["loop"]["id"]
+        assert action["payload"]["threadId"] == thread_id
+        approvals = action["payload"]["resourceApprovals"]
+        assert approvals
+        assert approvals[0]["role"] == "product_owner"
+        assert approvals[0]["providerId"] == "nvidia_nim"
+        assert approvals[0]["model"] == "nvidia/nemotron-coder"
+        assert approvals[0]["runtime"] == "api"
+
+        job = jobs.get_job(action["jobId"])
+        assert job["kind"] == "product_loop_resource_approval"
+        assert job["status"] == "approval_required"
+
+        resource_approval = blocked["loop"]["context"]["durableRun"]["resourceApproval"]
+        assert resource_approval["status"] == "pending"
+        assert resource_approval["jobId"] == action["jobId"]
+        assert resource_approval["actionRequestId"] == action["id"]
+
+
+def test_approving_resource_action_request_stamps_approval_and_queues_retry(tmp_path: Path) -> None:
+    """Aprobar desde /approvals debe dejar el loop aprobado y con retry encolado, no solo un flag."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-approve")
+        jobs = JobsRepository(connection)
+        action = next(
+            item
+            for item in jobs.list_action_requests()
+            if item["actionType"] == "product_loop.approve_resource_decision"
+        )
+
+        result = jobs_approvals_commands.approve_action(
+            jobs,
+            action["jobId"],
+            action["id"],
+            {"reason": "Approved from the approvals queue."},
+        )
+
+        assert result["actionRequest"]["status"] == "approved"
+        approved_loop = ProductLoopCoordinator(connection, root=tmp_path).get(blocked["loop"]["id"])
+        durable = approved_loop["context"]["durableRun"]
+        approvals = durable["requestMeta"]["approvedResourceSelections"]
+        assert any(
+            item["role"] == "product_owner"
+            and item["providerId"] == "nvidia_nim"
+            and item["model"] == "nvidia/nemotron-coder"
+            for item in approvals
+        )
+        assert durable["resourceApproval"]["status"] == "approved"
+
+        retry_jobs = [
+            job
+            for job in jobs.list_jobs(project["id"])
+            if job["payload"].get("retryOfLoopId") == blocked["loop"]["id"]
+        ]
+        assert len(retry_jobs) == 1
+        retry_payload = retry_jobs[0]["payload"]
+        assert retry_payload["approvedResourceSelections"] == approvals
+        # Provenance confiable: sin remediationActionId el coordinator descarta las aprobaciones.
+        assert retry_payload["remediationActionId"]
+
+
+def test_approving_resource_action_request_requires_a_blocked_loop(tmp_path: Path) -> None:
+    """Una aprobación rezagada no debe reactivar un loop que ya dejó de estar bloqueado."""
+    from fastapi import HTTPException
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-stale")
+        jobs = JobsRepository(connection)
+        action = next(
+            item
+            for item in jobs.list_action_requests()
+            if item["actionType"] == "product_loop.approve_resource_decision"
+        )
+        jobs_approvals_commands.approve_action(
+            jobs,
+            action["jobId"],
+            action["id"],
+            {"reason": "Approved from the approvals queue."},
+        )
+        superseded = ProductLoopCoordinator(connection, root=tmp_path).get(blocked["loop"]["id"])
+        assert superseded["state"] != "blocked"
+
+        with pytest.raises(HTTPException) as raised:
+            jobs_approvals_commands.approve_action(
+                jobs,
+                action["jobId"],
+                action["id"],
+                {"reason": "Second stale approval attempt."},
+            )
+
+        assert raised.value.status_code == 409
+
+
 def test_run_user_message_records_product_owner_resource_usage_learning(
     tmp_path: Path,
 ) -> None:
@@ -4305,6 +4457,24 @@ def test_run_user_message_blocks_when_resource_manager_candidate_has_no_runtime_
         assert result["status"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "resource_manager"
         assert "No AI resource satisfied policy and capability filters" in result["reason"]
+        # El detalle agregado de los descartes debe viajar con el motivo, no quedarse en rejected.
+        assert "candidates rejected:" in result["reason"]
+        assert "runtime_not_executable" in result["reason"]
+        blocked_events = [
+            event
+            for event in ThreadsRepository(connection).list_events(thread_id)
+            if event["type"] == "blocked"
+        ]
+        assert blocked_events
+        assert any("candidates rejected:" in str(event["payload"].get("reason")) for event in blocked_events)
+        remediation_reasons = [
+            str(row["technical_reason"])
+            for row in connection.execute(
+                "SELECT technical_reason FROM remediation_actions WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchall()
+        ]
+        assert any("candidates rejected:" in reason for reason in remediation_reasons)
         assert runtime.run_payloads == []
         assert ("runtime_not_executable", "open_settings_section") in actions
         assert ("runtime_not_executable", "retry_loop") in actions

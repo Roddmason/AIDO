@@ -1222,10 +1222,59 @@ def test_remote_api_provider_must_be_executable_before_selection(tmp_path: Path)
         )
 
     assert decision["selected"] is None
-    assert decision["decisionReason"] == "No AI resource satisfied policy and capability filters."
+    assert decision["decisionReason"] == (
+        "No AI resource satisfied policy and capability filters. "
+        "1 candidate rejected: 1 runtime_not_executable."
+    )
     assert decision["rejected"]
     assert decision["rejected"][0]["providerId"] == "nvidia_nim"
     assert "credential" in decision["rejected"][0]["reason"].lower()
+
+
+def test_no_selection_reason_aggregates_rejection_categories(tmp_path: Path) -> None:
+    """El motivo de bloqueo debe resumir los descartes por categoría, no ocultarlos en rejected."""
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        for provider_id, model in (("remote_a", "remote-model-a"), ("remote_b", "remote-model-b")):
+            register_model(
+                manager,
+                provider_id=provider_id,
+                model=model,
+                runtime="api",
+                locality="remote",
+                input_price_per_mtok=0.5,
+                output_price_per_mtok=1.5,
+                quality_score=0.9,
+                success_rate=0.9,
+            )
+        register_model(
+            manager,
+            provider_id="ollama_local",
+            model="llama-local",
+            runtime="ollama",
+            locality="local",
+            input_price_per_mtok=0.0,
+            output_price_per_mtok=0.0,
+            quality_score=0.7,
+            success_rate=0.8,
+            capabilities=["chat"],
+            privacy_level="local_private",
+        )
+
+        decision = manager.select_resource(
+            AIResourceRequest(
+                task_type="implementation",
+                required_capabilities=["code"],
+                privacy_level="local_private",
+            ),
+            record=False,
+        )
+
+    assert decision["selected"] is None
+    assert decision["decisionReason"] == (
+        "No AI resource satisfied policy and capability filters. "
+        "3 candidates rejected: 2 privacy_blocks_remote, 1 missing_capabilities."
+    )
 
 
 @pytest.mark.parametrize(

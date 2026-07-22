@@ -332,6 +332,7 @@ class ModelRouter:
             context_tokens_estimate=request.context_tokens_estimate,
             required_capabilities=self._ai_required_capabilities(request),
             preferred_provider_ids=preferred_provider_ids,
+            preferred_resources=self._role_policy_preferred_resources(role_policy),
             blocked_resources=[item for item in role_policy.get("blocked") or [] if isinstance(item, dict)],
             context_token_limit=int(role_policy.get("maxTokensPerRun") or 0) or None,
             role_policy_id=str(role_policy.get("id") or request.role),
@@ -383,15 +384,22 @@ class ModelRouter:
         return result
 
     @staticmethod
+    def _role_policy_preferred_resources(role_policy: dict[str, Any]) -> list[dict[str, Any]]:
+        """Entradas provider+model del rol en orden preferred -> fallback -> escalation (orden = prioridad)."""
+        return [
+            preference
+            for preference in [
+                *(role_policy.get("preferred") or []),
+                *(role_policy.get("fallback") or []),
+                *(role_policy.get("escalation") or []),
+            ]
+            if isinstance(preference, dict)
+        ]
+
+    @staticmethod
     def _role_policy_provider_preference(role_policy: dict[str, Any]) -> list[str]:
         ordered: list[str] = []
-        for preference in [
-            *(role_policy.get("preferred") or []),
-            *(role_policy.get("fallback") or []),
-            *(role_policy.get("escalation") or []),
-        ]:
-            if not isinstance(preference, dict):
-                continue
+        for preference in ModelRouter._role_policy_preferred_resources(role_policy):
             provider_id = str(preference.get("provider") or "").strip()
             if provider_id and provider_id not in ordered:
                 ordered.append(provider_id)
@@ -479,6 +487,7 @@ class ModelRouter:
             "unknownCostPolicy": decision.get("policyResult", {}).get("unknownCostPolicy", {}),
             "roleExecutionPolicy": decision.get("policyResult", {}).get("roleExecutionPolicy", {}),
             "providerPreferenceOrder": decision.get("policyResult", {}).get("providerPreferenceOrder", []),
+            "preferredResourceOrder": decision.get("policyResult", {}).get("preferredResourceOrder", []),
             "selectionOrder": decision.get("policyResult", {}).get("selectionOrder"),
             "source": "ai_resource_manager",
             "opaqueMlUsed": False,

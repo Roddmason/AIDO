@@ -75,6 +75,10 @@ class AIResourceRequest:
     #: ``blocked_resources`` a propósito: ese contador se audita como política de rol y mezclar
     #: exclusiones de transporte lo falsearía.
     excluded_resources: list[dict[str, Any]] = field(default_factory=list)
+    #: Preferencias ordenadas de la política de rol (``preferred``/``fallback``/``escalation`` ya
+    #: concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*"
+    #: prefiere cualquier modelo del provider. Rankean ANTES que el score; el orden es la prioridad.
+    preferred_resources: list[dict[str, Any]] = field(default_factory=list)
     context_token_limit: int | None = None
     role_policy_id: str | None = None
     allow_remote: bool = True
@@ -446,9 +450,10 @@ class AIResourceManager:
             candidates.append(candidate)
 
         provider_preference = self._provider_preference(request.preferred_provider_ids)
+        preferred_resources = self._normalized_preferred_resources(request.preferred_resources)
         selected = min(
             candidates,
-            key=lambda item: self._selection_sort_key(item, provider_preference),
+            key=lambda item: self._selection_sort_key(item, provider_preference, preferred_resources),
             default=None,
         )
         if selected and selected.get("unknownCostPolicy", {}).get("action") != "not_applicable":
@@ -513,7 +518,10 @@ class AIResourceManager:
                     "contextTokenLimit": request.context_token_limit,
                 },
                 "providerPreferenceOrder": provider_preference,
-                "selectionOrder": "score_desc_provider_preference_asc_identity_asc",
+                "preferredResourceOrder": preferred_resources,
+                "selectionOrder": (
+                    "preferred_resource_rank_asc_score_desc_provider_preference_asc_identity_asc"
+                ),
             },
         }
         if record:
@@ -1089,16 +1097,50 @@ class AIResourceManager:
         return ordered
 
     @staticmethod
+    def _normalized_preferred_resources(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Sanea las entradas de preferencia del rol conservando su orden (orden = prioridad)."""
+        normalized: list[dict[str, str]] = []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            provider_id = str(item.get("provider") or "").strip()
+            if not provider_id:
+                continue
+            normalized.append({"provider": provider_id, "model": str(item.get("model") or "").strip()})
+        return normalized
+
+    @staticmethod
+    def _preferred_resource_rank(
+        candidate: dict[str, Any],
+        preferred_resources: list[dict[str, str]],
+    ) -> int:
+        """Índice de la primera preferencia que matchea al candidato; len(lista) si ninguna.
+
+        Modelo vacío/"*"/"auto" prefiere cualquier modelo del provider (mismo comodín que las
+        entradas ``blocked`` y que el formato legacy de ``preferred_json``).
+        """
+        candidate_provider = str(candidate.get("providerId") or "")
+        candidate_model = str(candidate.get("model") or "")
+        for index, entry in enumerate(preferred_resources):
+            if entry["provider"] != candidate_provider:
+                continue
+            if entry["model"] in {"", "*", "auto"} or entry["model"] == candidate_model:
+                return index
+        return len(preferred_resources)
+
+    @staticmethod
     def _selection_sort_key(
         candidate: dict[str, Any],
         provider_preference: list[str],
-    ) -> tuple[float, int, str, str, str]:
+        preferred_resources: list[dict[str, str]],
+    ) -> tuple[int, float, int, str, str, str]:
         provider_id = str(candidate.get("providerId") or "")
         try:
             preference_rank = provider_preference.index(provider_id)
         except ValueError:
             preference_rank = len(provider_preference)
         return (
+            AIResourceManager._preferred_resource_rank(candidate, preferred_resources),
             -float(candidate["score"]),
             preference_rank,
             provider_id,

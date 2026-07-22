@@ -11,6 +11,7 @@ import pytest
 import local_control_center.product_loop.coordinator as product_loop_coordinator
 from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.repository import EvidenceRepository
@@ -8206,3 +8207,30 @@ def test_a_contract_violation_is_never_retried_on_another_runtime(tmp_path: Path
         )
 
     assert len(runtime.run_payloads) == 1
+
+
+def test_resource_role_policy_exposes_ordered_preferred_resources(tmp_path: Path) -> None:
+    """El contrato del selector exige las entradas provider+model en orden preferred -> fallback -> escalation."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        RoutingProfileStore(connection).patch_role_policy(
+            "developer",
+            {
+                "preferred": [{"provider": "anthropic_gateway", "model": "claude-sonnet"}],
+                "fallback": [{"provider": "nim_gateway", "model": ""}],
+                "escalation": [{"provider": "openai_gateway", "model": "gpt-strong"}],
+            },
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        policy = coordinator._resource_role_policy("developer")
+
+    assert policy["preferredResources"] == [
+        {"provider": "anthropic_gateway", "model": "claude-sonnet"},
+        {"provider": "nim_gateway", "model": ""},
+        {"provider": "openai_gateway", "model": "gpt-strong"},
+    ]
+    assert policy["preferredProviderIds"] == [
+        "anthropic_gateway",
+        "nim_gateway",
+        "openai_gateway",
+    ]

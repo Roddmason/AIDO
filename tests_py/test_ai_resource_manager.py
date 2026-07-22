@@ -1707,6 +1707,58 @@ def test_preferred_list_order_sets_priority_between_matching_candidates(
     assert beta_first["selected"]["providerId"] == "provider_beta"
 
 
+def test_specific_model_preference_outranks_earlier_provider_wildcard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regresión de producción (votacionenlinea 2026-07-22): el comodín provider-level del
+    ``runtime_order`` persistido eclipsaba la preferencia específica del rol solo por ir
+    primero en la lista. Un match de modelo específico debe rankear antes que un comodín
+    provider-level aunque el comodín esté antes en la lista y su candidato tenga mejor score.
+    """
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        # El comodín apunta a este provider y su candidato tiene el score MÁS ALTO: no debe
+        # ganar por eso, el match específico manda.
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="persisted_gateway",
+            model="premium-a",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="role_gateway",
+            model="qwen3:14b",
+            quality_score=0.78,
+            success_rate=0.84,
+        )
+
+        decision = manager.select_resource(
+            _selection_request(
+                preferred_resources=[
+                    # Comodín del runtime_order persistido, PRIMERO en la lista.
+                    {"provider": "persisted_gateway", "model": ""},
+                    # Preferencia específica del rol, DESPUÉS.
+                    {"provider": "role_gateway", "model": "qwen3:14b"},
+                ],
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "role_gateway"
+    assert decision["selected"]["model"] == "qwen3:14b"
+    # Ambos candidatos son ejecutables: el comodín no ganó por rechazo del otro, sino por rank.
+    assert {item["providerId"] for item in decision["candidates"]} == {
+        "persisted_gateway",
+        "role_gateway",
+    }
+
+
 def test_preferred_entry_does_not_resurrect_rejected_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

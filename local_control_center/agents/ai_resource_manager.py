@@ -1115,27 +1115,38 @@ class AIResourceManager:
     def _preferred_resource_rank(
         candidate: dict[str, Any],
         preferred_resources: list[dict[str, str]],
-    ) -> int:
-        """Índice de la primera preferencia que matchea al candidato; len(lista) si ninguna.
+    ) -> tuple[int, int]:
+        """Rank ``(tier, index)`` del candidato contra las preferencias del rol; menor gana.
 
-        Modelo vacío/"*"/"auto" prefiere cualquier modelo del provider (mismo comodín que las
-        entradas ``blocked`` y que el formato legacy de ``preferred_json``).
+        ``tier`` es 0 para un match de modelo específico, 1 para un comodín provider-level
+        (modelo vacío/"*"/"auto", mismo comodín que ``blocked`` y ``preferred_json`` legacy) y
+        2 si ninguna preferencia matchea. Un match específico rankea antes que cualquier comodín
+        aunque el comodín esté antes en la lista: sin esto, el comodín del ``runtime_order``
+        persistido eclipsaba la preferencia específica del rol solo por su posición. ``index`` es
+        el de la primera entrada del mismo tier, así que el orden de la lista sigue desempatando
+        entre preferencias del mismo tipo.
         """
         candidate_provider = str(candidate.get("providerId") or "")
         candidate_model = str(candidate.get("model") or "")
+        best: tuple[int, int] = (2, len(preferred_resources))
         for index, entry in enumerate(preferred_resources):
             if entry["provider"] != candidate_provider:
                 continue
-            if entry["model"] in {"", "*", "auto"} or entry["model"] == candidate_model:
-                return index
-        return len(preferred_resources)
+            if entry["model"] in {"", "*", "auto"}:
+                tier = 1
+            elif entry["model"] == candidate_model:
+                tier = 0
+            else:
+                continue
+            best = min(best, (tier, index))
+        return best
 
     @staticmethod
     def _selection_sort_key(
         candidate: dict[str, Any],
         provider_preference: list[str],
         preferred_resources: list[dict[str, str]],
-    ) -> tuple[int, float, int, str, str, str]:
+    ) -> tuple[tuple[int, int], float, int, str, str, str]:
         provider_id = str(candidate.get("providerId") or "")
         try:
             preference_rank = provider_preference.index(provider_id)

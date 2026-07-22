@@ -36,16 +36,32 @@ def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _normalize_model_refs(raw: Any) -> list[dict[str, Any]]:
+    """Normaliza referencias de modelo tolerando el formato legacy (strings de provider).
+
+    Las filas viejas guardaban ``["claude_code_cli", ...]``; el contrato actual es
+    ``[{"model": ..., "provider": ...}]``. Sin esto, UNA fila legacy hacía fallar el response
+    model del listado completo (500) y la UI quedaba sin políticas ni providers.
+    """
+    normalized: list[dict[str, Any]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict):
+            normalized.append(item)
+        elif isinstance(item, str) and item.strip():
+            normalized.append({"model": "", "provider": item.strip()})
+    return normalized
+
+
 def row_to_role_policy(row: sqlite3.Row) -> dict[str, Any]:
     """Map a `role_model_policies` row to its camelCase dict, defaulting newer columns."""
     return {
         "id": row["id"],
         "role": row["role"],
         "routingProfileId": row["routing_profile_id"],
-        "preferred": json_loads(row["preferred_json"], []),
-        "fallback": json_loads(row["fallback_json"], []),
-        "escalation": json_loads(row["escalation_json"], []),
-        "blocked": json_loads(row["blocked_json"], []),
+        "preferred": _normalize_model_refs(json_loads(row["preferred_json"], [])),
+        "fallback": _normalize_model_refs(json_loads(row["fallback_json"], [])),
+        "escalation": _normalize_model_refs(json_loads(row["escalation_json"], [])),
+        "blocked": _normalize_model_refs(json_loads(row["blocked_json"], [])),
         "maxCostPerTaskUsd": row["max_cost_per_task_usd"],
         "maxTokensPerRun": row["max_tokens_per_run"],
         "requiresApprovalOverUsd": row["requires_approval_over_usd"],

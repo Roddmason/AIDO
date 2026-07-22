@@ -1265,6 +1265,14 @@ class ProductLoopCoordinator:
         durable_context: dict[str, Any] | None = None,
         thread_id: str | None = None,
     ) -> dict[str, Any]:
+        if stage == "resource_manager":
+            resource_approval = self._create_resource_approval_request(
+                loop=loop,
+                thread_id=thread_id,
+                details=details or {},
+            )
+            if resource_approval is not None:
+                durable_context = {**(durable_context or {}), "resourceApproval": resource_approval}
         evidence = self._record_run_evidence(
             project_id=loop["projectId"],
             loop_id=loop["id"],
@@ -1314,6 +1322,71 @@ class ProductLoopCoordinator:
             },
         )
         return self._run_result(blocked, status="blocked", reason=reason, evidence_package=evidence)
+
+    def _create_resource_approval_request(
+        self,
+        *,
+        loop: dict[str, Any],
+        thread_id: str | None,
+        details: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Publica en /approvals la selección de recursos que quedó bloqueada esperando aprobación.
+
+        Sin esto la cola de aprobaciones queda vacía y el operador solo descubre el bloqueo dentro
+        del thread. Devuelve la referencia pendiente para el contexto durable, ``None`` cuando el
+        bloqueo no tiene selección aprobable, y un marcador ``unavailable`` si la persistencia
+        falla: un fallo aquí jamás debe impedir el bloqueo (la remediación sigue disponible).
+        """
+        raw_blockers = details.get("resourceBlockers")
+        approvals: list[dict[str, Any]] = []
+        for item in raw_blockers if isinstance(raw_blockers, list) else []:
+            if not isinstance(item, dict):
+                continue
+            decision = item.get("decision") if isinstance(item.get("decision"), dict) else {}
+            selected = decision.get("selected") if isinstance(decision.get("selected"), dict) else None
+            if not selected or not self._resource_decision_has_pending_approval(decision):
+                continue
+            approvals.append(
+                {
+                    "role": item.get("role"),
+                    "taskId": item.get("taskId"),
+                    "providerId": selected.get("providerId"),
+                    "model": selected.get("model"),
+                    "runtime": selected.get("runtime"),
+                    "selected": selected,
+                    "decisionReason": decision.get("decisionReason"),
+                    "estimatedCostUsd": decision.get("estimatedCostUsd"),
+                    "costTier": decision.get("costTier"),
+                }
+            )
+        if not approvals:
+            return None
+        payload = redact_secrets(
+            {
+                "loopId": loop["id"],
+                "threadId": thread_id,
+                "resourceApprovals": approvals,
+            }
+        )
+        try:
+            job = self.jobs.create_job(
+                project_id=loop["projectId"],
+                kind="product_loop_resource_approval",
+                status="approval_required",
+                payload=payload,
+            )["job"]
+            action = self.jobs.create_action_request(
+                job_id=job["id"],
+                project_id=loop["projectId"],
+                action_type="product_loop.approve_resource_decision",
+                risk_level="medium",
+                command="approve ai resource selection",
+                payload=payload,
+                reason="AIResourceManager selected a resource that requires approval before execution.",
+            )
+        except Exception as error:
+            return {"status": "unavailable", "reason": redact_secrets(str(error))}
+        return {"status": "pending", "jobId": job["id"], "actionRequestId": action["id"]}
 
     def _ensure_delivery_agents(self, project_id: str) -> list[dict[str, str]]:
         from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed

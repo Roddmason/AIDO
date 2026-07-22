@@ -493,7 +493,9 @@ class AIResourceManager:
             "estimatedCostUsd": selected.get("estimatedCostUsd") if selected else None,
             "actualCostUsd": None,
             "usageStatus": "not_executed",
-            "decisionReason": self._decision_reason(request, selected, approval_required, budget_stop),
+            "decisionReason": self._decision_reason(
+                request, selected, approval_required, budget_stop, rejected
+            ),
             "candidates": [self._public_candidate(candidate) for candidate in candidates],
             "rejected": rejected,
             "scoreBreakdown": selected.get("scoreBreakdown", {}) if selected else {},
@@ -1676,16 +1678,43 @@ class AIResourceManager:
         selected: dict[str, Any] | None,
         approval_required: bool,
         budget_stop: bool,
+        rejected: list[dict[str, Any]] | None = None,
     ) -> str:
         if selected is None and budget_stop:
             return "No candidate stayed inside the remaining budget."
         if selected is None:
-            return "No AI resource satisfied policy and capability filters."
+            base = "No AI resource satisfied policy and capability filters."
+            summary = self._rejection_summary(rejected or [])
+            return f"{base} {summary}" if summary else base
         approval = " Approval is required before execution." if approval_required else ""
         return (
             f"Selected {selected['providerId']}/{selected['model']} for {request.task_type} "
             f"using deterministic explainable scoring.{approval}"
         )
+
+    @staticmethod
+    def _rejection_summary(rejected: list[dict[str, Any]]) -> str:
+        """Resume los descartes por categoría para que el motivo de bloqueo sea diagnosticable solo.
+
+        Agrupa por el token previo a ``:`` porque varias razones llevan detalle por candidato
+        (``runtime_not_executable: ...``, ``missing_capabilities:code``) y el operador necesita la
+        categoría agregada, no ocho variantes del mismo descarte. Orden: frecuencia descendente y
+        alfabético como desempate, para que el texto sea determinista y auditable.
+        """
+        counts: dict[str, int] = {}
+        for item in rejected:
+            reason = str(item.get("reason") or "").strip()
+            if not reason:
+                continue
+            category = reason.split(":", 1)[0].strip()
+            counts[category] = counts.get(category, 0) + 1
+        if not counts:
+            return ""
+        total = sum(counts.values())
+        ordered = sorted(counts.items(), key=lambda entry: (-entry[1], entry[0]))
+        breakdown = ", ".join(f"{count} {category}" for category, count in ordered)
+        noun = "candidate" if total == 1 else "candidates"
+        return f"{total} {noun} rejected: {breakdown}."
 
     def _record_routing_decision(self, *, request: AIResourceRequest, decision: dict[str, Any]) -> None:
         selected = decision.get("selected") or {}

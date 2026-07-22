@@ -16,6 +16,7 @@ siguiente en vez de solo describirla.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from contextlib import nullcontext
@@ -200,6 +201,20 @@ class ThreadCoordinator:
                     "events": self.repository.list_events(thread_id),
                 }
 
+            composer_resolution = (
+                self._consume_pending_decisions_from_reply(
+                    thread=existing_thread,
+                    thread_id=thread_id,
+                    content=content,
+                    author=author,
+                    user_message=user_message,
+                )
+                if not similarity_resolved
+                else None
+            )
+            if composer_resolution is not None:
+                return composer_resolution
+
             decision = self.classifier.classify(decision_input)
             self.repository.record_event(
                 thread_id=thread_id,
@@ -302,6 +317,80 @@ class ThreadCoordinator:
             "run": run,
             "messages": [user_message] if not blocked else [user_message, lead_message],
             "decision": decision_record,
+            "artifacts": self.repository.list_artifacts(thread_id),
+            "events": self.repository.list_events(thread_id),
+        }
+
+    def _consume_pending_decisions_from_reply(
+        self,
+        *,
+        thread: dict[str, Any],
+        thread_id: str,
+        content: str,
+        author: str,
+        user_message: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Consume una respuesta del composer que matchea opciones de decisiones pendientes.
+
+        Sin esto, responder la pregunta del clasificador por el composer re-clasificaba el mensaje
+        desde cero: misma confianza baja, la MISMA pregunta otra vez y decisiones duplicadas
+        acumulándose (loop infinito de decisión observado en producción). Solo consume cuando el
+        hilo está realmente esperando (``waiting_decision``/``blocked``) y la opción matchea por
+        palabra completa; ante ambigüedad o sin match devuelve ``None`` y sigue el flujo normal.
+        """
+        if thread.get("status") not in {"waiting_decision", "blocked"}:
+            return None
+        pending = [
+            decision
+            for decision in self.repository.list_decisions(thread_id)
+            if decision.get("status") == "pending"
+        ]
+        if not pending:
+            return None
+        normalized = content.strip().lower()
+        matches: list[tuple[dict[str, Any], str]] = []
+        for decision in pending:
+            best: str | None = None
+            for option in decision.get("options") or []:
+                text = str(option).strip()
+                if len(text) < 3:
+                    continue
+                matched = re.search(r"(?<![a-z0-9])" + re.escape(text.lower()) + r"(?![a-z0-9])", normalized)
+                if matched and (best is None or len(text) > len(best)):
+                    best = text
+            if best is not None:
+                matches.append((decision, best))
+        if not matches:
+            return None
+        # Las duplicadas del mismo batch se resuelven en diferido; la última reanuda el run.
+        for decision, resolution in matches[:-1]:
+            self.resolve_decision(
+                thread_id=thread_id,
+                decision_id=str(decision["id"]),
+                resolution=resolution,
+                decided_by=author,
+                defer_followup=True,
+            )
+        final_decision, final_resolution = matches[-1]
+        resolved = self.resolve_decision(
+            thread_id=thread_id,
+            decision_id=str(final_decision["id"]),
+            resolution=final_resolution,
+            decided_by=author,
+        )
+        job = resolved.get("job")
+        run = {
+            "status": "queued" if job else str(resolved["thread"].get("status") or "open"),
+            "jobId": job["id"] if job else None,
+            "loopId": None,
+            "reason": f"Composer reply resolved pending decision: {final_resolution}",
+        }
+        return {
+            "thread": resolved["thread"],
+            "blocked": False,
+            "run": run,
+            "messages": [user_message],
+            "decision": resolved["decision"],
             "artifacts": self.repository.list_artifacts(thread_id),
             "events": self.repository.list_events(thread_id),
         }

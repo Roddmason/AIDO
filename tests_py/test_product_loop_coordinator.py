@@ -27,6 +27,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
+from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
@@ -1026,6 +1027,84 @@ def test_retry_loop_remediation_queues_real_thread_product_loop_retry(tmp_path: 
             and event["payload"].get("retryOfLoopId") == result["loop"]["id"]
             for event in events
         )
+
+
+def _blocked_loop_with_sealed_privacy(connection, tmp_path: Path, name: str) -> tuple[dict, dict]:
+    """Bloquea un loop y simula el requestMeta sellado con privacyLevel por forceLocal activo."""
+    project = _workspace_project(connection, tmp_path, name)
+    SettingsRepository(connection).set_value("project.routing.forceLocal", "project", project["id"], True)
+    coordinator = ProductLoopCoordinator(connection)
+    result = coordinator.run_user_message(
+        project_id=project["id"],
+        message="Implement onboarding readiness.",
+        run_metadata={"teamMode": "critical"},
+    )
+    durable_thread = result["loop"]["context"]["durableRun"]["thread"]
+    source_message = ThreadsRepository(connection).get_message(durable_thread["messageId"])
+    # Fidelidad de la simulación: el llamador nunca pidió privacidad en el mensaje original.
+    assert "privacyLevel" not in source_message["metadata"]
+    durable = dict(result["loop"]["context"]["durableRun"])
+    request_meta = dict(durable.get("requestMeta") or {})
+    # Reproduce el sellado que _with_operator_cost_decision aplicó cuando forceLocal estaba activo.
+    request_meta["privacyLevel"] = "local_private"
+    result["loop"] = coordinator.repository.update_loop_context(
+        result["loop"]["id"],
+        context={
+            **result["loop"]["context"],
+            "durableRun": {**durable, "requestMeta": request_meta},
+        },
+    )
+    return project, result
+
+
+def _execute_pending_retry(connection, tmp_path: Path, thread_id: str, loop_id: str) -> dict:
+    action_row = connection.execute(
+        """
+        SELECT id
+        FROM remediation_actions
+        WHERE thread_id = ?
+          AND loop_id = ?
+          AND action_type = 'retry_loop'
+          AND status = 'pending'
+        """,
+        (thread_id, loop_id),
+    ).fetchone()
+    assert action_row is not None
+    execution = BlockerRemediationService(connection, root=tmp_path).execute(
+        action_row["id"],
+        platform=object(),
+    )
+    assert execution["execution"]["status"] == "queued"
+    return JobsRepository(connection).get_job(execution["execution"]["job"]["id"])
+
+
+def test_retry_loop_reseals_privacy_from_current_force_local_setting(tmp_path: Path) -> None:
+    """Un retry no arrastra el privacyLevel sellado por un forceLocal que el operador ya apagó."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project, result = _blocked_loop_with_sealed_privacy(connection, tmp_path, "retry-reseals-privacy")
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+
+        # El operador corrige la configuración antes de reintentar.
+        SettingsRepository(connection).set_value(
+            "project.routing.forceLocal", "project", project["id"], False
+        )
+        retry_job = _execute_pending_retry(connection, tmp_path, thread_id, result["loop"]["id"])
+
+        assert "privacyLevel" not in retry_job["payload"]["runMetadata"]
+        assert retry_job["payload"]["runMetadata"]["teamMode"] == "critical"
+
+
+def test_retry_loop_reseal_keeps_privacy_while_force_local_is_active(tmp_path: Path) -> None:
+    """Mientras forceLocal siga activo el retry re-sella local_private: la privacidad no se relaja."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        _, result = _blocked_loop_with_sealed_privacy(connection, tmp_path, "retry-keeps-privacy")
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+
+        retry_job = _execute_pending_retry(connection, tmp_path, thread_id, result["loop"]["id"])
+
+        assert retry_job["payload"]["runMetadata"]["privacyLevel"] == "local_private"
 
 
 def test_retry_loop_remediation_rolls_back_job_when_loop_supersede_fails(

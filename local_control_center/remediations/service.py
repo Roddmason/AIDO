@@ -18,7 +18,10 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
-from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
+from local_control_center.product_loop.metadata import (
+    seal_operator_cost_decision,
+    strip_untrusted_resource_cost_policy_metadata,
+)
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.payloads import (
     PAYLOAD_BUILDERS,
@@ -995,6 +998,30 @@ class BlockerRemediationService:
         mode = str(decision.get("resolution") or "").strip().lower().replace(" ", "_").replace("-", "_")
         return mode if mode in SIMILARITY_ACTIONS else None
 
+    def _reseal_operator_cost_decision(
+        self,
+        metadata: dict[str, Any],
+        *,
+        project_id: str,
+        source_message: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Re-sella teamMode/privacyLevel de un retry con la configuración vigente del proyecto.
+
+        Los valores sellados en el requestMeta original son indistinguibles de una elección del
+        llamador, así que la intención se restaura desde la metadata del mensaje fuente (que nunca
+        se sella) y el re-sellado aplica la config actual (p. ej. un forceLocal ya apagado).
+        """
+        resealed = dict(metadata)
+        source_meta = source_message.get("metadata") if isinstance(source_message, dict) else None
+        caller_meta = source_meta if isinstance(source_meta, dict) else {}
+        for key in ("teamMode", "privacyLevel"):
+            caller_value = str(caller_meta.get(key) or "").strip()
+            if caller_value:
+                resealed[key] = caller_value
+            else:
+                resealed.pop(key, None)
+        return seal_operator_cost_decision(self.connection, project_id=project_id, metadata=resealed)
+
     def _retry_loop(self, *, action: dict[str, Any]) -> dict[str, Any]:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
@@ -1162,6 +1189,14 @@ class BlockerRemediationService:
                 # Sin la elección resuelta el rerun volvería a bloquearse en el gate de memoria de
                 # funcionalidad con el mismo mensaje, en un ciclo sin salida para el operador.
                 retry_metadata["functionalityDecision"] = functionality_decision_mode
+            # El requestMeta del run bloqueado quedó sellado con la configuración de ese momento;
+            # reutilizarlo congelaría un forceLocal/teamMode que el operador pudo haber corregido
+            # y el retry volvería a bloquearse con la config vieja.
+            retry_metadata = self._reseal_operator_cost_decision(
+                retry_metadata,
+                project_id=loop["projectId"],
+                source_message=source_message,
+            )
 
             existing_job = self._existing_retry_job(
                 jobs=jobs,

@@ -298,7 +298,9 @@ def test_provider_preference_breaks_equal_scores_deterministically(
         "codex_cli",
         "claude_code_cli",
     ]
-    assert decision["policyResult"]["selectionOrder"] == ("score_desc_provider_preference_asc_identity_asc")
+    assert decision["policyResult"]["selectionOrder"] == (
+        "preferred_resource_rank_asc_score_desc_provider_preference_asc_identity_asc"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1486,6 +1488,274 @@ def test_actual_cost_observations_adjust_future_selection(
     assert premium_candidate["costEstimateSource"] == "observed_actual_usage"
     assert premium_candidate["scoreBreakdown"]["costEfficiencyScore"] == 0.0
     assert performance_row["total_observed_tokens"] == 11000
+
+
+def _register_selectable_remote(
+    manager: AIResourceManager,
+    connection,
+    *,
+    provider_id: str,
+    model: str,
+    quality_score: float,
+    success_rate: float,
+) -> None:
+    """Un candidato remoto ejecutable con precio conocido, listo para pasar todos los gates."""
+    register_model(
+        manager,
+        provider_id=provider_id,
+        model=model,
+        runtime="api",
+        locality="remote",
+        input_price_per_mtok=1.0,
+        output_price_per_mtok=3.0,
+        quality_score=quality_score,
+        success_rate=success_rate,
+    )
+    configure_remote_provider_for_selection(connection, provider_id=provider_id, model=model)
+
+
+PREFERRED_SELECTION_ORDER = "preferred_resource_rank_asc_score_desc_provider_preference_asc_identity_asc"
+
+
+def _selection_request(**overrides) -> AIResourceRequest:
+    return AIResourceRequest(
+        task_type="implementation",
+        risk_level="medium",
+        context_tokens_estimate=8000,
+        required_capabilities=["chat"],
+        budget_remaining_usd=1.0,
+        **overrides,
+    )
+
+
+def test_preferred_model_entry_outranks_higher_scored_sibling_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regresión de producción: preferred=[meta/llama-3.1-8b-instruct] elegía 01-ai/yi-large."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="nim_gateway",
+            model="01-ai/yi-large",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="nim_gateway",
+            model="meta/llama-3.1-8b-instruct",
+            quality_score=0.78,
+            success_rate=0.84,
+        )
+
+        baseline = manager.select_resource(_selection_request(), record=False)
+        preferred = manager.select_resource(
+            _selection_request(
+                preferred_resources=[{"provider": "nim_gateway", "model": "meta/llama-3.1-8b-instruct"}],
+            ),
+            record=False,
+        )
+
+    assert baseline["selected"]["model"] == "01-ai/yi-large"
+    assert preferred["selected"]["model"] == "meta/llama-3.1-8b-instruct"
+    assert preferred["policyResult"]["preferredResourceOrder"] == [
+        {"provider": "nim_gateway", "model": "meta/llama-3.1-8b-instruct"}
+    ]
+    assert preferred["policyResult"]["selectionOrder"] == PREFERRED_SELECTION_ORDER
+    # El candidato con mejor score sigue auditable como candidato: preferido no significa filtro.
+    assert any(item["model"] == "01-ai/yi-large" for item in preferred["candidates"])
+
+
+@pytest.mark.parametrize("model_wildcard", ["", "auto", "*", None])
+def test_preferred_provider_wildcard_outranks_higher_scored_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_wildcard: str | None,
+) -> None:
+    """Regresión de producción: preferred=[anthropic claude-sonnet] elegía nvidia auto_best_available."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="nim_gateway",
+            model="auto_best_available",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="anthropic_gateway",
+            model="claude-sonnet",
+            quality_score=0.82,
+            success_rate=0.88,
+        )
+
+        baseline = manager.select_resource(_selection_request(), record=False)
+        preferred = manager.select_resource(
+            _selection_request(
+                preferred_resources=[{"provider": "anthropic_gateway", "model": model_wildcard}],
+            ),
+            record=False,
+        )
+
+    assert baseline["selected"]["model"] == "auto_best_available"
+    assert preferred["selected"]["providerId"] == "anthropic_gateway"
+    assert preferred["selected"]["model"] == "claude-sonnet"
+
+
+def test_preferred_list_order_sets_priority_between_matching_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="provider_alpha",
+            model="model-alpha",
+            quality_score=0.78,
+            success_rate=0.84,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="provider_beta",
+            model="model-beta",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+
+        alpha_first = manager.select_resource(
+            _selection_request(
+                preferred_resources=[
+                    {"provider": "provider_alpha", "model": "model-alpha"},
+                    {"provider": "provider_beta", "model": "model-beta"},
+                ],
+            ),
+            record=False,
+        )
+        beta_first = manager.select_resource(
+            _selection_request(
+                preferred_resources=[
+                    {"provider": "provider_beta", "model": "model-beta"},
+                    {"provider": "provider_alpha", "model": "model-alpha"},
+                ],
+            ),
+            record=False,
+        )
+
+    assert alpha_first["selected"]["providerId"] == "provider_alpha"
+    assert beta_first["selected"]["providerId"] == "provider_beta"
+
+
+def test_preferred_entry_does_not_resurrect_rejected_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un preferido que no pasa los gates no revive: el resto se ordena por score actual."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        # ghost_gateway queda sin cuenta/instalación: runtime_not_executable en los gates.
+        register_model(
+            manager,
+            provider_id="ghost_gateway",
+            model="ghost-model",
+            runtime="api",
+            locality="remote",
+            input_price_per_mtok=1.0,
+            output_price_per_mtok=3.0,
+            quality_score=0.99,
+            success_rate=0.99,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="provider_alpha",
+            model="model-alpha",
+            quality_score=0.78,
+            success_rate=0.84,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="provider_beta",
+            model="model-beta",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+
+        decision = manager.select_resource(
+            _selection_request(
+                preferred_resources=[{"provider": "ghost_gateway", "model": "ghost-model"}],
+            ),
+            record=False,
+        )
+
+    assert decision["selected"]["providerId"] == "provider_beta"
+    ghost = next(item for item in decision["rejected"] if item["providerId"] == "ghost_gateway")
+    assert ghost["reason"].startswith("runtime_not_executable:")
+
+
+def test_model_router_ai_path_ranks_role_preferred_model_before_score(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El path AI del router debe llevar preferred_json/fallback_json del rol al selector, en orden."""
+    monkeypatch.setenv("AIDO_TEST_API_KEY", "test-key")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="anthropic_gateway",
+            model="claude-sonnet",
+            quality_score=0.82,
+            success_rate=0.88,
+        )
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="nim_gateway",
+            model="auto_best_available",
+            quality_score=0.97,
+            success_rate=0.98,
+        )
+        RoutingProfileStore(connection).patch_role_policy(
+            "developer",
+            {
+                "preferred": [{"provider": "anthropic_gateway", "model": "claude-sonnet"}],
+                "fallback": [{"provider": "nim_gateway", "model": ""}],
+                "escalation": [],
+            },
+        )
+
+        result = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="developer",
+                taskType="implementation",
+                contextTokensEstimate=8000,
+            ),
+            record=False,
+        )
+
+    assert result["policyResult"]["source"] == "ai_resource_manager"
+    assert result["selected"]["provider"] == "anthropic_gateway"
+    assert result["selected"]["model"] == "claude-sonnet"
+    assert result["policyResult"]["preferredResourceOrder"] == [
+        {"provider": "anthropic_gateway", "model": "claude-sonnet"},
+        {"provider": "nim_gateway", "model": ""},
+    ]
 
 
 def test_model_router_uses_ai_resource_manager_when_profiles_exist(

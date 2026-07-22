@@ -2419,14 +2419,17 @@ class ProductLoopCoordinator:
             threshold = policy.get("requiresApprovalOverUsd")
             if threshold is None:
                 threshold = policy.get("maxCostPerTaskUsd")
+            preferred_resources = [
+                preference
+                for preference in [
+                    *(policy.get("preferred") or []),
+                    *(policy.get("fallback") or []),
+                    *(policy.get("escalation") or []),
+                ]
+                if isinstance(preference, dict)
+            ]
             preferred_provider_ids: list[str] = []
-            for preference in [
-                *(policy.get("preferred") or []),
-                *(policy.get("fallback") or []),
-                *(policy.get("escalation") or []),
-            ]:
-                if not isinstance(preference, dict):
-                    continue
+            for preference in preferred_resources:
                 provider_id = str(preference.get("provider") or "").strip()
                 if provider_id and provider_id not in preferred_provider_ids:
                     preferred_provider_ids.append(provider_id)
@@ -2443,6 +2446,7 @@ class ProductLoopCoordinator:
                 "allowCli": bool(policy.get("allowCli", False)),
                 "allowApi": bool(policy.get("allowApi", False)),
                 "preferredProviderIds": preferred_provider_ids,
+                "preferredResources": preferred_resources,
                 "blockedResources": [item for item in policy.get("blocked") or [] if isinstance(item, dict)],
             }
         return {
@@ -2458,6 +2462,7 @@ class ProductLoopCoordinator:
             "allowCli": False,
             "allowApi": False,
             "preferredProviderIds": [],
+            "preferredResources": [],
             "blockedResources": [],
         }
 
@@ -2710,6 +2715,7 @@ class ProductLoopCoordinator:
                     budget_remaining_usd=role_plan.get("budgetUsd"),
                     max_tokens=role_plan.get("maxTokens"),
                     preferred_provider_ids=resource_policy["preferredProviderIds"],
+                    preferred_resources=resource_policy["preferredResources"],
                     blocked_resources=resource_policy["blockedResources"],
                     context_token_limit=resource_policy["maxTokensPerRun"],
                     role_policy_id=resource_policy["rolePolicyId"],
@@ -3072,6 +3078,13 @@ class ProductLoopCoordinator:
         ]:
             if provider_id in allowed_provider_ids and provider_id not in preferred_provider_ids:
                 preferred_provider_ids.append(provider_id)
+        # El rank duro del selector respeta la misma precedencia: runtime persistido (switch_runtime)
+        # primero, luego las entradas provider+model de la política del rol. El orden de contrato
+        # sigue siendo solo desempate provider-level vía preferred_provider_ids.
+        preferred_resources = [
+            *({"provider": provider_id, "model": ""} for provider_id in self._persisted_runtime_order()),
+            *resource_policy["preferredResources"],
+        ]
         decision = manager.select_resource(
             AIResourceRequest(
                 project_id=project_id,
@@ -3087,6 +3100,7 @@ class ProductLoopCoordinator:
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed_provider_ids,
                 preferred_provider_ids=preferred_provider_ids,
+                preferred_resources=preferred_resources,
                 blocked_resources=resource_policy["blockedResources"],
                 context_token_limit=resource_policy["maxTokensPerRun"],
                 role_policy_id=resource_policy["rolePolicyId"],

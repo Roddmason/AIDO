@@ -221,7 +221,29 @@ class CliRuntime(ABC):
                 status="unknown",
                 message=str(result.get("reason") or "Auth status probe did not complete."),
             )
-        return self._parse_auth_probe(result)
+        parsed = self._parse_auth_probe(result)
+        # El probe puede reportar 'authenticated' con una credencial ya vencida (p.ej.
+        # `claude auth status` confía en un token expirado en disco): cruzamos el veredicto
+        # positivo con la verdad local. El hook solo degrada ante evidencia concluyente de
+        # vencimiento; sin evidencia devuelve None y el veredicto del probe se respeta, de modo
+        # que un archivo ausente/ilegible nunca convierte authenticated en unknown.
+        if parsed.status == "authenticated":
+            invalidation = self._local_auth_invalidation(parsed)
+            if invalidation is not None:
+                return invalidation
+        return parsed
+
+    def _local_auth_invalidation(self, parsed: RuntimeAuthStatus) -> RuntimeAuthStatus | None:
+        """Degrada un veredicto 'authenticated' del probe ante evidencia LOCAL de credencial inválida.
+
+        Hook para subclases cuyo CLI puede reportar login válido sobre una credencial ya vencida
+        (el probe lee un token expirado en disco sin renovarlo). Devuelve un ``RuntimeAuthStatus``
+        ``unauthenticated`` solo ante evidencia concluyente (p.ej. ``expiresAt`` pasado en el
+        archivo de credenciales), o ``None`` para respetar el veredicto del probe cuando no hay
+        evidencia. Nunca produce ``unknown``: preserva el invariante "unknown nunca degrada".
+        La base es no-op; el cruce con la verdad local es responsabilidad de cada subclase.
+        """
+        return None
 
     def _parse_auth_probe(self, result: dict[str, Any]) -> RuntimeAuthStatus:
         """Interpreta el resultado del probe: exit 0 = autenticado; distinto = no autenticado."""

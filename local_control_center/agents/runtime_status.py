@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,11 @@ from .runtime_registry import PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS, RuntimeReg
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
+# Una cuenta CLI validada se re-sondea pasado este TTL para captar credenciales que vencieron
+# después de la validación (p.ej. token OAuth de Claude): sin esto el veredicto queda pegado
+# healthy para siempre y el indicador proactivo mostraría "verde-falso". El cache de 60s del
+# RuntimeRegistry acota la frecuencia real de subprocess muy por debajo de este TTL.
+CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS = 300
 # Runtimes autónomos de edición de código: su único propósito es mutar el workspace,
 # así que sin la capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
 CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
@@ -608,6 +614,24 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
     )
 
 
+def _native_auth_validation_is_fresh(last_validation_at: Any) -> bool:
+    """Indica si una validación de auth nativa sigue vigente dentro del TTL de re-validación.
+
+    Un timestamp ausente o no parseable se trata como vencido (re-sondear), para que el rollup
+    capte credenciales expiradas en vez de confiar indefinidamente en una validación antigua.
+    """
+    if not last_validation_at:
+        return False
+    try:
+        validated_at = datetime.fromisoformat(str(last_validation_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if validated_at.tzinfo is None:
+        validated_at = validated_at.replace(tzinfo=UTC)
+    age_seconds = (datetime.now(UTC) - validated_at).total_seconds()
+    return 0 <= age_seconds < CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS
+
+
 class RuntimeStatusService:
     """Derives per-provider runtime status from accounts, detections, and configuration."""
 
@@ -652,7 +676,9 @@ class RuntimeStatusService:
         account = accounts.get(runtime_id)
         if not account:
             return
-        if account.get("healthStatus") == "healthy" and account.get("lastValidationAt"):
+        if account.get("healthStatus") == "healthy" and _native_auth_validation_is_fresh(
+            account.get("lastValidationAt")
+        ):
             return
         if detection.get("status") != "installed":
             return

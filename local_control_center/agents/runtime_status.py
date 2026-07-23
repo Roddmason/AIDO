@@ -902,6 +902,17 @@ class RuntimeStatusService:
                 status["reason"] = (
                     "Provider quota is exhausted; it stays unavailable until its cooldown expires."
                 )
+                # El blockerType se calculó con executable=True (=> None); tras demotar hay que
+                # recomputarlo para que la UI muestre el chip. Solo cuando venía ejecutable: si ya
+                # estaba caído, conserva su blockerType previo, más específico que el de cuota.
+                status["blockerType"] = _runtime_blocker_type(
+                    kind=str(status.get("kind") or ""),
+                    detected=bool(status.get("detected")),
+                    configured=bool(status.get("configured")),
+                    executable=False,
+                    authenticated=bool(status.get("authenticated")),
+                    requires_approval=bool(status.get("requiresApproval")),
+                )
         return statuses
 
     def runtime_provider_status(self, *, project_id: str | None = None) -> dict[str, Any]:

@@ -11,9 +11,14 @@ proveedor está sano o simplemente no configurado (no es un problema, solo no se
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from local_control_center.agents.runtime_status import _runtime_blocker_type
+from local_control_center.agents.quota_manager import QuotaManager
+from local_control_center.agents.runtime_status import RuntimeStatusService, _runtime_blocker_type
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 
 
 def test_executable_provider_has_no_blocker() -> None:
@@ -103,3 +108,34 @@ def test_local_provider_down_is_not_executable_not_auth() -> None:
         )
         == "runtime_not_executable"
     )
+
+
+def test_quota_demotion_recomputes_blocker_type_for_a_previously_executable_provider(
+    tmp_path: Path,
+) -> None:
+    # Regresión: _demote_exhausted_providers apagaba executable DESPUÉS de calcular el blockerType
+    # (=> None), dejando la UI sin chip para un provider en cooldown. Ahora lo recomputa.
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        QuotaManager(connection).record_rate_limit(
+            provider_id="codex_cli", model="*", retry_after_seconds=600
+        )
+        service = RuntimeStatusService(connection)
+        statuses = [
+            {
+                "id": "codex_cli",
+                "kind": "cli",
+                "detected": True,
+                "configured": True,
+                "authenticated": True,
+                "executable": True,
+                "requiresApproval": False,
+                "blockerType": None,
+            }
+        ]
+
+        demoted = service._demote_exhausted_providers(statuses)
+
+    codex = next(status for status in demoted if status["id"] == "codex_cli")
+    assert codex["executable"] is False
+    assert codex["blockerType"] == "runtime_not_executable"

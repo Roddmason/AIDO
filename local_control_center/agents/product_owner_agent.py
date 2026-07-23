@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.runtime_failure_classifier import classify_runtime_failure
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.artifacts import (
     artifact_hashes,
@@ -90,6 +91,16 @@ RUNTIME_OUTPUT_STATUSES = {
     SCOPE_IS_CLEAR_STATUS,
 }
 BLOCKING_DECISION_STATUSES = {"open", "proposed", "resolved", "accepted"}
+# Motivo accionable por causa clasificada. Reemplaza al returncode opaco en el blocker que ve el
+# cliente; la traducción vive en el catálogo i18n, indexada por la misma causa.
+_RUNTIME_FAILURE_REASONS = {
+    "auth_expired": "The AI runtime session expired: re-authenticate the CLI and retry.",
+    "auth_missing": "The AI runtime is not logged in: sign in to the CLI and retry.",
+    "quota_exhausted": "The AI runtime ran out of quota.",
+    "rate_limited": "The AI runtime is rate limited: wait a moment and retry.",
+    "provider_unreachable": "The AI provider could not be reached.",
+    "model_not_found": "The configured model is not available on the AI provider.",
+}
 QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
@@ -123,25 +134,45 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     return_code = execution_result.get("returnCode")
     timed_out = bool(execution_result.get("timedOut", False))
     blocked = bool(execution_result.get("blocked", False))
+    # El sandbox deja stdout/stderr inline en el payload: ahí está la causa real del fallo
+    # ("OAuth access token has expired", "You've hit your usage limit"). Sin clasificarla, el
+    # cliente solo recibe el returncode y no puede saber qué arreglar.
+    failure = classify_runtime_failure(
+        runtime_id=str(execution_result.get("runtimeId") or ""),
+        return_code=return_code if isinstance(return_code, int) else None,
+        stdout=str(execution_result.get("stdout") or ""),
+        stderr=str(execution_result.get("stderr") or ""),
+    )
     reason = str(execution_result.get("reason") or "").strip()
     if not reason and timed_out:
         reason = "ProductOwnerAgent runtime execution timed out."
     elif not reason and blocked:
         reason = "ProductOwnerAgent runtime execution was blocked."
+    elif not reason and failure is not None and failure.cause != "unknown":
+        # La causa clasificada reemplaza al returncode incluso cuando el proceso salió con 0:
+        # `codex exec` imprime el error de cuota y termina con código de éxito.
+        reason = _RUNTIME_FAILURE_REASONS[failure.cause]
+        if failure.retry_after:
+            reason = f"{reason} Available again at {failure.retry_after}."
     elif not reason and not completed and return_code not in {None, 0, "0"}:
         reason = f"ProductOwnerAgent runtime process exited with return code {return_code}."
     elif not reason and not completed:
         reason = "ProductOwnerAgent runtime execution failed."
     elif not reason:
         reason = str(payload.get("decisionReason") or "").strip()
+    classified = failure.cause if failure is not None and failure.cause != "unknown" else None
     return {
-        "status": "completed" if completed else "failed",
+        # Una causa clasificada degrada el resultado aunque el proceso haya salido con 0.
+        "status": "failed" if (classified is not None or not completed) else "completed",
         "toolCallId": tool_call.get("id"),
         "execution": payload.get("execution"),
         "returnCode": return_code,
         "timedOut": timed_out,
         "blocked": blocked,
         "reason": reason,
+        "failureCause": classified,
+        "failureEvidence": failure.evidence if failure is not None else "",
+        "failureRetryAfter": failure.retry_after if failure is not None else None,
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
         "stderrArtifactId": execution_result.get("stderrArtifactId"),

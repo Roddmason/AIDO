@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.intent_classifier import (
     IntentClassification,
     IntentClassificationInput,
@@ -36,6 +37,7 @@ from local_control_center.product_loop.metadata import (
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.time import utc_now
 from local_control_center.team_scheduler.scheduler import schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import (
@@ -397,6 +399,38 @@ class ThreadCoordinator:
             "events": self.repository.list_events(thread_id),
         }
 
+    def _settle_linked_product_decision(
+        self,
+        pending_decision: dict[str, Any],
+        *,
+        resolution: str,
+        decided_by: str | None,
+    ) -> None:
+        """Cierra la decisión de producto que originó esta decisión del hilo.
+
+        El ProductOwnerAgent cuenta como bloqueante toda ``product_decisions`` en ``proposed`` con
+        ``metadata.blocking``, pero el operador resuelve ``thread_decisions``. Sin propagar la
+        respuesta el agente vuelve a pedir la misma decisión en cada corrida y el hilo nunca avanza.
+
+        Un enlace rancio no puede tumbar la respuesta ya aceptada del operador: se ignora.
+        """
+        metadata = pending_decision.get("metadata")
+        product_decision_id = str((metadata or {}).get("productDecisionId") or "").strip()
+        if not product_decision_id:
+            return
+        try:
+            ProductDiscoveryRepository(self.connection).update_product_decision(
+                product_decision_id,
+                {
+                    "status": "resolved",
+                    "decision": resolution,
+                    "decidedBy": decided_by or "operator",
+                    "decidedAt": utc_now(),
+                },
+            )
+        except KeyError:
+            return
+
     def resolve_decision(
         self,
         *,
@@ -427,6 +461,9 @@ class ThreadCoordinator:
                 decision_id=decision_id,
                 resolution=resolution,
                 decided_by=decided_by,
+            )
+            self._settle_linked_product_decision(
+                pending_decision, resolution=resolution, decided_by=decided_by
             )
             self.repository.append_message(
                 thread_id=thread_id,

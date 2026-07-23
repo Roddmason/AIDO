@@ -10,6 +10,7 @@ import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
+import { RuntimeHealthModal } from '../features/runtime-setup/RuntimeHealthModal';
 import { SettingsModal } from '../features/settings/SettingsModal';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
@@ -31,6 +32,7 @@ import type { RouteContext } from './routes';
 import { renderRoute } from './routes';
 import type { AppRoute } from './routing';
 import { encodeHash, resolveHashState, settingsHashToSection, splitHash } from './routing';
+import { deriveRuntimeAlerts } from './runtimeHealth';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -77,6 +79,9 @@ export function App() {
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 	const [settingsSection, setSettingsSection] = useState('general');
 	const [settingsProviderId, setSettingsProviderId] = useState<string | null>(null);
+	const [runtimeHealthOpen, setRuntimeHealthOpen] = useState(false);
+	/** Provider ids already flagged as blocked, so a re-poll only toasts a genuine new degradation. */
+	const knownBlockedRuntimesRef = useRef<Set<string> | null>(null);
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
@@ -109,7 +114,36 @@ export function App() {
 		setEventDrawerOpen(false);
 		setCommandPaletteOpen(false);
 		setSettingsModalOpen(false);
+		setRuntimeHealthOpen(false);
 	}, []);
+
+	const runtimeAlerts = useMemo(
+		() => deriveRuntimeAlerts(state.runtimeProviders),
+		[state.runtimeProviders],
+	);
+
+	// Proactive nudge: when the live poll shows an AI degrade from healthy to blocked (an expired CLI
+	// token, an exhausted quota) toast it once, edge-triggered. The first poll only seeds the baseline
+	// so a reload never spams a toast per already-broken provider.
+	useEffect(() => {
+		if (!state.runtimeProviders) return;
+		const current = new Set(runtimeAlerts.map((alert) => alert.providerId));
+		const seen = knownBlockedRuntimesRef.current;
+		knownBlockedRuntimesRef.current = current;
+		if (seen === null) return;
+		for (const alert of runtimeAlerts) {
+			if (seen.has(alert.providerId)) continue;
+			notify({
+				title: t('app.runtime.health.toastTitle', 'An AI needs attention'),
+				body: `${alert.displayName} — ${t('app.runtime.health.toastBody', 'open AI health to see how to fix it.')}`,
+				tone: 'warn',
+				action: {
+					label: t('app.runtime.health.review', 'Review'),
+					onPress: () => setRuntimeHealthOpen(true),
+				},
+			});
+		}
+	}, [state.runtimeProviders, runtimeAlerts, notify, t]);
 
 	const changeLanguage = useCallback(
 		(nextLanguage: string) => {
@@ -264,6 +298,7 @@ export function App() {
 				onOpenEvents={() => setEventDrawerOpen(true)}
 				onRefresh={() => void state.refresh()}
 				onOpenSettings={openSettings}
+				onOpenRuntimeHealth={() => setRuntimeHealthOpen(true)}
 			>
 				<AnimatePresence mode="wait">
 					<MotionPage key={page}>
@@ -341,6 +376,17 @@ export function App() {
 				onSelectProject={setOperationalProject}
 				mutate={state.mutate}
 				language={bilingualLanguage}
+			/>
+
+			{/* AI-health modal: global overlay listing every runtime that needs attention. */}
+			<RuntimeHealthModal
+				open={runtimeHealthOpen}
+				onClose={() => setRuntimeHealthOpen(false)}
+				alerts={runtimeAlerts}
+				onOpenSettings={(section, providerId) => {
+					setRuntimeHealthOpen(false);
+					openSettings(section, providerId);
+				}}
 			/>
 		</>
 	);

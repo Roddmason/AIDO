@@ -83,6 +83,7 @@ export function AppShell({
 	onOpenEvents,
 	onRefresh,
 	onOpenSettings,
+	onOpenRuntimeHealth,
 	children,
 }: {
 	area: AreaId;
@@ -112,6 +113,8 @@ export function AppShell({
 	onRefresh: () => void;
 	/** Opens the Settings modal at an optional section. */
 	onOpenSettings: (section?: string) => void;
+	/** Opens the AI-health modal listing runtimes that need attention. */
+	onOpenRuntimeHealth: () => void;
 	children: ReactNode;
 }) {
 	const isDesktop = useIsDesktopLayout();
@@ -272,6 +275,7 @@ export function AppShell({
 			language={language}
 			languages={languages}
 			onChangeLanguage={onChangeLanguage}
+			onOpenRuntimeHealth={onOpenRuntimeHealth}
 			t={t}
 		/>
 	);

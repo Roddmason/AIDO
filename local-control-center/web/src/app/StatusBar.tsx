@@ -14,6 +14,7 @@ import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { Button, IconButton, StatusDot, Tooltip } from '../components/ui';
 import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
+import { deriveRuntimeAlerts } from './runtimeHealth';
 import { deriveShellStatus } from './shellStatus';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
@@ -30,6 +31,7 @@ export function StatusBar({
 	language,
 	languages,
 	onChangeLanguage,
+	onOpenRuntimeHealth,
 	t,
 }: {
 	overview: Overview;
@@ -39,9 +41,11 @@ export function StatusBar({
 	language: string;
 	languages: LanguageOption[];
 	onChangeLanguage: (code: string) => void;
+	onOpenRuntimeHealth: () => void;
 	t: (key: string, fallback?: string) => string;
 }) {
 	const status = deriveShellStatus(overview, runtimeProviders, connected, selectedProject);
+	const runtimeAlerts = deriveRuntimeAlerts(runtimeProviders);
 	const projectName = status.projectName ?? t('app.global.noProject', 'no project');
 	const { theme, toggleTheme } = useTheme();
 	const { density, toggleDensity } = useDensity();
@@ -69,10 +73,15 @@ export function StatusBar({
 				<strong>{projectName}</strong>
 			</span>
 			<span className="status-bar-item">
-				<StatusDot tone={status.executableRuntimes ? 'ok' : 'warn'} />
+				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
 				<span className="tnum">{status.executableRuntimes}</span>{' '}
 				{t('app.statusBar.executableRuntimes', 'executable runtimes')}
-				{status.executableRuntimes === 0 ? (
+				{runtimeAlerts.length ? (
+					<Button className="settings-console-link" onClick={onOpenRuntimeHealth}>
+						{`${runtimeAlerts.length} `}
+						{t('app.runtime.health.needAttention', 'need attention')}
+					</Button>
+				) : status.executableRuntimes === 0 ? (
 					<a className="settings-console-link" href="#settings-runtime">
 						{t('app.statusBar.configureRuntimes', 'Set up runtimes')}
 					</a>

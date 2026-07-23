@@ -12142,6 +12142,50 @@
     "app.workbench.loop.epicExpandFailed": {
       "en": "Could not expand the epic",
       "es": "No se pudo expandir la épica"
+    },
+    "app.runtime.health.title": {
+      "en": "AI health",
+      "es": "Salud de las IAs"
+    },
+    "app.runtime.health.allReady": {
+      "en": "Every configured AI is ready to run.",
+      "es": "Todas las IAs configuradas están listas para ejecutarse."
+    },
+    "app.runtime.health.cause": {
+      "en": "Cause",
+      "es": "Causa"
+    },
+    "app.runtime.health.impact": {
+      "en": "Impact",
+      "es": "Impacto"
+    },
+    "app.runtime.health.technical": {
+      "en": "Technical detail",
+      "es": "Detalle técnico"
+    },
+    "app.runtime.health.openSettings": {
+      "en": "Open settings to fix it",
+      "es": "Abrir configuración para resolverlo"
+    },
+    "app.runtime.health.causeUnknown": {
+      "en": "The runtime reported no further detail.",
+      "es": "El runtime no entregó más detalle."
+    },
+    "app.runtime.health.needAttention": {
+      "en": "need attention",
+      "es": "requieren atención"
+    },
+    "app.runtime.health.toastTitle": {
+      "en": "An AI needs attention",
+      "es": "Una IA requiere atención"
+    },
+    "app.runtime.health.toastBody": {
+      "en": "open AI health to see how to fix it.",
+      "es": "abre Salud de las IAs para ver cómo resolverlo."
+    },
+    "app.runtime.health.review": {
+      "en": "Review",
+      "es": "Revisar"
     }
   }
 }

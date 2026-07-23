@@ -123,6 +123,35 @@ def _configuration_warnings(
     return warnings
 
 
+_CREDENTIAL_PROVIDER_KINDS = {"cli", "api", "gateway"}
+
+
+def _runtime_blocker_type(
+    *,
+    kind: str,
+    detected: bool,
+    configured: bool,
+    executable: bool,
+    authenticated: bool,
+    requires_approval: bool,
+) -> str | None:
+    """Clasifica un status de proveedor a un blockerType accionable, o None si no hay problema.
+
+    Reutiliza el vocabulario de ``remediations`` (``runtime_auth_missing`` / ``runtime_not_executable``)
+    para que la UI muestre el mismo chip que un bloqueo de loop. Un proveedor ejecutable, de aprobación
+    manual, o nunca configurado no es un problema que reportar: devuelve None. Un proveedor de
+    credenciales presente pero sin autenticar es ``runtime_auth_missing``; cualquier otro inejecutable
+    presente es ``runtime_not_executable`` (cuota agotada, versión no soportada, servicio caído).
+    """
+    if requires_approval or executable:
+        return None
+    if not (detected or configured):
+        return None
+    if authenticated is False and kind in _CREDENTIAL_PROVIDER_KINDS:
+        return "runtime_auth_missing"
+    return "runtime_not_executable"
+
+
 def _status_payload(
     *,
     provider_id: str,
@@ -159,6 +188,14 @@ def _status_payload(
         "authenticated": authenticated,
         "available": available,
         "executable": executable,
+        "blockerType": _runtime_blocker_type(
+            kind=kind,
+            detected=detected,
+            configured=configured,
+            executable=executable,
+            authenticated=authenticated,
+            requires_approval=requires_approval,
+        ),
         "canRunVersionCheck": can_run_version_check,
         "canRunPrompt": can_run_prompt,
         "canEditWorkspace": can_edit_workspace,

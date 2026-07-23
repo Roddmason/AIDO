@@ -408,6 +408,10 @@ class RuntimeProviderStatus(BaseModel):
     authenticated: bool = False
     available: bool
     executable: bool
+    #: Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations:
+    #: ``runtime_auth_missing`` / ``runtime_not_executable``); ``None`` si está sano o no configurado.
+    #: Deja que la UI muestre el mismo chip accionable que un bloqueo de loop sin duplicar la causa.
+    blocker_type: str | None = Field(default=None, alias="blockerType")
     can_run_version_check: bool = Field(default=False, alias="canRunVersionCheck")
     can_run_prompt: bool = Field(default=False, alias="canRunPrompt")
     can_edit_workspace: bool = Field(default=False, alias="canEditWorkspace")

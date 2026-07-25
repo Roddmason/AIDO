@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.developer_agent_contract import developer_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
@@ -315,6 +316,65 @@ def test_developer_agent_requires_workspace_before_execution(
 
     assert response.status_code == 422
     assert "workspace" in str(response.json()["detail"]).lower()
+
+
+def test_developer_agent_accepts_a_named_gateway_account_as_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    ProviderAccountStore(store.connection).upsert_provider_account(
+        {
+            "providerId": "omniroute",
+            "displayName": "OmniRoute",
+            "providerType": "gateway",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "http://localhost:20128/v1",
+            "enabled": True,
+        }
+    )
+    project = store.create_project(name="Named Gateway", path=tmp_path / "named-gateway", template_id="other")
+
+    response = client.post(
+        "/api/v1/agents/developer/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": "workspace-does-not-exist",
+            "taskId": "developer-agent-named-gateway",
+            "instruction": "Create a file.",
+            "preferredRuntime": "omniroute",
+        },
+    )
+
+    # El runtime pasa la validación (la cuenta es de una familia de modelo permitida) y la petición
+    # avanza hasta resolver el workspace, en vez de morir con "runtime is not allowed".
+    assert response.status_code == 404
+    assert "runtime is not allowed" not in str(response.json()["detail"])
+
+
+def test_developer_agent_rejects_a_provider_account_that_does_not_exist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = store.create_project(name="Unknown Runtime", path=tmp_path / "unknown", template_id="other")
+
+    response = client.post(
+        "/api/v1/agents/developer/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": "workspace-does-not-exist",
+            "taskId": "developer-agent-unknown-runtime",
+            "instruction": "Create a file.",
+            "preferredRuntime": "not_a_provider",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "runtime is not allowed" in str(response.json()["detail"])
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")

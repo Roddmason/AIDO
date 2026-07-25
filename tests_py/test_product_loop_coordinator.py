@@ -88,6 +88,36 @@ def test_named_ollama_resource_maps_to_product_owner_and_developer_runtime(tmp_p
         assert coordinator._developer_runtime_id_for_resource_selection(selected) == "team_ollama"
 
 
+def test_named_openai_compatible_gateway_maps_to_developer_runtime(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "omniroute",
+                "displayName": "OmniRoute",
+                "providerType": "gateway",
+                "providerFamily": "openai_compatible",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "http://localhost:20128/v1",
+                "enabled": True,
+            }
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        selected = {"providerId": "omniroute", "model": "glm-4-flash", "runtime": "gateway"}
+
+        assert coordinator._developer_runtime_id_for_resource_selection(selected) == "omniroute"
+        assert coordinator._product_owner_runtime_id_for_resource_selection(selected) == "omniroute"
+
+
+def test_unknown_provider_account_does_not_map_to_developer_runtime(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        selected = {"providerId": "not_a_provider", "model": "whatever", "runtime": "gateway"}
+
+        assert coordinator._developer_runtime_id_for_resource_selection(selected) is None
+
+
 class _RuntimeUnavailable:
     def __init__(self) -> None:
         self.run_payloads: list[dict[str, Any]] = []

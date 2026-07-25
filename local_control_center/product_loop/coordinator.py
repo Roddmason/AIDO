@@ -3049,20 +3049,32 @@ class ProductLoopCoordinator:
                 return False
         return True
 
-    def _is_ollama_provider(self, provider_id: str) -> bool:
+    def _is_developer_model_provider(self, provider_id: str) -> bool:
+        """Indica si la cuenta corresponde a un runtime de modelo del DeveloperAgent.
+
+        Resuelve por ``provider_family`` y no por ``provider_id``: una cuenta con id propio —por
+        ejemplo un gateway ``omniroute`` de familia ``openai_compatible``— debe mapear igual que la
+        cuenta homónima de la familia, tal como ya lo hace el camino del ProductOwner. Sin esto la
+        selección de recursos elige el gateway y luego el loop lo rechaza por no mapear a un runtime.
+        """
         if not provider_id:
             return False
         row = self.connection.execute(
-            "SELECT api_format FROM provider_accounts WHERE provider_id = ?",
+            "SELECT provider_family, api_format FROM provider_accounts WHERE provider_id = ?",
             (provider_id,),
         ).fetchone()
-        return bool(row and str(row["api_format"] or "") == "ollama")
+        if row is None:
+            return False
+        return (
+            str(row["provider_family"] or "") in DEVELOPER_AGENT_MODEL_RUNTIMES
+            or str(row["api_format"] or "") == "ollama"
+        )
 
     def _developer_runtime_id_for_resource_selection(self, selected: dict[str, Any]) -> str | None:
         allowed_runtimes = DEVELOPER_AGENT_CLI_RUNTIMES | DEVELOPER_AGENT_MODEL_RUNTIMES
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
-        if provider_id in allowed_runtimes or self._is_ollama_provider(provider_id):
+        if provider_id in allowed_runtimes or self._is_developer_model_provider(provider_id):
             return provider_id
         if runtime_id in allowed_runtimes:
             return runtime_id

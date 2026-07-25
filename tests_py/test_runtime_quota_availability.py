@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError
 
 import pytest
@@ -8,10 +9,14 @@ import pytest
 from local_control_center.agents.product_owner_agent_contract import is_product_owner_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.quota_manager import QuotaManager
+from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_adapters import ProviderFactoryAdapter
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.workspaces_projects.repository import WorkspacesRepository
+from tests_py.control_plane_fixture import ControlPlaneFixture
 
 OLLAMA_ACCOUNT = {
     "providerId": "ollama",
@@ -151,6 +156,154 @@ def test_an_exhausted_provider_keeps_its_more_actionable_reason(tmp_path: Path) 
         ]
 
     assert after["reason"] == before["reason"]
+
+
+def _failing_shell_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stderr: str,
+    tool_call: dict[str, Any],
+    return_code: int = 1,
+) -> tuple[ControlPlaneFixture, dict[str, Any]]:
+    """Ejecuta una corrida real por el ToolBroker con el sandbox simulado y salida fallida.
+
+    Solo se sustituye el sandbox (la frontera con el proceso externo): la policy, el broker, la
+    cuota y el estado de runtimes son los reales, que es donde vive el comportamiento a probar.
+    """
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    project_path = tmp_path / "quota-project"
+    project_path.mkdir(parents=True, exist_ok=True)
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(name="Quota Project", path=project_path, template_id="other")
+    workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
+        project_id=project["id"],
+        task_id="task-quota",
+        agent_id="developer_agent",
+    )
+    agents = AgentsRepository(store.connection)
+    profile = agents.upsert_agent_profile(
+        {
+            "id": "developer_agent",
+            "name": "Developer Agent",
+            "role": "implementer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    agent_run = agents.create_agent_run(
+        project_id=project["id"],
+        agent_profile_id=profile["id"],
+        task_id="task-quota",
+        input_payload={},
+        output_payload={},
+        status="running",
+    )
+    monkeypatch.setattr(
+        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+        lambda *_args, **_kwargs: {
+            "stdout": "",
+            "stderr": stderr,
+            "returnCode": return_code,
+            "blocked": False,
+        },
+    )
+    result = ToolBroker(store.connection).evaluate_tool_call(
+        project_id=project["id"],
+        agent_run_id=agent_run["id"],
+        agent_profile=profile,
+        tool_call={
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace["path"],
+            "path": workspace["path"],
+            "execute": True,
+            **tool_call,
+        },
+    )
+    return store, result
+
+
+def _run_developer_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stderr: str,
+) -> tuple[ControlPlaneFixture, dict[str, Any]]:
+    """Corre el runtime CLI del DeveloperAgent (la ruta real del loop) hasta fallar."""
+    return _failing_shell_run(
+        tmp_path,
+        monkeypatch,
+        stderr=stderr,
+        tool_call={
+            "tool": "shell",
+            "command": "codex --ask-for-approval never exec",
+            "argv": ["codex", "--ask-for-approval", "never", "exec"],
+            "operation": "developer_agent_runtime",
+            "runtimeId": "codex_cli",
+            "capability": "code_edit",
+        },
+    )
+
+
+def test_a_cli_that_exits_on_a_usage_limit_stops_being_offered_as_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La cuota de un CLI solo falla al EJECUTAR: el health-check la da por buena y el loop lo re-elige."""
+    store, result = _run_developer_cli(
+        tmp_path,
+        monkeypatch,
+        stderr="You've hit your usage limit. Try again later.",
+    )
+
+    assert result["toolCall"]["status"] == "failed", "la corrida debe registrarse como fallida"
+    exhausted = QuotaManager(store.connection).providers_in_cooldown()
+    statuses = {
+        str(item["id"]): item for item in RuntimeStatusService(store.connection).list_provider_statuses()
+    }
+
+    assert "codex_cli" in exhausted
+    assert statuses["codex_cli"]["executable"] is False
+    assert statuses["codex_cli"]["productOwnerExecutable"] is False
+
+
+def test_an_ordinary_cli_failure_keeps_the_provider_selectable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un fallo de codigo no dice nada del proveedor; degradarlo dejaria la instalacion sin runtimes."""
+    store, result = _run_developer_cli(
+        tmp_path,
+        monkeypatch,
+        stderr="SyntaxError: invalid syntax",
+    )
+
+    assert result["toolCall"]["status"] == "failed"
+    assert QuotaManager(store.connection).providers_in_cooldown() == set()
+
+
+def test_a_shell_command_without_a_runtime_never_invents_a_provider_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sin runtime declarado el broker cae al nombre del sandbox; eso no es un proveedor."""
+    store, result = _failing_shell_run(
+        tmp_path,
+        monkeypatch,
+        stderr="FAILED tests/test_quota.py::test_rate_limit_is_enforced",
+        tool_call={
+            "tool": "shell",
+            "command": "python --version",
+            "argv": ["python", "--version"],
+            "sandbox": "restricted_subprocess",
+        },
+    )
+
+    assert result["toolCall"]["status"] == "failed"
+    limits = store.connection.execute("SELECT provider_id FROM provider_limits").fetchall()
+    recorded = {str(row["provider_id"]) for row in limits}
+
+    assert QuotaManager(store.connection).providers_in_cooldown() == set()
+    assert recorded.isdisjoint({"restricted_subprocess", "docker"})
 
 
 def test_providers_without_a_cooldown_are_left_untouched(tmp_path: Path) -> None:

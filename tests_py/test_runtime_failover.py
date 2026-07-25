@@ -9,6 +9,7 @@ from local_control_center.agents.runtime_failover import (
     classify_runtime_failure,
     exclusion_for,
     is_affordable_candidate,
+    looks_like_quota_exhaustion,
     should_failover,
 )
 
@@ -82,6 +83,40 @@ def test_a_cap_admits_what_fits_under_it_and_refuses_the_rest() -> None:
     assert under is True
     assert over is False
     assert reason == "over_role_cost_cap"
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "You've hit your usage limit. Try again later.",
+        "Claude AI usage limit reached|1751000000",
+        "Error: usage limit exceeded for your plan",
+        "You have exceeded your current quota",
+        "stream error: 429 Too Many Requests",
+    ],
+)
+def test_a_cli_that_ran_out_of_quota_is_recognized_by_its_own_wording(output: str) -> None:
+    """Un CLI sin cuota no emite 429: escribe 'usage limit' en texto plano y sale con rc=1."""
+    assert looks_like_quota_exhaustion(output) is True
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "SyntaxError: invalid syntax",
+        "error: pathspec 'main' did not match any file(s) known to git",
+        "AssertionError: expected 2 but got 3",
+        "",
+    ],
+)
+def test_an_ordinary_failure_is_never_read_as_exhausted_quota(output: str) -> None:
+    """Bloquear un runtime sano por un fallo de codigo dejaria la instalacion sin candidatos."""
+    assert looks_like_quota_exhaustion(output) is False
+
+
+def test_the_cli_wording_also_classifies_a_raised_failure_as_quota() -> None:
+    """El clasificador de excepciones y el de texto comparten los mismos marcadores."""
+    assert classify_runtime_failure(RuntimeError("You've hit your usage limit")) is FailureClass.QUOTA
 
 
 def test_an_unpriced_candidate_is_never_taken_automatically() -> None:

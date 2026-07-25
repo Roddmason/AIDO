@@ -129,6 +129,27 @@ def test_security_agent_status_lists_configured_remote_model_runtimes() -> None:
     assert status["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
 
 
+def test_model_analysis_prompt_carries_story_specs_alongside_findings() -> None:
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    prompt = SecurityAgentRunner._model_analysis_prompt(
+        {"storySpecs": "HU-1: el login exige MFA"},
+        {"findings": [{"id": "finding-1"}]},
+    )
+
+    assert "HU-1: el login exige MFA" in prompt
+    assert "finding-1" in prompt
+
+
+def test_model_analysis_prompt_without_story_specs_stays_findings_only() -> None:
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    prompt = SecurityAgentRunner._model_analysis_prompt({}, {"findings": [{"id": "finding-1"}]})
+
+    assert json.loads(prompt) == {"findings": [{"id": "finding-1"}]}
+    assert "Story specs" not in prompt
+
+
 def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

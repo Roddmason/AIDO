@@ -1,0 +1,31 @@
+{
+  "$comment": [
+    "Allowlist de modelos de OmniRoute que AIDO habilita en su model_catalog.",
+    "Regla del proyecto: solo free tiers oficiales de API y providers keyless legitimos.",
+    "Excluidos a proposito: prefijos aug/, tllm/, ddgw/, pepper/, mcode/ y veo-free/ (reexponen",
+    "servicios comerciales fuera de su cliente oficial), y los alias auto/* (enrutan a cualquier",
+    "provider interno, incluidos los excluidos, sin dejar trazabilidad de la fuente).",
+    "Agrega aqui los modelos de tus propias cuentas free-tier (Gemini, Groq, DeepSeek) una vez",
+    "conectadas en el dashboard de OmniRoute, y vuelve a correr scripts/setup_omniroute.py."
+  ],
+  "models": [
+    {
+      "model": "oc/deepseek-v4-flash-free",
+      "supportsTools": false,
+      "supportsJson": true,
+      "supportsReasoning": true,
+      "contextWindow": 131072,
+      "maxOutputTokens": 8192,
+      "notes": "OpenCode Zen free tier, keyless. Verificado 3/3 contra el contrato JSON del DeveloperAgent."
+    },
+    {
+      "model": "oc/big-pickle",
+      "supportsTools": false,
+      "supportsJson": true,
+      "supportsReasoning": false,
+      "contextWindow": 131072,
+      "maxOutputTokens": 8192,
+      "notes": "OpenCode Zen free tier, keyless."
+    }
+  ]
+}

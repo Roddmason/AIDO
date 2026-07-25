@@ -109,6 +109,55 @@ def test_named_openai_compatible_gateway_maps_to_developer_runtime(tmp_path: Pat
         assert coordinator._product_owner_runtime_id_for_resource_selection(selected) == "omniroute"
 
 
+def test_security_role_with_model_runtime_enables_optional_model_analysis(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "omniroute",
+                "displayName": "OmniRoute",
+                "providerType": "gateway",
+                "providerFamily": "openai_compatible",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "http://localhost:20128/v1",
+                "enabled": True,
+            }
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        schedule = {
+            "roles": [
+                {
+                    "role": "security_engineer",
+                    "kind": "review",
+                    "capabilities": ["security_review"],
+                    "resourceDecision": {"selected": {"providerId": "omniroute", "model": "oc/big-pickle"}},
+                }
+            ]
+        }
+
+        resource = coordinator._security_execution_resource(schedule)
+
+    assert resource == {"preferredRuntime": "omniroute", "model": "oc/big-pickle"}
+
+
+def test_security_role_on_a_cli_runtime_keeps_deterministic_only_review(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        schedule = {
+            "roles": [
+                {
+                    "role": "security_engineer",
+                    "kind": "review",
+                    "capabilities": ["security_review"],
+                    "resourceDecision": {"selected": {"providerId": "codex_cli", "model": "gpt-5.5"}},
+                }
+            ]
+        }
+
+        assert coordinator._security_execution_resource(schedule) == {}
+
+
 def test_unknown_provider_account_does_not_map_to_developer_runtime(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

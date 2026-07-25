@@ -972,6 +972,20 @@ class SecurityAgentRunner:
         selected = status.get("selectedRuntimeId")
         return next((runtime for runtime in eligible if runtime.get("id") == selected), None)
 
+    @staticmethod
+    def _model_analysis_prompt(payload: dict[str, Any], findings_payload: dict[str, Any]) -> str:
+        """Arma el prompt del análisis opcional: hallazgos deterministas y, si existen, las specs.
+
+        Las historias con sus criterios de aceptación son el contrato que el cambio debía cumplir:
+        sin ellas el modelo revisa hallazgos sin saber qué se pedía. El loop ya las entrega en el
+        payload, aquí solo entran al prompt.
+        """
+        story_specs = str(payload.get("storySpecs") or "").strip()
+        findings_block = json_dumps(redact_secrets(findings_payload))
+        if not story_specs:
+            return findings_block
+        return f"Story specs under review:\n{story_specs}\n\nDeterministic findings:\n{findings_block}"
+
     def _execute_optional_model_analysis(
         self,
         *,
@@ -1022,7 +1036,10 @@ class SecurityAgentRunner:
                                 "Do not override deterministic verdicts. Return concise JSON."
                             ),
                         },
-                        {"role": "user", "content": json_dumps(redact_secrets(findings_payload))},
+                        {
+                            "role": "user",
+                            "content": self._model_analysis_prompt(payload, findings_payload),
+                        },
                     ],
                     "temperature": 0.1,
                 },

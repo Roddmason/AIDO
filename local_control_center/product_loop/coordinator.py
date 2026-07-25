@@ -3049,8 +3049,8 @@ class ProductLoopCoordinator:
                 return False
         return True
 
-    def _is_developer_model_provider(self, provider_id: str) -> bool:
-        """Indica si la cuenta corresponde a un runtime de modelo del DeveloperAgent.
+    def _is_model_runtime_provider(self, provider_id: str) -> bool:
+        """Indica si la cuenta corresponde a un runtime de modelo (no CLI).
 
         Resuelve por ``provider_family`` y no por ``provider_id``: una cuenta con id propio —por
         ejemplo un gateway ``omniroute`` de familia ``openai_compatible``— debe mapear igual que la
@@ -3074,7 +3074,7 @@ class ProductLoopCoordinator:
         allowed_runtimes = DEVELOPER_AGENT_CLI_RUNTIMES | DEVELOPER_AGENT_MODEL_RUNTIMES
         provider_id = str(selected.get("providerId") or "").strip()
         runtime_id = str(selected.get("runtime") or "").strip()
-        if provider_id in allowed_runtimes or self._is_developer_model_provider(provider_id):
+        if provider_id in allowed_runtimes or self._is_model_runtime_provider(provider_id):
             return provider_id
         if runtime_id in allowed_runtimes:
             return runtime_id
@@ -3265,6 +3265,25 @@ class ProductLoopCoordinator:
                     "usageStatus": decision.get("usageStatus"),
                 }
             )
+        return {}
+
+    def _security_execution_resource(self, team_schedule: dict[str, Any]) -> dict[str, Any]:
+        """Devuelve el runtime de modelo que el schedule eligió para el rol de seguridad, si lo hay.
+
+        El análisis de modelo del SecurityAgent es asistencia opcional sobre veredictos que siguen
+        siendo deterministas, así que solo se activa cuando la selección de recursos del rol ya
+        resolvió un runtime de modelo ejecutable; sin él, el agente corre solo sus scanners.
+        """
+        for role_plan in team_schedule.get("roles") or []:
+            capabilities = set(role_plan.get("capabilities") or [])
+            role = str(role_plan.get("role") or "")
+            if "security_review" not in capabilities and not role.startswith("security"):
+                continue
+            selected = (role_plan.get("resourceDecision") or {}).get("selected") or {}
+            provider_id = str(selected.get("providerId") or "").strip()
+            if not self._is_model_runtime_provider(provider_id):
+                continue
+            return {"preferredRuntime": provider_id, "model": selected.get("model")}
         return {}
 
     def _developer_execution_resource_mapping_blockers(
@@ -4299,6 +4318,12 @@ class ProductLoopCoordinator:
         story_specs_prompt = self._story_specs_for_tasks(agent_tasks)
         if story_specs_prompt:
             security_payload["storySpecs"] = story_specs_prompt
+        security_resource = self._security_execution_resource(team_schedule)
+        if security_resource:
+            security_payload["runModelAnalysis"] = True
+            security_payload["preferredRuntime"] = security_resource["preferredRuntime"]
+            if security_resource.get("model"):
+                security_payload["model"] = security_resource["model"]
         try:
             security_result = security_agent.run(security_payload)
         except Exception as error:

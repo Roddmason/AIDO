@@ -9063,6 +9063,10 @@
       "en": "Set AIDO_OPENROUTER_API_KEY and AIDO_OPENROUTER_MODEL, enable the provider in Settings, then run a health check.",
       "es": "Define AIDO_OPENROUTER_API_KEY y AIDO_OPENROUTER_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."
     },
+    "app.runtime.instructions.omniroute": {
+      "en": "Run the local OmniRoute gateway (default http://localhost:20128/v1), create an API key in its dashboard, save it as the credential, then sync models and run a health check.",
+      "es": "Levanta el gateway local OmniRoute (por defecto http://localhost:20128/v1), crea una API key en su dashboard, guárdala como credencial, luego sincroniza modelos y ejecuta un chequeo de salud."
+    },
     "app.runtime.instructions.nvidia_nim": {
       "en": "Set AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL and AIDO_NVIDIA_MODEL, enable the provider in Settings, then run a health check.",
       "es": "Define AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL y AIDO_NVIDIA_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."

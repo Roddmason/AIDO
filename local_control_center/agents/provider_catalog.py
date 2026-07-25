@@ -66,7 +66,7 @@ class ProviderCatalogEntry:
         }
 
 
-PROVIDER_CATALOG_VERSION = "2026-07-14"
+PROVIDER_CATALOG_VERSION = "2026-07-25"
 OPENAI_COMPATIBLE_SYNC = {"strategy": "api_list_models", "endpoint": "/models"}
 
 # Gemini exposes model ids through the OpenAI-compatible ``/models`` endpoint, but that
@@ -234,6 +234,24 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         docs_url="https://docs.litellm.ai/docs/",
         pricing_source="operator_managed_gateway",
         provider_family="litellm",
+    ),
+    ProviderCatalogEntry(
+        id="omniroute",
+        display_name="OmniRoute",
+        provider_type="gateway",
+        api_format="openai_compatible",
+        default_base_url="http://localhost:20128/v1",
+        required_fields=("credentialRef",),
+        credential_kind="bearer_token",
+        known_models=(),
+        model_sync=OPENAI_COMPATIBLE_SYNC,
+        # La familia queda en openai_compatible a propósito: es la única familia gateway con tool
+        # adapter en el ToolBroker y presente en MODEL_RUNTIME_TOOLS del policy engine, así la
+        # cuenta ejecuta en el loop sin registrar adapters nuevos.
+        capabilities=("chat", "routing", "tools_optional", "json_optional", "streaming_optional"),
+        docs_url="https://github.com/diegosouzapw/OmniRoute",
+        pricing_source="operator_managed_gateway",
+        provider_family="openai_compatible",
     ),
     ProviderCatalogEntry(
         id="nvidia_nim",

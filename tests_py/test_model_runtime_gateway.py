@@ -2968,9 +2968,14 @@ def test_cli_detection_missing_binary_returns_not_installed() -> None:
 
 def test_claude_native_auth_probe_parses_logged_in_json_without_leaking_identity(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from local_control_center.agents.cli_runtimes import base as cli_base
 
+    # Sin aislar CLAUDE_CONFIG_DIR el runtime lee el .credentials.json real del equipo y degrada a
+    # unauthenticated cuando ese token OAuth está vencido: el test pasaría a depender de la sesión
+    # local en vez de del probe que dice ejercitar.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
     monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
     monkeypatch.setattr(
         cli_base.subprocess_sandbox,

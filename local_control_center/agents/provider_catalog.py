@@ -241,8 +241,8 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         provider_type="gateway",
         api_format="openai_compatible",
         default_base_url="http://localhost:20128/v1",
-        required_fields=("credentialRef",),
-        credential_kind="bearer_token",
+        required_fields=(),
+        credential_kind="optional_bearer_token",
         known_models=(),
         model_sync=OPENAI_COMPATIBLE_SYNC,
         # La familia queda en openai_compatible a propósito: es la única familia gateway con tool
@@ -252,6 +252,9 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         docs_url="https://github.com/diegosouzapw/OmniRoute",
         pricing_source="operator_managed_gateway",
         provider_family="openai_compatible",
+        # self_hosted: el gateway corre en el equipo del operador y su auth es la del host, así que
+        # el bearer token es opcional (mismo criterio que LiteLLM Proxy y Ollama).
+        deployment_mode="self_hosted_development",
     ),
     ProviderCatalogEntry(
         id="nvidia_nim",

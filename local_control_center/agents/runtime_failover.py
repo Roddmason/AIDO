@@ -18,8 +18,8 @@ from typing import Any
 MAX_FAILOVER_ATTEMPTS = 2
 
 _QUOTA_MARKERS = re.compile(
-    r"429|rate[ _-]?limit|too many requests|quota|insufficient_quota|resource_exhausted|"
-    r"billing|credit|out of tokens",
+    r"429|rate[ _-]?limit|usage[ _-]?limit|too many requests|quota|insufficient_quota|"
+    r"resource_exhausted|billing|credit|out of tokens",
     re.IGNORECASE,
 )
 _TRANSPORT_MARKERS = re.compile(
@@ -49,6 +49,16 @@ class FailureClass(StrEnum):
 FAILOVER_ELIGIBLE = frozenset({FailureClass.QUOTA, FailureClass.TRANSPORT})
 
 
+def looks_like_quota_exhaustion(output: str) -> bool:
+    """Indica si la salida de un runtime declara que su cuota está agotada.
+
+    Un CLI no responde 429: agota la cuota recién al ejecutar, escribe el aviso en texto plano
+    ("hit your usage limit") y termina con rc=1. Por eso el veredicto se lee del texto emitido y
+    no del código de salida, que es el mismo de cualquier otro fallo.
+    """
+    return bool(_QUOTA_MARKERS.search(output or ""))
+
+
 def classify_runtime_failure(error: BaseException) -> FailureClass:
     """Clasifica una excepción de ejecución para decidir si corresponde failover.
 
@@ -61,7 +71,7 @@ def classify_runtime_failure(error: BaseException) -> FailureClass:
     """
     message = str(error)
     status = getattr(error, "code", None) or getattr(error, "status", None)
-    if status == 429 or _QUOTA_MARKERS.search(message):
+    if status == 429 or looks_like_quota_exhaustion(message):
         return FailureClass.QUOTA
     if _SEMANTIC_MARKERS.search(message):
         return FailureClass.SEMANTIC

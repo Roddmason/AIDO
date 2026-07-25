@@ -31,6 +31,7 @@ from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.telemetry import record_tool_call
 
 from .provider_catalog import MODEL_PROVIDER_FAMILIES
+from .quota_manager import QuotaManager
 from .repository import AgentsRepository
 from .runtime_adapters import (
     RUNTIME_ADAPTER_TOOLS,
@@ -38,6 +39,7 @@ from .runtime_adapters import (
     RuntimeExecutionAdapter,
     WorkspacePatchBrokerAdapter,
 )
+from .runtime_failover import looks_like_quota_exhaustion
 from .runtime_registry import (
     validate_product_owner_codex_environment,
     validate_product_owner_runtime_argv,
@@ -526,6 +528,40 @@ class ToolBroker:
             "categories": ["product_owner_resource_decision_replay_denied"],
         }
 
+    def _record_runtime_quota_exhaustion(
+        self,
+        *,
+        provider_id: str | None,
+        execution_result: dict[str, Any],
+    ) -> None:
+        """Deja en cooldown al provider cuando la corrida fallida declara su cuota agotada.
+
+        El readiness de un CLI no puede anticipar esto: la cuenta responde ``authenticated`` y
+        ``canRunPrompt`` hasta que la ejecución la consume, así que sin registrar la evidencia el
+        provider sigue viéndose ejecutable y el loop lo vuelve a elegir en cada ciclo.
+
+        La cuota se agota por cuenta y no por modelo, por eso se registra contra ``*``, el mismo
+        criterio que usa :func:`exclusion_for` para el failover en memoria. No se declara un
+        ``retry_after``: el CLI no publica ninguno y el respaldo configurado en ``provider_limits``
+        es la ventana que el operador controla.
+
+        Es una señal auxiliar: si el registro falla, el resultado real de la ejecución debe
+        reportarse igual, así que la excepción se traga a propósito.
+        """
+        if not provider_id:
+            return
+        output = " ".join(str(execution_result.get(field) or "") for field in ("stdout", "stderr", "reason"))
+        if not looks_like_quota_exhaustion(output):
+            return
+        try:
+            QuotaManager(self.connection).record_rate_limit(
+                provider_id=provider_id,
+                model="*",
+                error_class="runtime_usage_limit",
+            )
+        except Exception:
+            return
+
     def evaluate_tool_call(
         self,
         *,
@@ -872,6 +908,15 @@ class ToolBroker:
                     status = "completed"
                 else:
                     status = "failed"
+
+        if status == "failed" and execution_result is not None:
+            # No se reusa runtime_id: ese cae al nombre del sandbox cuando la llamada no declara
+            # runtime, y un comando shell cualquiera que mencione la cuota al fallar terminaria
+            # inventando un limite para 'restricted_subprocess'.
+            self._record_runtime_quota_exhaustion(
+                provider_id=provider_id or str(tool_call.get("runtimeId") or "").strip() or None,
+                execution_result=execution_result,
+            )
 
         payload = {
             "command": command,

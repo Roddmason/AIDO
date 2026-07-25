@@ -32,6 +32,7 @@ from .base import (
 )
 from .http_transport import urlopen_fail_closed
 
+PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
 USAGE_TOKEN_KEYS = (
     "prompt_tokens",
     "completion_tokens",
@@ -97,6 +98,20 @@ class OpenAICompatibleProvider(ModelProvider):
         credential = self._credential()
         return {"Authorization": f"Bearer {credential}"} if credential else {}
 
+    def _request_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        """Cabeceras comunes de toda petición: auth, JSON y la identidad del cliente.
+
+        Sin ``User-Agent`` propio urllib se anuncia como ``Python-urllib/3.x``, y hay gateways que
+        responden 403 a ese agente genérico; identificar al cliente es además lo correcto para que
+        el operador reconozca el tráfico de AIDO en los logs del proveedor.
+        """
+        return {
+            **self._auth_headers(),
+            "Accept": "application/json",
+            "User-Agent": PROVIDER_USER_AGENT,
+            **(extra or {}),
+        }
+
     def health_check(self) -> ProviderHealth:
         """Valida config/credencial y prueba `/models`; la política runtime se aplica aguas arriba."""
         if not self.base_url:
@@ -131,7 +146,7 @@ class OpenAICompatibleProvider(ModelProvider):
             )
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={**self._auth_headers(), "Accept": "application/json"},
+            headers=self._request_headers(),
             method="GET",
         )
         try:
@@ -157,7 +172,7 @@ class OpenAICompatibleProvider(ModelProvider):
             return []
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={**self._auth_headers(), "Accept": "application/json"},
+            headers=self._request_headers(),
             method="GET",
         )
         try:
@@ -190,11 +205,7 @@ class OpenAICompatibleProvider(ModelProvider):
         http_request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=payload,
-            headers={
-                **self._auth_headers(),
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            headers=self._request_headers({"Content-Type": "application/json"}),
             method="POST",
         )
         with urlopen_fail_closed(http_request, timeout=60) as response:

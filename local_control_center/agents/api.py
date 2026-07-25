@@ -10,6 +10,7 @@ Cada payload se valida estrictamente (ids compactos, argv estructurados, límite
 from __future__ import annotations
 
 import re
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
@@ -107,6 +108,33 @@ DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIM
 ARCHITECT_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
 SECURITY_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
 PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
+
+
+def _runtime_is_allowed(
+    preferred_runtime: str,
+    allowed: set[str],
+    connection: sqlite3.Connection | None,
+) -> bool:
+    """Indica si el runtime pedido es elegible, resolviendo también cuentas con id propio.
+
+    Los sets de runtimes permitidos son familias, no ids de cuenta: sin esta resolución un endpoint
+    con nombre propio (un gateway ``omniroute`` o un Ollama ``team_ollama``, ambos de familia
+    permitida) recibía 422 aunque el loop sí lo eligiera. Sin conexión se mantiene el criterio
+    estricto anterior: preferir el rechazo antes que asumir permisos.
+    """
+    if preferred_runtime in allowed:
+        return True
+    if connection is None:
+        return False
+    row = connection.execute(
+        "SELECT provider_family, api_format FROM provider_accounts WHERE provider_id = ?",
+        (preferred_runtime,),
+    ).fetchone()
+    if row is None:
+        return False
+    return str(row["provider_family"] or "") in allowed or (
+        str(row["api_format"] or "") == "ollama" and "ollama" in allowed
+    )
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -227,7 +255,9 @@ def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]
     return body
 
 
-def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[str, Any]:
+def validate_developer_agent_run_body(
+    body: DeveloperAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de DeveloperAgent (instrucción, runtime permitido, qaCommands, costo).
 
     Raises:
@@ -243,7 +273,9 @@ def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[st
             status_code=422, detail="DeveloperAgent instruction must be 20000 characters or fewer."
         )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in DEVELOPER_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), DEVELOPER_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"DeveloperAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -324,7 +356,9 @@ def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any
     return payload
 
 
-def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str, Any]:
+def validate_security_agent_run_body(
+    body: SecurityAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de SecurityAgent: taskId, escáneres candidatos, rutas y runtime permitido.
 
     Raises:
@@ -361,7 +395,9 @@ def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str,
             status_code=422, detail="SecurityAgent pathsToCheck must be non-empty path strings."
         )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in SECURITY_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), SECURITY_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -444,7 +480,9 @@ def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str,
     return payload
 
 
-def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[str, Any]:
+def validate_architect_agent_run_body(
+    body: ArchitectAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de ArchitectAgent: taskId, diff, contexto de workflow, runtime y listas de soporte.
 
     Raises:
@@ -461,7 +499,9 @@ def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[st
     if not isinstance(workflow_context, dict):
         raise HTTPException(status_code=422, detail="ArchitectAgent workflowContext must be an object.")
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in ARCHITECT_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), ARCHITECT_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"ArchitectAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -680,7 +720,9 @@ def _create_execution_evidence(
     return [evidence["id"]]
 
 
-def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> dict[str, Any]:
+def validate_product_owner_agent_run_body(
+    body: ProductOwnerAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de ProductOwnerAgent: taskId, idea o initiativeId, runtime y umbral de completitud.
 
     Raises:
@@ -698,7 +740,9 @@ def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> 
             status_code=422, detail="ProductOwnerAgent requires an idea, an initiativeId or an epicId."
         )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in PRODUCT_OWNER_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), PRODUCT_OWNER_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"ProductOwnerAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -770,7 +814,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def run_security_agent(body: SecurityAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el SecurityAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
-        payload = validate_security_agent_run_body(body)
+        payload = validate_security_agent_run_body(body, connection=platform.connection)
         try:
             result = SecurityAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -850,7 +894,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DeveloperAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_developer_agent_run_body(body)
+        payload = validate_developer_agent_run_body(body, connection=platform.connection)
         try:
             result = DeveloperAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -878,7 +922,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def run_architect_agent(body: ArchitectAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ArchitectAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_architect_agent_run_body(body)
+        payload = validate_architect_agent_run_body(body, connection=platform.connection)
         try:
             result = ArchitectAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -912,7 +956,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def run_product_owner_agent(body: ProductOwnerAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ProductOwnerAgent sobre una idea o assessment y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_product_owner_agent_run_body(body)
+        payload = validate_product_owner_agent_run_body(body, connection=platform.connection)
         try:
             result = ProductOwnerAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:

@@ -23,6 +23,7 @@ from local_control_center.runtime_integrations.config import (
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import utc_now
 
 CONFIG_TABLES = {
     "runtime_installations",
@@ -1089,9 +1090,12 @@ def test_validated_cli_account_is_not_reprobed_on_status_rollup(tmp_path: Path, 
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)
         account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+        # utc_now() y no una fecha ancla: la validación caduca a los 300s del TTL de re-sondeo
+        # (CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS), así que cualquier timestamp fijo convierte
+        # este test en un rojo permanente en cuanto avanza el calendario.
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
 
         claude = next(

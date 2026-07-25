@@ -180,7 +180,7 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		apiFormat: 'openai_compatible',
 		defaultBaseUrl: 'http://localhost:20128/v1',
 		needsBaseUrl: true,
-		authKind: 'api_key',
+		authKind: 'optional_api_key',
 		capabilities: ['chat', 'routing'],
 		instructionsKey: 'app.runtime.instructions.omniroute',
 	},

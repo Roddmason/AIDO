@@ -451,11 +451,11 @@ export function ModelGatewayPage({
 			);
 			return;
 		}
-		if (!Number.isInteger(tokenLimit) || tokenLimit < 512 || tokenLimit > 2000000) {
+		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 2000000) {
 			setPolicyError(
 				t(
-					'ui.static.maximum.tokens.must.be.an.integer.between.512.and.2000000.3b4363a4',
-					'Maximum tokens must be an integer between 512 and 2000000.',
+					'ui.static.maximum.tokens.must.be.an.integer.between.0.and.2000000.35ef8fbb',
+					'Maximum tokens must be an integer between 0 and 2000000.',
 				),
 			);
 			return;
@@ -882,7 +882,7 @@ export function ModelGatewayPage({
 											id="max-tokens"
 											className="input"
 											type="number"
-											min="512"
+											min="0"
 											max="2000000"
 											step="1"
 											value={policyMaxTokens}

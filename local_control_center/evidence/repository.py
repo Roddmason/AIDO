@@ -374,9 +374,23 @@ class EvidenceRepository:
         ).fetchall()
         return [row_to_artifact(row) for row in rows]
 
-    def list_all_artifacts(self) -> list[dict[str, Any]]:
-        """Lista todos los artefactos del store, enlazados o no, en orden de creación."""
-        rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
+    def list_all_artifacts(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista todos los artefactos del store, enlazados o no, en orden de creación.
+
+        ``limit`` conserva los N más recientes manteniendo la presentación cronológica ASC.
+        """
+        if limit is None:
+            rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM (
+                    SELECT *, rowid AS source_rowid FROM artifacts
+                    ORDER BY created_at DESC, rowid DESC LIMIT ?
+                ) ORDER BY created_at ASC, source_rowid ASC
+                """,
+                (limit,),
+            ).fetchall()
         return [row_to_artifact(row) for row in rows]
 
     def list_expired_referenced_artifacts(self, *, now_iso: str) -> list[dict[str, Any]]:
@@ -445,27 +459,43 @@ class EvidenceRepository:
             (evidence_package_id, artifact_id),
         )
 
-    def list_all_test_results(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista resultados de test (todos o de un proyecto) del más reciente al más antiguo."""
+    def list_all_test_results(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista resultados de test (todos o de un proyecto) del más reciente al más antiguo.
+
+        ``limit`` acota el resultado a los N más recientes (para snapshots como el overview).
+        """
+        suffix = " LIMIT ?" if limit is not None else ""
         if project_id:
             rows = self.connection.execute(
-                "SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC{suffix}",
+                (project_id, limit) if limit is not None else (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM test_results ORDER BY created_at DESC").fetchall()
+            rows = self.connection.execute(
+                f"SELECT * FROM test_results ORDER BY created_at DESC{suffix}",
+                (limit,) if limit is not None else (),
+            ).fetchall()
         return [row_to_test_result(row) for row in rows]
 
-    def list_evidence_packages(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista paquetes de evidencia (todos o de un proyecto) del más reciente al más antiguo."""
+    def list_evidence_packages(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista paquetes de evidencia (todos o de un proyecto) del más reciente al más antiguo.
+
+        ``limit`` acota el resultado a los N más recientes (para snapshots como el overview).
+        """
+        suffix = " LIMIT ?" if limit is not None else ""
         if project_id:
             rows = self.connection.execute(
-                "SELECT * FROM evidence_packages WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM evidence_packages WHERE project_id = ? ORDER BY created_at DESC{suffix}",
+                (project_id, limit) if limit is not None else (project_id,),
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM evidence_packages ORDER BY created_at DESC"
+                f"SELECT * FROM evidence_packages ORDER BY created_at DESC{suffix}",
+                (limit,) if limit is not None else (),
             ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
 

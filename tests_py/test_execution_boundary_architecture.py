@@ -199,6 +199,43 @@ def test_security_agent_scanner_policy_allows_only_local_scanner_executables() -
     assert "security_agent_scanner_executable_denied" in denied["categories"]
 
 
+def test_git_workspace_policy_allows_intent_to_add_and_stage_changes() -> None:
+    base_payload = {
+        "tool": "shell",
+        "command": "git add --intent-to-add -- .",
+        "commandArgv": ["git", "add", "--intent-to-add", "--", "."],
+        "operation": "git_workspace_command",
+        "permissionProfile": "dev_safe",
+        "agentId": "git_workspace_agent",
+        "workspaceId": "workspace-test",
+        "workspacePath": "H:\\workspace",
+        "path": "H:\\workspace",
+        "agentRunId": "agent-run-test",
+        "networkRequired": False,
+        "secretsRequired": False,
+    }
+    allowed_intent = evaluate_action({**base_payload, "gitOperation": "diff_capture_intent_to_add"})
+    allowed_stage = evaluate_action(
+        {
+            **base_payload,
+            "command": "git add -A",
+            "commandArgv": ["git", "add", "-A"],
+            "gitOperation": "stage_changes",
+        }
+    )
+    crossed_context = evaluate_action({**base_payload, "gitOperation": "stage_changes"})
+    missing_context = evaluate_action(base_payload)
+
+    assert allowed_intent["decision"] == "allow"
+    assert "git_intent_to_add" in allowed_intent["categories"]
+    assert allowed_stage["decision"] == "allow"
+    assert "git_add" in allowed_stage["categories"]
+    assert crossed_context["decision"] == "deny"
+    assert "git_workspace_add_shape_denied" in crossed_context["categories"]
+    assert missing_context["decision"] == "deny"
+    assert "git_workspace_add_shape_denied" in missing_context["categories"]
+
+
 def test_git_workspace_policy_allows_only_contextual_patch_apply() -> None:
     base_payload = {
         "tool": "shell",

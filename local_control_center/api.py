@@ -35,6 +35,7 @@ from .control_plane.runtime import ControlCenterRuntime
 from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
 from .git_workspace.api import create_router as create_git_workspace_router
+from .git_workspace.api import is_git_snapshot_request
 from .governance.api import create_router as create_governance_router
 from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
@@ -169,6 +170,25 @@ def create_app(
 
         correlation_id = resolve_correlation_id(request.headers)
         started_ms = monotonic_ms()
+        if is_git_snapshot_request(request.method, request.url.path):
+            # Los GET de snapshot git toman el lock global por su cuenta solo durante su fase
+            # sqlite (router git); retenerlo aquí bloquearía todo /api/ durante los 5-7s de
+            # subprocess git. Su telemetría sí se escribe serializada bajo el lock.
+            response = await call_next(request)
+            response.headers["X-Correlation-ID"] = correlation_id
+            await anyio.to_thread.run_sync(store_request_lock.acquire)
+            try:
+                record_http_request(
+                    platform.connection,
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=response.status_code,
+                    duration_ms=elapsed_ms(started_ms),
+                    correlation_id=correlation_id,
+                )
+            finally:
+                store_request_lock.release()
+            return response
         await anyio.to_thread.run_sync(store_request_lock.acquire)
         try:
             response = await call_next(request)
@@ -210,7 +230,11 @@ def create_app(
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
-    app.include_router(create_git_workspace_router(platform=platform, require_write=require_write))
+    app.include_router(
+        create_git_workspace_router(
+            platform=platform, require_write=require_write, snapshot_lock=store_request_lock
+        )
+    )
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
     app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
     app.include_router(create_team_activity_router(platform=platform, require_write=require_write))

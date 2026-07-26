@@ -159,6 +159,12 @@ def _complete_run_status(
             "blocked",
             "QA verdict requires real command execution evidence before completion.",
         )
+    if diff.get("intentToAddBlocked"):
+        return (
+            "evidence_ready",
+            "blocked",
+            "Diff evidence is incomplete: git intent-to-add was blocked, so untracked files are missing from the patch.",
+        )
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "DeveloperAgent produced no file changes."
     if not evidence_created:

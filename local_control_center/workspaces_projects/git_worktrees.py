@@ -979,7 +979,10 @@ def capture_git_diff(
 
     Marca archivos nuevos con ``--intent-to-add`` para que aparezcan en el diff. El patch se
     expone íntegro en ``patchFull`` y recortado en ``patch`` (con ``truncated``). Ante git/repo
-    no disponible devuelve un estado ``degraded_*`` en lugar de lanzar.
+    no disponible devuelve un estado ``degraded_*`` en lugar de lanzar. Si la política bloquea
+    el intent-to-add y el status contiene entradas ``??``, el patch no puede incluir esos
+    archivos: el estado degrada a ``captured_intent_to_add_blocked`` (fail-closed) en vez de
+    reportar ``captured`` con un patch incompleto.
     """
     if not git_available():
         return {"kind": "git_diff", "state": "degraded_git_unavailable", "statusRaw": "", "status": []}
@@ -1097,9 +1100,21 @@ def capture_git_diff(
             if item["path"] not in name_only:
                 name_only.append(item["path"])
         patch = patch_stdout
+        capture_state = "captured"
+        degraded_fields: dict[str, Any] = {}
+        intent_to_add_failed = add_result["status"] == "blocked" or add_result["returnCode"] != 0
+        if intent_to_add_failed and any(item["status"] == "??" for item in changed):
+            capture_state = "captured_intent_to_add_blocked"
+            degraded_fields = {
+                "intentToAddBlocked": True,
+                "intentToAddReason": add_result["reason"]
+                or add_result["stderr"].strip()[:2000]
+                or "git add --intent-to-add did not run, so untracked files are missing from the patch.",
+            }
         return {
             "kind": "git_diff",
-            "state": "captured",
+            "state": capture_state,
+            **degraded_fields,
             "branch": branch_result["stdout"].strip() if branch_result["returnCode"] == 0 else None,
             "headCommit": head_result["stdout"].strip() if head_result["returnCode"] == 0 else None,
             "statusRaw": status_result["stdout"],

@@ -518,6 +518,16 @@ export type WorkflowsListResponse = { "workflowRuns": Array<WorkflowRunRecord>; 
 export type WorkspaceAllocateRequest = { "agentId": string; "baseBranch"?: string; "devcontainer"?: DevcontainerMetadata | null; "isolationType"?: "directory" | "git_worktree"; "projectId": string; "reason"?: string; "taskId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type WorkspaceArchiveRequest = { "reason"?: string };
 export type WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord };
+export type WorkspaceCleanupApplyRequest = { "deleteBranches"?: boolean; "orphanWorktreePaths"?: Array<string>; "reason"?: string; "workspaceIds"?: Array<string> };
+export type WorkspaceCleanupApplyResponse = { "orphanResults": Array<WorkspaceCleanupOrphanResult>; "projectId": string; "prune": WorkspaceCleanupPruneResult; "results": Array<WorkspaceCleanupItemResult>; "summary": WorkspaceCleanupSummary };
+export type WorkspaceCleanupCandidate = { "branch"?: null | string; "isolationType": "directory" | "git_worktree"; "ownerAgentId": string; "path": string; "pathExists": boolean; "reason": string; "taskId": string; "threadId"?: null | string; "threadTitle"?: null | string; "updatedAt": string; "workspaceId": string };
+export type WorkspaceCleanupItemResult = { "branchCleanup"?: null | string; "reason"?: null | string; "status": string; "workspaceId": string; "worktreeCleanup"?: null | string };
+export type WorkspaceCleanupOrphan = { "branch"?: null | string; "directoryExists": boolean; "path": string; "prunable"?: boolean };
+export type WorkspaceCleanupOrphanResult = { "path": string; "reason"?: null | string; "status": string };
+export type WorkspaceCleanupPlanResponse = { "candidates": Array<WorkspaceCleanupCandidate>; "generatedAt": string; "projectId": string; "projectName": string; "repoOrphans": Array<WorkspaceCleanupOrphan>; "summary": WorkspaceCleanupPlanSummary };
+export type WorkspaceCleanupPlanSummary = { "activeWorkspaceCount": number; "candidateCount": number; "repoOrphanCount": number };
+export type WorkspaceCleanupPruneResult = { "status": string; "stderr"?: null | string };
+export type WorkspaceCleanupSummary = { "archivedCount": number; "branchesDeletedCount": number; "orphanRefusedCount": number; "orphanRemovedCount": number; "skippedCount": number };
 export type WorkspaceRecord = { "archivedAt"?: null | string; "createdAt": string; "id": string; "isolationType": "directory" | "git_worktree"; "metadata": JsonObject; "ownerAgentId": string; "path": string; "projectId": string; "status": string; "taskId": string; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type WorkspaceResponse = { "workspace": WorkspaceRecord };
 export type WorkspacesListResponse = { "workspaces": Array<WorkspaceRecord> };
@@ -689,6 +699,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback", "summary": "Apply Product Loop Feedback"},
 	{"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
 	{"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
+	{"method": "POST", "operationId": "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post", "path": "/api/v1/projects/{project_id}/workspaces/cleanup", "summary": "Workspace Cleanup Apply"},
+	{"method": "GET", "operationId": "workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get", "path": "/api/v1/projects/{project_id}/workspaces/cleanup/plan", "summary": "Workspace Cleanup Plan"},
 	{"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	{"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	{"method": "POST", "operationId": "create_account_from_catalog_api_v1_provider_accounts_from_catalog_post", "path": "/api/v1/provider-accounts/from-catalog", "summary": "Create Account From Catalog"},
@@ -1012,7 +1024,9 @@ export type OperationRequestBodies = {
 	"worker_pause_api_v1_workers_pause_post": unknown,
 	"worker_resume_api_v1_workers_resume_post": unknown,
 	"worker_run_once_api_v1_workers_run_once_post": unknown,
-	"worker_status_api_v1_workers_status_get": never
+	"worker_status_api_v1_workers_status_get": never,
+	"workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": WorkspaceCleanupApplyRequest,
+	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": never
 };
 
 export type OperationResponseBodies = {
@@ -1253,7 +1267,9 @@ export type OperationResponseBodies = {
 	"worker_pause_api_v1_workers_pause_post": WorkerStatusResponse,
 	"worker_resume_api_v1_workers_resume_post": WorkerStatusResponse,
 	"worker_run_once_api_v1_workers_run_once_post": WorkerRunOnceResponse,
-	"worker_status_api_v1_workers_status_get": WorkerStatusResponse
+	"worker_status_api_v1_workers_status_get": WorkerStatusResponse,
+	"workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": WorkspaceCleanupApplyResponse,
+	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": WorkspaceCleanupPlanResponse
 };
 
 export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
@@ -1423,6 +1439,8 @@ export const OPERATIONS_BY_ID = {
 	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": {"method": "POST", "operationId": "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback", "summary": "Apply Product Loop Feedback"},
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": {"method": "POST", "operationId": "transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post", "path": "/api/v1/projects/{project_id}/product-loop/{loop_id}/transition", "summary": "Transition Product Loop"},
 	"team_activity_api_v1_projects__project_id__team_activity_get": {"method": "GET", "operationId": "team_activity_api_v1_projects__project_id__team_activity_get", "path": "/api/v1/projects/{project_id}/team-activity", "summary": "Team Activity"},
+	"workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": {"method": "POST", "operationId": "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post", "path": "/api/v1/projects/{project_id}/workspaces/cleanup", "summary": "Workspace Cleanup Apply"},
+	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": {"method": "GET", "operationId": "workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get", "path": "/api/v1/projects/{project_id}/workspaces/cleanup/plan", "summary": "Workspace Cleanup Plan"},
 	"list_prompts_api_v1_prompts_get": {"method": "GET", "operationId": "list_prompts_api_v1_prompts_get", "path": "/api/v1/prompts", "summary": "List Prompts"},
 	"upsert_prompt_api_v1_prompts_post": {"method": "POST", "operationId": "upsert_prompt_api_v1_prompts_post", "path": "/api/v1/prompts", "summary": "Upsert Prompt"},
 	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": {"method": "POST", "operationId": "create_account_from_catalog_api_v1_provider_accounts_from_catalog_post", "path": "/api/v1/provider-accounts/from-catalog", "summary": "Create Account From Catalog"},

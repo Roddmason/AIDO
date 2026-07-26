@@ -177,7 +177,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		preload: importAgents,
 	},
 	workspaces: {
-		render: (ctx) => <WorkspacesPage overview={ctx.overview} />,
+		render: (ctx) => <WorkspacesPage overview={ctx.overview} mutate={ctx.mutate} />,
 		preload: importWorkspaces,
 	},
 	policy: {

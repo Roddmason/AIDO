@@ -23,11 +23,15 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.shared.event_bus import EventBus
 
 from .cleanup import capture_workspace_snapshot
+from .cleanup_policy import apply_cleanup, build_cleanup_plan
 from .git_worktrees import capture_git_diff
 from .models import (
     WorkspaceAllocateRequest,
     WorkspaceArchiveRequest,
     WorkspaceArchiveResponse,
+    WorkspaceCleanupApplyRequest,
+    WorkspaceCleanupApplyResponse,
+    WorkspaceCleanupPlanResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
 )
@@ -143,5 +147,38 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             payload={"evidencePackageId": evidence["id"], "qaVerdict": evidence["qaVerdict"]},
         )
         return WorkspaceArchiveResponse(workspace=workspace, evidencePackage=evidence)
+
+    @router.get(
+        "/api/v1/projects/{project_id}/workspaces/cleanup/plan",
+        response_model=WorkspaceCleanupPlanResponse,
+    )
+    async def workspace_cleanup_plan(project_id: str) -> dict[str, Any]:
+        """Plan read-only de limpieza: candidatos huérfanos + worktrees físicos sin fila activa."""
+        try:
+            return build_cleanup_plan(platform.connection, root=platform.cwd, project_id=project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/workspaces/cleanup",
+        response_model=WorkspaceCleanupApplyResponse,
+    )
+    async def workspace_cleanup_apply(
+        project_id: str, body: WorkspaceCleanupApplyRequest, request: Request
+    ) -> dict[str, Any]:
+        """Aplica la limpieza sobre la selección explícita confirmada por el usuario (write token)."""
+        require_write(request)
+        try:
+            return apply_cleanup(
+                platform.connection,
+                root=platform.cwd,
+                project_id=project_id,
+                workspace_ids=body.workspace_ids,
+                orphan_worktree_paths=body.orphan_worktree_paths,
+                delete_branches=body.delete_branches,
+                reason=body.reason,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     return router

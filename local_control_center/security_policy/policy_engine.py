@@ -632,11 +632,26 @@ def evaluate_git_workspace_command(
                 "reason": "Git worktree cleanup is allowlisted for archived isolated workspaces.",
                 "categories": [*categories, "git_workspace_command", "git_worktree_remove"],
             }
+        if git_operation == "worktree_prune":
+            if args != ["prune"]:
+                categories.append("git_workspace_worktree_prune_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git worktree prune must use argv [git, worktree, prune] with no extra flags.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git worktree prune only drops admin entries of missing worktree directories.",
+                "categories": [*categories, "git_workspace_command", "git_worktree_prune"],
+            }
         categories.append("git_workspace_worktree_mode_denied")
         return {
             "decision": "deny",
             "riskLevel": "high",
-            "reason": "Git worktree command is limited to list, add, or remove with explicit context.",
+            "reason": "Git worktree command is limited to list, add, remove, or prune with explicit context.",
             "categories": categories,
         }
     if subcommand == "apply":

@@ -15,7 +15,9 @@ from local_control_center.control_plane.overview import (
     OVERVIEW_AUDIT_EVENT_LIMIT,
     OVERVIEW_COST_USAGE_LIMIT,
     OVERVIEW_EVENT_LIMIT,
+    OVERVIEW_EVIDENCE_LIMIT,
     OVERVIEW_PERMISSION_DECISION_LIMIT,
+    OVERVIEW_TEST_RESULT_LIMIT,
 )
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -413,6 +415,66 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
     assert len(overview["agentToolCalls"]) == OVERVIEW_AGENT_TOOL_CALL_LIMIT
     assert len(overview["agentRuns"]) == OVERVIEW_AGENT_RUN_LIMIT
     assert len(overview["costUsage"]) == OVERVIEW_COST_USAGE_LIMIT
+
+
+def test_overview_compacts_embedded_blobs_and_caps_evidence_history(tmp_path: Path, monkeypatch) -> None:
+    # El overview viaja cada 5s: las señales escalares (status, ids) deben sobrevivir,
+    # pero los blobs embebidos (schedules, prompts, snapshots anidados) viven en sus
+    # endpoints de detalle, no en el poll.
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    project = store.create_project(
+        name="Overview Compact",
+        path=tmp_path / "overview-compact",
+        template_id="other",
+    )
+    heavy_blob = {"schedule": "x" * 50_000}
+    profile = store.agents.upsert_agent_profile(
+        {
+            "id": "overview_compact_agent",
+            "name": "Overview Compact Agent",
+            "role": "developer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    store.agents.create_agent_run(
+        project_id=project["id"],
+        agent_profile_id=profile["id"],
+        task_id="overview-compact-run",
+        input_payload={"agentProfileId": profile["id"], "teamSchedule": heavy_blob},
+        output_payload={"summary": "ok", "runtimeLog": "y" * 50_000},
+    )
+    for index in range(OVERVIEW_EVIDENCE_LIMIT + 5):
+        store.evidence.create_evidence_package(
+            project_id=project["id"],
+            workflow_run_id=None,
+            task_id=f"overview-compact-{index}",
+            test_results=[
+                {"command": "pnpm test", "status": "passed", "metadata": {"agentRun": heavy_blob}},
+                {"command": "pnpm lint", "status": "passed", "metadata": {"teamSchedule": heavy_blob}},
+            ],
+        )
+
+    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["evidencePackages"]) == OVERVIEW_EVIDENCE_LIMIT
+    assert len(overview["testResultRecords"]) == OVERVIEW_TEST_RESULT_LIMIT
+    run = overview["agentRuns"][0]
+    assert run["input"]["agentProfileId"] == profile["id"]
+    assert len(json.dumps(run["input"])) < 20_000
+    assert len(json.dumps(run["output"])) < 20_000
+    evidence_item = overview["evidencePackages"][0]
+    statuses = [entry.get("status") for entry in evidence_item["testResults"]]
+    assert statuses == ["passed", "passed"]
+    assert len(json.dumps(evidence_item)) < 40_000
+    test_record = overview["testResultRecords"][0]
+    assert test_record["status"] == "passed"
+    assert len(json.dumps(test_record)) < 20_000
 
 
 def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:

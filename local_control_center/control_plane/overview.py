@@ -36,6 +36,72 @@ OVERVIEW_AGENT_TOOL_CALL_LIMIT = 300
 OVERVIEW_AGENT_RUN_LIMIT = 200
 OVERVIEW_MODEL_CALL_LIMIT = 300
 OVERVIEW_COST_USAGE_LIMIT = 200
+OVERVIEW_EVIDENCE_LIMIT = 100
+OVERVIEW_TEST_RESULT_LIMIT = 150
+OVERVIEW_ARTIFACT_LIMIT = 300
+OVERVIEW_EMBEDDED_VALUE_BYTE_LIMIT = 8_192
+_COMPACT_DEPTH = 2
+_COMPACT_LIST_HEAD = 20
+
+
+def _exceeds_embedded_budget(value: Any, *, budget: int) -> bool:
+    """Responde si el valor serializado superaría el presupuesto, cortando el conteo temprano.
+
+    El poll solo necesita saber si un subárbol excede el límite, no su tamaño exacto:
+    el recorrido iterativo se detiene apenas la suma supera ``budget``, así los blobs
+    de MBs cuestan lo mismo que uno de 8KB.
+    """
+    total = 0
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            total += len(node) + 2
+        elif isinstance(node, dict):
+            total += 2
+            for key, item in node.items():
+                total += len(str(key)) + 4
+                stack.append(item)
+        elif isinstance(node, list):
+            total += 2 + 2 * len(node)
+            stack.extend(node)
+        else:
+            total += 8
+        if total > budget:
+            return True
+    return False
+
+
+def _compact_embedded_value(value: Any, *, depth: int) -> Any:
+    """Acota un valor embebido al presupuesto por campo del snapshot.
+
+    El overview viaja en cada poll: conserva escalares y contenedores chicos, recorta
+    strings largos y sustituye los subárboles que exceden
+    ``OVERVIEW_EMBEDDED_VALUE_BYTE_LIMIT`` por ``{"overviewTruncated": True}``.
+    El registro íntegro sigue disponible en el endpoint de detalle de su slice.
+    """
+    limit = OVERVIEW_EMBEDDED_VALUE_BYTE_LIMIT
+    if isinstance(value, str):
+        if len(value) <= limit:
+            return value
+        return f"{value[:limit]}…[overviewTruncated]"
+    if not isinstance(value, (dict, list)):
+        return value
+    if not _exceeds_embedded_budget(value, budget=limit):
+        return value
+    if depth <= 0:
+        return {"overviewTruncated": True}
+    if isinstance(value, dict):
+        return {key: _compact_embedded_value(item, depth=depth - 1) for key, item in value.items()}
+    head = [_compact_embedded_value(item, depth=depth - 1) for item in value[:_COMPACT_LIST_HEAD]]
+    if len(value) > _COMPACT_LIST_HEAD:
+        head.append({"overviewTruncated": True, "omittedItems": len(value) - _COMPACT_LIST_HEAD})
+    return head
+
+
+def _compact_overview_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Aplica el presupuesto de campo a cada valor de un registro del snapshot."""
+    return {key: _compact_embedded_value(value, depth=_COMPACT_DEPTH) for key, value in record.items()}
 
 
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
@@ -101,17 +167,26 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "policyRevisions": security_policy.list_policy_revisions(),
         "permissionGrants": security_policy.list_grants(),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
-        "evidencePackages": evidence.list_evidence_packages(),
-        "artifacts": evidence.list_all_artifacts(),
-        "testResultRecords": evidence.list_all_test_results(),
+        "evidencePackages": [
+            _compact_overview_record(record)
+            for record in evidence.list_evidence_packages(limit=OVERVIEW_EVIDENCE_LIMIT)
+        ],
+        "artifacts": evidence.list_all_artifacts(limit=OVERVIEW_ARTIFACT_LIMIT),
+        "testResultRecords": [
+            _compact_overview_record(record)
+            for record in evidence.list_all_test_results(limit=OVERVIEW_TEST_RESULT_LIMIT)
+        ],
         "agentProfiles": agents.list_agent_profiles(),
-        "agentRuns": agents.list_agent_runs(limit=OVERVIEW_AGENT_RUN_LIMIT),
+        "agentRuns": [
+            _compact_overview_record(record)
+            for record in agents.list_agent_runs(limit=OVERVIEW_AGENT_RUN_LIMIT)
+        ],
         "modelPolicies": agents.list_model_policies(),
         "modelProviders": agents.list_model_providers(),
         "agentToolCalls": agents.list_agent_tool_calls(limit=OVERVIEW_AGENT_TOOL_CALL_LIMIT),
         "modelCalls": agents.list_model_calls(limit=OVERVIEW_MODEL_CALL_LIMIT),
         "costUsage": agents.list_cost_usage(limit=OVERVIEW_COST_USAGE_LIMIT),
-        "runtimeWorkspaces": workspaces.list_workspaces(),
+        "runtimeWorkspaces": [_compact_overview_record(record) for record in workspaces.list_workspaces()],
         "skills": skills.list_skills(),
         "architectureDecisions": governance.list_architecture_decisions(),
         "riskRegister": governance.list_risks(),

@@ -4883,9 +4883,9 @@
       "en": "Maximum tokens",
       "es": "Fichas máximas"
     },
-    "ui.static.maximum.tokens.must.be.an.integer.between.512.and.2000000.3b4363a4": {
-      "en": "Maximum tokens must be an integer between 512 and 2000000.",
-      "es": "El máximo de tokens debe ser un número entero entre 512 y 2000000."
+    "ui.static.maximum.tokens.must.be.an.integer.between.0.and.2000000.35ef8fbb": {
+      "en": "Maximum tokens must be an integer between 0 and 2000000.",
+      "es": "El máximo de tokens debe ser un número entero entre 0 y 2000000."
     },
     "ui.static.memory.items.d8a2b209": {
       "en": "Memory items",

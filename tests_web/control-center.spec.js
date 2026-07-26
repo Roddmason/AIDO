@@ -1618,8 +1618,8 @@ test('every settings section opens and renders real content, never a placeholder
 	const nav = dialog.locator('nav[aria-label="Settings sections"]');
 	const items = nav.locator('.settings-nav-item');
 	const total = await items.count();
-	// General (11) + Project (10) sections; dropping one must fail here, not silently.
-	expect(total).toBe(21);
+	// General (11) + Project (11, Git included) sections; dropping one must fail here, not silently.
+	expect(total).toBe(22);
 
 	const content = dialog.locator('.settings-content');
 	for (let index = 0; index < total; index += 1) {

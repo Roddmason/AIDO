@@ -4863,9 +4863,9 @@
       "en": "Max tokens per run",
       "es": "Tokens máximos por ejecución"
     },
-    "ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39": {
-      "en": "Max tokens per run must be an integer between 0 and 200000.",
-      "es": "El número máximo de tokens por ejecución debe ser un número entero entre 0 y 200000."
+    "ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.2000000.5e4aa8b5": {
+      "en": "Max tokens per run must be an integer between 0 and 2000000.",
+      "es": "El número máximo de tokens por ejecución debe ser un número entero entre 0 y 2000000."
     },
     "ui.static.max.tokens.run.e7d1a6f7": {
       "en": "Max tokens/run",
@@ -4883,9 +4883,9 @@
       "en": "Maximum tokens",
       "es": "Fichas máximas"
     },
-    "ui.static.maximum.tokens.must.be.an.integer.between.512.and.200000.c965c1ae": {
-      "en": "Maximum tokens must be an integer between 512 and 200000.",
-      "es": "El máximo de tokens debe ser un número entero entre 512 y 200000."
+    "ui.static.maximum.tokens.must.be.an.integer.between.512.and.2000000.3b4363a4": {
+      "en": "Maximum tokens must be an integer between 512 and 2000000.",
+      "es": "El máximo de tokens debe ser un número entero entre 512 y 2000000."
     },
     "ui.static.memory.items.d8a2b209": {
       "en": "Memory items",

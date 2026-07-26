@@ -110,6 +110,7 @@ from .runtime_registry import RuntimeRegistry
 from .usage_ledger import UsageLedger
 
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+MAX_TOKENS_PER_RUN = 2_000_000
 SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
 PRESERVABLE_PROVIDER_FIELD_ALIASES = {
     "provider_family": "providerFamily",
@@ -307,8 +308,10 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
         raise HTTPException(status_code=422, detail="Role policy numeric fields are invalid.") from error
     if max_cost < 0:
         raise HTTPException(status_code=422, detail="maxCostPerTaskUsd must be zero or positive.")
-    if max_tokens < 0 or max_tokens > 200000:
-        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN:
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
     if approval_value is not None and approval_value < 0:
         raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
     return body

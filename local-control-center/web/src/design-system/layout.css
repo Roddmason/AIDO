@@ -1271,6 +1271,11 @@
 .content-frame {
 	width: 100%;
 	display: grid;
+	/* minmax(0, 1fr) instead of the implicit `auto` column: grid items floor auto tracks at
+	   their min-content width, so one unbreakable chip deep in a route (e.g. the git bar's
+	   last-commit label) widened the whole route past the viewport on 375px instead of
+	   triggering the label's own ellipsis. A zero-floored track always equals the frame. */
+	grid-template-columns: minmax(0, 1fr);
 	gap: var(--space-6);
 	padding: var(--space-6);
 }
@@ -2373,15 +2378,20 @@
 	flex: 1 1 auto;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
 	align-items: center;
 	gap: var(--space-5);
 	padding: var(--space-6);
 	overflow-y: auto;
 }
 
+/* Vertical centering happens via the heading's/form's auto block margins below instead of
+   justify-content: a center-justified scroll container pushes half of any overflow past its
+   start edge, where no scroll position can reach it — on 375px the git bar's post-fetch
+   growth clipped the send button under the stacked shell's sidebar, which then swallowed
+   its clicks. Auto margins collapse to zero on overflow, so the form top-aligns and stays
+   scrollable instead. */
 .thread-intake-heading {
-	margin: 0;
+	margin: auto 0 0;
 	max-width: 40rem;
 	text-align: center;
 	font-family: var(--font-display);
@@ -2395,6 +2405,7 @@
 .thread-intake-form {
 	width: 100%;
 	max-width: 110rem;
+	margin-bottom: auto;
 }
 
 /* ---- Similar-work suggestion (debounced lookup under the new-thread composer) ---- */
@@ -3113,6 +3124,14 @@
 	.shell-chat-context {
 		flex-direction: column;
 		align-items: stretch;
+	}
+
+	/* In the stacked (column) variant, `stretch` sizes each row to the flex LINE's cross
+	   size — which the widest chip's min-content poisons past the viewport — instead of the
+	   container's width. Clamping rows to the container restores the squeeze that lets
+	   .composer-git-item-label ellipsize (the row layout gets this for free). */
+	.shell-chat-context > * {
+		max-width: 100%;
 	}
 
 	.shell-chat-context-project {

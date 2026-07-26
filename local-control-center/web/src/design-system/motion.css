@@ -6,6 +6,9 @@
    display:contents is not an option). */
 .motion-page {
 	display: grid;
+	/* Mirrors .content-frame's zero-floored column: without it this extra grid re-imposes
+	   the min-content floor the frame just removed and the route still overflows 375px. */
+	grid-template-columns: minmax(0, 1fr);
 	gap: var(--space-6);
 }
 

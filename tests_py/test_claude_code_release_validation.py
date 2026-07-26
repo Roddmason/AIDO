@@ -16,6 +16,7 @@ from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import utc_now
 from local_control_center.workflows.issue_to_patch_runner import _execution_result_from_tool_call
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,9 +217,11 @@ def test_claude_code_is_not_executable_when_configured_command_does_not_match_ru
             }
         )
         account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
+        # utc_now() y no una fecha ancla: pasada la TTL de 300s la cuenta se re-sondea, el probe
+        # real degrada a "not logged in" y esa razón enmascara el command-mismatch bajo prueba.
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
         status = {
             provider["id"]: provider for provider in RuntimeStatusService(connection).list_provider_statuses()

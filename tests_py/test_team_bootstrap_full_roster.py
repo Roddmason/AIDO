@@ -75,4 +75,7 @@ def test_bootstrap_does_not_overwrite_an_operator_edited_policy(tmp_path: Path) 
 
         policy = store.get_role_policy("qa_engineer")
 
-    assert policy["preferred"] == ["operator-choice"]
+    # El invariante es que el bootstrap no pise la elección del operador; la FORMA de lectura es
+    # el contrato normalizado (una string legacy vuelve como {"model": "", "provider": ...}, ver
+    # test_role_policy_legacy_shape), no el JSON crudo que se persistió.
+    assert policy["preferred"] == [{"model": "", "provider": "operator-choice"}]

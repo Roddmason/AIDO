@@ -25,6 +25,25 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
+@pytest.fixture(autouse=True)
+def _controlled_ollama_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Daemon Ollama controlado que anuncia el modelo sembrado por `_seed_ai_resource`.
+
+    Desde el endurecimiento de la selección (d7f0fbc8) un candidato solo es elegible si su
+    provider está ejecutable de verdad; sin este mock el test dependía de un daemon vivo en
+    la máquina y el ProductOwner rechazaba el recurso sembrado con runtime_not_executable.
+    """
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        lambda *, base_url=None, credential_ref=None: {
+            "provider": "ollama",
+            "available": True,
+            "models": ["qwen2.5-coder"],
+            "reason": "Controlled Ollama daemon.",
+        },
+    )
+
+
 def _init_git_project(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     init = run_git(["init", "--initial-branch", "main"], cwd=path)
@@ -62,6 +81,10 @@ def _write_fake_gitleaks_clean(bin_dir: Path) -> None:
 
 
 def _seed_ai_resource(connection) -> None:
+    # La cuenta ollama se siembra deshabilitada; sin habilitarla el status nunca es executable
+    # y el gate de selección (correcto) descarta el recurso aunque el daemon controlado responda.
+    connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'ollama'")
+    connection.commit()
     AIResourceManager(connection).upsert_model_performance(
         {
             "providerId": "ollama",

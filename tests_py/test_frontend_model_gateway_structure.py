@@ -101,3 +101,13 @@ def test_model_gateway_cost_surfaces_preserve_unknown_instead_of_zero() -> None:
     assert "USD today" not in catalog_source
     assert "money(0)" not in provider_accounts_source
     assert "cost unavailable" in provider_accounts_source
+
+
+def test_role_policy_token_floor_matches_backend_validator() -> None:
+    # El backend acepta maxTokensPerRun=0 ("sin limite", model_router.py convierte 0 -> None);
+    # el formulario de role policies no debe imponer un piso mas alto que el validador real.
+    page_source = (FEATURE_DIR / "ModelGatewayPage.tsx").read_text(encoding="utf-8")
+
+    assert "tokenLimit < 0 || tokenLimit > 2000000" in page_source
+    assert "tokenLimit < 512" not in page_source
+    assert 'min="512"' not in page_source

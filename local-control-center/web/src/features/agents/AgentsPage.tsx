@@ -321,11 +321,11 @@ export function AgentsPage({
 		const approvalThreshold = requiresApprovalOverUsd.trim()
 			? Number(requiresApprovalOverUsd)
 			: null;
-		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 200000) {
+		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 2000000) {
 			setError(
 				t(
-					'ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39',
-					'Max tokens per run must be an integer between 0 and 200000.',
+					'ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.2000000.5e4aa8b5',
+					'Max tokens per run must be an integer between 0 and 2000000.',
 				),
 			);
 			return;
@@ -601,7 +601,7 @@ export function AgentsPage({
 							className="input"
 							type="number"
 							min="0"
-							max="200000"
+							max="2000000"
 							value={maxTokensPerRun}
 							onChange={(event) => setMaxTokensPerRun(event.target.value)}
 						/>

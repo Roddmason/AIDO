@@ -120,6 +120,38 @@ class BrokeredCommand:
 
 
 @dataclass(frozen=True)
+class PreparedStatusOperation:
+    """Snapshot de status preparado: contexto resuelto y agent run creado, listo para recolectar."""
+
+    ctx: GitWorkspaceContext
+    op: OperationContext
+
+
+def branches_view_from_status(status: dict[str, Any], *, project_id: str) -> dict[str, Any]:
+    """Reformatea un snapshot de ``status()`` al contrato del endpoint de branches.
+
+    ``status()`` ya ejecuta ``git branch --format`` y ``git branch --remotes`` bajo el broker,
+    de modo que esta vista reformatea ese resultado en vez de volver a lanzar los mismos
+    subprocesos: mismo contrato auditado (los comandos siguen brokered en el run de status)
+    sin comandos Git redundantes ni un segundo contexto de workspace.
+    """
+    completed = status["status"] == "completed"
+    return {
+        "status": status["status"],
+        "reason": ("Git branches collected through ToolBroker." if completed else status["reason"]),
+        "projectId": project_id,
+        "workspaceId": status.get("workspaceId") or "",
+        "currentBranch": status.get("currentBranch") or "",
+        "dirty": bool(status.get("dirty")),
+        "localBranches": list(status.get("localBranches") or []),
+        "remoteBranches": list(status.get("remoteBranches") or []),
+        "remotes": status.get("remotes") or [],
+        "toolCalls": list(status.get("toolCalls") or []),
+        "policyDecisionIds": list(status.get("policyDecisionIds") or []),
+    }
+
+
+@dataclass(frozen=True)
 class RemoteUrlMetadata:
     """URL de remote validada, lista para persistir sin secretos."""
 
@@ -661,23 +693,50 @@ class GitWorkspaceService:
             (utc_now(), status, reason, utc_now(), project_id, name),
         )
 
-    def status(self, project_id: str) -> dict[str, Any]:
-        """Devuelve snapshot Git completo del proyecto."""
+    def prepare_status(self, project_id: str) -> tuple[dict[str, Any] | None, PreparedStatusOperation | None]:
+        """Fase sqlite corta del snapshot: gates, workspace y agent run (correr bajo el lock global).
+
+        Devuelve ``(respuesta_terminal, None)`` cuando el snapshot no puede ejecutarse o
+        ``(None, operacion)`` lista para ``collect_status``. Es la única fase del snapshot con
+        una escritura con carrera lógica (el SELECT-then-INSERT de ``_ensure_project_workspace``),
+        por eso debe ejecutarse serializada con el resto de /api/.
+        """
         ctx = self._project_context(project_id)
         if not shutil.which("git"):
-            return self._base_unavailable_response(ctx=ctx, reason="Git executable was not found on PATH.")
+            return (
+                self._base_unavailable_response(ctx=ctx, reason="Git executable was not found on PATH."),
+                None,
+            )
         if not ctx.workspace_id:
-            return self._base_unavailable_response(
-                ctx=ctx, reason="Project path does not exist or is not a directory."
+            return (
+                self._base_unavailable_response(
+                    ctx=ctx, reason="Project path does not exist or is not a directory."
+                ),
+                None,
             )
         # The project must own its OWN repository: require a `.git` at the project root. Without this,
         # a project folder nested inside another repo (e.g. inside AIDO's checkout) would make every git
         # command walk UP to the parent repo and report the WRONG project's branches. `.git` is a dir for
         # a normal clone and a file for a worktree/submodule, so `.exists()` accepts both.
         if not (ctx.root / ".git").exists():
-            return self._base_unavailable_response(ctx=ctx, reason="Project path is not a Git repository.")
+            return (
+                self._base_unavailable_response(ctx=ctx, reason="Project path is not a Git repository."),
+                None,
+            )
         profile = self._git_profile()
         op = self._begin_operation(ctx=ctx, operation="status", profile=profile, payload={})
+        return None, PreparedStatusOperation(ctx=ctx, op=op)
+
+    def collect_status(self, prepared: PreparedStatusOperation) -> dict[str, Any]:
+        """Fase subprocess del snapshot: los 7 comandos git brokered y la persistencia de trazas.
+
+        Solo escribe filas con ids propios del run (decisiones de policy, tool calls, telemetría,
+        update del agent run), así que puede correr sin el lock global sobre una conexión sqlite
+        dedicada: WAL + busy_timeout serializan esas escrituras a nivel de base.
+        """
+        ctx = prepared.ctx
+        op = prepared.op
+        project_id = str(ctx.project["id"])
         traces: list[dict[str, Any]] = []
         try:
             porcelain_result = self._run_git(ctx=ctx, op=op, args=["status", "--porcelain=v1", "-uall"])
@@ -736,6 +795,13 @@ class GitWorkspaceService:
             output["toolCalls"] = traces
             self._finish_operation(op, status="failed", output=output)
             raise
+
+    def status(self, project_id: str) -> dict[str, Any]:
+        """Devuelve snapshot Git completo del proyecto."""
+        early, prepared = self.prepare_status(project_id)
+        if early is not None:
+            return early
+        return self.collect_status(prepared)
 
     def init_repository(self, project_id: str, *, default_branch: str = "dev") -> dict[str, Any]:
         """Inicializa Git en la carpeta del proyecto usando ToolBroker."""
@@ -995,26 +1061,10 @@ class GitWorkspaceService:
     def branches(self, project_id: str) -> dict[str, Any]:
         """Lista ramas locales/remotas y dirty state reutilizando el snapshot de ``status()``.
 
-        ``status()`` ya ejecuta ``git branch --format`` y ``git branch --remotes`` bajo el broker,
-        de modo que esta operacion reformatea ese resultado en vez de volver a lanzar los mismos
-        subprocesos: mismo contrato auditado (los comandos siguen brokered en el run de status)
-        sin comandos Git redundantes ni un segundo contexto de workspace.
+        El reformateo vive en ``branches_view_from_status`` (compartido con el router) para que
+        el endpoint desacoplado del lock global reuse exactamente la misma vista.
         """
-        status = self.status(project_id)
-        completed = status["status"] == "completed"
-        return {
-            "status": status["status"],
-            "reason": ("Git branches collected through ToolBroker." if completed else status["reason"]),
-            "projectId": project_id,
-            "workspaceId": status.get("workspaceId") or "",
-            "currentBranch": status.get("currentBranch") or "",
-            "dirty": bool(status.get("dirty")),
-            "localBranches": list(status.get("localBranches") or []),
-            "remoteBranches": list(status.get("remoteBranches") or []),
-            "remotes": status.get("remotes") or [],
-            "toolCalls": list(status.get("toolCalls") or []),
-            "policyDecisionIds": list(status.get("policyDecisionIds") or []),
-        }
+        return branches_view_from_status(self.status(project_id), project_id=project_id)
 
     def create_branch(self, project_id: str, *, name: str, base: str | None = None) -> dict[str, Any]:
         """Crea una rama local desde HEAD o desde una base explicita validada."""

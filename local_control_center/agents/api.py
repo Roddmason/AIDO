@@ -73,6 +73,7 @@ EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker", "runtime_ada
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
 TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+MAX_TOKENS_PER_RUN = 2_000_000
 VALID_AGENT_ROLES = {
     "analyst",
     "assessor",
@@ -188,8 +189,10 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
         approval_value = None if approval_threshold in {None, ""} else float(approval_threshold)
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail="Agent routing numeric fields are invalid.") from error
-    if max_tokens < 0 or max_tokens > 200000:
-        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN:
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
     if approval_value is not None and approval_value < 0:
         raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
     for field in ("allowRemote", "allowCli", "allowApi"):
@@ -244,8 +247,10 @@ def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]
             approval = float(approval)
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail="Project override numeric fields are invalid.") from error
-    if max_tokens is not None and (max_tokens < 0 or max_tokens > 200000):
-        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_tokens is not None and (max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN):
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
     if max_runtime is not None and (max_runtime < 0 or max_runtime > 86400):
         raise HTTPException(status_code=422, detail="maxRuntimeSeconds must be between 0 and 86400.")
     if max_cost is not None and max_cost < 0:

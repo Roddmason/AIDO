@@ -345,13 +345,10 @@ def evaluate_git_workspace_command(
             "categories": [*categories, "git_workspace_command", "git_merge_work_branch"],
         }
     if subcommand == "add":
-        if git_operation == "diff_capture_intent_to_add" and args == ["--intent-to-add", "--", "."]:
-            return {
-                "decision": "allow",
-                "riskLevel": "medium",
-                "reason": "Git intent-to-add is allowlisted only to capture untracked files in diff evidence.",
-                "categories": [*categories, "git_workspace_command", "git_intent_to_add"],
-            }
+        # Dos únicas formas legítimas, cada una atada a su contexto declarado. Mantenerlas en UNA
+        # sola rama es deliberado: el slice de commit ya tapó una vez la forma intent-to-add al
+        # agregar su chequeo encima (la rama de abajo retornaba siempre y la otra quedó muerta),
+        # y con ella murió el diff de archivos nuevos en toda captura de evidencia.
         if git_operation == "stage_changes" and args == ["-A"]:
             return {
                 "decision": "allow",
@@ -359,11 +356,21 @@ def evaluate_git_workspace_command(
                 "reason": "Git add -A is allowlisted to stage the isolated worktree before commit.",
                 "categories": [*categories, "git_workspace_command", "git_add"],
             }
+        if git_operation == "diff_capture_intent_to_add" and args == ["--intent-to-add", "--", "."]:
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git intent-to-add is allowlisted only to capture untracked files in diff evidence.",
+                "categories": [*categories, "git_workspace_command", "git_intent_to_add"],
+            }
         categories.append("git_workspace_add_shape_denied")
         return {
             "decision": "deny",
             "riskLevel": "high",
-            "reason": "Git add is limited to `add -A` (stage_changes) or `add --intent-to-add` (diff capture).",
+            "reason": (
+                "Git add is limited to `add -A` (stage_changes) or "
+                "`add --intent-to-add -- .` (diff_capture_intent_to_add)."
+            ),
             "categories": categories,
         }
     if subcommand == "commit":

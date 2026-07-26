@@ -12190,6 +12190,110 @@
     "app.runtime.health.review": {
       "en": "Review",
       "es": "Revisar"
+    },
+    "app.workspaceCleanup.title": {
+      "en": "Workspace cleanup",
+      "es": "Limpieza de workspaces"
+    },
+    "app.workspaceCleanup.summary": {
+      "en": "Terminated runtime worktrees pile up in the real repository and slow every git status down. Build the plan, review each orphan candidate and confirm before anything is deleted.",
+      "es": "Los worktrees runtime terminados se acumulan en el repositorio real y ralentizan cada git status. Genera el plan, revisa cada candidato huerfano y confirma antes de borrar nada."
+    },
+    "app.workspaceCleanup.analyze": {
+      "en": "Analyze candidates",
+      "es": "Analizar candidatos"
+    },
+    "app.workspaceCleanup.chip.active": {
+      "en": "active workspaces",
+      "es": "workspaces activos"
+    },
+    "app.workspaceCleanup.chip.candidates": {
+      "en": "cleanup candidates",
+      "es": "candidatos de limpieza"
+    },
+    "app.workspaceCleanup.chip.orphans": {
+      "en": "orphan worktrees",
+      "es": "worktrees huerfanos"
+    },
+    "app.workspaceCleanup.empty.title": {
+      "en": "Nothing to clean up",
+      "es": "Nada que limpiar"
+    },
+    "app.workspaceCleanup.empty.body": {
+      "en": "Every active workspace still belongs to a live thread, workflow or run.",
+      "es": "Cada workspace activo sigue perteneciendo a un hilo, workflow o ejecucion vigente."
+    },
+    "app.workspaceCleanup.orphans.title": {
+      "en": "Orphan worktrees without an active workspace row",
+      "es": "Worktrees huerfanos sin fila de workspace activa"
+    },
+    "app.workspaceCleanup.deleteBranches": {
+      "en": "Also delete the work branches (git branch -D)",
+      "es": "Eliminar tambien las ramas de trabajo (git branch -D)"
+    },
+    "app.workspaceCleanup.deleteBranches.help": {
+      "en": "Branches keep committed work recoverable; delete them only when those refs are no longer needed.",
+      "es": "Las ramas mantienen recuperable el trabajo commiteado; eliminalas solo cuando esos refs ya no se necesiten."
+    },
+    "app.workspaceCleanup.apply": {
+      "en": "Clean up selected",
+      "es": "Limpiar seleccionados"
+    },
+    "app.workspaceCleanup.confirm.title": {
+      "en": "Confirm workspace cleanup",
+      "es": "Confirmar limpieza de workspaces"
+    },
+    "app.workspaceCleanup.confirm.body": {
+      "en": "The selected workspaces will be archived and their worktrees removed from the project repository.",
+      "es": "Los workspaces seleccionados se archivaran y sus worktrees se eliminaran del repositorio del proyecto."
+    },
+    "app.workspaceCleanup.confirm.warning": {
+      "en": "Uncommitted changes inside the removed worktrees are discarded permanently. Committed work stays on its branch unless branch deletion is enabled.",
+      "es": "Los cambios sin commit dentro de los worktrees eliminados se descartan de forma permanente. El trabajo commiteado permanece en su rama salvo que actives el borrado de ramas."
+    },
+    "app.workspaceCleanup.confirm.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.workspaceCleanup.confirm.apply": {
+      "en": "Confirm cleanup",
+      "es": "Confirmar limpieza"
+    },
+    "app.workspaceCleanup.toast.applied": {
+      "en": "Workspace cleanup applied",
+      "es": "Limpieza de workspaces aplicada"
+    },
+    "app.workspaceCleanup.toast.failed": {
+      "en": "Workspace cleanup failed",
+      "es": "Fallo la limpieza de workspaces"
+    },
+    "app.workspaceCleanup.toast.cleaned": {
+      "en": "cleaned",
+      "es": "limpiados"
+    },
+    "app.workspaceCleanup.toast.skipped": {
+      "en": "skipped",
+      "es": "omitidos"
+    },
+    "app.workspaceCleanup.reason.threadArchived": {
+      "en": "Thread archived",
+      "es": "Hilo archivado"
+    },
+    "app.workspaceCleanup.reason.threadDeleted": {
+      "en": "Thread deleted",
+      "es": "Hilo eliminado"
+    },
+    "app.workspaceCleanup.reason.ownerMissing": {
+      "en": "Owner missing",
+      "es": "Propietario inexistente"
+    },
+    "app.workspaceCleanup.reason.workflowFinished": {
+      "en": "Workflow finished",
+      "es": "Workflow terminado"
+    },
+    "app.workspaceCleanup.reason.pathMissing": {
+      "en": "Path missing",
+      "es": "Ruta inexistente"
     }
   }
 }

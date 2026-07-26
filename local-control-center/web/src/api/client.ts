@@ -908,6 +908,42 @@ export function getProjectGitDiff(projectId: string, signal?: AbortSignal) {
 	);
 }
 
+export type WorkspaceCleanupPlanResponse =
+	OperationResponse<'workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get'>;
+export type WorkspaceCleanupCandidateRecord = WorkspaceCleanupPlanResponse['candidates'][number];
+export type WorkspaceCleanupOrphanRecord = WorkspaceCleanupPlanResponse['repoOrphans'][number];
+export type WorkspaceCleanupApplyRequest =
+	MutationBody<'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post'>;
+export type WorkspaceCleanupApplyResponse =
+	OperationResponse<'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post'>;
+
+/** Read-only cleanup plan: orphan workspace candidates plus stale repo worktrees; no token needed. */
+export function getWorkspaceCleanupPlan(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get',
+		WorkspaceCleanupPlanResponse
+	>('workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get', {
+		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Applies the user-confirmed cleanup selection (archives rows, removes worktrees, prunes); a write. */
+export function applyWorkspaceCleanup(
+	token: string,
+	projectId: string,
+	body: WorkspaceCleanupApplyRequest,
+) {
+	return requestGeneratedOperation<
+		'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post',
+		WorkspaceCleanupApplyResponse
+	>('workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post', {
+		token,
+		pathParams: { project_id: projectId },
+		body,
+	});
+}
+
 export function listProjects(signal?: AbortSignal) {
 	return requestGeneratedOperation('projects_api_v1_projects_get', { signal });
 }

@@ -1,9 +1,11 @@
 /**
  * Read-only inventory of task-owned runtime workspaces (the isolated working trees agents run in).
  * Surfaces ownership and isolation type so two agents are never seen sharing one mutable tree.
+ * Also hosts the confirmed cleanup panel that drains orphan worktrees from real repositories.
  * @author Rodrigo Mason
  */
 import type { Overview } from '../../api/types';
+import type { Mutate } from '../../app/routes';
 import {
 	StatusChip as Badge,
 	DataTable,
@@ -13,8 +15,9 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
+import { WorkspaceCleanupPanel } from './WorkspaceCleanupPanel';
 
-export function WorkspacesPage({ overview }: { overview: Overview }) {
+export function WorkspacesPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const { t } = useI18n();
 	return (
 		<>
@@ -71,6 +74,7 @@ export function WorkspacesPage({ overview }: { overview: Overview }) {
 					]}
 				/>
 			</Surface>
+			<WorkspaceCleanupPanel overview={overview} mutate={mutate} />
 		</>
 	);
 }

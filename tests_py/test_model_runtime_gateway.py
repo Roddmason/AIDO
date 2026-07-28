@@ -1664,6 +1664,45 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     }
 
 
+def test_route_preview_ranks_provider_wildcard_preferred_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El candidato comodín ``{provider, model: "*"}`` debe aportar rank en el scorer legacy.
+
+    Es la forma que escriben el wizard de providers y scripts/setup_omniroute.py para gateways
+    auto-ruteados: sin el alias "*" el preferred del rol no sube el roleFitScore del proveedor
+    (queda en el 0.45 de un proveedor no listado) y la asignación de roles resulta inerte.
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "ollama")
+
+    patched = client.patch(
+        "/api/v1/model-gateway/role-policies/analyst",
+        headers=headers,
+        json={"preferred": [{"provider": "ollama", "model": "*"}]},
+    )
+    assert patched.status_code == 200
+
+    response = client.post(
+        "/api/v1/model-gateway/route/preview",
+        headers=headers,
+        json={
+            "role": "analyst",
+            "taskType": "doc_summary",
+            "mode": "free_first",
+            "riskLevel": "low",
+            "contextTokensEstimate": 2000,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    candidate = next(item for item in response.json()["candidates"] if item["provider"] == "ollama")
+    assert candidate["scoreBreakdown"]["roleFitScore"] == 1.0
+
+
 def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

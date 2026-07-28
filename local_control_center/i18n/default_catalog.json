@@ -307,6 +307,10 @@
       "en": "Model for these roles",
       "es": "Modelo para estos roles"
     },
+    "app.providers.wizard.roleModelAuto": {
+      "en": "Automatic — the gateway picks the model per request",
+      "es": "Automático — el gateway elige el modelo en cada solicitud"
+    },
     "app.providers.wizard.rolesHelp": {
       "en": "Checked roles route to this provider; clearing a role stops routing it here.",
       "es": "Los roles marcados se enrutan a este proveedor; al desmarcarlos deja de enrutarse aquí."
@@ -318,6 +322,10 @@
     "app.providers.wizard.rolesEmpty": {
       "en": "No role policies are configured yet.",
       "es": "Todavía no hay políticas de rol configuradas."
+    },
+    "app.providers.wizard.rolesPartialFailure": {
+      "en": "Some role policies could not be updated:",
+      "es": "Algunas políticas de rol no se pudieron actualizar:"
     },
     "app.menu.bar": {
       "en": "Application menu",

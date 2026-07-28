@@ -20,6 +20,8 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .model_gateway_models import (
@@ -51,6 +53,31 @@ from .providers.nvidia_nim import NvidiaNimCapabilityError
 DEPLOYMENT_MODES_REQUIRING_BASE_URL = frozenset(
     {"self_hosted_development", "self_hosted_enterprise", "partner_paid"}
 )
+
+# Mismas capabilities que scripts/setup_omniroute.py: `chat` es obligatorio para ejecutar y las
+# filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así que sin
+# esta siembra una cuenta OmniRoute creada desde el wizard queda solo con el `chat` de la familia
+# openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
+OMNIROUTE_RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
+
+
+def _seed_omniroute_runtime_capabilities(connection: Any, *, runtime_id: str) -> None:
+    """Siembra las capabilities de runtime que los roles de build y review exigen al gateway."""
+    timestamp = utc_now()
+    metadata = json_dumps({"source": "provider_catalog_from_catalog"})
+    for capability in OMNIROUTE_RUNTIME_CAPABILITIES:
+        connection.execute(
+            """
+            INSERT INTO runtime_capabilities
+                (id, runtime, capability, enabled, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(runtime, capability) DO UPDATE SET
+                enabled = 1,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (f"{runtime_id}:{capability}", runtime_id, capability, metadata, timestamp, timestamp),
+        )
 
 
 class CatalogApiModel(BaseModel):
@@ -354,6 +381,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     provider = provider_store.upsert_provider_account(account_payload)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
+        if entry.id == "omniroute":
+            _seed_omniroute_runtime_capabilities(platform.connection, runtime_id=instance_id)
         audit(
             "provider_catalog.account.upserted",
             provider["providerId"],

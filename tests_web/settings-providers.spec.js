@@ -225,6 +225,120 @@ test('Add provider: the last step routes the chosen model to the selected roles'
 	}
 });
 
+test('Add provider: OmniRoute syncs its models on its own and starts with every role checked', async ({
+	page,
+}) => {
+	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
+	const policiesUrl = '/api/v1/model-gateway/role-policies';
+	const before = (await (await page.request.get(policiesUrl)).json()).rolePolicies;
+	// The seeded control plane routes no role to the gateway yet, so the all-checked default applies.
+	expect(
+		before.some((policy) => policy.preferred.some((c) => c.provider === 'omniroute')),
+	).toBe(false);
+
+	// The OmniRoute account write goes to the real control plane on purpose: the role-policy PATCH
+	// only accepts candidates whose provider account exists, exactly the ordering the wizard
+	// guarantees. Only the gateway-facing sync is stubbed — no OmniRoute process runs during the
+	// suite. The ollama leg below is fully stubbed instead: it exists to dirty the wizard's model
+	// state before the provider switch, never to persist anything.
+	await page.route('/api/v1/provider-accounts/from-catalog', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/provider-accounts/ollama/sync-models', (route) =>
+		route.fulfill({
+			json: {
+				models: [
+					{ id: 'ollama:llama31', providerId: 'ollama', model: 'llama3.1:8b', freeTier: true, enabled: true },
+				],
+			},
+		}),
+	);
+	await page.route('/api/v1/provider-accounts/omniroute/sync-models', (route) =>
+		route.fulfill({
+			json: {
+				models: [
+					{
+						id: 'omniroute:deepseek',
+						providerId: 'omniroute',
+						model: 'oc/deepseek-v4-flash-free',
+						freeTier: true,
+						enabled: true,
+					},
+					{
+						id: 'omniroute:pickle',
+						providerId: 'omniroute',
+						model: 'oc/big-pickle',
+						freeTier: true,
+						enabled: true,
+					},
+				],
+			},
+		}),
+	);
+
+	// First leg: sync another provider's models, then switch back — the stale catalog must not
+	// survive into the OmniRoute flow (it would suppress the auto-sync and mislabel the models).
+	const wizard = await openWizard(page);
+	await chooseProvider(wizard, 'ollama');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await wizard.getByRole('button', { name: 'Sync models' }).click();
+	await expect(wizard.getByText('1/1 selected')).toBeVisible();
+	await wizard.getByRole('button', { name: 'Back' }).click(); // models     -> credential
+	await wizard.getByRole('button', { name: 'Back' }).click(); // credential -> provider
+	await page.unroute('/api/v1/provider-accounts/from-catalog');
+
+	await chooseProvider(wizard, 'omniroute');
+	// Step 02: the local gateway endpoint comes prefilled and the bearer token stays optional.
+	await expect(wizard.getByRole('textbox', { name: 'Base URL' })).toHaveValue(
+		'http://localhost:20128/v1',
+	);
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	// Step 03 syncs without a click — the gateway owns model choice, the operator only curates —
+	// and shows OmniRoute's two models, not the one left over from the ollama leg.
+	await expect(wizard.getByText('2/2 selected')).toBeVisible();
+
+	await wizard.getByRole('button', { name: 'Next' }).click(); // models  -> validate
+	await wizard.getByRole('button', { name: 'Next' }).click(); // validate -> roles
+
+	// The wildcard leads the model select and every role starts checked.
+	await expect(wizard.getByLabel('Model for these roles')).toHaveValue('*');
+	for (const policy of before) {
+		await expect(wizard.getByRole('checkbox', { name: policy.role, exact: true })).toBeChecked();
+	}
+	await wizard.getByRole('button', { name: 'Save & finish' }).click();
+	await expect(wizard).toBeHidden();
+
+	// Every role now prefers the gateway wildcard first; other candidates ride along unchanged.
+	const after = (await (await page.request.get(policiesUrl)).json()).rolePolicies;
+	for (const policy of before) {
+		const updated = after.find((row) => row.role === policy.role);
+		expect(updated.preferred[0]).toEqual({ provider: 'omniroute', model: '*' });
+		expect(updated.preferred.slice(1)).toEqual(
+			policy.preferred.filter((c) => c.provider !== 'omniroute'),
+		);
+	}
+
+	// The account carries the remote-endpoint marker: the gateway listens on localhost but forwards
+	// prompts to external providers, so it must never pass as local_private work.
+	const accounts = (await (await page.request.get('/api/v1/model-gateway/providers')).json())
+		.providers;
+	expect(accounts.find((provider) => provider.providerId === 'omniroute').metadata.endpointKind).toBe(
+		'remote',
+	);
+
+	// Restore the seeded routing and disable the created account so later specs observe the
+	// untouched control plane (there is no DELETE endpoint for provider accounts).
+	for (const policy of before) {
+		await page.request.patch(`${policiesUrl}/${policy.id}`, {
+			headers: { 'X-Local-Control-Token': token },
+			data: { preferred: policy.preferred },
+		});
+	}
+	await page.request.patch('/api/v1/model-gateway/providers/omniroute', {
+		headers: { 'X-Local-Control-Token': token },
+		data: { enabled: false },
+	});
+});
+
 test('Configure provider: an account with a stored credential is edited without re-entering the key', async ({
 	page,
 }) => {

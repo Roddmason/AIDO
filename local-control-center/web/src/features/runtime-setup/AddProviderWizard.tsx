@@ -3,7 +3,10 @@
  * enter a required or optional credential reference (base URL only for custom/remote/Azure), sync
  * and pick models, validate, then assign roles — that writes through the real control plane: it
  * creates a vault credential (secret in, never out), enables the provider account, discovers its
- * models, runs a real test prompt and routes the chosen model to the selected roles. The API key is
+ * models, runs a real test prompt and routes the chosen model to the selected roles. Auto-routing
+ * gateways (OmniRoute) sync their catalog on entering the models step and route roles to the
+ * provider-level wildcard — the same `{provider, model: "*"}` candidate scripts/setup_omniroute.py
+ * pins — because the gateway, not the role, picks the concrete model per request. The API key is
  * held in an uncontrolled masked input — never in React state, never serialized into the DOM — read
  * once to create the credential, and cleared the moment the provider is saved.
  * @author Rodrigo Mason
@@ -56,6 +59,10 @@ const GEMINI_MODEL_PRIORITY = [
 	'gemini-2.5-flash-lite',
 	'gemini-2.5-pro',
 ] as const;
+
+/** Gateways that pick the concrete model per request; roles route to their wildcard candidate. */
+const AUTO_ROUTING_GATEWAYS = new Set(['omniroute']);
+const AUTO_ROUTING_MODEL = '*';
 
 export function orderedRoleModels(providerId: string, models: string[]): string[] {
 	if (providerId !== 'gemini') return models;
@@ -218,22 +225,40 @@ export function AddProviderWizard({
 		[discovered, selected, providerId],
 	);
 
-	/** Pre-check the roles this provider already serves, and re-seed whenever the provider changes. */
+	/** An auto-routing gateway leads with the wildcard: the gateway, not the role, picks the model. */
+	const roleModelOptions = useMemo(
+		() =>
+			AUTO_ROUTING_GATEWAYS.has(providerId)
+				? [AUTO_ROUTING_MODEL, ...selectedModels]
+				: selectedModels,
+		[providerId, selectedModels],
+	);
+
+	/**
+	 * Pre-check the roles this provider already serves, and re-seed whenever the provider changes.
+	 * An auto-routing gateway being CREATED starts with every role checked — it serves any role out
+	 * of the box, so the operator unchecks exceptions instead of ticking the full list by hand.
+	 * Reopening a configured gateway keeps the stored assignment instead, even when that assignment
+	 * is "no roles": deliberately unrouting the gateway is a configuration too.
+	 */
 	useEffect(() => {
-		setAssignedRoles(
-			new Set(
-				rolePolicies
-					.filter((policy) => rolePrefersProvider(policy, providerId))
-					.map((policy) => policy.role),
-			),
-		);
-	}, [rolePolicies, providerId]);
+		const preferring = rolePolicies.filter((policy) => rolePrefersProvider(policy, providerId));
+		if (
+			AUTO_ROUTING_GATEWAYS.has(providerId) &&
+			preferring.length === 0 &&
+			providerId !== initialProviderId
+		) {
+			setAssignedRoles(new Set(rolePolicies.map((policy) => policy.role)));
+			return;
+		}
+		setAssignedRoles(new Set(preferring.map((policy) => policy.role)));
+	}, [rolePolicies, providerId, initialProviderId]);
 
 	useEffect(() => {
 		setRoleModel((current) =>
-			current && selectedModels.includes(current) ? current : (selectedModels[0] ?? ''),
+			current && roleModelOptions.includes(current) ? current : (roleModelOptions[0] ?? ''),
 		);
-	}, [selectedModels]);
+	}, [roleModelOptions]);
 
 	if (!open || !entry) return null;
 
@@ -273,6 +298,12 @@ export function AddProviderWizard({
 		setBaseUrl(
 			(restoresInitialAccount ? initialBaseUrl : '') || (selectedEntry?.defaultBaseUrl ?? ''),
 		);
+		// Models synced for the previous provider must not survive the switch: a stale catalog would
+		// mislabel the models step, suppress the auto-routing sync and steer role routing to model
+		// ids the new provider does not serve.
+		setDiscovered([]);
+		setSelected(new Set());
+		setValidation(null);
 		setError('');
 	};
 
@@ -347,6 +378,14 @@ export function AddProviderWizard({
 							},
 						}
 					: {}),
+				...(entry.id === 'omniroute'
+					? {
+							// The gateway runs on localhost but forwards to external providers; without this
+							// marker AIDO classifies it as local and grants it local_private privacy it does
+							// not have. Same marker scripts/setup_omniroute.py pins.
+							metadata: { endpointKind: 'remote', gateway: 'omniroute' },
+						}
+					: {}),
 				...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {}),
 				...(ref ? { credentialRef: ref } : {}),
 			});
@@ -397,22 +436,38 @@ export function AddProviderWizard({
 	};
 
 	/**
-	 * Route the chosen model to every checked role and stop routing the unchecked ones. A failure here
-	 * must surface: the provider is already saved, but the operator's routing intent was not applied.
+	 * Route the chosen model to every checked role and stop routing the unchecked ones. A failure
+	 * must surface — the provider is already saved, but the operator's routing intent was not
+	 * applied — yet one role whose stored policy no longer validates (the PATCH revalidates the
+	 * merged record) must not leave the remaining roles half-applied, so failures are collected per
+	 * role and reported together; retrying only re-sends the roles still pending.
 	 */
 	const applyRoleAssignments = async () => {
 		if (!roleModel) return;
+		const failedRoles: string[] = [];
 		for (const policy of rolePolicies) {
 			const assign = assignedRoles.has(policy.role);
 			if (!rolePreferredNeedsUpdate(policy, entry.id, roleModel, assign)) continue;
-			await patchModelGatewayRolePolicy(token, policy.id, {
-				preferred: nextPreferredCandidates(
-					policy,
-					entry.id,
-					roleModel,
-					assign,
-				) as ModelGatewayRolePolicy['preferred'],
-			});
+			try {
+				await patchModelGatewayRolePolicy(token, policy.id, {
+					preferred: nextPreferredCandidates(
+						policy,
+						entry.id,
+						roleModel,
+						assign,
+					) as ModelGatewayRolePolicy['preferred'],
+				});
+			} catch {
+				failedRoles.push(policy.role);
+			}
+		}
+		if (failedRoles.length) {
+			throw new Error(
+				`${t(
+					'app.providers.wizard.rolesPartialFailure',
+					'Some role policies could not be updated:',
+				)} ${failedRoles.join(', ')}`,
+			);
 		}
 	};
 
@@ -442,7 +497,11 @@ export function AddProviderWizard({
 			return;
 		}
 		if (step === 'credential') {
-			if (await persistProvider()) setStep('models');
+			if (await persistProvider()) {
+				setStep('models');
+				// The gateway owns model choice: sync for the operator instead of asking them to.
+				if (AUTO_ROUTING_GATEWAYS.has(entry.id) && !discovered.length) void syncModels();
+			}
 			return;
 		}
 		if (step === 'models') {
@@ -779,7 +838,7 @@ export function AddProviderWizard({
 				) : null}
 
 				{step === 'roles' ? (
-					selectedModels.length && rolePolicies.length ? (
+					roleModelOptions.length && rolePolicies.length ? (
 						<>
 							<SelectField
 								label={t('app.providers.wizard.roleModel', 'Model for these roles')}
@@ -790,9 +849,14 @@ export function AddProviderWizard({
 									'Checked roles route to this provider; clearing a role stops routing it here.',
 								)}
 							>
-								{selectedModels.map((model) => (
+								{roleModelOptions.map((model) => (
 									<option key={model} value={model}>
-										{model}
+										{model === AUTO_ROUTING_MODEL
+											? t(
+													'app.providers.wizard.roleModelAuto',
+													'Automatic — the gateway picks the model per request',
+												)
+											: model}
 									</option>
 								))}
 							</SelectField>

@@ -197,6 +197,37 @@ def test_from_catalog_creates_deepseek_and_kimi_without_manual_base_url(
     assert "test-catalog-kimi-token" not in kimi.text
 
 
+def test_from_catalog_omniroute_seeds_build_and_review_runtime_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La cuenta OmniRoute creada desde el wizard debe quedar elegible para roles de build y review.
+
+    Las filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así
+    que sin la siembra la cuenta queda solo con el ``chat`` de openai_compatible y el gate de
+    capabilities la descarta para code/review (mismo criterio que scripts/setup_omniroute.py).
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    response = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={"providerId": "omniroute", "baseUrl": "http://localhost:20128/v1", "enabled": True},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["provider"]["baseUrl"] == "http://localhost:20128/v1"
+    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        rows = connection.execute(
+            "SELECT capability, enabled FROM runtime_capabilities WHERE runtime = 'omniroute'"
+        ).fetchall()
+    assert {(str(row["capability"]), int(row["enabled"])) for row in rows} == {
+        ("chat", 1),
+        ("code_edit", 1),
+        ("code_review", 1),
+    }
+
+
 def test_from_catalog_requires_base_url_for_remote_ollama_and_custom_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

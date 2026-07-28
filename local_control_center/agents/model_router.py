@@ -723,6 +723,9 @@ class ModelRouter:
             capability_score += 0.15
         rank = min(
             preferred_rank.get((provider["providerId"], model["model"]), 999),
+            # "*" es el candidato comodín que el wizard y scripts/setup_omniroute.py escriben para
+            # gateways auto-ruteados: sin este alias el preferred del rol no aporta rank alguno.
+            preferred_rank.get((provider["providerId"], "*"), 999),
             preferred_rank.get((provider["providerId"], "auto"), 999),
             preferred_rank.get((provider["providerId"], "auto_best_available"), 999),
             preferred_rank.get((provider["providerId"], "gpt-5.5"), 999),

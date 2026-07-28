@@ -39,6 +39,9 @@ class ProviderCatalogEntry:
     terms_mode: TermsMode = "unspecified"
     pricing_mode: PricingMode = "unknown"
     aliases: tuple[str, ...] = ()
+    #: Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del
+    #: operador): el sync los omite y apaga los que un sync anterior dejó habilitados.
+    excluded_model_prefixes: tuple[str, ...] = ()
 
     def public_dict(self) -> dict[str, Any]:
         """Serialize with the camelCase contract used by HTTP clients."""
@@ -255,6 +258,10 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         # self_hosted: el gateway corre en el equipo del operador y su auth es la del host, así que
         # el bearer token es opcional (mismo criterio que LiteLLM Proxy y Ollama).
         deployment_mode="self_hosted_development",
+        # Regla del proyecto (ver scripts/omniroute_models.json): estos prefijos reexponen
+        # servicios comerciales fuera de su cliente oficial, y los alias auto/* enrutan a
+        # cualquier provider interno sin trazabilidad de la fuente. El sync no debe habilitarlos.
+        excluded_model_prefixes=("aug/", "tllm/", "ddgw/", "pepper/", "mcode/", "veo-free/", "auto/"),
     ),
     ProviderCatalogEntry(
         id="nvidia_nim",

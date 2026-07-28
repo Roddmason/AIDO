@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.model_gateway import provider_instance
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.azure_openai import AzureOpenAIProvider
 from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
@@ -298,6 +299,66 @@ def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_
     assert synced.status_code == 200
     assert "test-catalog-sync-token" not in synced.text
     assert [item["model"] for item in synced.json()["models"]] == ["remote-model"]
+
+
+def test_omniroute_sync_applies_catalog_exclusion_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El sync de OmniRoute omite los prefijos excluidos y apaga el residuo habilitado.
+
+    La exclusión es regla del proyecto (scripts/omniroute_models.json): esos prefijos reexponen
+    servicios comerciales fuera de su cliente oficial y auto/* no deja trazabilidad de la fuente,
+    así que el sync no debe reactivarlos aunque el gateway los anuncie.
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    class OmniRouteAnnouncingHandler(RecordingHandler):
+        """Anuncia modelos permitidos y excluidos como lo haría un OmniRoute real."""
+
+        seen: list[dict[str, object]] = []
+
+        def do_GET(self) -> None:
+            self._record("GET")
+            if self.path.endswith("/models"):
+                self._send_json(
+                    {
+                        "data": [
+                            {"id": "oc/deepseek-v4-flash-free"},
+                            {"id": "aug/claude-sonnet-4.6"},
+                            {"id": "auto/free"},
+                            {"id": "tllm/kimi-k2"},
+                        ]
+                    }
+                )
+                return
+            self.send_error(404)
+
+    server = HTTPServer(("127.0.0.1", 0), OmniRouteAnnouncingHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+            RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+            # Residuo de un sync anterior sin la regla: debe quedar apagado tras resincronizar.
+            ProviderAccountStore(connection).upsert_model(
+                {"providerId": "omniroute", "model": "aug/gpt-5.5", "enabled": True}
+            )
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={"providerId": "omniroute", "baseUrl": base_url, "enabled": True},
+        )
+        synced = client.post("/api/v1/provider-accounts/omniroute/sync-models", headers=headers)
+    finally:
+        server.shutdown()
+
+    assert created.status_code == 201
+    assert synced.status_code == 200
+    assert [item["model"] for item in synced.json()["models"]] == ["oc/deepseek-v4-flash-free"]
+    catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+    omniroute_rows = {row["model"]: row["enabled"] for row in catalog if row["providerId"] == "omniroute"}
+    assert omniroute_rows == {"oc/deepseek-v4-flash-free": True, "aug/gpt-5.5": False}
 
 
 def test_setup_catalog_seeds_new_providers_with_verified_base_urls(tmp_path: Path) -> None:

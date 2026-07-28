@@ -423,8 +423,17 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 detail=redact_secrets(f"Model sync failed for {provider_id}: {error}"),
             ) from error
         api_family = str(account.get("apiFamily") or "")
+        excluded_prefixes = catalog_entry.excluded_model_prefixes
+
+        def excluded_by_catalog_rule(model_name: str) -> bool:
+            return any(model_name.startswith(prefix) for prefix in excluded_prefixes)
+
+        excluded_count = 0
         stored: list[dict[str, Any]] = []
         for item in discovered:
+            if excluded_by_catalog_rule(str(item.get("model") or "")):
+                excluded_count += 1
+                continue
             enriched = enrich_catalog_model(catalog_entry, item)
             stored.append(
                 providers().upsert_model(
@@ -439,10 +448,21 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     }
                 )
             )
+        # La exclusión es regla de proyecto, no preferencia: el sync también apaga las filas que
+        # un sync anterior (sin la regla) dejó habilitadas, para que resincronizar sea curativo.
+        if excluded_prefixes:
+            for row in providers().list_models(provider_id):
+                if row.get("enabled") and excluded_by_catalog_rule(str(row.get("model") or "")):
+                    providers().upsert_model({**row, "enabled": False})
         audit(
             "provider_catalog.account.models_synced",
             provider_id,
-            {"providerId": provider_id, "catalogId": catalog_entry.id, "count": len(stored)},
+            {
+                "providerId": provider_id,
+                "catalogId": catalog_entry.id,
+                "count": len(stored),
+                "excludedByCatalogRule": excluded_count,
+            },
         )
         return {"models": stored}
 

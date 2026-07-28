@@ -327,6 +327,10 @@
       "en": "Some role policies could not be updated:",
       "es": "Algunas políticas de rol no se pudieron actualizar:"
     },
+    "app.providers.wizard.reenableRemote": {
+      "en": "Remote APIs are switched off platform-wide; re-enable them so the gateway can sync and run.",
+      "es": "Las APIs remotas están apagadas a nivel plataforma; vuelve a habilitarlas para que el gateway pueda sincronizar y ejecutar."
+    },
     "app.menu.bar": {
       "en": "Application menu",
       "es": "Menú de la aplicación"

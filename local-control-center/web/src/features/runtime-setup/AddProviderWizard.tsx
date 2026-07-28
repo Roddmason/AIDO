@@ -20,9 +20,11 @@ import {
 	createProviderAccountFromCatalog,
 	getCredentials,
 	getModelGatewayRolePolicies,
+	getSettings,
 	healthCheckModelGatewayProvider,
 	patchModelGatewayModel,
 	patchModelGatewayRolePolicy,
+	putSetting,
 	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
@@ -158,6 +160,13 @@ export function AddProviderWizard({
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [assignedRoles, setAssignedRoles] = useState<Set<string>>(new Set());
 	const [roleModel, setRoleModel] = useState('');
+	/**
+	 * Whether the platform-wide remote-APIs kill switch is off. Turning it back on silently would
+	 * override a deliberate operator decision (the settings panel even confirms before disabling
+	 * it), so the wizard only offers to re-enable it: visible, pre-checked, and refusable.
+	 */
+	const [remoteRuntimeDisabled, setRemoteRuntimeDisabled] = useState(false);
+	const [reenableRemote, setReenableRemote] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
 
@@ -190,12 +199,19 @@ export function AddProviderWizard({
 		setSelected(new Set());
 		setValidation(null);
 		setError('');
+		setReenableRemote(true);
 		void getCredentials()
 			.then((payload) => setBackends(payload.backends))
 			.catch(() => setBackends([]));
 		void getModelGatewayRolePolicies()
 			.then((payload) => setRolePolicies(payload.rolePolicies))
 			.catch(() => setRolePolicies([]));
+		void getSettings('')
+			.then((payload) => {
+				const flag = payload.general.find((item) => item.key === 'runtime.remote.enabled');
+				setRemoteRuntimeDisabled(flag?.value === false);
+			})
+			.catch(() => setRemoteRuntimeDisabled(false));
 	}, [
 		open,
 		initialProviderId,
@@ -366,6 +382,12 @@ export function AddProviderWizard({
 					value: apiKey,
 				});
 				ref = created.credential.credentialRef;
+			}
+			// Applied before the models step: with the kill switch off, the model sync itself is
+			// vetoed (403), so consenting at save time would be too late for the rest of the wizard.
+			if (AUTO_ROUTING_GATEWAYS.has(entry.id) && remoteRuntimeDisabled && reenableRemote) {
+				await putSetting('runtime.remote.enabled', { scope: 'general', value: true }, token);
+				setRemoteRuntimeDisabled(false);
 			}
 			await createProviderAccountFromCatalog(token, {
 				providerId: entry.id,
@@ -767,6 +789,16 @@ export function AddProviderWizard({
 									'This provider can use a bearer token, but it is not required.',
 								)}
 							</p>
+						) : null}
+						{AUTO_ROUTING_GATEWAYS.has(providerId) && remoteRuntimeDisabled ? (
+							<Checkbox
+								label={t(
+									'app.providers.wizard.reenableRemote',
+									'Remote APIs are switched off platform-wide; re-enable them so the gateway can sync and run.',
+								)}
+								checked={reenableRemote}
+								onChange={() => setReenableRemote((current) => !current)}
+							/>
 						) : null}
 					</>
 				) : null}

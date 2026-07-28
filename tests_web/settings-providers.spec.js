@@ -236,6 +236,14 @@ test('Add provider: OmniRoute syncs its models on its own and starts with every 
 		before.some((policy) => policy.preferred.some((c) => c.provider === 'omniroute')),
 	).toBe(false);
 
+	// Switch the platform-wide remote kill switch off: the wizard must surface it and only turn it
+	// back on with the operator's explicit, pre-checked consent — never silently.
+	const disableRemote = await page.request.put('/api/v1/settings/runtime.remote.enabled', {
+		headers: { 'X-Local-Control-Token': token },
+		data: { scope: 'general', value: false },
+	});
+	expect(disableRemote.ok()).toBeTruthy();
+
 	// The OmniRoute account write goes to the real control plane on purpose: the role-policy PATCH
 	// only accepts candidates whose provider account exists, exactly the ordering the wizard
 	// guarantees. Only the gateway-facing sync is stubbed — no OmniRoute process runs during the
@@ -290,6 +298,11 @@ test('Add provider: OmniRoute syncs its models on its own and starts with every 
 	await expect(wizard.getByRole('textbox', { name: 'Base URL' })).toHaveValue(
 		'http://localhost:20128/v1',
 	);
+	// The kill switch is off, so the credential step offers — pre-checked — to re-enable it before
+	// the models step, where a vetoed sync would otherwise fail.
+	await expect(
+		wizard.getByRole('checkbox', { name: /Remote APIs are switched off/ }),
+	).toBeChecked();
 	await wizard.getByRole('button', { name: 'Next' }).click();
 
 	// Step 03 syncs without a click — the gateway owns model choice, the operator only curates —
@@ -324,6 +337,10 @@ test('Add provider: OmniRoute syncs its models on its own and starts with every 
 	expect(accounts.find((provider) => provider.providerId === 'omniroute').metadata.endpointKind).toBe(
 		'remote',
 	);
+
+	// The consented re-enable was applied: the platform-wide remote flag is back on.
+	const settings = (await (await page.request.get('/api/v1/settings')).json()).general;
+	expect(settings.find((item) => item.key === 'runtime.remote.enabled').value).toBe(true);
 
 	// Restore the seeded routing and disable the created account so later specs observe the
 	// untouched control plane (there is no DELETE endpoint for provider accounts).

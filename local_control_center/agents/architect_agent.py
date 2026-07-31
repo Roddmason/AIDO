@@ -20,7 +20,7 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.governance.repository import GovernanceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .architect_agent_contract import (
@@ -471,12 +471,12 @@ class ArchitectAgentRunner:
                     "Review the supplied diff against the architecture docs, test results, and risk register. "
                     "Do not invent evidence refs. Every finding, risk, required change, and recommendation must cite "
                     "allowedEvidenceRefs that are present in the input. Never approve by assumption. "
-                    "Use this JSON schema: " + json_dumps(output_schema)
+                    "Use this JSON schema: " + prompt_json_dumps(output_schema)
                 ),
             },
             {
                 "role": "user",
-                "content": json_dumps(redact_secrets(review_context)),
+                "content": prompt_json_dumps(redact_secrets(review_context)),
             },
         ]
 

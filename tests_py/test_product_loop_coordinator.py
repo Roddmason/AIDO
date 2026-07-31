@@ -21,9 +21,12 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import (
     DEFAULT_AUTO_REWORK_ROUNDS,
+    INSTRUCTION_PROMPT_LIMIT_CHARS,
+    REWORK_FEEDBACK_COMMAND_LIMIT,
     ProductLoopCoordinator,
     ProductLoopStopConditionError,
     ProductLoopTransitionError,
+    _bounded_instruction,
 )
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
@@ -8489,3 +8492,24 @@ def test_resource_role_policy_exposes_ordered_preferred_resources(tmp_path: Path
         "nim_gateway",
         "openai_gateway",
     ]
+
+
+def test_rework_feedback_caps_detailed_commands_with_omitted_count() -> None:
+    results = [
+        {"label": f"cmd-{index}", "status": "failed", "exitCode": 1, "stderr": "boom"}
+        for index in range(REWORK_FEEDBACK_COMMAND_LIMIT + 5)
+    ]
+    feedback = ProductLoopCoordinator._qa_rework_feedback(results)
+    assert feedback.count("stderr (tail)") == REWORK_FEEDBACK_COMMAND_LIMIT
+    assert "+5 more failing commands" in feedback
+
+
+def test_bounded_instruction_cuts_the_middle_and_keeps_head_and_tail() -> None:
+    text = "HEAD-" + ("x" * (INSTRUCTION_PROMPT_LIMIT_CHARS * 2)) + "-TAIL"
+    bounded = _bounded_instruction(text)
+    assert len(bounded) <= INSTRUCTION_PROMPT_LIMIT_CHARS + 50
+    assert bounded.startswith("HEAD-")
+    assert bounded.endswith("-TAIL")
+    assert "[... instruction truncated ...]" in bounded
+    short = "just do it"
+    assert _bounded_instruction(short) is short

@@ -250,6 +250,14 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.quality.gateCommands",
     ),
     SettingDescriptor(
+        key="project.quality.devopsChecksEnabled",
+        section="quality",
+        project_section="quality",
+        type="boolean",
+        default=False,
+        label_key="app.settings.quality.devopsChecksEnabled",
+    ),
+    SettingDescriptor(
         key="project.git.baseBranch",
         section="git",
         project_section="git",

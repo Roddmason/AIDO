@@ -11687,6 +11687,18 @@
       "en": "Add commands like tests, lint or build that must pass before evidence is accepted.",
       "es": "Agrega comandos como pruebas, lint o build que deban pasar antes de aceptar evidencia."
     },
+    "app.settings.quality.devopsGroup": {
+      "en": "DevOps checks",
+      "es": "Chequeos DevOps"
+    },
+    "app.settings.quality.devopsHint": {
+      "en": "Runs the DevOps agent over the gate commands after security review; advisory, never blocking.",
+      "es": "Ejecuta el agente DevOps sobre los comandos de puerta tras la revision de seguridad; consultivo, nunca bloqueante."
+    },
+    "app.settings.quality.devopsChecksEnabled": {
+      "en": "DevOps checks enabled",
+      "es": "Chequeos DevOps habilitados"
+    },
     "app.settings.team.reviewer": {
       "en": "Reviewer",
       "es": "Revisor"

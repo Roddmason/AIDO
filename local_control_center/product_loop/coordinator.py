@@ -127,6 +127,10 @@ CANCELLED_STATE = "cancelled"
 BLOCKED_STATE = "blocked"
 REWORK_STATE = "reworking"
 DEFAULT_AUTO_REWORK_ROUNDS = 2
+# Tope de comandos QA fallidos detallados en el feedback de rework; el resto se reporta como conteo.
+REWORK_FEEDBACK_COMMAND_LIMIT = 8
+# Tope del texto de instrucción del developer (se reenvía por ronda de rework y por failover).
+INSTRUCTION_PROMPT_LIMIT_CHARS = 20_000
 AWAITING_FEEDBACK_STATE = "awaiting_feedback"
 TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
 # Landing states of an abort itself: checking for cancellation again here would recurse forever.
@@ -260,6 +264,18 @@ TECHNICAL_DECISION_CATEGORIES = {
     "security",
     "technical",
 }
+
+
+def _bounded_instruction(text: str, limit: int = INSTRUCTION_PROMPT_LIMIT_CHARS) -> str:
+    """Acota la instrucción del developer cortando el MEDIO del texto con marcador.
+
+    El inicio (qué se pide) y el final (últimos matices del operador) son las partes con más señal;
+    un mensaje desbordado se re-paga por cada ronda de rework y por cada failover de runtime.
+    """
+    if len(text) <= limit:
+        return text
+    half = (limit - 40) // 2
+    return f"{text[:half]}\n[... instruction truncated ...]\n{text[-half:]}"
 
 
 class ProductLoopTransitionError(ValueError):
@@ -2172,21 +2188,27 @@ class ProductLoopCoordinator:
     def _qa_rework_feedback(qa_results: list[Any]) -> str:
         """Resume los comandos QA no aprobados en texto compacto y redactado para el rework.
 
-        Acota stderr a la cola (donde vive el error real) para no inflar el prompt del developer.
+        Acota stderr a la cola (donde vive el error real) y el número de comandos detallados a
+        ``REWORK_FEEDBACK_COMMAND_LIMIT``: este texto se reenvía en cada ronda de rework y por cada
+        failover de runtime, así que una suite con decenas de rojos inflaba el prompt del developer.
         """
+        failing = [
+            result
+            for result in qa_results
+            if isinstance(result, dict) and str(result.get("status") or "").strip().lower() != "passed"
+        ]
         lines: list[str] = []
-        for result in qa_results:
-            if not isinstance(result, dict):
-                continue
+        for result in failing[:REWORK_FEEDBACK_COMMAND_LIMIT]:
             status = str(result.get("status") or "").strip().lower()
-            if status == "passed":
-                continue
             label = str(result.get("label") or result.get("command") or "qa")
             line = f"- {label}: status={status}, exitCode={result.get('exitCode')}"
             stderr_tail = str(result.get("stderr") or "").strip()[-400:]
             if stderr_tail:
                 line += f"\n  stderr (tail): {stderr_tail}"
             lines.append(line)
+        omitted = len(failing) - REWORK_FEEDBACK_COMMAND_LIMIT
+        if omitted > 0:
+            lines.append(f"- (+{omitted} more failing commands; run the QA suite locally for the full list)")
         summary = "\n".join(lines) or "QA failed without per-command detail."
         return str(redact_secrets(summary))
 
@@ -6327,10 +6349,10 @@ class ProductLoopCoordinator:
         team_assignments = run.team_assignments
         product_owner_output_record = run.product_owner_output_record
         backlog_artifact = run.backlog_artifact
-        instruction = message_text
+        instruction = _bounded_instruction(message_text)
         if run.rework_feedback:
             instruction = (
-                f"{message_text}\n\n[QA rework feedback - round {run.rework_round}]\n{run.rework_feedback}"
+                f"{instruction}\n\n[QA rework feedback - round {run.rework_round}]\n{run.rework_feedback}"
             )
         developer_payload = {
             "projectId": project_id,

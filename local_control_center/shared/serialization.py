@@ -19,6 +19,21 @@ def json_dumps(value: Any) -> str:
     return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
 
 
+def prompt_json_dumps(value: Any) -> str:
+    """Serializa JSON compacto para bloques de prompt: mismo determinismo, sin espacios de relleno.
+
+    Solo para texto que viaja a un modelo (ahorra ~8% del bloque). Las columnas de BD, hashes y
+    claves de dedup siguen usando ``json_dumps``: cambiar su formato rompería la deduplicación
+    contra filas ya persistidas.
+    """
+    return json.dumps(
+        value if value is not None else {},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def json_loads(value: str | None, fallback: Any = None) -> Any:
     """Parsea JSON devolviendo ``fallback`` (o ``{}``) ante texto vacío, ``None`` o inválido."""
     if value in (None, ""):

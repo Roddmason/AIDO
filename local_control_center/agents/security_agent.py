@@ -32,7 +32,7 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .repository import AgentsRepository
@@ -1024,7 +1024,7 @@ class SecurityAgentRunner:
         payload, aquí solo entran al prompt.
         """
         story_specs = str(payload.get("storySpecs") or "").strip()
-        findings_block = json_dumps(redact_secrets(findings_payload))
+        findings_block = prompt_json_dumps(redact_secrets(findings_payload))
         if not story_specs:
             return findings_block
         return f"Story specs under review:\n{story_specs}\n\nDeterministic findings:\n{findings_block}"

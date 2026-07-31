@@ -33,7 +33,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.shared.time import utc_now
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
@@ -502,7 +502,7 @@ class ProductOwnerAgent:
             {"role": "system", "content": self._system_instruction(epic_expansion=bool(epic_expansion))},
             {
                 "role": "user",
-                "content": json_dumps(
+                "content": prompt_json_dumps(
                     redact_secrets(
                         self._assessment_context(
                             idea=idea,
@@ -528,7 +528,7 @@ class ProductOwnerAgent:
         goal_statement: str | None = None,
     ) -> str:
         """Arma el prompt de una sola pieza para un runtime CLI real, exigiendo solo JSON del esquema."""
-        context = json_dumps(
+        context = prompt_json_dumps(
             redact_secrets(
                 self._assessment_context(
                     idea=idea,
@@ -562,7 +562,7 @@ class ProductOwnerAgent:
             return (
                 "You are ProductOwnerAgent expanding ONE existing epic into additional user stories. "
                 "Return ONLY valid JSON, without markdown fences, matching this schema: "
-                + json_dumps(self.contract()["outputSchema"])
+                + prompt_json_dumps(self.contract()["outputSchema"])
                 + " Rules: the input context includes epicExpansion with epicTitle, epicDescription and "
                 "existingStoryTitles. Every userStories[i].epicTitle MUST equal epicExpansion.epicTitle "
                 "exactly; do not invent other epics (epics must be an empty list). Do not duplicate any "
@@ -574,7 +574,7 @@ class ProductOwnerAgent:
         return (
             "You are ProductOwnerAgent. Analyze the supplied idea or existing assessment and return ONLY "
             "valid JSON, without markdown fences, matching this schema: "
-            + json_dumps(self.contract()["outputSchema"])
+            + prompt_json_dumps(self.contract()["outputSchema"])
             + " Rules: status is needs_input when the idea lacks product facts needed for a backlog, "
             "scope_is_clear when a direct technical order in an existing project only needs a mini brief/task "
             "scope, brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for "

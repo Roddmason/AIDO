@@ -46,6 +46,7 @@ from .ollama.api import create_router as create_ollama_router
 from .pipelines.api import create_router as create_pipelines_router
 from .plugins.api import create_router as create_plugins_router
 from .product_loop.api import create_router as create_product_loop_router
+from .project_constitution.api import create_router as create_project_constitution_router
 from .projects.api import create_router as create_projects_router
 from .prompts.api import create_router as create_prompts_router
 from .remediations.api import create_router as create_remediations_router
@@ -236,6 +237,7 @@ def create_app(
         )
     )
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
+    app.include_router(create_project_constitution_router(platform=platform, require_write=require_write))
     app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
     app.include_router(create_team_activity_router(platform=platform, require_write=require_write))
     app.include_router(create_remediations_router(platform=platform, require_write=require_write))

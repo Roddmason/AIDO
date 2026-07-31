@@ -96,6 +96,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase55_schema(connection)
     init_phase56_schema(connection)
     init_phase57_schema(connection)
+    init_phase58_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -5886,6 +5887,59 @@ def init_phase57_schema(connection: sqlite3.Connection) -> None:
         connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
         raise
+
+
+def init_phase58_schema(connection: sqlite3.Connection) -> None:
+    """Fase 58: constitución del proyecto (documento versionado que gobierna cada run del loop).
+
+    ``project_constitutions`` guarda un documento por proyecto (``project_id UNIQUE``) con sus
+    principios, no-negociables y gates como JSON, más ``content_hash`` para verificar renders en
+    disco; ``project_constitution_versions`` es el historial inmutable (``UNIQUE(constitution_id,
+    version)``), calcando el par ``product_briefs``/``product_brief_versions``.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 58").fetchone():
+        return
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_constitutions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            principles TEXT NOT NULL,
+            non_negotiables TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            source TEXT NOT NULL,
+            enforcement TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS project_constitution_versions (
+            id TEXT PRIMARY KEY,
+            constitution_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            principles TEXT NOT NULL,
+            non_negotiables TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            source TEXT NOT NULL,
+            enforcement TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            change_summary TEXT NOT NULL,
+            authored_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(constitution_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_constitution_versions_constitution
+            ON project_constitution_versions(constitution_id, version);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (58, utc_now()),
+    )
 
 
 def _legacy_thread_id(record_id: str) -> str:

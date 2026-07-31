@@ -68,6 +68,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
+from local_control_center.project_constitution.repository import ProjectConstitutionRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.remediations.service import BlockerRemediationService
@@ -371,6 +372,7 @@ class _UserMessageRun:
     gitleaks: dict[str, Any] = field(default_factory=dict)
     security_summary: dict[str, Any] = field(default_factory=dict)
     should_rework: bool = False
+    constitution: dict[str, Any] = field(default_factory=dict)
     diff_ref: dict[str, Any] = field(default_factory=dict)
     security_evidence: dict[str, Any] = field(default_factory=dict)
     resource_learning: dict[str, Any] = field(default_factory=dict)
@@ -4003,6 +4005,7 @@ class ProductLoopCoordinator:
         result = self._ensure_thread_and_similarity(run)
         if result is not None:
             return result
+        self._seal_constitution(run)
         result = self._check_workspace_and_git(run)
         if result is not None:
             return result
@@ -4656,6 +4659,53 @@ class ProductLoopCoordinator:
             reason="Evidence-backed Product Loop result awaits operator approval.",
             evidence_package=security_evidence,
         )
+
+    def _seal_constitution(self, run: _UserMessageRun) -> None:
+        """Garantiza una constitución vigente y sella su versión + hash en el contexto durable del run.
+
+        Best-effort por diseño: la constitución bootstrapped es ``advisory`` y un fallo aquí jamás
+        bloquea el run (el gobierno duro solo lo activa el operador con ``enforcement='enforced'``).
+        El sello deja auditado con qué versión exacta del documento corrió cada run, siguiendo el
+        patrón de ``seal_operator_cost_decision``.
+        """
+        try:
+            repo = ProjectConstitutionRepository(self.connection)
+            constitution = repo.get_for_project(run.project_id)
+            if constitution is None:
+                goal_statement = str(
+                    resolve_setting_value(
+                        connection=self.connection,
+                        key="project.goal.statement",
+                        project_id=run.project_id,
+                    )
+                    or ""
+                ).strip()
+                with immediate_transaction(self.connection):
+                    constitution = repo.bootstrap_if_missing(run.project_id, goal_statement=goal_statement)
+            run.constitution = constitution
+            loop = run.loop
+            if not isinstance(loop, dict) or not loop.get("id"):
+                return
+            durable = self._durable_run_context(loop)
+            durable["constitution"] = {
+                "constitutionId": constitution["id"],
+                "version": constitution["version"],
+                "contentHash": constitution["contentHash"],
+                "source": constitution["source"],
+                "enforcement": constitution["enforcement"],
+            }
+            durable["updatedAt"] = utc_now()
+            run.loop = self.repository.update_loop_context(
+                loop["id"], context={**loop["context"], "durableRun": durable}
+            )
+        except Exception as error:
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.constitution_unavailable",
+                loop_id=str((run.loop or {}).get("id") or ""),
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=run.thread_id,
+            )
 
     def _ensure_thread_and_similarity(self, run: _UserMessageRun) -> dict[str, Any] | None:
         """Normaliza el mensaje, persiste thread+loop y aplica la puerta de funcionalidad existente.

@@ -40,6 +40,7 @@ ArtifactKind = Literal[
     "product_owner_output",
     "product_brief",
     "product_backlog",
+    "technical_plan",
 ]
 EvidenceSource = Literal[
     "operator_attested",

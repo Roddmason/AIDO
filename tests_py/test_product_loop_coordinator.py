@@ -950,6 +950,7 @@ def test_run_user_message_blocks_new_loop_when_runtime_is_not_executable(tmp_pat
             "runtime_check",
             "discovery",
             "planning",
+            "architecture_review",
             "backlog_ready",
             "blocked",
         ]
@@ -4983,6 +4984,7 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
             "runtime_check",
             "discovery",
             "planning",
+            "architecture_review",
             "backlog_ready",
             "branch_ready",
             "executing",

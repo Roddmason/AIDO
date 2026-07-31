@@ -126,3 +126,60 @@ def test_default_gitignore_versions_spec_renders_but_ignores_scratch(tmp_path: P
     assert ".aido/memory/constitution.md" in tracked
     assert ".aido/specs/x-1/spec.md" in tracked
     assert ".aido/cache.tmp" not in tracked
+
+
+def test_plan_phase_decision_takes_fast_lane_only_for_low_risk_maintenance() -> None:
+    from local_control_center.product_loop.phases.plan import (
+        PLANNED,
+        SKIPPED_LOW_RISK,
+        plan_phase_decision,
+    )
+
+    assert plan_phase_decision({"risk": "low", "intents": ["docs"]}) == SKIPPED_LOW_RISK
+    assert plan_phase_decision({"risk": "low", "intents": ["bugfix", "tests"]}) == SKIPPED_LOW_RISK
+    assert plan_phase_decision({"risk": "low", "intents": ["feature"]}) == PLANNED
+    assert plan_phase_decision({"risk": "high", "intents": ["docs"]}) == PLANNED
+    assert plan_phase_decision({"risk": "low", "intents": []}) == PLANNED
+
+
+def test_technical_plan_view_keeps_the_previously_discarded_aggregates() -> None:
+    from local_control_center.product_loop.phases.plan import technical_plan_view
+
+    planned = {
+        "agent_tasks": [{"id": "t1"}],
+        "task_dependencies": [],
+        "quality_gates": [{"id": "lint"}, {"id": "unit_tests"}],
+        "assignment_handoffs": [{"fromRole": "backend_engineer", "toRole": "qa_engineer"}],
+        "branch_worktree_plan": {"strategy": "worktree_per_task"},
+    }
+    tasks = [{"id": "t1", "role": "backend_engineer"}, {"id": "t2", "role": "qa_engineer"}]
+    view = technical_plan_view(planned, agent_tasks=tasks)
+    assert view is not None
+    assert view["qualityGates"] == [{"id": "lint"}, {"id": "unit_tests"}]
+    assert view["branchWorktreePlan"] == {"strategy": "worktree_per_task"}
+    assert view["roles"] == ["backend_engineer", "qa_engineer"]
+    assert technical_plan_view([{"id": "t1"}], agent_tasks=tasks) is None
+
+
+def test_write_spec_artifacts_renders_plan_md_when_plan_exists(tmp_path: Path) -> None:
+    result = write_spec_artifacts(
+        str(tmp_path),
+        thread_id="thread-9",
+        title="Plan demo",
+        constitution=None,
+        brief=None,
+        stories=[],
+        acceptance_criteria=[],
+        tasks=[],
+        task_dependencies=[],
+        technical_plan={
+            "roles": ["backend_engineer"],
+            "qualityGates": [{"id": "lint"}],
+            "branchWorktreePlan": {"strategy": "worktree_per_task"},
+        },
+    )
+    plan_path = tmp_path / result["specDir"] / "plan.md"
+    content = plan_path.read_text(encoding="utf-8")
+    assert content.startswith(GENERATED_HEADER)
+    assert "backend_engineer" in content
+    assert "worktree_per_task" in content

@@ -138,6 +138,7 @@ def write_spec_artifacts(
     acceptance_criteria: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
     task_dependencies: list[dict[str, Any]],
+    technical_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Escribe los renders al worktree y devuelve el directorio de spec + rutas relativas escritas.
 
@@ -174,4 +175,14 @@ def write_spec_artifacts(
             render_tasks_md(tasks, task_dependencies), encoding="utf-8", newline="\n"
         )
         written.append(f".aido/specs/{spec_dir_name}/tasks.md")
+    if technical_plan:
+        from .phases.plan import render_plan_md
+
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        (spec_dir / "plan.md").write_text(
+            render_plan_md(technical_plan, generated_header=GENERATED_HEADER),
+            encoding="utf-8",
+            newline="\n",
+        )
+        written.append(f".aido/specs/{spec_dir_name}/plan.md")
     return {"specDir": f".aido/specs/{spec_dir_name}", "files": written}

@@ -5017,14 +5017,22 @@ class ProductLoopCoordinator:
             "idea": message_text,
             "preferredRuntime": product_owner_preferred_runtime or preferred_runtime,
             "model": product_owner_selected_resource.get("model"),
-            "assessment": redact_secrets(assessment_result or {}),
+            # Solo lo que el agente convierte en señales de prompt: el resultado completo del
+            # assessment (job/agentRun/artifact/decision) ya queda auditado en su propio slice.
+            "assessment": redact_secrets(
+                {
+                    key: (assessment_result or {}).get(key)
+                    for key in ("status", "assessment", "findings")
+                    if (assessment_result or {}).get(key) is not None
+                }
+            ),
             "workflowContext": {
                 "workflowRunId": loop["id"],
                 "workflowStepId": "product_owner",
             },
             "metadata": {
                 "loopId": loop["id"],
-                "thread": thread,
+                "projectThreadId": thread.get("id"),
                 "source": "product_loop_coordinator",
                 "resourceSelection": product_owner_resource_decision,
             },
@@ -6339,7 +6347,7 @@ class ProductLoopCoordinator:
             "qaCommands": qa_commands or [],
             "requireApproval": True,
             "resourceSelection": execution_resource,
-            "metadata": {"loopId": loop["id"], "thread": thread},
+            "metadata": {"loopId": loop["id"], "projectThreadId": thread.get("id")},
         }
         if run.rework_round:
             developer_payload["reworkRound"] = run.rework_round

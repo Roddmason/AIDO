@@ -82,15 +82,69 @@ def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
     return text[:limit] + "\n[truncated]"
 
 
-def _bounded_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+# Tope serializado por item de colección: cierra el agujero de payloads anidados vía API que el
+# bound por-string no ve (un dict/lista gigante dentro de un item pasaba entero al prompt).
+ITEM_SERIALIZED_LIMIT_CHARS = 8_000
+
+# Whitelists solo-prompt por colección: campos que el modelo usa para revisar. Los ids internos
+# (argv, toolCallId, permissionDecisionId, metadata) siguen en el input_payload persistido.
+_TEST_RESULT_PROMPT_KEYS = (
+    "id",
+    "label",
+    "command",
+    "status",
+    "exitCode",
+    "reason",
+    "stdout",
+    "stderr",
+    "evidenceRefs",
+    "evidencePackageId",
+    "outputRef",
+    "outputRefs",
+)
+_RELEVANT_DOC_PROMPT_KEYS = ("id", "title", "content")
+_RISK_PROMPT_KEYS = ("id", "title", "description", "severity", "mitigation", "status", "evidenceRefs")
+_WORKFLOW_CONTEXT_PROMPT_KEYS = ("workflowKind", "attempt", "title")
+
+
+def _prompt_workflow_context(workflow_context: dict[str, Any]) -> dict[str, Any]:
+    """Whitelist del workflowContext para el prompt: fuera el DAG y los uuids de run/step."""
+    return {
+        key: _bounded_text(value) if isinstance(value, str) else value
+        for key, value in workflow_context.items()
+        if key in _WORKFLOW_CONTEXT_PROMPT_KEYS
+    }
+
+
+def _prompt_item_view(item: dict[str, Any], *, keys: tuple[str, ...]) -> dict[str, Any]:
+    """Proyecta un item de colección a sus campos decision-relevant, con strings acotados."""
+    return {
+        key: _bounded_text(value) if isinstance(value, str) else value
+        for key, value in item.items()
+        if key in keys
+    }
+
+
+def _bounded_items(
+    items: list[dict[str, Any]], *, keys: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
     bounded: list[dict[str, Any]] = []
     for item in items[:PROMPT_COLLECTION_LIMIT]:
-        bounded_item: dict[str, Any] = {}
-        for key, value in item.items():
-            if isinstance(value, str):
-                bounded_item[key] = _bounded_text(value)
-            else:
-                bounded_item[key] = value
+        bounded_item = (
+            _prompt_item_view(item, keys=keys)
+            if keys
+            else {
+                key: _bounded_text(value) if isinstance(value, str) else value for key, value in item.items()
+            }
+        )
+        if len(json.dumps(bounded_item, ensure_ascii=False, default=str)) > ITEM_SERIALIZED_LIMIT_CHARS:
+            compact: dict[str, Any] = {"truncated": True}
+            for key, value in bounded_item.items():
+                candidate = {**compact, key: value}
+                if len(json.dumps(candidate, ensure_ascii=False, default=str)) > ITEM_SERIALIZED_LIMIT_CHARS:
+                    continue
+                compact = candidate
+            bounded_item = compact
         bounded.append(bounded_item)
     return bounded
 
@@ -400,12 +454,13 @@ class ArchitectAgentRunner:
     def _messages(self, *, payload: dict[str, Any], diff_text: str) -> list[dict[str, str]]:
         output_schema = architect_agent_contract()["outputSchema"]
         review_context = {
-            "workflowContext": payload.get("workflowContext") or {},
+            "workflowContext": _prompt_workflow_context(payload.get("workflowContext") or {}),
             "diffArtifactId": payload["diffArtifactId"],
             "diff": _bounded_text(diff_text, PROMPT_DIFF_LIMIT_CHARS),
-            "relevantDocs": _bounded_items(payload.get("relevantDocs") or []),
-            "testResults": _bounded_items(payload.get("testResults") or []),
-            "riskRegister": _bounded_items(payload.get("riskRegister") or []),
+            "relevantDocs": _bounded_items(payload.get("relevantDocs") or [], keys=_RELEVANT_DOC_PROMPT_KEYS),
+            "testResults": _bounded_items(payload.get("testResults") or [], keys=_TEST_RESULT_PROMPT_KEYS),
+            "riskRegister": _bounded_items(payload.get("riskRegister") or [], keys=_RISK_PROMPT_KEYS),
+            # Calculado del payload CRUDO (no de las vistas): la poda del prompt no cambia el grounding.
             "allowedEvidenceRefs": sorted(_collect_input_evidence_refs(payload)),
         }
         return [

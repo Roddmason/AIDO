@@ -380,3 +380,64 @@ def test_architect_agent_invalid_provider_output_fails_validation_without_persis
     assert body["evidencePackage"]["qaVerdict"] == "failed"
     assert store.governance.list_architecture_decisions(project["id"]) == []
     assert store.governance.list_risks(project["id"]) == []
+
+
+def test_prompt_context_projects_collections_and_caps_items() -> None:
+    """El contexto del prompt poda campos internos y acota cada item; el grounding no cambia.
+
+    workflowContext viajaba con el DAG completo y uuids internos, y cada testResult arrastraba
+    argv/toolCallId/metadata. allowedEvidenceRefs se calcula del payload crudo, así que la vista
+    del prompt no puede alterar qué refs son citables.
+    """
+    from local_control_center.agents.architect_agent import (
+        _prompt_item_view,
+        _prompt_workflow_context,
+    )
+
+    context = _prompt_workflow_context(
+        {
+            "workflowKind": "issue_to_pr",
+            "workflowRunId": "run-uuid-1",
+            "workflowStepId": "step-uuid-2",
+            "dag": [["developer", "qa"], ["security"]],
+            "attempt": 2,
+            "title": "Fix login",
+        }
+    )
+    assert context == {"workflowKind": "issue_to_pr", "attempt": 2, "title": "Fix login"}
+
+    item = _prompt_item_view(
+        {
+            "id": "qa-1",
+            "command": "pytest",
+            "status": "passed",
+            "exitCode": 0,
+            "argv": ["python", "-m", "pytest"],
+            "toolCallId": "tool-uuid-3",
+            "permissionDecisionId": "perm-uuid-4",
+            "metadata": {"internal": True},
+            "evidenceRefs": ["evidence-1"],
+        },
+        keys=("id", "command", "status", "exitCode", "evidenceRefs"),
+    )
+    assert item == {
+        "id": "qa-1",
+        "command": "pytest",
+        "status": "passed",
+        "exitCode": 0,
+        "evidenceRefs": ["evidence-1"],
+    }
+
+
+def test_bounded_items_caps_each_serialized_item() -> None:
+    """Un item con anidados gigantes no puede desbordar el prompt: se corta con marcador."""
+    from local_control_center.agents.architect_agent import ITEM_SERIALIZED_LIMIT_CHARS, _bounded_items
+
+    huge = {"id": "doc-1", "nested": {"blob": ["x" * 500] * 200}}
+    bounded = _bounded_items([huge])
+
+    import json as _json
+
+    serialized = _json.dumps(bounded[0], ensure_ascii=False)
+    assert len(serialized) <= ITEM_SERIALIZED_LIMIT_CHARS + 100
+    assert bounded[0].get("truncated") == True  # noqa: E712 - marcador literal del item

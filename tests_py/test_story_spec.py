@@ -202,3 +202,49 @@ def test_product_loop_story_spec_endpoint_returns_spec_and_404(tmp_path: Path, m
     other_project = store.create_project(name="Other", path=tmp_path / "other-project", template_id="other")
     cross_project = client.get(f"/api/v1/projects/{other_project['id']}/product-loop/stories/{story_id}/spec")
     assert cross_project.status_code == 404
+
+
+def test_render_story_spec_prompt_filters_responsibilities_for_role() -> None:
+    """`for_role` filtra responsabilidades al destinatario; sin él, spec completo para todos."""
+    spec = {
+        "storyId": "s1",
+        "epic": {"id": "e1", "title": "Epic", "description": ""},
+        "story": {
+            "title": "Historia",
+            "asA": "usuario",
+            "iWant": "algo",
+            "soThat": "valor",
+            "businessValue": "",
+            "status": "ready",
+            "priority": "high",
+        },
+        "acceptanceCriteria": [{"id": "c1", "sequence": 1, "criterion": "pasa", "status": "open"}],
+        "roleResponsibilities": [
+            {
+                "taskId": "t1",
+                "role": "backend_engineer",
+                "title": "impl",
+                "goal": "implementar",
+                "reviewerRole": "technical_lead",
+                "qualityGates": [],
+                "dependsOn": [],
+            },
+            {
+                "taskId": "t2",
+                "role": "security_engineer",
+                "title": "sec",
+                "goal": "revisar seguridad",
+                "reviewerRole": "technical_lead",
+                "qualityGates": [],
+                "dependsOn": [],
+            },
+        ],
+    }
+    full = render_story_spec_prompt([spec])
+    assert "backend_engineer" in full and "security_engineer" in full
+
+    filtered = render_story_spec_prompt([spec], for_role="security_engineer")
+    assert "security_engineer" in filtered
+    assert "backend_engineer" not in filtered
+    # El núcleo de la historia y los criterios sobreviven al filtro.
+    assert "Historia" in filtered and "AC1" in filtered

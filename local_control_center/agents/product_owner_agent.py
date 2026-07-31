@@ -106,6 +106,10 @@ DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
 PROMPT_TEXT_LIMIT_CHARS = 8_000
 PROMPT_COLLECTION_LIMIT = 20
+# Presupuesto agregado de las 4 colecciones del contexto (preguntas, decisiones, facts, settled):
+# solo actua en hilos patologicos. Se descarta lo MAS ANTIGUO primero (lo reciente es lo relevante)
+# y el conteo de omitidos queda en el contexto para que el modelo sepa que hubo historia truncada.
+PROMPT_CONTEXT_BUDGET_CHARS = 40_000
 RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
 ASSESSMENT_SIGNAL_LIMIT = 5
 PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS = 2
@@ -294,6 +298,42 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
         "gaps": titles("gap"),
         "architectureNotes": titles("architecture"),
     }
+
+
+def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
+    """Acota el total de las colecciones del contexto al presupuesto, descartando lo mas antiguo.
+
+    Las listas llegan en orden cronologico (mas antiguo primero); se recorta desde el frente de la
+    lista mas pesada hasta caber, dejando ``omitted<Coleccion>`` con el conteo descartado. Nunca
+    vacia una coleccion por completo: el ultimo elemento (el mas reciente) siempre sobrevive, que es
+    la garantia anti-repregunta (la respuesta recien dada jamas se descarta).
+    """
+    collections = (
+        "existingOpenQuestions",
+        "existingUnresolvedDecisions",
+        "resolvedFacts",
+        "settledDecisions",
+    )
+
+    def weight(name: str) -> int:
+        return len(json.dumps(context.get(name) or [], ensure_ascii=False))
+
+    total = sum(weight(name) for name in collections)
+    if total <= PROMPT_CONTEXT_BUDGET_CHARS:
+        return context
+    omitted = dict.fromkeys(collections, 0)
+    while total > PROMPT_CONTEXT_BUDGET_CHARS:
+        heaviest = max(collections, key=weight)
+        items = context.get(heaviest) or []
+        if len(items) <= 1:
+            break
+        context[heaviest] = items[1:]
+        omitted[heaviest] += 1
+        total = sum(weight(name) for name in collections)
+    for name, count in omitted.items():
+        if count:
+            context[f"omitted{name[0].upper()}{name[1:]}"] = count
+    return context
 
 
 def _supplied_assessment_signals(supplied: dict[str, Any]) -> dict[str, Any]:
@@ -489,7 +529,7 @@ class ProductOwnerAgent:
             context["projectConstitution"] = constitution
         if epic_expansion:
             context["epicExpansion"] = epic_expansion
-        return context
+        return _apply_context_budget(context)
 
     def model_messages(
         self,

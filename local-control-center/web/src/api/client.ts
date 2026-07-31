@@ -326,7 +326,7 @@ export function getEvidenceDetail(evidenceId: string, signal?: AbortSignal) {
 }
 
 /** Project-scoped product-loop aggregate (loops, questions, brief, assumptions, decisions, backlog,
- *  iterations) that backs the Workbench loop sections; a read, so no write token. */
+ *  tasks) that backs the Workbench loop sections; a read, so no write token. */
 export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 	return requestGeneratedOperation<
 		'get_product_loop_state_api_v1_projects__project_id__product_loop_get',

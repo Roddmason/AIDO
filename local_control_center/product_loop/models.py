@@ -2,7 +2,7 @@
 
 Definen el contrato HTTP de solo lectura (forma de salida) del endpoint que agrega, por proyecto, el
 loop durable y su bitácora, las preguntas de clarificación, el brief vivo, los supuestos, las
-decisiones y el backlog (épicas, historias, tareas e iteraciones). Solo modelan datos: no contienen
+decisiones y el backlog (épicas, historias y tareas). Solo modelan datos: no contienen
 lógica de negocio ni acceso a la base; traducen ``snake_case`` de Python a ``camelCase`` del frontend
 vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_to_*`` de cada slice.
 
@@ -355,27 +355,6 @@ class AssignmentConflictRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
-class IterationRecord(BaseModel):
-    """Iteración planificada: estrategia de workspace, gates de calidad/seguridad y costo estimado."""
-
-    id: str
-    project_id: str = Field(alias="projectId")
-    brief_id: str | None = Field(default=None, alias="briefId")
-    title: str
-    goal: str | None = None
-    status: str
-    story_ids: list[Any] = Field(alias="storyIds")
-    workspace_strategy: str | None = Field(default=None, alias="workspaceStrategy")
-    quality_gates: list[Any] = Field(alias="qualityGates")
-    security_gates: list[Any] = Field(alias="securityGates")
-    estimated_cost: dict[str, Any] = Field(alias="estimatedCost")
-    runtimes: list[Any]
-    task_count: int = Field(alias="taskCount")
-    assignment_count: int = Field(alias="assignmentCount")
-    created_at: str = Field(alias="createdAt")
-    updated_at: str = Field(alias="updatedAt")
-
-
 class ProductLoopStateResponse(BaseModel):
     """Estado agregado del product loop de un proyecto, consumido por el Workbench en una sola lectura."""
 
@@ -396,7 +375,6 @@ class ProductLoopStateResponse(BaseModel):
     assignment_handoffs: list[AssignmentHandoffRecord] = Field(alias="assignmentHandoffs")
     assignment_reviews: list[AssignmentReviewRecord] = Field(alias="assignmentReviews")
     assignment_conflicts: list[AssignmentConflictRecord] = Field(alias="assignmentConflicts")
-    iterations: list[IterationRecord]
 
 
 class StorySpecEpic(BaseModel):

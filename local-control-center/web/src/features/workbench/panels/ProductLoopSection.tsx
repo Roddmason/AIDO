@@ -1,6 +1,6 @@
 /**
  * Renders one product-loop section (questions, brief, assumptions, decisions, architecture, backlog,
- * iterations) from the live project-scoped product-loop endpoint, with loading, error and empty
+ * tasks) from the live project-scoped product-loop endpoint, with loading, error and empty
  * states. Pure presentation: the page owns the fetch (useProductLoop) and passes the data down; the
  * architecture section reuses the already-available overview architecture decisions.
  * @author Rodrigo Mason
@@ -30,8 +30,7 @@ export type ProductLoopSectionId =
 	| 'assumptions'
 	| 'decisions'
 	| 'architecture'
-	| 'backlog'
-	| 'iterations';
+	| 'backlog';
 
 type ProductLoopSectionProps = {
 	section: ProductLoopSectionId;
@@ -547,33 +546,5 @@ export function ProductLoopSection({
 		);
 	}
 
-	const iterations = data?.iterations ?? [];
-	if (!iterations.length) {
-		return (
-			<EmptyState
-				title={t('app.workbench.loop.iteration.emptyTitle', 'No planned iterations')}
-				body={t(
-					'app.workbench.loop.iteration.emptyBody',
-					'Planned iterations appear here once the iteration planner runs against the approved backlog.',
-				)}
-			/>
-		);
-	}
-	return (
-		<div className="stack">
-			{iterations.map((iteration) => (
-				<article className="card" key={iteration.id}>
-					<div className="inline">
-						<Badge tone={toneForStatus(iteration.status)}>{iteration.status}</Badge>
-						<strong className="card-title">{iteration.title}</strong>
-						<span className="mono">{iteration.workspaceStrategy}</span>
-						<span className="muted">
-							{iteration.taskCount} {t('app.workbench.loop.iteration.tasksLabel', 'planned tasks')}
-						</span>
-					</div>
-					{iteration.goal ? <p className="card-body">{iteration.goal}</p> : null}
-				</article>
-			))}
-		</div>
-	);
+	return null;
 }

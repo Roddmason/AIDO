@@ -982,14 +982,6 @@ export function WorkbenchPage({
 
 						{activeSection === 'iteration' ? (
 							<div className="stack">
-								<ProductLoopSection
-									section="iterations"
-									data={loop.data}
-									architectureDecisions={projectArchitectureDecisions}
-									loading={loop.loading}
-									error={loop.error}
-									actions={productLoopActions}
-								/>
 								<TimelinePanel
 									runTimeline={runTimeline}
 									hasRun={hasRun}

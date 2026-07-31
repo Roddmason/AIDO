@@ -268,28 +268,6 @@ def row_to_agent_assignment(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def row_to_iteration(row: sqlite3.Row) -> dict[str, Any]:
-    """Mapea una fila de ``iterations`` al dict camelCase del contrato."""
-    return {
-        "id": row["id"],
-        "projectId": row["project_id"],
-        "briefId": row["brief_id"],
-        "title": row["title"],
-        "goal": row["goal"],
-        "status": row["status"],
-        "storyIds": json_loads(row["story_ids"], []),
-        "workspaceStrategy": row["workspace_strategy"],
-        "qualityGates": json_loads(row["quality_gates"], []),
-        "securityGates": json_loads(row["security_gates"], []),
-        "estimatedCost": json_loads(row["estimated_cost"]),
-        "runtimes": json_loads(row["runtimes"], []),
-        "taskCount": row["task_count"],
-        "assignmentCount": row["assignment_count"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-    }
-
-
 def row_to_assignment_handoff(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``assignment_handoffs`` al dict camelCase del contrato."""
     return {
@@ -1367,58 +1345,3 @@ class BacklogRepository:
         ]
         if unresolved_conflicts:
             raise ValueError(f"Assignment {assignment['id']} has unresolved conflict records.")
-
-    def create_iteration(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Inserta una iteración (id ``iteration-<uuid>``) con su plan y devuelve el registro creado."""
-        iteration_id = f"iteration-{uuid.uuid4()}"
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            INSERT INTO iterations
-                (id, project_id, brief_id, title, goal, status, story_ids, workspace_strategy,
-                 quality_gates, security_gates, estimated_cost, runtimes, task_count, assignment_count,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                iteration_id,
-                body["projectId"],
-                body["briefId"],
-                body["title"],
-                body.get("goal", ""),
-                body.get("status", "planned"),
-                json_dumps(body.get("storyIds") or []),
-                body["workspaceStrategy"],
-                json_dumps(body.get("qualityGates") or []),
-                json_dumps(body.get("securityGates") or []),
-                json_dumps(body.get("estimatedCost") or {}),
-                json_dumps(body.get("runtimes") or []),
-                int(body.get("taskCount") or 0),
-                int(body.get("assignmentCount") or 0),
-                timestamp,
-                timestamp,
-            ),
-        )
-        return self.get_iteration(iteration_id)
-
-    def get_iteration(self, iteration_id: str) -> dict[str, Any]:
-        """Recupera una iteración por id.
-
-        Raises:
-            KeyError: si no existe ninguna iteración con ese id.
-        """
-        row = self.connection.execute("SELECT * FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
-        if not row:
-            raise KeyError(f"Iteration not found: {iteration_id}")
-        return row_to_iteration(row)
-
-    def list_iterations(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista iteraciones (todas o por proyecto), la más recientemente actualizada primero."""
-        if project_id:
-            rows = self.connection.execute(
-                "SELECT * FROM iterations WHERE project_id = ? ORDER BY updated_at DESC",
-                (project_id,),
-            ).fetchall()
-        else:
-            rows = self.connection.execute("SELECT * FROM iterations ORDER BY updated_at DESC").fetchall()
-        return [row_to_iteration(row) for row in rows]

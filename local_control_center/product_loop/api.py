@@ -2,7 +2,7 @@
 
 La lectura agrega, por proyecto y en una sola llamada para el Workbench, el estado durable del loop y su
 bitácora (slice product_loop), las preguntas de clarificación, el brief vivo, los supuestos y las
-decisiones (slice product_discovery) y el backlog —épicas, historias, tareas e iteraciones— (slice
+decisiones (slice product_discovery) y el backlog —épicas, historias y tareas— (slice
 backlog). Las mutaciones arrancan un loop y lo avanzan por su FSM durable vía el ``ProductLoopCoordinator``;
 exigen el token de escritura y validan la transición contra el mapa permitido. No contiene lógica de
 negocio: delega en los repositorios y el coordinador.
@@ -91,7 +91,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "assignmentHandoffs": backlog.list_assignment_handoffs(project_id=project_id),
             "assignmentReviews": backlog.list_assignment_reviews(project_id=project_id),
             "assignmentConflicts": backlog.list_assignment_conflicts(project_id=project_id),
-            "iterations": backlog.list_iterations(project_id),
         }
 
     def require_project_loop(project_id: str, loop_id: str) -> dict[str, Any]:

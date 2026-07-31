@@ -30,7 +30,6 @@ EMPTY_LOOP_STATE = {
     "assignmentHandoffs": [],
     "assignmentReviews": [],
     "assignmentConflicts": [],
-    "iterations": [],
 }
 
 
@@ -214,16 +213,6 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "reviewerAgentId": "agent-qa",
             }
         )
-        backlog.create_iteration(
-            {
-                "projectId": project_id,
-                "briefId": brief["id"],
-                "title": "Iteration 1",
-                "goal": "Ship the wizard",
-                "workspaceStrategy": "worktree_per_task",
-            }
-        )
-
         # A second project's loop must not leak into this project's view.
         other_loop = ProductLoopCoordinator(connection).start(project_id=other["id"], title="Unrelated")
 
@@ -269,8 +258,6 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert [item["assignmentId"] for item in body["assignmentReviews"]] == [assignment["id"]]
         assert body["assignmentReviews"][0]["status"] == "pending"
         assert body["assignmentConflicts"] == []
-        assert len(body["iterations"]) == 1
-        assert body["iterations"][0]["workspaceStrategy"] == "worktree_per_task"
 
         # Project scoping: the other project's loop is absent from this project's view.
         assert other_loop["id"] not in {item["id"] for item in body["loops"]}

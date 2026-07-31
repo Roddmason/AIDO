@@ -1,6 +1,6 @@
 /**
  * Fetches the project-scoped product-loop aggregate (loops, questions, brief, assumptions, decisions,
- * backlog, iterations) for the Workbench loop sections. Re-fetches when the selected project changes or
+ * backlog) for the Workbench loop sections. Re-fetches when the selected project changes or
  * when `refresh()` is called (after a loop mutation), and aborts the in-flight request on change/unmount.
  * Decoupled from the 5s overview poll: the loop is detail-shaped and changes infrequently, so it is
  * loaded on demand rather than folded into /overview.

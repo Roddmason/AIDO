@@ -92,6 +92,8 @@ DANGEROUS_FLAGS = {
 DOCKER_CRITICAL_FLAGS = {"--mount", "--network=host", "--privileged", "--volume", "-v"}
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 5000
+# Tope de findings que viajan al prompt del análisis opcional; el resto se reporta como conteo.
+ANALYSIS_PROMPT_FINDINGS_LIMIT = 100
 EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
 
 
@@ -973,6 +975,47 @@ class SecurityAgentRunner:
         return next((runtime for runtime in eligible if runtime.get("id") == selected), None)
 
     @staticmethod
+    def _analysis_prompt_view(findings_payload: dict[str, Any]) -> dict[str, Any]:
+        """Copia solo-prompt del payload de hallazgos: lo que el modelo necesita y nada más.
+
+        ``filesScanned`` (un registro por archivo con hash y tamaño) era ~95% del prompt y el
+        análisis solo necesita el conteo; los scanners externos aportan nombre/estado/motivo, y los
+        findings van capados con su conteo de omitidos. El payload real NO se toca: el artefacto,
+        el response body y los hashes de evidencia siguen completos. El veredicto determinista se
+        decide antes de esta llamada, así que la vista no puede alterar ningún gate.
+        """
+        view = {
+            key: value
+            for key, value in findings_payload.items()
+            if key not in {"status", "filesScanned", "dependencyFiles", "externalScanners", "findings"}
+        }
+        view["filesScannedCount"] = len(findings_payload.get("filesScanned") or [])
+        view["dependencyFiles"] = [
+            str(entry.get("path"))
+            for entry in findings_payload.get("dependencyFiles") or []
+            if isinstance(entry, dict)
+        ]
+        view["externalScanners"] = [
+            {
+                "name": scanner.get("name"),
+                "status": scanner.get("status"),
+                "reason": scanner.get("reason"),
+                "findingCount": scanner.get("findingCount"),
+            }
+            for scanner in findings_payload.get("externalScanners") or []
+            if isinstance(scanner, dict)
+        ]
+        findings = [item for item in findings_payload.get("findings") or [] if isinstance(item, dict)]
+        view["findings"] = [
+            {key: value for key, value in finding.items() if key not in {"reportArtifactId", "reportHash"}}
+            for finding in findings[:ANALYSIS_PROMPT_FINDINGS_LIMIT]
+        ]
+        omitted = max(0, len(findings) - ANALYSIS_PROMPT_FINDINGS_LIMIT)
+        if omitted:
+            view["omittedFindingCount"] = omitted
+        return view
+
+    @staticmethod
     def _model_analysis_prompt(payload: dict[str, Any], findings_payload: dict[str, Any]) -> str:
         """Arma el prompt del análisis opcional: hallazgos deterministas y, si existen, las specs.
 
@@ -1038,7 +1081,9 @@ class SecurityAgentRunner:
                         },
                         {
                             "role": "user",
-                            "content": self._model_analysis_prompt(payload, findings_payload),
+                            "content": self._model_analysis_prompt(
+                                payload, self._analysis_prompt_view(findings_payload)
+                            ),
                         },
                     ],
                     "temperature": 0.1,

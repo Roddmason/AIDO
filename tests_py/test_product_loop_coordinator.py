@@ -38,6 +38,8 @@ from local_control_center.threads.similarity import ThreadMemoryService
 
 LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
 # The canonical happy path: goal_received → … → delivered (delivery only via awaiting_approval).
+# quality_review runs after security_running (spec-driven slice 0); executing can no longer
+# reach it directly, so the walk passes through the QA and Security gates.
 HAPPY_PATH = [
     "discovering",
     "brief_ready",
@@ -45,6 +47,8 @@ HAPPY_PATH = [
     "backlog_ready",
     "iteration_planning",
     "executing",
+    "qa_running",
+    "security_running",
     "quality_review",
     "awaiting_approval",
     "delivered",
@@ -7558,7 +7562,7 @@ def test_maximum_rework_rounds_are_enforced(tmp_path: Path) -> None:
         coordinator = ProductLoopCoordinator(connection)
         loop = coordinator.start(project_id=project["id"], title="X", max_rework_rounds=1)
         loop_id = loop["id"]
-        # Walk to the first review.
+        # Walk to the first review (quality_review now sits after the QA/Security gates).
         for state in [
             "discovering",
             "brief_ready",
@@ -7566,6 +7570,8 @@ def test_maximum_rework_rounds_are_enforced(tmp_path: Path) -> None:
             "backlog_ready",
             "iteration_planning",
             "executing",
+            "qa_running",
+            "security_running",
             "quality_review",
         ]:
             coordinator.transition(loop_id, to_state=state)
@@ -7579,7 +7585,7 @@ def test_maximum_rework_rounds_are_enforced(tmp_path: Path) -> None:
 
         # A second rework round would exceed the maximum and is rejected.
         coordinator.transition(loop_id, to_state="executing")
-        coordinator.transition(loop_id, to_state="quality_review")
+        coordinator.transition(loop_id, to_state="qa_running")
         with pytest.raises(ProductLoopStopConditionError, match="Maximum rework rounds"):
             coordinator.transition(loop_id, to_state="reworking")
 

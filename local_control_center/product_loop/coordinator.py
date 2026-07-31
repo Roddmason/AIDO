@@ -1208,6 +1208,7 @@ class ProductLoopCoordinator:
         reason: str,
         evidence_package: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        loop = self._clear_run_active(loop)
         result = {
             "status": status,
             "reason": reason,
@@ -4346,6 +4347,67 @@ class ProductLoopCoordinator:
                 loop_id=str((run.loop or {}).get("id") or ""),
                 payload={"reason": redact_secrets(str(error))},
                 thread_id=run.thread_id,
+            )
+
+    def _clear_run_active(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Apaga el marcador durable ``runActive`` en todo cierre controlado del run.
+
+        Un ``runActive`` que sobrevive es la firma de un run interrumpido (worker muerto o
+        excepcion no controlada): el proximo run del hilo lo detecta y supersede el loop zombi.
+        Best-effort: un fallo aqui no puede romper el resultado que ya esta construido.
+        """
+        try:
+            if not isinstance(loop, dict) or not loop.get("id"):
+                return loop
+            durable = self._durable_run_context(loop)
+            if not durable.get("runActive"):
+                return loop
+            durable["runActive"] = False
+            durable["updatedAt"] = utc_now()
+            return self.repository.update_loop_context(
+                loop["id"], context={**loop["context"], "durableRun": durable}
+            )
+        except Exception:
+            return loop
+
+    def _supersede_interrupted_loops(self, *, project_id: str, thread_id: str, actor: str) -> None:
+        """Cancela los loops del hilo que quedaron a mitad de ejecucion (re-entry durable).
+
+        Un loop no terminal con ``runActive=True`` es un run interrumpido: su worker murio o el
+        proceso cayo antes del cierre controlado. Dejarlo vivo confunde la UI para siempre y puede
+        vetar la resolucion de decisiones (guard fail-closed sobre loops en ``awaiting_user``).
+        Cancelarlo al arrancar el run siguiente resuelve ademas sus remediaciones pendientes
+        (``transition`` resuelve al llegar a terminal). Los estados de espera legitimos
+        (awaiting_user/approval/feedback, blocked) tienen ``runActive`` ya apagado por el cierre
+        controlado, asi que jamas se tocan. Best-effort: un fallo deja evento y el run continua.
+        """
+        try:
+            for loop in self.repository.list_loops(project_id):
+                if loop.get("state") in TERMINAL_STATES:
+                    continue
+                fsm = (loop.get("context") or {}).get("fsm") or {}
+                if str(fsm.get("correlationId") or "") != str(thread_id):
+                    continue
+                durable = self._durable_run_context(loop)
+                if not durable.get("runActive"):
+                    continue
+                try:
+                    self.transition(
+                        loop["id"],
+                        to_state=CANCELLED_STATE,
+                        reason="Superseded: the previous run was interrupted before finishing.",
+                        trigger="superseded_interrupted",
+                        actor=actor,
+                    )
+                except (ProductLoopTransitionError, ProductLoopStopConditionError):
+                    continue
+        except Exception as error:
+            self._record_loop_event(
+                project_id=project_id,
+                event_type="product_loop.supersede_unavailable",
+                loop_id="",
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=thread_id,
             )
 
     def _seal_constitution(self, run: _UserMessageRun) -> None:

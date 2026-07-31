@@ -402,3 +402,61 @@ def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
         body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]]
         == scanners["gitleaks"]["reportHash"]
     )
+
+
+def test_analysis_prompt_view_compresses_findings_payload_without_touching_it() -> None:
+    """La vista solo-prompt reduce el payload de hallazgos y deja el original intacto.
+
+    El bloque filesScanned (un registro por archivo del workspace con hash y tamaño) era ~95% del
+    prompt del análisis opcional; el modelo solo necesita el conteo. El payload real sigue completo
+    para el artefacto, el response body y los hashes de evidencia.
+    """
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    payload = {
+        "status": "risk",
+        "verdict": "risk",
+        "reason": "1 medium finding.",
+        "findings": [
+            {
+                "id": f"finding-{index}",
+                "severity": "medium",
+                "message": "x",
+                "reportArtifactId": "artifact-9",
+                "reportHash": "hash-9",
+            }
+            for index in range(120)
+        ],
+        "filesScanned": [{"path": f"src/f{index}.py", "hash": "h", "sizeBytes": 10} for index in range(500)],
+        "dependencyFiles": [{"path": "package.json", "hash": "h", "sizeBytes": 20, "kind": "package.json"}],
+        "externalScanners": [
+            {
+                "name": "semgrep",
+                "status": "completed",
+                "reason": "ok",
+                "executable": True,
+                "configured": True,
+                "reportArtifactId": "artifact-7",
+                "reportHash": "hash-7",
+                "findingCount": 2,
+            }
+        ],
+    }
+
+    view = SecurityAgentRunner._analysis_prompt_view(payload)
+
+    assert view["filesScannedCount"] == 500
+    assert "filesScanned" not in view
+    assert view["dependencyFiles"] == ["package.json"]
+    assert view["externalScanners"] == [
+        {"name": "semgrep", "status": "completed", "reason": "ok", "findingCount": 2}
+    ]
+    assert len(view["findings"]) == 100
+    assert view["omittedFindingCount"] == 20
+    assert "reportArtifactId" not in view["findings"][0]
+    assert "status" not in view  # duplicado exacto de verdict, solo en la vista
+    assert view["verdict"] == "risk"
+    # El payload original no se toca: artefacto/response/evidencia lo necesitan completo.
+    assert len(payload["filesScanned"]) == 500
+    assert payload["findings"][0]["reportArtifactId"] == "artifact-9"
+    assert payload["status"] == "risk"

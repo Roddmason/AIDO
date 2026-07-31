@@ -1023,11 +1023,17 @@ class SecurityAgentRunner:
         sin ellas el modelo revisa hallazgos sin saber qué se pedía. El loop ya las entrega en el
         payload, aquí solo entran al prompt.
         """
+        constitution = str(payload.get("constitution") or "").strip()
         story_specs = str(payload.get("storySpecs") or "").strip()
         findings_block = prompt_json_dumps(redact_secrets(findings_payload))
-        if not story_specs:
+        parts: list[str] = []
+        if constitution:
+            parts.append(constitution)
+        if story_specs:
+            parts.append(f"Story specs under review:\n{story_specs}")
+        if not parts:
             return findings_block
-        return f"Story specs under review:\n{story_specs}\n\nDeterministic findings:\n{findings_block}"
+        return "\n\n".join([*parts, f"Deterministic findings:\n{findings_block}"])
 
     def _execute_optional_model_analysis(
         self,

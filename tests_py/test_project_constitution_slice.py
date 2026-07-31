@@ -173,3 +173,58 @@ def test_prompt_render_is_bounded_and_empty_without_document() -> None:
     assert rendered.startswith("Project constitution (v3):")
     assert len(rendered) <= CONSTITUTION_PROMPT_CHAR_LIMIT + 40
     assert rendered.endswith("[constitution truncated]")
+
+
+def test_developer_prompt_is_byte_identical_without_constitution_and_prepends_with_it() -> None:
+    """El bloque de constitución es estrictamente opcional: sin él, prompt legado byte a byte."""
+    from local_control_center.agents.runtime_registry import developer_agent_prompt
+
+    legacy = developer_agent_prompt(instruction="do x", qa_commands=[["pytest"]])
+    explicit_none = developer_agent_prompt(instruction="do x", qa_commands=[["pytest"]], constitution=None)
+    assert legacy == explicit_none
+
+    block = "Project constitution (v2):\n- Cambios quirúrgicos"
+    with_constitution = developer_agent_prompt(
+        instruction="do x", qa_commands=[["pytest"]], constitution=block
+    )
+    assert with_constitution.index(block) < with_constitution.index("Instruction:")
+    assert with_constitution.replace(block + "\n\n", "") == legacy
+
+
+def test_product_owner_context_carries_constitution_only_when_provided() -> None:
+    from local_control_center.agents.product_owner_agent import ProductOwnerAgent
+
+    agent = ProductOwnerAgent()
+    without = agent._assessment_context(idea="idea", assessment={})
+    assert "projectConstitution" not in without
+
+    with_doc = agent._assessment_context(
+        idea="idea", assessment={}, constitution="Project constitution (v1):\n- Regla"
+    )
+    assert with_doc["projectConstitution"].startswith("Project constitution")
+
+
+def test_security_analysis_prompt_prepends_constitution() -> None:
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    findings = {"findings": [{"id": "f-1"}]}
+    plain = SecurityAgentRunner._model_analysis_prompt({}, findings)
+    with_doc = SecurityAgentRunner._model_analysis_prompt(
+        {"constitution": "Project constitution (v1):\n- Regla"}, findings
+    )
+    assert plain in with_doc
+    assert with_doc.startswith("Project constitution")
+
+
+def test_architect_review_context_includes_constitution_only_when_provided(tmp_path: Path) -> None:
+    from local_control_center.agents.architect_agent import ArchitectAgentRunner
+
+    runner = ArchitectAgentRunner.__new__(ArchitectAgentRunner)
+    without = runner._messages(payload={"diffArtifactId": "artifact-1"}, diff_text="diff")
+    assert '"constitution"' not in without[1]["content"]
+
+    with_doc = runner._messages(
+        payload={"diffArtifactId": "artifact-1", "constitution": "Project constitution (v1):\n- Regla"},
+        diff_text="diff",
+    )
+    assert '"constitution"' in with_doc[1]["content"]

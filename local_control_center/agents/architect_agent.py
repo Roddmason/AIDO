@@ -455,6 +455,11 @@ class ArchitectAgentRunner:
         output_schema = architect_agent_contract()["outputSchema"]
         review_context = {
             "workflowContext": _prompt_workflow_context(payload.get("workflowContext") or {}),
+            **(
+                {"constitution": _bounded_text(payload.get("constitution"))}
+                if str(payload.get("constitution") or "").strip()
+                else {}
+            ),
             "diffArtifactId": payload["diffArtifactId"],
             "diff": _bounded_text(diff_text, PROMPT_DIFF_LIMIT_CHARS),
             "relevantDocs": _bounded_items(payload.get("relevantDocs") or [], keys=_RELEVANT_DOC_PROMPT_KEYS),

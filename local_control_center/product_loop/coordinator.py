@@ -322,6 +322,7 @@ class _UserMessageRun:
     product_owner_runner: Any | None = None
     assessment_runner: Any | None = None
     technical_lead_runner: Any | None = None
+    security_runner: Any | None = None
 
     message_text: str = ""
     effective_root: Path | None = None
@@ -368,6 +369,8 @@ class _UserMessageRun:
     rework_feedback: str | None = None
     base_task_id: str = ""
     gitleaks: dict[str, Any] = field(default_factory=dict)
+    security_summary: dict[str, Any] = field(default_factory=dict)
+    should_rework: bool = False
     diff_ref: dict[str, Any] = field(default_factory=dict)
     security_evidence: dict[str, Any] = field(default_factory=dict)
     resource_learning: dict[str, Any] = field(default_factory=dict)
@@ -3995,6 +3998,7 @@ class ProductLoopCoordinator:
             product_owner_runner=product_owner_runner,
             assessment_runner=assessment_runner,
             technical_lead_runner=technical_lead_runner,
+            security_runner=security_runner,
         )
         result = self._ensure_thread_and_similarity(run)
         if result is not None:
@@ -4031,170 +4035,189 @@ class ProductLoopCoordinator:
             result = self._capture_review_evidence(run)
             if result is not None:
                 return result
-            # Puente temporal mientras se extraen las fases restantes.
-            thread_id = run.thread_id
-            loop = run.loop
-            git = run.git
-            workspace = run.workspace
-            runtime_result = run.runtime_result
-            runtime_status = run.runtime_status
-            review = run.review
-            evidence_ids = run.evidence_ids
-            agent_tasks = run.agent_tasks
-            team_schedule = run.team_schedule
+            result = self._evaluate_qa_gate(run)
+            if result is not None:
+                return result
+            if run.should_rework:
+                continue
+            break
+        result = self._run_security_phase(run)
+        if result is not None:
+            return result
+        return self._finalize_delivery_approval(run)
 
-            loop = self._transition_run_state(
+    def _evaluate_qa_gate(self, run: _UserMessageRun) -> dict[str, Any] | None:
+        """Evalúa el veredicto QA del runtime y decide rework, bloqueo o avance a Security.
+
+        Devuelve un dict terminal (bloqueo o rondas de rework agotadas) o ``None`` para continuar;
+        cuando QA falla dentro del presupuesto de rondas deja ``run.should_rework`` en ``True`` para
+        que el driver re-ejecute al developer con el feedback compactado.
+        """
+        project_id = run.project_id
+        actor = run.actor
+        thread_id = run.thread_id
+        loop = run.loop
+        workspace = run.workspace
+        runtime_result = run.runtime_result
+        runtime_status = run.runtime_status
+        review = run.review
+        evidence_ids = run.evidence_ids
+        agent_tasks = run.agent_tasks
+        team_schedule = run.team_schedule
+        run.should_rework = False
+
+        loop = self._transition_run_state(
+            loop,
+            to_state="qa_running",
+            reason="Runtime finished; QA evidence is being evaluated.",
+            trigger="qa_running",
+            actor=actor,
+            context_patch=self._durable_run_patch(
                 loop,
-                to_state="qa_running",
-                reason="Runtime finished; QA evidence is being evaluated.",
-                trigger="qa_running",
+                {"status": "qa_running", "runtimeResult": runtime_result, "review": review},
+                evidence_package_ids=evidence_ids,
+            ),
+            thread_id=thread_id,
+        )
+        run.loop = loop
+        qa_results = (
+            runtime_result.get("qaResults") if isinstance(runtime_result.get("qaResults"), list) else []
+        )
+        qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
+        qa_statuses = [
+            str(result.get("status") or "").strip().lower()
+            for result in qa_results
+            if isinstance(result, dict)
+        ]
+        qa_block_details = {
+            **runtime_result,
+            "status": "qa_blocked",
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace["path"],
+            "runtimeStatus": runtime_status,
+            "qaVerdict": qa_verdict,
+            "qaResults": qa_results,
+            "review": review,
+            "teamSchedule": team_schedule,
+            "agentTaskIds": [task["id"] for task in agent_tasks],
+        }
+        if runtime_status == "qa_failed" or qa_verdict == "failed" or "failed" in qa_statuses:
+            reason = str(runtime_result.get("reason") or "QA failed and requires rework.")
+            evidence = self._record_run_evidence(
+                project_id=project_id,
+                loop_id=loop["id"],
+                stage="qa",
+                status="reworking",
+                reason=reason,
+                details={**runtime_result, "reworkRound": run.rework_round},
+            )
+            try:
+                resource_learning = self._record_resource_learning(
+                    project_id=project_id,
+                    loop_id=loop["id"],
+                    team_schedule=team_schedule,
+                    runtime_result=runtime_result,
+                    evidence_ref=evidence["id"],
+                    success=False,
+                    rework=True,
+                    quality_score=0.0,
+                )
+            except Exception as error:
+                learning_reason = f"AI resource learning persistence failed: {redact_secrets(str(error))}"
+                return self._block_run(
+                    loop,
+                    stage="resource_learning",
+                    reason=learning_reason,
+                    actor=actor,
+                    details={
+                        "status": "persistence_failed",
+                        "reason": learning_reason,
+                        "evidenceRef": evidence["id"],
+                        "runtimeStatus": runtime_status,
+                        "qaVerdict": qa_verdict,
+                        "qaResults": qa_results,
+                        "teamSchedule": team_schedule,
+                        "agentTaskIds": [task["id"] for task in agent_tasks],
+                    },
+                    durable_context={
+                        "rework": {"source": "qa", "reason": reason, "runtimeStatus": runtime_status},
+                        "resourceLearning": {
+                            "status": "persistence_failed",
+                            "reason": learning_reason,
+                            "evidenceRef": evidence["id"],
+                        },
+                    },
+                    thread_id=thread_id,
+                )
+            try:
+                reworked = self._transition_run_state(
+                    loop,
+                    to_state=REWORK_STATE,
+                    reason=reason,
+                    trigger="qa_failed",
+                    actor=actor,
+                    context_patch=self._durable_run_patch(
+                        loop,
+                        {
+                            "status": REWORK_STATE,
+                            "rework": {
+                                "source": "qa",
+                                "reason": reason,
+                                "runtimeStatus": runtime_status,
+                                "reworkRound": run.rework_round,
+                            },
+                            "resourceLearning": resource_learning,
+                        },
+                        evidence_package_ids=[*evidence_ids, evidence["id"]],
+                    ),
+                    metadata={"evidencePackageId": evidence["id"]},
+                    thread_id=thread_id,
+                )
+            except ProductLoopStopConditionError as stop_error:
+                return self._block_run(
+                    loop,
+                    stage="qa_rework",
+                    reason=str(stop_error),
+                    actor=actor,
+                    details={
+                        "status": "stop_condition",
+                        "reason": str(stop_error),
+                        "runtimeStatus": runtime_status,
+                        "qaVerdict": qa_verdict,
+                        "reworkRound": run.rework_round,
+                        "teamSchedule": team_schedule,
+                        "agentTaskIds": [task["id"] for task in agent_tasks],
+                    },
+                    thread_id=thread_id,
+                )
+            run.loop = reworked
+            if run.rework_round >= DEFAULT_AUTO_REWORK_ROUNDS:
+                return self._run_result(
+                    reworked, status=REWORK_STATE, reason=reason, evidence_package=evidence
+                )
+            run.rework_round += 1
+            run.rework_feedback = self._qa_rework_feedback(qa_results)
+            run.task_id = f"{run.base_task_id}:r{run.rework_round}"
+            loop = self._transition_run_state(
+                reworked,
+                to_state="executing",
+                reason=(
+                    f"Auto rework round {run.rework_round}: re-executing DeveloperAgent with QA feedback."
+                ),
+                trigger="auto_rework",
                 actor=actor,
                 context_patch=self._durable_run_patch(
-                    loop,
-                    {"status": "qa_running", "runtimeResult": runtime_result, "review": review},
-                    evidence_package_ids=evidence_ids,
+                    reworked,
+                    {
+                        "status": "executing",
+                        "autoRework": {"round": run.rework_round, "reason": reason},
+                    },
                 ),
                 thread_id=thread_id,
             )
             run.loop = loop
-            qa_results = (
-                runtime_result.get("qaResults") if isinstance(runtime_result.get("qaResults"), list) else []
-            )
-            qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
-            qa_statuses = [
-                str(result.get("status") or "").strip().lower()
-                for result in qa_results
-                if isinstance(result, dict)
-            ]
-            qa_block_details = {
-                **runtime_result,
-                "status": "qa_blocked",
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "runtimeStatus": runtime_status,
-                "qaVerdict": qa_verdict,
-                "qaResults": qa_results,
-                "review": review,
-                "teamSchedule": team_schedule,
-                "agentTaskIds": [task["id"] for task in agent_tasks],
-            }
-            if runtime_status == "qa_failed" or qa_verdict == "failed" or "failed" in qa_statuses:
-                reason = str(runtime_result.get("reason") or "QA failed and requires rework.")
-                evidence = self._record_run_evidence(
-                    project_id=project_id,
-                    loop_id=loop["id"],
-                    stage="qa",
-                    status="reworking",
-                    reason=reason,
-                    details={**runtime_result, "reworkRound": run.rework_round},
-                )
-                try:
-                    resource_learning = self._record_resource_learning(
-                        project_id=project_id,
-                        loop_id=loop["id"],
-                        team_schedule=team_schedule,
-                        runtime_result=runtime_result,
-                        evidence_ref=evidence["id"],
-                        success=False,
-                        rework=True,
-                        quality_score=0.0,
-                    )
-                except Exception as error:
-                    learning_reason = f"AI resource learning persistence failed: {redact_secrets(str(error))}"
-                    return self._block_run(
-                        loop,
-                        stage="resource_learning",
-                        reason=learning_reason,
-                        actor=actor,
-                        details={
-                            "status": "persistence_failed",
-                            "reason": learning_reason,
-                            "evidenceRef": evidence["id"],
-                            "runtimeStatus": runtime_status,
-                            "qaVerdict": qa_verdict,
-                            "qaResults": qa_results,
-                            "teamSchedule": team_schedule,
-                            "agentTaskIds": [task["id"] for task in agent_tasks],
-                        },
-                        durable_context={
-                            "rework": {"source": "qa", "reason": reason, "runtimeStatus": runtime_status},
-                            "resourceLearning": {
-                                "status": "persistence_failed",
-                                "reason": learning_reason,
-                                "evidenceRef": evidence["id"],
-                            },
-                        },
-                        thread_id=thread_id,
-                    )
-                try:
-                    reworked = self._transition_run_state(
-                        loop,
-                        to_state=REWORK_STATE,
-                        reason=reason,
-                        trigger="qa_failed",
-                        actor=actor,
-                        context_patch=self._durable_run_patch(
-                            loop,
-                            {
-                                "status": REWORK_STATE,
-                                "rework": {
-                                    "source": "qa",
-                                    "reason": reason,
-                                    "runtimeStatus": runtime_status,
-                                    "reworkRound": run.rework_round,
-                                },
-                                "resourceLearning": resource_learning,
-                            },
-                            evidence_package_ids=[*evidence_ids, evidence["id"]],
-                        ),
-                        metadata={"evidencePackageId": evidence["id"]},
-                        thread_id=thread_id,
-                    )
-                except ProductLoopStopConditionError as stop_error:
-                    return self._block_run(
-                        loop,
-                        stage="qa_rework",
-                        reason=str(stop_error),
-                        actor=actor,
-                        details={
-                            "status": "stop_condition",
-                            "reason": str(stop_error),
-                            "runtimeStatus": runtime_status,
-                            "qaVerdict": qa_verdict,
-                            "reworkRound": run.rework_round,
-                            "teamSchedule": team_schedule,
-                            "agentTaskIds": [task["id"] for task in agent_tasks],
-                        },
-                        thread_id=thread_id,
-                    )
-                run.loop = reworked
-                if run.rework_round >= DEFAULT_AUTO_REWORK_ROUNDS:
-                    return self._run_result(
-                        reworked, status=REWORK_STATE, reason=reason, evidence_package=evidence
-                    )
-                run.rework_round += 1
-                run.rework_feedback = self._qa_rework_feedback(qa_results)
-                run.task_id = f"{run.base_task_id}:r{run.rework_round}"
-                loop = self._transition_run_state(
-                    reworked,
-                    to_state="executing",
-                    reason=(
-                        f"Auto rework round {run.rework_round}: re-executing DeveloperAgent with QA feedback."
-                    ),
-                    trigger="auto_rework",
-                    actor=actor,
-                    context_patch=self._durable_run_patch(
-                        reworked,
-                        {
-                            "status": "executing",
-                            "autoRework": {"round": run.rework_round, "reason": reason},
-                        },
-                    ),
-                    thread_id=thread_id,
-                )
-                run.loop = loop
-                continue
-            break
+            run.should_rework = True
+            return None
         if not qa_results:
             return self._block_after_runtime_with_resource_learning(
                 loop,
@@ -4272,7 +4295,29 @@ class ProductLoopCoordinator:
                 runtime_result=runtime_result,
                 thread_id=thread_id,
             )
+        run.loop = loop
+        run.qa_results = qa_results
+        run.qa_verdict = qa_verdict
+        return None
 
+    def _run_security_phase(self, run: _UserMessageRun) -> dict[str, Any] | None:
+        """Corre los gates de seguridad (gitleaks + SecurityAgent) sobre la evidencia del run.
+
+        Devuelve un dict terminal si un gate bloquea o falla; ``None`` deja el veredicto y el
+        resumen de seguridad en ``run`` para la fase de aprobación.
+        """
+        project_id = run.project_id
+        actor = run.actor
+        thread_id = run.thread_id
+        loop = run.loop
+        git = run.git
+        workspace = run.workspace
+        runtime_result = run.runtime_result
+        runtime_status = run.runtime_status
+        review = run.review
+        qa_results = run.qa_results
+        agent_tasks = run.agent_tasks
+        team_schedule = run.team_schedule
         loop = self._transition_run_state(
             loop,
             to_state="security_running",
@@ -4340,7 +4385,7 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
 
-        security_agent = security_runner or SecurityAgentRunner(self.connection, root=run.effective_root)
+        security_agent = run.security_runner or SecurityAgentRunner(self.connection, root=run.effective_root)
         patch_artifact_id = str((runtime_result.get("diffSummary") or {}).get("patchArtifactId") or "")
         security_payload: dict[str, Any] = {
             "projectId": project_id,
@@ -4415,7 +4460,30 @@ class ProductLoopCoordinator:
                 runtime_result=runtime_result,
                 thread_id=thread_id,
             )
+        run.loop = loop
+        run.gitleaks = gitleaks
+        run.security_summary = security_summary
+        return None
 
+    def _finalize_delivery_approval(self, run: _UserMessageRun) -> dict[str, Any]:
+        """Registra la evidencia de seguridad, crea la aprobación de entrega y estaciona el loop.
+
+        Cierra el camino feliz: evidencia consolidada, job + ActionRequest de aprobación, y las
+        transiciones ``review_ready`` → ``awaiting_approval`` con su evento de hilo.
+        """
+        project_id = run.project_id
+        actor = run.actor
+        thread_id = run.thread_id
+        loop = run.loop
+        workspace = run.workspace
+        runtime_result = run.runtime_result
+        review = run.review
+        qa_results = run.qa_results
+        evidence_ids = run.evidence_ids
+        agent_tasks = run.agent_tasks
+        team_schedule = run.team_schedule
+        gitleaks = run.gitleaks
+        security_summary = run.security_summary
         diff_ref = _diff_ref_from_review(review)
         diff_summary = _diff_summary_from_review(review)
         security_evidence = self._record_run_evidence(

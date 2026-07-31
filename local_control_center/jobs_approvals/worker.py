@@ -460,30 +460,34 @@ def _execute_thread_research_job(
     }
 
 
+# Ruteo explícito status del run -> (status del hilo, tipo de evento terminal). Cada status que el
+# coordinator retorna (RUN_RESULT_STATUSES) debe tener su fila: el gate
+# test_product_loop_result_taxonomy.py falla ante un status nuevo sin decisión, porque el fallback
+# fail-closed de abajo pinta el pipeline del hilo como bloqueado y eso le mintió al operador cuando
+# brief_ready caía en él.
+PRODUCT_LOOP_RESULT_ROUTING: dict[str, tuple[str, str]] = {
+    "awaiting_approval": ("awaiting_approval", "approval_required"),
+    "awaiting_user": ("waiting_decision", "decision_required"),
+    "blocked": ("blocked", "blocked"),
+    "brief_ready": ("open", "brief_ready"),
+    "cancelled": ("open", "cancelled"),
+    "completed": ("resolved", "completed"),
+    "delivered": ("resolved", "completed"),
+    "failed": ("blocked", "blocked"),
+    "plan_ready": ("open", "plan_ready"),
+    "reworking": ("blocked", "blocked"),
+}
+# Fallback fail-closed para statuses fuera del contrato: mejor un falso bloqueo visible (que el gate
+# de taxonomía convierte en rojo de test) que un hilo resuelto sin evidencia.
+_UNMAPPED_RESULT_ROUTE = ("blocked", "blocked")
+
+
 def _thread_status_for_product_loop_result(status: str) -> str:
-    if status == "awaiting_approval":
-        return "awaiting_approval"
-    if status == "awaiting_user":
-        return "waiting_decision"
-    if status == "plan_ready":
-        return "open"
-    if status in {"completed", "delivered"}:
-        return "resolved"
-    if status in {"blocked", "failed", "reworking"}:
-        return "blocked"
-    return "open"
+    return PRODUCT_LOOP_RESULT_ROUTING.get(status, _UNMAPPED_RESULT_ROUTE)[0]
 
 
 def _thread_terminal_event_for_product_loop_result(status: str) -> str:
-    if status == "awaiting_approval":
-        return "approval_required"
-    if status == "awaiting_user":
-        return "decision_required"
-    if status == "plan_ready":
-        return "plan_ready"
-    if status in {"completed", "delivered"}:
-        return "completed"
-    return "blocked"
+    return PRODUCT_LOOP_RESULT_ROUTING.get(status, _UNMAPPED_RESULT_ROUTE)[1]
 
 
 def _thread_job_was_cancelled(threads: ThreadsRepository, job_id: str) -> bool:

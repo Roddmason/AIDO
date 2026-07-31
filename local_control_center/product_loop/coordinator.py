@@ -164,6 +164,33 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 STOP_CONDITIONS = ("budget_exhausted", "deadline_exceeded", "state_timeout", "max_rework_reached")
+# Contrato de salida de _run_user_message: todo status que un run puede retornar. El worker y los
+# gates de taxonomía (test_product_loop_result_taxonomy.py) enumeran contra esta tupla, así que un
+# status nuevo obliga a decidir su ruteo (hilo/evento/veredicto) en el mismo commit.
+RUN_RESULT_STATUSES = (
+    "awaiting_approval",
+    "awaiting_user",
+    "blocked",
+    "brief_ready",
+    "cancelled",
+    "completed",
+    "plan_ready",
+    "reworking",
+)
+# Statuses de etapa que representan un cierre sano: producen veredicto de evidencia "passed".
+# Cualquier status fuera de este set cae al lado bloqueado (severidad high) a propósito.
+RUN_EVIDENCE_PASSED_STATUSES = frozenset(
+    {
+        "completed",
+        "awaiting_approval",
+        "reworking",
+        "awaiting_user",
+        "needs_input",
+        "brief_ready",
+        "backlog_ready",
+        "plan_ready",
+    }
+)
 FEEDBACK_ACTIONS = set(FEEDBACK_ACTION_VALUES)
 FEEDBACK_CLASSIFICATIONS = set(FEEDBACK_CLASSIFICATION_VALUES)
 TARGET_CLASSIFICATIONS = {
@@ -1108,21 +1135,7 @@ class ProductLoopCoordinator:
         policy_decisions: list[dict[str, Any]] | None = None,
         artifact_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        verdict = (
-            "passed"
-            if status
-            in {
-                "completed",
-                "awaiting_approval",
-                "reworking",
-                "awaiting_user",
-                "needs_input",
-                "brief_ready",
-                "backlog_ready",
-                "plan_ready",
-            }
-            else "blocked"
-        )
+        verdict = "passed" if status in RUN_EVIDENCE_PASSED_STATUSES else "blocked"
         severity = "low" if verdict == "passed" else "high"
         gate_result = {
             "command": f"product_loop.{stage}",

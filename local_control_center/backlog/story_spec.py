@@ -90,11 +90,14 @@ def render_story_spec_prompt(
     specs: list[dict[str, Any]],
     *,
     char_limit: int = STORY_SPEC_PROMPT_CHAR_LIMIT,
+    for_role: str | None = None,
 ) -> str:
     """Renderiza specs de historias como markdown compacto y deterministico para prompts.
 
     El resultado nunca excede ``char_limit``; si el contenido no cabe, se corta y
-    termina con el marcador ``[truncated]``.
+    termina con el marcador ``[truncated]``. Con ``for_role`` las responsabilidades de
+    rol se filtran al destinatario (mas su reviewer aguas arriba); sin el, TODOS los
+    agentes ven el mismo spec completo — la propiedad de auditoria cruzada por defecto.
     """
     sections: list[str] = []
     for spec in specs:
@@ -111,6 +114,12 @@ def render_story_spec_prompt(
             for criterion in spec.get("acceptanceCriteria") or []
         )
         responsibilities = spec.get("roleResponsibilities") or []
+        if for_role:
+            responsibilities = [
+                item
+                for item in responsibilities
+                if item.get("role") == for_role or item.get("reviewerRole") == for_role
+            ]
         if responsibilities:
             lines.append("Role responsibilities:")
             for item in responsibilities:

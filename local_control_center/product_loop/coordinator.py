@@ -2157,10 +2157,14 @@ class ProductLoopCoordinator:
                     stories.append(story)
         return stories
 
-    def _story_specs_for_tasks(self, agent_tasks: list[dict[str, Any]]) -> str | None:
+    def _story_specs_for_tasks(
+        self, agent_tasks: list[dict[str, Any]], *, for_role: str | None = None
+    ) -> str | None:
         """Renderiza el spec ejecutable (epica/HU/criterios/roles) de las historias asignadas.
 
         Devuelve None cuando no hay historias resolubles para no alterar el prompt legado.
+        ``for_role`` filtra las responsabilidades al rol destinatario (el developer sigue
+        recibiendo el spec completo para la auditoria cruzada).
         """
         story_ids: list[str] = []
         for task in agent_tasks or []:
@@ -2175,7 +2179,7 @@ class ProductLoopCoordinator:
                 continue
         if not specs:
             return None
-        return render_story_spec_prompt(specs)
+        return render_story_spec_prompt(specs, for_role=for_role)
 
     def _acceptance_criteria_from_backlog(self, backlog: list[dict[str, Any]]) -> list[dict[str, Any]]:
         criteria: list[dict[str, Any]] = []
@@ -4412,7 +4416,7 @@ class ProductLoopCoordinator:
             "workflowRunId": loop["id"],
             "workflowStepId": "security_review",
         }
-        story_specs_prompt = self._story_specs_for_tasks(agent_tasks)
+        story_specs_prompt = self._story_specs_for_tasks(agent_tasks, for_role="security_engineer")
         if story_specs_prompt:
             security_payload["storySpecs"] = story_specs_prompt
         constitution_prompt = render_constitution_prompt(run.constitution)

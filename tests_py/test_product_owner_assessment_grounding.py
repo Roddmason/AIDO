@@ -359,3 +359,48 @@ def test_existing_initiative_and_brief_are_projected_to_content_fields() -> None
         "createdAt",
     ):
         assert noise not in serialized
+
+
+def test_context_budget_drops_oldest_but_never_the_most_recent_answer() -> None:
+    """El presupuesto agregado corta lo antiguo; la respuesta más reciente jamás se descarta."""
+    from local_control_center.agents.product_owner_agent import (
+        PROMPT_CONTEXT_BUDGET_CHARS,
+        _apply_context_budget,
+    )
+
+    facts = [
+        {"question": f"q{index}", "answer": "a" * 2_000, "answeredBy": "operator"} for index in range(40)
+    ]
+    context = {
+        "existingOpenQuestions": ["x"],
+        "existingUnresolvedDecisions": [],
+        "resolvedFacts": facts,
+        "settledDecisions": [],
+    }
+    bounded = _apply_context_budget(dict(context))
+
+    import json as _json
+
+    total = sum(
+        len(_json.dumps(bounded.get(name) or [], ensure_ascii=False))
+        for name in (
+            "existingOpenQuestions",
+            "existingUnresolvedDecisions",
+            "resolvedFacts",
+            "settledDecisions",
+        )
+    )
+    assert total <= PROMPT_CONTEXT_BUDGET_CHARS
+    assert bounded["omittedResolvedFacts"] > 0
+    # Drop-oldest: el fact más reciente (q39) sobrevive; el más antiguo (q0) se fue.
+    surviving = [fact["question"] for fact in bounded["resolvedFacts"]]
+    assert "q39" in surviving
+    assert "q0" not in surviving
+
+    small = {
+        "existingOpenQuestions": ["una"],
+        "existingUnresolvedDecisions": [],
+        "resolvedFacts": [{"question": "q", "answer": "a", "answeredBy": "op"}],
+        "settledDecisions": [],
+    }
+    assert _apply_context_budget(dict(small)) == small

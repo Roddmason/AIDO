@@ -8,6 +8,7 @@ from local_control_center.agents.product_owner_agent import (
     ProductOwnerAgent,
     ProductOwnerAgentRunner,
     ProductOwnerOutputValidationError,
+    _supplied_assessment_signals,
 )
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
@@ -258,3 +259,103 @@ def test_prompt_unchanged_without_goal() -> None:
     assert explicit_none == legacy_prompt
     assert empty_string == legacy_prompt
     assert "projectGoal" not in legacy_prompt
+
+
+def test_runner_shaped_supplied_assessment_is_compressed_to_signals() -> None:
+    """El assessment_result completo del coordinator se reduce a señales antes de entrar al prompt.
+
+    El ProjectAssessmentRunner devuelve {assessment, findings, artifact, decision, job, agentRun};
+    al modelo solo deben llegar las señales decision-relevant de _codebase_signals, no los registros
+    internos ni un finding por módulo/endpoint del repo.
+    """
+    supplied = {
+        "status": "completed",
+        "assessment": {
+            "id": "assessment-1",
+            "summary": {"stack": ["Python"], "hasTests": True, "riskCount": 1, "gapCount": 1},
+        },
+        "findings": [
+            {"category": "risk", "title": "Committed .env"},
+            {"category": "gap", "title": "No security tooling"},
+            {"category": "module", "title": "local_control_center/product_loop"},
+        ],
+        "artifact": {"id": "artifact-1", "path": "/tmp/x.json", "hash": "abc"},
+        "decision": {"id": "decision-1"},
+        "job": {"id": "job-1"},
+        "agentRun": {"id": "agent-run-1"},
+    }
+
+    signals = _supplied_assessment_signals(supplied)
+
+    assert signals["assessmentId"] == "assessment-1"
+    assert signals["stack"] == ["Python"]
+    assert signals["risks"] == ["Committed .env"]
+    assert signals["gaps"] == ["No security tooling"]
+    # Los registros internos y el catálogo de módulos no viajan al prompt.
+    serialized = str(signals)
+    for noise in ("artifact-1", "job-1", "agent-run-1", "decision-1", "product_loop"):
+        assert noise not in serialized
+
+
+def test_flat_supplied_assessment_passes_through_unchanged() -> None:
+    """Un assessment ya plano (stack/risks/gaps) entra tal cual: es la forma acotada histórica."""
+    flat = {"stack": ["Python"], "hasTests": True, "risks": ["x"], "gaps": []}
+    assert _supplied_assessment_signals(flat) is flat
+
+
+def test_existing_initiative_and_brief_are_projected_to_content_fields() -> None:
+    """El contexto del prompt no arrastra uuids/timestamps de initiative y brief."""
+    agent = ProductOwnerAgent()
+    assessment = {
+        "initiative": {
+            "id": "initiative-uuid-1234",
+            "projectId": "project-uuid-5678",
+            "title": "Onboarding",
+            "summary": "Self-serve onboarding flow.",
+            "status": "active",
+            "priority": "high",
+            "owner": "po",
+            "version": 3,
+            "metadata": {"threadId": "thread-uuid-9999"},
+            "createdAt": "2026-07-01T00:00:00Z",
+            "updatedAt": "2026-07-02T00:00:00Z",
+        },
+        "brief": {
+            "id": "brief-uuid-4321",
+            "projectId": "project-uuid-5678",
+            "initiativeId": "initiative-uuid-1234",
+            "title": "Onboarding brief",
+            "summary": "Brief summary.",
+            "problemStatement": "Users churn during setup.",
+            "goals": ["Reduce churn"],
+            "targetUsers": ["New users"],
+            "successMetrics": ["Activation rate"],
+            "scope": "Signup flow",
+            "outOfScope": "Billing",
+            "status": "draft",
+            "version": 2,
+            "createdAt": "2026-07-01T00:00:00Z",
+            "updatedAt": "2026-07-02T00:00:00Z",
+        },
+    }
+
+    context = agent._assessment_context(idea="Improve onboarding.", assessment=assessment)
+
+    assert context["existingInitiative"] == {
+        "title": "Onboarding",
+        "summary": "Self-serve onboarding flow.",
+        "status": "active",
+    }
+    brief = context["existingBrief"]
+    assert brief["problemStatement"] == "Users churn during setup."
+    assert brief["status"] == "draft"
+    assert brief["version"] == 2
+    serialized = str(context)
+    for noise in (
+        "initiative-uuid-1234",
+        "brief-uuid-4321",
+        "project-uuid-5678",
+        "thread-uuid-9999",
+        "createdAt",
+    ):
+        assert noise not in serialized

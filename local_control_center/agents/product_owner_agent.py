@@ -110,7 +110,9 @@ RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
 ASSESSMENT_SIGNAL_LIMIT = 5
 PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS = 2
 REPAIR_ERROR_LIMIT_CHARS = 2_000
-REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 4_000
+# El error de validación (arriba) ya señala el campo exacto a corregir; 1.5k de salida previa
+# bastan como referencia y ahorran ~2.5k chars en cada intento de repair.
+REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 1_500
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
@@ -294,6 +296,43 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
     }
 
 
+def _supplied_assessment_signals(supplied: dict[str, Any]) -> dict[str, Any]:
+    """Reduce un assessment_result con forma de runner a las señales acotadas del prompt.
+
+    El coordinator entrega el resultado completo del ``ProjectAssessmentRunner``
+    (``{assessment, findings, artifact, decision, job, agentRun}``); serializarlo verbatim infla el
+    prompt con registros internos y un finding por módulo/endpoint del repo (~24k chars medidos en
+    un proyecto mediano). Al modelo solo llegan las señales de ``_codebase_signals``; un dict ya
+    plano (stack/risks/gaps) pasa sin cambios porque es la forma acotada histórica.
+    """
+    assessment = supplied.get("assessment")
+    findings = supplied.get("findings")
+    if isinstance(assessment, dict) and isinstance(findings, list):
+        return _codebase_signals(assessment, [f for f in findings if isinstance(f, dict)])
+    return supplied
+
+
+def _initiative_prompt_view(initiative: Any) -> dict[str, Any] | None:
+    """Proyecta la iniciativa a sus campos de contenido: el modelo no usa uuids ni timestamps."""
+    if not isinstance(initiative, dict):
+        return None
+    return {
+        "title": initiative.get("title"),
+        "summary": initiative.get("summary"),
+        "status": initiative.get("status"),
+    }
+
+
+_BRIEF_PROMPT_FIELDS = (*REQUIRED_BRIEF_TEXT_FIELDS, *REQUIRED_BRIEF_LIST_FIELDS, "status", "version")
+
+
+def _brief_prompt_view(brief: Any) -> dict[str, Any] | None:
+    """Proyecta el brief a contenido + status/version, sin ids de BD ni timestamps."""
+    if not isinstance(brief, dict):
+        return None
+    return {field: brief.get(field) for field in _BRIEF_PROMPT_FIELDS}
+
+
 def persist_product_owner_backlog(
     backlog: BacklogRepository,
     *,
@@ -412,8 +451,8 @@ class ProductOwnerAgent:
         context = {
             "idea": _bounded_text(idea),
             "codebaseSignals": assessment.get("projectAssessment"),
-            "existingInitiative": assessment.get("initiative"),
-            "existingBrief": assessment.get("brief"),
+            "existingInitiative": _initiative_prompt_view(assessment.get("initiative")),
+            "existingBrief": _brief_prompt_view(assessment.get("brief")),
             "existingOpenQuestions": [
                 _bounded_text(question.get("question"))
                 for question in (assessment.get("openQuestions") or [])[:PROMPT_COLLECTION_LIMIT]
@@ -1405,7 +1444,7 @@ class ProductOwnerAgentRunner:
         readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
         supplied_assessment = payload.get("assessment")
         assessment["projectAssessment"] = (
-            redact_secrets(supplied_assessment)
+            redact_secrets(_supplied_assessment_signals(supplied_assessment))
             if isinstance(supplied_assessment, dict) and supplied_assessment
             else self._project_assessment_signals(project_id)
             if readiness["executable"]

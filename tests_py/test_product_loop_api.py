@@ -394,6 +394,8 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
             "backlog_ready",
             "iteration_planning",
             "executing",
+            "qa_running",
+            "security_running",
             "quality_review",
             "awaiting_approval",
         ]:
@@ -442,6 +444,8 @@ def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -
             "backlog_ready",
             "iteration_planning",
             "executing",
+            "qa_running",
+            "security_running",
             "quality_review",
             "awaiting_approval",
         ]:
@@ -514,6 +518,8 @@ def test_review_action_denial_requests_product_loop_delivery_feedback(tmp_path: 
             "backlog_ready",
             "iteration_planning",
             "executing",
+            "qa_running",
+            "security_running",
             "quality_review",
             "awaiting_approval",
         ]:

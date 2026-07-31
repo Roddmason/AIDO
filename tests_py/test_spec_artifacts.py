@@ -183,3 +183,34 @@ def test_write_spec_artifacts_renders_plan_md_when_plan_exists(tmp_path: Path) -
     assert content.startswith(GENERATED_HEADER)
     assert "backend_engineer" in content
     assert "worktree_per_task" in content
+
+
+def test_analysis_flags_stories_without_criteria_and_orphan_tasks() -> None:
+    from local_control_center.product_loop.phases.analysis import analyze_run_consistency
+
+    result = analyze_run_consistency(
+        stories=[{"id": "s1", "title": "Con criterios"}, {"id": "s2", "title": "Sin criterios"}],
+        acceptance_criteria=[{"storyId": "s1", "criterion": "ok"}],
+        agent_tasks=[
+            {"storyId": "s1", "title": "Tarea válida"},
+            {"storyId": "s-fantasma", "title": "Tarea huérfana"},
+        ],
+        changed_files=["src/app.py"],
+    )
+    assert result["status"] == "findings"
+    checks = {finding["check"] for finding in result["findings"]}
+    assert checks == {"story_without_acceptance_criteria", "task_without_story"}
+
+    clean = analyze_run_consistency(
+        stories=[{"id": "s1", "title": "Historia"}],
+        acceptance_criteria=[{"storyId": "s1", "criterion": "ok"}],
+        agent_tasks=[{"storyId": "s1", "title": "Tarea"}],
+        changed_files=["src/app.py"],
+    )
+    assert clean["status"] == "consistent"
+
+    # Sin historias (orden técnica directa) el run es trivialmente consistente.
+    trivial = analyze_run_consistency(
+        stories=[], acceptance_criteria=[], agent_tasks=[], changed_files=["src/app.py"]
+    )
+    assert trivial["status"] == "consistent"

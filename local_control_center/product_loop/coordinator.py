@@ -95,6 +95,7 @@ from local_control_center.workspaces_projects.repository import (
 
 from .delivery import ProductLoopDeliveryService
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
+from .phases.analysis import analyze_run_consistency
 from .phases.plan import PLANNED, SKIPPED_LOW_RISK, plan_phase_decision, technical_plan_view
 from .repository import ProductLoopRepository, stable_task_suffix
 from .spec_artifacts import exclude_aido_artifacts, write_spec_artifacts
@@ -4056,6 +4057,7 @@ class ProductLoopCoordinator:
         result = self._run_security_phase(run)
         if result is not None:
             return result
+        self._run_analysis_phase(run)
         return self._finalize_delivery_approval(run)
 
     def _evaluate_qa_gate(self, run: _UserMessageRun) -> dict[str, Any] | None:
@@ -4775,6 +4777,63 @@ class ProductLoopCoordinator:
                 thread_id=thread_id,
             )
             return loop
+
+    def _run_analysis_phase(self, run: _UserMessageRun) -> None:
+        """Fase Análisis: emite quality_review con la consistencia spec/tareas/diff como evidencia.
+
+        Advisory por diseño: los hallazgos quedan visibles para la aprobación humana pero el
+        veredicto de entrega sigue siendo de QA/Security. El carril rápido (specDriven
+        skipped_low_risk) la salta, y un fallo interno deja evento sin bloquear el run.
+        """
+        try:
+            loop = run.loop
+            durable = self._durable_run_context(loop)
+            spec_driven = durable.get("specDriven") or {}
+            if str(spec_driven.get("plan") or "") == SKIPPED_LOW_RISK:
+                return
+            analysis = analyze_run_consistency(
+                stories=self.backlog.list_user_stories(project_id=run.project_id),
+                acceptance_criteria=self.backlog.list_acceptance_criteria(project_id=run.project_id),
+                agent_tasks=run.agent_tasks,
+                changed_files=[str(item) for item in (run.review or {}).get("changedFiles") or []],
+            )
+            evidence = self._record_run_evidence(
+                project_id=run.project_id,
+                loop_id=loop["id"],
+                stage="analysis",
+                status="completed",
+                reason=(
+                    "Spec/tasks/diff consistency analysis found no gaps."
+                    if analysis["status"] == "consistent"
+                    else f"Spec/tasks/diff consistency analysis reported {len(analysis['findings'])} finding(s)."
+                ),
+                details=analysis,
+                workspace_id=(run.workspace or {}).get("id"),
+            )
+            run.evidence_ids.append(evidence["id"])
+            run.loop = self._transition_run_state(
+                loop,
+                to_state="quality_review",
+                reason="Cross-checking the delivered diff against the spec and planned tasks.",
+                trigger="analysis",
+                actor=run.actor,
+                context_patch=self._durable_run_patch(
+                    loop,
+                    {"status": "quality_review", "analysis": analysis},
+                    evidence_package_ids=[evidence["id"]],
+                ),
+                thread_id=run.thread_id,
+            )
+        except _ProductLoopCancelled:
+            raise
+        except Exception as error:
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.analysis_phase_unavailable",
+                loop_id=str((run.loop or {}).get("id") or ""),
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=run.thread_id,
+            )
 
     def _seal_constitution(self, run: _UserMessageRun) -> None:
         """Garantiza una constitución vigente y sella su versión + hash en el contexto durable del run.

@@ -4990,6 +4990,7 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
             "executing",
             "qa_running",
             "security_running",
+            "quality_review",
             "review_ready",
             "awaiting_approval",
         ]

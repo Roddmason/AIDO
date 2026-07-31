@@ -95,6 +95,7 @@ from local_control_center.workspaces_projects.repository import (
 
 from .delivery import ProductLoopDeliveryService
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
+from .phases.plan import PLANNED, SKIPPED_LOW_RISK, plan_phase_decision, technical_plan_view
 from .repository import ProductLoopRepository, stable_task_suffix
 from .spec_artifacts import exclude_aido_artifacts, write_spec_artifacts
 
@@ -151,7 +152,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "discovery": {"awaiting_user", "planning", "brief_ready", "backlog_ready", "blocked", "cancelled"},
     "discovering": {"awaiting_user", "brief_ready", "blocked", "cancelled"},
     "awaiting_user": {"discovering", "brief_ready", "blocked", "cancelled"},
-    "planning": {"backlog_ready", "blocked", "cancelled"},
+    "planning": {"architecture_review", "backlog_ready", "blocked", "cancelled"},
     "brief_ready": {"architecture_review", "backlog_ready", "blocked", "cancelled"},
     "architecture_review": {"backlog_ready", "brief_ready", "blocked", "cancelled"},
     "backlog_ready": {"branch_ready", "iteration_planning", "blocked", "cancelled"},
@@ -375,6 +376,7 @@ class _UserMessageRun:
     security_summary: dict[str, Any] = field(default_factory=dict)
     should_rework: bool = False
     constitution: dict[str, Any] = field(default_factory=dict)
+    technical_plan: dict[str, Any] = field(default_factory=dict)
     diff_ref: dict[str, Any] = field(default_factory=dict)
     security_evidence: dict[str, Any] = field(default_factory=dict)
     resource_learning: dict[str, Any] = field(default_factory=dict)
@@ -2233,6 +2235,7 @@ class ProductLoopCoordinator:
         product_owner_output: dict[str, Any] | None = None,
         assessment_result: dict[str, Any] | None = None,
         git_state: dict[str, Any] | None = None,
+        plan_sink: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         stories = self._stories_from_backlog(backlog)
         existing = [task for story in stories for task in self.backlog.list_agent_tasks(story_id=story["id"])]
@@ -2262,6 +2265,8 @@ class ProductLoopCoordinator:
             planned = technical_lead_runner.generate_agent_tasks(payload)
         else:
             planned = TechnicalLeadPlanner().plan(payload)
+        if plan_sink is not None and isinstance(planned, dict):
+            plan_sink.update(planned)
         if isinstance(planned, dict):
             specs = planned.get("agent_tasks") or planned.get("agentTasks") or []
             dependency_specs = planned.get("task_dependencies") or planned.get("taskDependencies") or []
@@ -4690,6 +4695,7 @@ class ProductLoopCoordinator:
                 acceptance_criteria=criteria,
                 tasks=run.agent_tasks,
                 task_dependencies=self.backlog.list_task_dependencies(project_id=project_id),
+                technical_plan=run.technical_plan or None,
             )
             return result if result.get("files") else None
         except Exception as error:
@@ -4701,6 +4707,74 @@ class ProductLoopCoordinator:
                 thread_id=run.thread_id,
             )
             return None
+
+    def _run_plan_phase(
+        self,
+        run: _UserMessageRun,
+        *,
+        loop: dict[str, Any],
+        raw_plan: dict[str, Any],
+        team_schedule: dict[str, Any],
+        agent_tasks: list[dict[str, Any]],
+        actor: str,
+        thread_id: str | None,
+    ) -> dict[str, Any]:
+        """Fase Plan: emite architecture_review con el plan tecnico sellado, o el carril rapido.
+
+        Con risk low e intents de mantenimiento (docs/tests/cleanup/bugfix) se salta la fase dejando
+        specDriven=skipped_low_risk en el contexto durable; en el resto de los casos persiste la
+        vista del plan (quality gates agregados, handoffs, estrategia branch/worktree) como artefacto
+        technical_plan y transiciona planning -> architecture_review. Best-effort: un fallo deja
+        evento y el run sigue al backlog, porque el plan es gobierno del proceso, no gate de entrega.
+        """
+        try:
+            intent = (team_schedule or {}).get("intent") or {}
+            decision = plan_phase_decision(intent)
+            if decision == SKIPPED_LOW_RISK:
+                durable = self._durable_run_context(loop)
+                durable["specDriven"] = {"plan": SKIPPED_LOW_RISK, "risk": intent.get("risk")}
+                durable["updatedAt"] = utc_now()
+                return self.repository.update_loop_context(
+                    loop["id"], context={**loop["context"], "durableRun": durable}
+                )
+            technical_plan = technical_plan_view(raw_plan, agent_tasks=agent_tasks)
+            if technical_plan is None:
+                return loop
+            artifact = self._write_json_artifact(
+                root=run.effective_root or self.root,
+                project_id=run.project_id,
+                name="technical-plan",
+                kind="technical_plan",
+                payload=technical_plan,
+            )
+            run.technical_plan = technical_plan
+            return self._transition_run_state(
+                loop,
+                to_state="architecture_review",
+                reason="TechnicalLead plan (gates, handoffs, workspace strategy) is persisted for review.",
+                trigger="technical_plan_ready",
+                actor=actor,
+                context_patch=self._durable_run_patch(
+                    loop,
+                    {
+                        "status": "architecture_review",
+                        "technicalPlan": {**technical_plan, "artifactId": artifact["id"]},
+                        "specDriven": {"plan": PLANNED, "risk": intent.get("risk")},
+                    },
+                ),
+                thread_id=thread_id,
+            )
+        except _ProductLoopCancelled:
+            raise
+        except Exception as error:
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.plan_phase_unavailable",
+                loop_id=str(loop.get("id") or ""),
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=thread_id,
+            )
+            return loop
 
     def _seal_constitution(self, run: _UserMessageRun) -> None:
         """Garantiza una constitución vigente y sella su versión + hash en el contexto durable del run.
@@ -5905,6 +5979,7 @@ class ProductLoopCoordinator:
                 },
                 thread_id=thread_id,
             )
+        raw_plan: dict[str, Any] = {}
         try:
             agent_tasks = self._generate_agent_tasks(
                 project_id=project_id,
@@ -5916,6 +5991,7 @@ class ProductLoopCoordinator:
                 product_owner_output=output,
                 assessment_result=assessment_result,
                 git_state=git_state,
+                plan_sink=raw_plan,
             )
         except Exception as error:
             reason = f"TechnicalLeadPlanner failed to generate agent_tasks: {redact_secrets(str(error))}"
@@ -6132,6 +6208,15 @@ class ProductLoopCoordinator:
                 "teamSchedule": team_schedule["summary"],
                 "agentAssignmentIds": [assignment["id"] for assignment in team_assignments],
             },
+        )
+        loop = self._run_plan_phase(
+            run,
+            loop=loop,
+            raw_plan=raw_plan,
+            team_schedule=team_schedule,
+            agent_tasks=agent_tasks,
+            actor=actor,
+            thread_id=thread_id,
         )
         loop = self._transition_run_state(
             loop,

@@ -34,6 +34,8 @@ from local_control_center.workspaces_projects.git_worktrees import (
 )
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .spec_artifacts import exclude_aido_artifacts
+
 PR_MODES = {"auto_pr", "manual_pr"}
 
 
@@ -49,7 +51,7 @@ def technical_lead_gate(loop: dict[str, Any] | None) -> dict[str, Any]:
     if not durable:
         return {"approve": False, "reasons": ["Loop has no durable run context to review."]}
     review = durable.get("review") or {}
-    if not review.get("changedFiles"):
+    if not exclude_aido_artifacts([str(item) for item in review.get("changedFiles") or []]):
         reasons.append("Review evidence has no changed files to land.")
     runtime_result = durable.get("runtimeResult") or {}
     qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()

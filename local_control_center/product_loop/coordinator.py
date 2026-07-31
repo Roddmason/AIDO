@@ -96,6 +96,7 @@ from local_control_center.workspaces_projects.repository import (
 from .delivery import ProductLoopDeliveryService
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .repository import ProductLoopRepository, stable_task_suffix
+from .spec_artifacts import exclude_aido_artifacts, write_spec_artifacts
 
 PRODUCT_LOOP_STATES = [
     "goal_received",
@@ -457,7 +458,7 @@ def _append_feedback_id(metadata: dict[str, Any] | None, feedback_id: str) -> di
 def _changed_files_from_diff(diff: dict[str, Any]) -> list[str]:
     names = [str(item) for item in diff.get("nameOnly") or [] if str(item).strip()]
     if names:
-        return names
+        return exclude_aido_artifacts(names)
     changed: list[str] = []
     for item in diff.get("status") or []:
         if not isinstance(item, dict):
@@ -465,12 +466,14 @@ def _changed_files_from_diff(diff: dict[str, Any]) -> list[str]:
         path = str(item.get("path") or "").strip()
         if path and path not in changed:
             changed.append(path)
-    return changed
+    return exclude_aido_artifacts(changed)
 
 
 def _runtime_changed_files(runtime_result: dict[str, Any]) -> list[str]:
     summary = runtime_result.get("diffSummary") if isinstance(runtime_result.get("diffSummary"), dict) else {}
-    return [str(item) for item in summary.get("changedFiles") or [] if str(item).strip()]
+    return exclude_aido_artifacts(
+        [str(item) for item in summary.get("changedFiles") or [] if str(item).strip()]
+    )
 
 
 def _review_from_diff(diff: dict[str, Any]) -> dict[str, Any]:
@@ -4664,6 +4667,41 @@ class ProductLoopCoordinator:
             evidence_package=security_evidence,
         )
 
+    def _render_spec_artifacts(
+        self, run: _UserMessageRun, workspace: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Materializa constitution/spec/tasks como Markdown generado dentro del worktree del run.
+
+        Best-effort: los archivos son renders (la BD es la fuente de verdad) y quedan excluidos del
+        guard de no-op via ``exclude_aido_artifacts``, asi que un fallo aqui jamas bloquea el run ni
+        un exito puede convertir un run vacio en trabajo aparente.
+        """
+        try:
+            project_id = run.project_id
+            stories = self.backlog.list_user_stories(project_id=project_id)
+            criteria = self.backlog.list_acceptance_criteria(project_id=project_id)
+            result = write_spec_artifacts(
+                workspace["path"],
+                thread_id=str(run.thread_id or ""),
+                title=run.resolved_title or "Product loop",
+                constitution=run.constitution or None,
+                brief=run.brief or None,
+                stories=stories,
+                acceptance_criteria=criteria,
+                tasks=run.agent_tasks,
+                task_dependencies=self.backlog.list_task_dependencies(project_id=project_id),
+            )
+            return result if result.get("files") else None
+        except Exception as error:
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.spec_artifacts_unavailable",
+                loop_id=str((run.loop or {}).get("id") or ""),
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=run.thread_id,
+            )
+            return None
+
     def _seal_constitution(self, run: _UserMessageRun) -> None:
         """Garantiza una constitución vigente y sella su versión + hash en el contexto durable del run.
 
@@ -6270,6 +6308,19 @@ class ProductLoopCoordinator:
             ),
             thread_id=thread_id,
         )
+        spec_render = self._render_spec_artifacts(run, workspace)
+        if spec_render:
+            loop = self.repository.update_loop_context(
+                loop["id"],
+                context={
+                    **loop["context"],
+                    "durableRun": {
+                        **self._durable_run_context(loop),
+                        "specArtifacts": spec_render,
+                        "updatedAt": utc_now(),
+                    },
+                },
+            )
         loop = self._transition_run_state(
             loop,
             to_state="executing",

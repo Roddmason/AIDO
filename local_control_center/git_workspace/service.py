@@ -52,8 +52,10 @@ DEFAULT_GITIGNORE_LINES = [
     ".idea/",
     ".vscode/",
     "",
-    "# Local AIDO artifacts",
-    ".aido/",
+    "# Local AIDO artifacts (spec renders under memory/ and specs/ stay versioned)",
+    ".aido/*",
+    "!.aido/memory/",
+    "!.aido/specs/",
     ".tmp/",
 ]
 GITIGNORE_BY_TEMPLATE = {

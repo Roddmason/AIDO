@@ -12,6 +12,7 @@ import type { SectionContext } from './sections';
 export function ProjectQualitySettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const gateCommands = findSetting(ctx.resolved, 'project.quality.gateCommands');
+	const devopsChecks = findSetting(ctx.resolved, 'project.quality.devopsChecksEnabled');
 	const commandCount = Array.isArray(gateCommands?.value) ? gateCommands.value.length : 0;
 
 	return (
@@ -36,6 +37,19 @@ export function ProjectQualitySettingsPanel({ ctx }: { ctx: SectionContext }) {
 							)}
 				</p>
 				{gateCommands ? <WiredRows ctx={ctx} settings={[gateCommands]} /> : null}
+			</section>
+
+			<section className="settings-group">
+				<h4 className="settings-group-title">
+					{t('app.settings.quality.devopsGroup', 'DevOps checks')}
+				</h4>
+				<p className="settings-section-intro">
+					{t(
+						'app.settings.quality.devopsHint',
+						'Runs the DevOps agent over the gate commands after security review; advisory, never blocking.',
+					)}
+				</p>
+				{devopsChecks ? <WiredRows ctx={ctx} settings={[devopsChecks]} /> : null}
 			</section>
 		</div>
 	);

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
+from local_control_center.agents.architect_agent import ArchitectAgentRunner
 from local_control_center.agents.assessment_runner import ProjectAssessmentRunner
 from local_control_center.agents.developer_agent import DeveloperAgentRunner
 from local_control_center.agents.developer_agent_contract import (
@@ -35,6 +36,7 @@ from local_control_center.agents.developer_agent_contract import (
     DEVELOPER_AGENT_ID,
     DEVELOPER_AGENT_MODEL_RUNTIMES,
 )
+from local_control_center.agents.devops_agent import DevOpsAgentRunner
 from local_control_center.agents.product_owner_agent import (
     ProductOwnerAgent,
     ProductOwnerAgentRunner,
@@ -4058,6 +4060,7 @@ class ProductLoopCoordinator:
         if result is not None:
             return result
         self._run_analysis_phase(run)
+        self._run_team_review_phase(run)
         return self._finalize_delivery_approval(run)
 
     def _evaluate_qa_gate(self, run: _UserMessageRun) -> dict[str, Any] | None:
@@ -4830,6 +4833,120 @@ class ProductLoopCoordinator:
             self._record_loop_event(
                 project_id=run.project_id,
                 event_type="product_loop.analysis_phase_unavailable",
+                loop_id=str((run.loop or {}).get("id") or ""),
+                payload={"reason": redact_secrets(str(error))},
+                thread_id=run.thread_id,
+            )
+
+    # Intents/riesgos que ameritan revision de arquitectura post-diff (misma regla que _gates_for).
+    _ARCHITECT_REVIEW_INTENTS = frozenset({"architecture", "refactor", "migration"})
+    _ARCHITECT_REVIEW_RISKS = frozenset({"high", "critical"})
+
+    def _run_team_review_phase(self, run: _UserMessageRun) -> None:
+        """Revisiones advisory del equipo extendido sobre el diff ya validado por QA/Security.
+
+        El ArchitectAgent corre solo cuando el intent (architecture/refactor/migration) o el riesgo
+        (high/critical) lo ameritan — donde su contrato post-diff funciona, alimentado con el
+        patchArtifactId real. El DevOpsAgent corre solo con project.quality.devopsChecksEnabled y
+        usa project.quality.gateCommands como quality scripts (reactivando el setting huerfano).
+        Ambos son advisory: sus veredictos quedan en el contexto durable y la evidencia para la
+        aprobacion humana, replicando la asimetria de issue_to_pr donde el architect no bloquea; un
+        fallo de esta fase deja evento y el run continua.
+        """
+        try:
+            loop = run.loop
+            intent = (run.team_schedule or {}).get("intent") or {}
+            intents = {str(item).strip().lower() for item in intent.get("intents") or []}
+            risk = str(intent.get("risk") or "").strip().lower()
+            reviews: dict[str, Any] = {}
+            patch_artifact_id = str(
+                ((run.runtime_result or {}).get("diffSummary") or {}).get("patchArtifactId") or ""
+            )
+            if patch_artifact_id and (
+                intents & self._ARCHITECT_REVIEW_INTENTS or risk in self._ARCHITECT_REVIEW_RISKS
+            ):
+                try:
+                    architect = ArchitectAgentRunner(self.connection, root=run.effective_root).run(
+                        {
+                            "projectId": run.project_id,
+                            "workspaceId": run.workspace["id"],
+                            "taskId": f"{run.task_id}.architect",
+                            "diffArtifactId": patch_artifact_id,
+                            "workflowContext": {
+                                "workflowKind": "product_loop",
+                                "attempt": run.rework_round + 1,
+                                "title": run.resolved_title,
+                            },
+                            "testResults": run.qa_results,
+                            "constitution": render_constitution_prompt(run.constitution) or None,
+                        }
+                    )
+                    reviews["architect"] = {
+                        "status": str(architect.get("status") or ""),
+                        "verdict": str(architect.get("verdict") or ""),
+                        "reason": str(architect.get("reason") or ""),
+                        "evidencePackageId": str((architect.get("evidencePackage") or {}).get("id") or ""),
+                    }
+                except Exception as error:
+                    reviews["architect"] = {"status": "failed", "reason": redact_secrets(str(error))}
+            devops_enabled = bool(
+                resolve_setting_value(
+                    connection=self.connection,
+                    key="project.quality.devopsChecksEnabled",
+                    project_id=run.project_id,
+                )
+            )
+            if devops_enabled:
+                gate_commands = resolve_setting_value(
+                    connection=self.connection,
+                    key="project.quality.gateCommands",
+                    project_id=run.project_id,
+                )
+                try:
+                    devops = DevOpsAgentRunner(self.connection, root=run.effective_root).run(
+                        {
+                            "projectId": run.project_id,
+                            "workspaceId": run.workspace["id"],
+                            "taskId": f"{run.task_id}.devops",
+                            "buildScripts": [],
+                            "qualityScripts": [
+                                str(item) for item in (gate_commands or []) if str(item).strip()
+                            ],
+                            "dockerHealthcheck": False,
+                        }
+                    )
+                    reviews["devops"] = {
+                        "status": str(devops.get("status") or ""),
+                        "verdict": str(devops.get("verdict") or ""),
+                        "reason": str(devops.get("reason") or ""),
+                        "evidencePackageId": str((devops.get("evidencePackage") or {}).get("id") or ""),
+                    }
+                except Exception as error:
+                    reviews["devops"] = {"status": "failed", "reason": redact_secrets(str(error))}
+            if not reviews:
+                return
+            durable = self._durable_run_context(loop)
+            durable["teamReviews"] = redact_secrets(reviews)
+            durable["updatedAt"] = utc_now()
+            run.loop = self.repository.update_loop_context(
+                loop["id"], context={**loop["context"], "durableRun": durable}
+            )
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.team_reviews_recorded",
+                loop_id=str(loop.get("id") or ""),
+                payload={
+                    role: {"status": review.get("status"), "verdict": review.get("verdict")}
+                    for role, review in reviews.items()
+                },
+                thread_id=run.thread_id,
+            )
+        except _ProductLoopCancelled:
+            raise
+        except Exception as error:
+            self._record_loop_event(
+                project_id=run.project_id,
+                event_type="product_loop.team_review_unavailable",
                 loop_id=str((run.loop or {}).get("id") or ""),
                 payload={"reason": redact_secrets(str(error))},
                 thread_id=run.thread_id,

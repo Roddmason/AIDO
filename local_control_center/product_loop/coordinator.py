@@ -68,6 +68,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
+from local_control_center.project_constitution.prompt import render_constitution_prompt
 from local_control_center.project_constitution.repository import ProjectConstitutionRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
@@ -4401,6 +4402,9 @@ class ProductLoopCoordinator:
         story_specs_prompt = self._story_specs_for_tasks(agent_tasks)
         if story_specs_prompt:
             security_payload["storySpecs"] = story_specs_prompt
+        constitution_prompt = render_constitution_prompt(run.constitution)
+        if constitution_prompt:
+            security_payload["constitution"] = constitution_prompt
         security_resource = self._security_execution_resource(team_schedule)
         if security_resource:
             security_payload["runModelAnalysis"] = True
@@ -5179,6 +5183,9 @@ class ProductLoopCoordinator:
         }
         if goal_statement:
             product_owner_payload["goalStatement"] = goal_statement
+        constitution_prompt = render_constitution_prompt(run.constitution)
+        if constitution_prompt:
+            product_owner_payload["constitution"] = constitution_prompt
         # Sin la iniciativa del hilo el agente no ve el brief ni las preguntas ya formuladas, y
         # vuelve a preguntar lo mismo en cada turno.
         thread_initiative = (
@@ -6489,6 +6496,9 @@ class ProductLoopCoordinator:
             "resourceSelection": execution_resource,
             "metadata": {"loopId": loop["id"], "projectThreadId": thread.get("id")},
         }
+        constitution_prompt = render_constitution_prompt(run.constitution)
+        if constitution_prompt:
+            developer_payload["constitution"] = constitution_prompt
         if run.rework_round:
             developer_payload["reworkRound"] = run.rework_round
         if (

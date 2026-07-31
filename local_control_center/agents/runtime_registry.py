@@ -260,18 +260,22 @@ def developer_agent_prompt(
     instruction: str,
     qa_commands: list[list[str]],
     story_specs: str | None = None,
+    constitution: str | None = None,
 ) -> str:
     """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules.
 
     When ``story_specs`` is provided, the rendered user-story spec (epic, story,
     acceptance criteria, and role responsibilities) is included as the acceptance
-    source of truth; without it the prompt is byte-identical to the legacy form.
+    source of truth; ``constitution`` (the rendered project constitution) is
+    prepended as binding project rules. Without either, the prompt is
+    byte-identical to the legacy form.
     """
     qa_text = (
         "\n".join(" ".join(command) for command in qa_commands)
         if qa_commands
         else "No QA commands were provided."
     )
+    constitution_block = f"{constitution}\n\n" if constitution else ""
     spec_block = (
         "User story spec (source of truth for acceptance):\n" + story_specs + "\n\n" if story_specs else ""
     )
@@ -283,6 +287,7 @@ def developer_agent_prompt(
         "- Do not skip applicable tests; if QA commands are provided, preserve them as required verification.\n"
         "- Do not modify the source repository root outside this workspace.\n"
         "- Produce a concise structured summary with changed files, tests run, blockers, and residual risks.\n\n"
+        f"{constitution_block}"
         f"{spec_block}"
         f"Instruction:\n{instruction}\n\nRequired QA commands:\n{qa_text}\n"
     )
@@ -432,6 +437,7 @@ def build_developer_agent_argv(
     agent_id: str,
     connection: sqlite3.Connection,
     story_specs: str | None = None,
+    constitution: str | None = None,
 ) -> list[str]:
     """Build the structured argv for a DeveloperAgent run (Codex or Claude Code CLI only).
 
@@ -465,7 +471,10 @@ def build_developer_agent_argv(
             "workspaceId": workspace_id,
             "workspacePath": workspace_path,
             "prompt": developer_agent_prompt(
-                instruction=instruction, qa_commands=qa_commands, story_specs=story_specs
+                instruction=instruction,
+                qa_commands=qa_commands,
+                story_specs=story_specs,
+                constitution=constitution,
             ),
             "envPolicy": {
                 "permissionProfile": "dev_safe",

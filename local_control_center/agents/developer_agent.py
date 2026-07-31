@@ -243,6 +243,7 @@ def _developer_model_messages(
     instruction: str,
     qa_commands: list[list[str]],
     story_specs: str | None = None,
+    constitution: str | None = None,
 ) -> list[dict[str, str]]:
     schema = (
         '{"summary":"string","files":[{"path":"relative/path","content":"complete UTF-8 file content"}],'
@@ -259,7 +260,10 @@ def _developer_model_messages(
         {
             "role": "user",
             "content": developer_agent_prompt(
-                instruction=instruction, qa_commands=qa_commands, story_specs=story_specs
+                instruction=instruction,
+                qa_commands=qa_commands,
+                story_specs=story_specs,
+                constitution=constitution,
             ),
         },
     ]
@@ -358,6 +362,7 @@ class DeveloperAgentRunner:
             agent_id=DEVELOPER_AGENT_ID,
             connection=self.connection,
             story_specs=payload.get("storySpecs"),
+            constitution=payload.get("constitution"),
         )
         runtime_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -417,6 +422,7 @@ class DeveloperAgentRunner:
                         instruction=str(payload["instruction"]),
                         qa_commands=payload.get("qaCommands") or [],
                         story_specs=payload.get("storySpecs"),
+                        constitution=payload.get("constitution"),
                     ),
                     "temperature": 0.2,
                 },

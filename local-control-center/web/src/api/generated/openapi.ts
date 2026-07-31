@@ -285,6 +285,10 @@ export type ProductOwnerAgentStatusResponse = { "productOwnerAgent": ProductOwne
 export type ProjectAssessmentRecord = { "createdAt": string; "findingsCount": number; "gapCount": number; "id": string; "projectId": string; "riskCount": number; "rootPath": string; "source": string; "status": string; "summary": JsonObject; "updatedAt": string };
 export type ProjectAssessmentRunResponse = { "assessment"?: ProjectAssessmentRecord | null; "findings"?: Array<ProjectFindingRecord>; "reason": string; "status": string };
 export type ProjectAssessmentsListResponse = { "assessments": Array<ProjectAssessmentRecord> };
+export type ProjectConstitutionRecord = { "contentHash": string; "createdAt": string; "enforcement": "advisory" | "enforced"; "id": string; "nonNegotiables": Array<string>; "principles": Array<string>; "projectId": string; "qualityGates": Array<string>; "source": "operator" | "bootstrapped"; "title": string; "updatedAt": string; "version": number };
+export type ProjectConstitutionResponse = { "constitution"?: ProjectConstitutionRecord | null; "versions": Array<ProjectConstitutionVersionRecord> };
+export type ProjectConstitutionUpsertRequest = { "authoredBy"?: null | string; "changeSummary"?: null | string; "enforcement"?: "advisory" | "enforced" | null; "nonNegotiables"?: Array<string> | null; "principles": Array<string>; "qualityGates"?: Array<string> | null; "title"?: null | string };
+export type ProjectConstitutionVersionRecord = { "authoredBy": string; "changeSummary": string; "constitutionId": string; "contentHash": string; "createdAt": string; "enforcement": "advisory" | "enforced"; "id": string; "nonNegotiables": Array<string>; "principles": Array<string>; "projectId": string; "qualityGates": Array<string>; "source": "operator" | "bootstrapped"; "title": string; "version": number };
 export type ProjectCreateRequest = { "createDirectory"?: boolean; "metadata"?: JsonObject; "name"?: null | string; "path"?: null | string; "projectDirectoryName"?: null | string; "templateId"?: null | string; "workspaceBasePath"?: null | string };
 export type ProjectDiscoveryRequest = { "path": string };
 export type ProjectDiscoveryResponse = { "discovery": JsonObject };
@@ -677,6 +681,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get", "path": "/api/v1/projects/{project_id}/artifacts/{artifact_id}", "summary": "Get Project Generated Image"},
 	{"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
 	{"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
+	{"method": "GET", "operationId": "get_project_constitution_api_v1_projects__project_id__constitution_get", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Get Project Constitution"},
+	{"method": "PUT", "operationId": "put_project_constitution_api_v1_projects__project_id__constitution_put", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Put Project Constitution"},
 	{"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	{"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
 	{"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},
@@ -869,6 +875,7 @@ export type OperationRequestBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": never,
 	"get_n8n_status_api_v1_integrations_n8n_status_get": never,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": never,
+	"get_project_constitution_api_v1_projects__project_id__constitution_get": never,
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
 	"get_self_improvement_state_api_v1_self_improvement_get": never,
@@ -958,6 +965,7 @@ export type OperationRequestBodies = {
 	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": never,
 	"providers_api_v1_providers_get": never,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
+	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionUpsertRequest,
 	"put_setting_api_v1_settings__key__put": SetSettingRequest,
 	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookRequest,
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookRequest,
@@ -1112,6 +1120,7 @@ export type OperationResponseBodies = {
 	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
 	"get_n8n_status_api_v1_integrations_n8n_status_get": N8nIntegrationStatusResponse,
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
+	"get_project_constitution_api_v1_projects__project_id__constitution_get": ProjectConstitutionResponse,
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
 	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
@@ -1201,6 +1210,7 @@ export type OperationResponseBodies = {
 	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": ProviderLimitStatusResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
+	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionResponse,
 	"put_setting_api_v1_settings__key__put": never,
 	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookResponse,
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse,
@@ -1417,6 +1427,8 @@ export const OPERATIONS_BY_ID = {
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": {"method": "GET", "operationId": "get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get", "path": "/api/v1/projects/{project_id}/artifacts/{artifact_id}", "summary": "Get Project Generated Image"},
 	"run_assessment_api_v1_projects__project_id__assessment_post": {"method": "POST", "operationId": "run_assessment_api_v1_projects__project_id__assessment_post", "path": "/api/v1/projects/{project_id}/assessment", "summary": "Run Assessment"},
 	"list_assessments_api_v1_projects__project_id__assessments_get": {"method": "GET", "operationId": "list_assessments_api_v1_projects__project_id__assessments_get", "path": "/api/v1/projects/{project_id}/assessments", "summary": "List Assessments"},
+	"get_project_constitution_api_v1_projects__project_id__constitution_get": {"method": "GET", "operationId": "get_project_constitution_api_v1_projects__project_id__constitution_get", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Get Project Constitution"},
+	"put_project_constitution_api_v1_projects__project_id__constitution_put": {"method": "PUT", "operationId": "put_project_constitution_api_v1_projects__project_id__constitution_put", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Put Project Constitution"},
 	"list_findings_api_v1_projects__project_id__findings_get": {"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	"project_functionality_api_v1_projects__project_id__functionality_get": {"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
 	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": {"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},

@@ -137,6 +137,10 @@ REWORK_FEEDBACK_COMMAND_LIMIT = 8
 INSTRUCTION_PROMPT_LIMIT_CHARS = 20_000
 AWAITING_FEEDBACK_STATE = "awaiting_feedback"
 TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
+# Estados donde el loop entrego control al operador y espera su accion: nunca se supersedan como
+# runs interrumpidos, aunque su marcador runActive haya quedado colgado (defensa del re-entry
+# durable frente a un _clear_run_active best-effort fallido).
+_OPERATOR_WAIT_STATES = {"awaiting_user", "awaiting_approval", AWAITING_FEEDBACK_STATE, BLOCKED_STATE}
 # Landing states of an abort itself: checking for cancellation again here would recurse forever.
 _ABORT_EXEMPT_STATES = {BLOCKED_STATE, CANCELLED_STATE}
 _RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERMINAL_STATES | {BLOCKED_STATE}}
@@ -4377,13 +4381,19 @@ class ProductLoopCoordinator:
         proceso cayo antes del cierre controlado. Dejarlo vivo confunde la UI para siempre y puede
         vetar la resolucion de decisiones (guard fail-closed sobre loops en ``awaiting_user``).
         Cancelarlo al arrancar el run siguiente resuelve ademas sus remediaciones pendientes
-        (``transition`` resuelve al llegar a terminal). Los estados de espera legitimos
-        (awaiting_user/approval/feedback, blocked) tienen ``runActive`` ya apagado por el cierre
-        controlado, asi que jamas se tocan. Best-effort: un fallo deja evento y el run continua.
+        (``transition`` resuelve al llegar a terminal). Best-effort: un fallo deja evento y el run
+        continua.
+
+        Doble guard, no uno: ademas de ``runActive`` (que el cierre controlado apaga via
+        ``_clear_run_active``) se exige que el estado sea genuinamente de ejecucion en curso. Los
+        estados parqueados esperando al operador (``_OPERATOR_WAIT_STATES``) nunca se supersedan
+        aunque su ``runActive`` haya quedado colgado por un ``_clear_run_active`` best-effort fallido
+        (p. ej. 'database is locked' bajo contencion): un run que entrego control al humano jamas es
+        un run interrumpido, y cancelarlo descartaria trabajo entregado o una remediacion en curso.
         """
         try:
             for loop in self.repository.list_loops(project_id):
-                if loop.get("state") in TERMINAL_STATES:
+                if loop.get("state") in TERMINAL_STATES or loop.get("state") in _OPERATOR_WAIT_STATES:
                     continue
                 fsm = (loop.get("context") or {}).get("fsm") or {}
                 if str(fsm.get("correlationId") or "") != str(thread_id):

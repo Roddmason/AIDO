@@ -300,20 +300,30 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
     }
 
 
-def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
-    """Acota el total de las colecciones del contexto al presupuesto, descartando lo mas antiguo.
+# Colecciones del contexto y el extremo por el que se recorta cada una al aplicar el presupuesto.
+# El descarte SIEMPRE elimina el elemento MÁS ANTIGUO y preserva el más reciente (garantía
+# anti-repregunta: la respuesta/decisión recién zanjada jamás se descarta). El extremo depende del
+# orden en que la colección llega desde el repositorio: openQuestions (sequence ASC) y resolvedFacts
+# (closed[-N:], recorte final de sequence ASC) son oldest-first, así que se recorta la cabeza;
+# unresolvedDecisions y settledDecisions vienen de list_product_decisions (ORDER BY updated_at DESC),
+# newest-first, así que se recorta la cola.
+_CONTEXT_BUDGET_COLLECTIONS: dict[str, str] = {
+    "existingOpenQuestions": "head",
+    "existingUnresolvedDecisions": "tail",
+    "resolvedFacts": "head",
+    "settledDecisions": "tail",
+}
 
-    Las listas llegan en orden cronologico (mas antiguo primero); se recorta desde el frente de la
-    lista mas pesada hasta caber, dejando ``omitted<Coleccion>`` con el conteo descartado. Nunca
-    vacia una coleccion por completo: el ultimo elemento (el mas reciente) siempre sobrevive, que es
-    la garantia anti-repregunta (la respuesta recien dada jamas se descarta).
+
+def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
+    """Acota el total de las colecciones del contexto al presupuesto, descartando lo más antiguo.
+
+    Recorta la colección más pesada un elemento a la vez hasta caber, quitando siempre el más
+    antiguo según el orden de esa colección (``_CONTEXT_BUDGET_COLLECTIONS``) y dejando
+    ``omitted<Coleccion>`` con el conteo descartado. Nunca vacía una colección por completo: el
+    elemento más reciente siempre sobrevive, que es la garantía anti-repregunta.
     """
-    collections = (
-        "existingOpenQuestions",
-        "existingUnresolvedDecisions",
-        "resolvedFacts",
-        "settledDecisions",
-    )
+    collections = tuple(_CONTEXT_BUDGET_COLLECTIONS)
 
     def weight(name: str) -> int:
         return len(json.dumps(context.get(name) or [], ensure_ascii=False))
@@ -327,7 +337,8 @@ def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
         items = context.get(heaviest) or []
         if len(items) <= 1:
             break
-        context[heaviest] = items[1:]
+        # head = oldest-first (descarta el frente); tail = newest-first (descarta el final).
+        context[heaviest] = items[1:] if _CONTEXT_BUDGET_COLLECTIONS[heaviest] == "head" else items[:-1]
         omitted[heaviest] += 1
         total = sum(weight(name) for name in collections)
     for name, count in omitted.items():

@@ -2,11 +2,14 @@
 
 Una constitución por proyecto (``project_constitutions``, ``project_id UNIQUE``) con historial
 inmutable en ``project_constitution_versions`` (``UNIQUE(constitution_id, version)``), calcando el
-par ``product_briefs``/``product_brief_versions``. El documento es fuente de verdad en BD: cualquier
-copia en disco es un render derivado que se verifica por ``content_hash`` (stable_hash de los campos
-de contenido) antes de usarse; un mismatch se trata como tampering y se ignora. El bootstrap deriva
-una constitución base desde los settings del proyecto y la marca ``source='bootstrapped'`` para que
-un run nunca quede sin gobierno, sin inventar reglas del operador.
+par ``product_briefs``/``product_brief_versions``. El documento es la ÚNICA fuente de gobierno: el
+prompt que reciben los agentes se renderiza desde este registro de BD (nunca desde disco) y cada run
+sella el ``content_hash`` de la versión que lo gobernó. El render en ``.aido/memory/constitution.md``
+es una copia informativa para el revisor del PR — el enforcement no depende de ella, así que un
+agente que edite ese archivo en su worktree no altera el gobierno del run. El ``content_hash`` viaja
+en el render solo como huella para que un humano note una edición local. El bootstrap deriva una
+constitución base desde los settings del proyecto y la marca ``source='bootstrapped'`` para que un
+run nunca quede sin gobierno, sin inventar reglas del operador.
 
 Transacciones: la conexión llega en autocommit y estos métodos NO abren transacciones propias;
 ``upsert`` escribe la fila principal y su versión en dos sentencias, así que el caller debe

@@ -404,3 +404,46 @@ def test_context_budget_drops_oldest_but_never_the_most_recent_answer() -> None:
         "settledDecisions": [],
     }
     assert _apply_context_budget(dict(small)) == small
+
+
+def test_context_budget_preserves_most_recent_newest_first_decision() -> None:
+    """settledDecisions/unresolvedDecisions llegan newest-first; el budget debe descartar la más ANTIGUA.
+
+    Regresión del bug donde items[1:] uniforme descartaba el índice 0 (la decisión recién zanjada)
+    en las colecciones newest-first, rompiendo la garantía anti-repregunta que el presupuesto
+    pretendía proteger.
+    """
+    from local_control_center.agents.product_owner_agent import (
+        PROMPT_CONTEXT_BUDGET_CHARS,
+        _apply_context_budget,
+    )
+
+    # newest-first: v39 es la decisión más reciente (índice 0), v0 la más antigua (índice -1).
+    settled = [
+        {"title": f"d{index}", "decision": "x" * 2_000, "rationale": f"v{39 - index}"} for index in range(40)
+    ]
+    context = {
+        "existingOpenQuestions": [],
+        "existingUnresolvedDecisions": [],
+        "resolvedFacts": [],
+        "settledDecisions": settled,
+    }
+    bounded = _apply_context_budget(dict(context))
+
+    import json as _json
+
+    total = sum(
+        len(_json.dumps(bounded.get(name) or [], ensure_ascii=False))
+        for name in (
+            "existingOpenQuestions",
+            "existingUnresolvedDecisions",
+            "resolvedFacts",
+            "settledDecisions",
+        )
+    )
+    assert total <= PROMPT_CONTEXT_BUDGET_CHARS
+    assert bounded["omittedSettledDecisions"] > 0
+    # La decisión más reciente (índice 0, rationale v39) sobrevive; la más antigua (v0) se descartó.
+    rationales = [item["rationale"] for item in bounded["settledDecisions"]]
+    assert "v39" in rationales, "la decisión recién zanjada fue descartada (bug anti-repregunta)"
+    assert "v0" not in rationales, "la decisión más antigua debió descartarse primero"

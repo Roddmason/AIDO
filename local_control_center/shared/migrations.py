@@ -5893,8 +5893,9 @@ def init_phase58_schema(connection: sqlite3.Connection) -> None:
     """Fase 58: constitución del proyecto (documento versionado que gobierna cada run del loop).
 
     ``project_constitutions`` guarda un documento por proyecto (``project_id UNIQUE``) con sus
-    principios, no-negociables y gates como JSON, más ``content_hash`` para verificar renders en
-    disco; ``project_constitution_versions`` es el historial inmutable (``UNIQUE(constitution_id,
+    principios, no-negociables y gates como JSON, más ``content_hash`` (huella del contenido que se
+    sella en cada run y se muestra en el render de disco para que un humano note ediciones locales);
+    ``project_constitution_versions`` es el historial inmutable (``UNIQUE(constitution_id,
     version)``), calcando el par ``product_briefs``/``product_brief_versions``.
     """
     if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 58").fetchone():

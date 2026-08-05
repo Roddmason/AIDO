@@ -493,7 +493,8 @@ function ThreadConsoleMessageRow({ message }: { message: ThreadMessage }) {
 	);
 }
 
-function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
+/** Una fila de consola del hilo; exportada para que el dock inferior use el mismo lenguaje visual. */
+export function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const { t } = useI18n();
 	const payload = safeRecord(event.payload);
 	const actor =

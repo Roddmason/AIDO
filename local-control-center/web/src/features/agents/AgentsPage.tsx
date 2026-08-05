@@ -28,8 +28,10 @@ import type {
 } from '../../api/types';
 import {
 	StatusChip as Badge,
+	Button,
 	DataTable,
 	EmptyState,
+	ErrorState,
 	PageHeader,
 	Surface,
 } from '../../components/ui';
@@ -158,12 +160,16 @@ export function AgentsPage({
 		runtimeProviders,
 	);
 	const [error, setError] = useState('');
+	const [agentProfilesError, setAgentProfilesError] = useState<AsyncError | null>(null);
 	const [runtimeProviderError, setRuntimeProviderError] = useState<AsyncError | null>(null);
 	const [gatewayCatalogError, setGatewayCatalogError] = useState<AsyncError | null>(null);
+	const agentProfilesErrorText = resolveAsyncError(agentProfilesError, t);
 	const runtimeProviderErrorText = resolveAsyncError(runtimeProviderError, t);
 	const gatewayCatalogErrorText = resolveAsyncError(gatewayCatalogError, t);
 	const [profileBusy, setProfileBusy] = useState(false);
 	const [overrideBusyProfileId, setOverrideBusyProfileId] = useState('');
+	const [reloadToken, setReloadToken] = useState(0);
+	const reload = () => setReloadToken((token) => token + 1);
 	const modes =
 		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
 			runtimeModeOptions.includes(mode as AgentRuntimeMode),
@@ -203,21 +209,20 @@ export function AgentsPage({
 		const controller = new AbortController();
 		getAgentProfiles(selectedProjectId || undefined, controller.signal)
 			.then((result) => {
+				setAgentProfilesError(null);
 				setAgentProfiles(result.agentProfiles);
 			})
 			.catch((loadError) => {
 				if (!controller.signal.aborted) {
-					setError(
-						loadError instanceof Error
-							? loadError.message
-							: t('app.agents.errProfilesLoad', 'Agent profiles load failed.'),
+					setAgentProfilesError(
+						toAsyncError(loadError, 'app.agents.errProfilesLoad', 'Agent profiles load failed.'),
 					);
 				}
 			});
 		return () => {
 			controller.abort();
 		};
-	}, [selectedProjectId, t]);
+	}, [reloadToken, selectedProjectId]);
 
 	useEffect(() => {
 		if (runtimeProviders) setRuntimeProviderState(runtimeProviders);
@@ -244,7 +249,7 @@ export function AgentsPage({
 		return () => {
 			controller.abort();
 		};
-	}, []);
+	}, [reloadToken]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -292,7 +297,7 @@ export function AgentsPage({
 		return () => {
 			mounted = false;
 		};
-	}, []);
+	}, [reloadToken]);
 
 	const createProfile = async () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(profileId)) {
@@ -650,9 +655,15 @@ export function AgentsPage({
 						</label>
 					</div>
 					{gatewayCatalogErrorText || runtimeProviderErrorText ? (
-						<div className="form-error" role="alert">
-							configuration_required: {gatewayCatalogErrorText || runtimeProviderErrorText}
-						</div>
+						<ErrorState
+							title={t('app.agents.errCatalogTitle', 'Could not load agent configuration catalogs')}
+							body={`configuration_required: ${gatewayCatalogErrorText || runtimeProviderErrorText}`}
+							action={
+								<Button variant="secondary" onClick={reload}>
+									{t('app.agents.errRetry', 'Retry')}
+								</Button>
+							}
+						/>
 					) : null}
 					{error ? (
 						<div className="form-error" role="alert">
@@ -698,16 +709,28 @@ export function AgentsPage({
 					<DataTable
 						rows={runtimeRows}
 						empty={
-							<EmptyState
-								title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
-								body={
-									runtimeProviderErrorText ||
-									t(
+							runtimeProviderErrorText ? (
+								<ErrorState
+									title={t(
+										'app.agents.errRuntimeProvidersTitle',
+										'Could not load runtime providers',
+									)}
+									body={runtimeProviderErrorText}
+									action={
+										<Button variant="secondary" onClick={reload}>
+											{t('app.agents.errRetry', 'Retry')}
+										</Button>
+									}
+								/>
+							) : (
+								<EmptyState
+									title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
+									body={t(
 										'app.agents.runtimeProvidersDiscoveryPending',
 										'Runtime providers are not executable until provider discovery returns status.',
-									)
-								}
-							/>
+									)}
+								/>
+							)
 						}
 						columns={[
 							{
@@ -790,13 +813,30 @@ export function AgentsPage({
 						</select>
 					</label>
 				</div>
+				{agentProfilesErrorText && agentProfiles.length ? (
+					<div className="form-error" role="alert">
+						{agentProfilesErrorText}
+					</div>
+				) : null}
 				<DataTable
 					rows={agentProfiles}
 					empty={
-						<EmptyState
-							title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')}
-							body={t('app.agents.noTeamProfiles', 'No active team profiles.')}
-						/>
+						agentProfilesErrorText ? (
+							<ErrorState
+								title={t('app.agents.errProfilesLoadTitle', 'Could not load agent profiles')}
+								body={agentProfilesErrorText}
+								action={
+									<Button variant="secondary" onClick={reload}>
+										{t('app.agents.errRetry', 'Retry')}
+									</Button>
+								}
+							/>
+						) : (
+							<EmptyState
+								title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')}
+								body={t('app.agents.noTeamProfiles', 'No active team profiles.')}
+							/>
+						)
 					}
 					columns={[
 						{

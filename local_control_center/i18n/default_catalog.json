@@ -13170,6 +13170,38 @@
     "ui.static.skip.to.main.content.be504f61": {
       "en": "Skip to main content",
       "es": "Saltar al contenido principal"
+    },
+    "app.pages.errEvidenceDetailTitle": {
+      "en": "Could not load evidence detail",
+      "es": "No se pudo cargar el detalle de evidencia"
+    },
+    "app.pages.errDiffArtifactTitle": {
+      "en": "Could not load the diff artifact",
+      "es": "No se pudo cargar el artefacto de diff"
+    },
+    "app.pages.errSecurityFindingsTitle": {
+      "en": "Could not load security findings",
+      "es": "No se pudieron cargar los hallazgos de seguridad"
+    },
+    "app.pages.errRetry": {
+      "en": "Retry",
+      "es": "Reintentar"
+    },
+    "app.agents.errProfilesLoadTitle": {
+      "en": "Could not load agent profiles",
+      "es": "No se pudieron cargar los perfiles de agente"
+    },
+    "app.agents.errRuntimeProvidersTitle": {
+      "en": "Could not load runtime providers",
+      "es": "No se pudieron cargar los providers de runtime"
+    },
+    "app.agents.errCatalogTitle": {
+      "en": "Could not load agent configuration catalogs",
+      "es": "No se pudieron cargar los catálogos de configuración de agentes"
+    },
+    "app.agents.errRetry": {
+      "en": "Retry",
+      "es": "Reintentar"
     }
   }
 }

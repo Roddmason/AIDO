@@ -14,9 +14,11 @@ import {
 import type { Artifact, Overview } from '../../api/types';
 import {
 	StatusChip as Badge,
+	Button,
 	DataTable,
 	Drawer,
 	EmptyState,
+	ErrorState,
 	PageHeader,
 	Surface,
 } from '../../components/ui';
@@ -70,6 +72,8 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
+	const [reloadToken, setReloadToken] = useState(0);
+	const reload = () => setReloadToken((token) => token + 1);
 	const detailErrorText = resolveAsyncError(detailError, t);
 	const diffErrorText = resolveAsyncError(diffError, t);
 	const securityErrorText = resolveAsyncError(securityError, t);
@@ -95,7 +99,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				if (!controller.signal.aborted) setDetailLoading(false);
 			});
 		return () => controller.abort();
-	}, [selectedEvidenceId]);
+	}, [reloadToken, selectedEvidenceId]);
 	const selectedPackage = detail?.evidencePackage ?? null;
 	const detailArtifacts = detail?.artifacts ?? [];
 	const patchArtifact = useMemo(() => findPatchArtifact(detailArtifacts), [detailArtifacts]);
@@ -131,7 +135,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		return () => {
 			active = false;
 		};
-	}, [patchArtifact, selectedEvidenceId, token]);
+	}, [patchArtifact, reloadToken, selectedEvidenceId, token]);
 	useEffect(() => {
 		setSecurityPayload(null);
 		setSecurityError(null);
@@ -163,7 +167,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		return () => {
 			active = false;
 		};
-	}, [securityArtifact, selectedEvidenceId, token]);
+	}, [reloadToken, securityArtifact, selectedEvidenceId, token]);
 	const openPreview = async (artifact: Artifact) => {
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');
@@ -407,12 +411,25 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				</Surface>
 			</div>
 			<div className="stack">
-				{detailErrorText ? (
+				{detailErrorText && selectedPackage ? (
 					<div className="form-error" role="alert">
 						{detailErrorText}
 					</div>
 				) : null}
-				{selectedEvidenceId && !selectedPackage ? (
+				{detailErrorText && !selectedPackage ? (
+					<Surface title={t('ui.static.evidence.detail.viewer.30e34a50', 'Evidence detail')}>
+						<ErrorState
+							title={t('app.pages.errEvidenceDetailTitle', 'Could not load evidence detail')}
+							body={detailErrorText}
+							action={
+								<Button variant="secondary" onClick={reload}>
+									{t('app.pages.errRetry', 'Retry')}
+								</Button>
+							}
+						/>
+					</Surface>
+				) : null}
+				{!detailErrorText && selectedEvidenceId && !selectedPackage ? (
 					<Surface title={t('ui.static.evidence.detail.viewer.30e34a50', 'Evidence detail')}>
 						<EmptyState
 							title={
@@ -665,10 +682,21 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 										</span>
 									) : null}
 								</div>
-								{diffErrorText ? (
+								{diffErrorText && diffPayload ? (
 									<div className="form-error" role="alert">
 										{diffErrorText}
 									</div>
+								) : null}
+								{diffErrorText && !diffPayload ? (
+									<ErrorState
+										title={t('app.pages.errDiffArtifactTitle', 'Could not load the diff artifact')}
+										body={diffErrorText}
+										action={
+											<Button variant="secondary" onClick={reload}>
+												{t('app.pages.errRetry', 'Retry')}
+											</Button>
+										}
+									/>
 								) : null}
 								{diffLoading ? (
 									<EmptyState
@@ -710,10 +738,24 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 						</Surface>
 						<Surface title={t('ui.static.security.findings.viewer.6957b365', 'Security findings')}>
 							<div className="stack">
-								{securityErrorText ? (
+								{securityErrorText && securityPayload ? (
 									<div className="form-error" role="alert">
 										{securityErrorText}
 									</div>
+								) : null}
+								{securityErrorText && !securityPayload ? (
+									<ErrorState
+										title={t(
+											'app.pages.errSecurityFindingsTitle',
+											'Could not load security findings',
+										)}
+										body={securityErrorText}
+										action={
+											<Button variant="secondary" onClick={reload}>
+												{t('app.pages.errRetry', 'Retry')}
+											</Button>
+										}
+									/>
 								) : null}
 								{securityLoading ? (
 									<EmptyState

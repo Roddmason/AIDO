@@ -434,6 +434,22 @@ class EvidenceRepository:
             raise KeyError(f"Artifact not found: {artifact_id}")
         return row_to_artifact(row)
 
+    def get_artifacts_by_ids(self, artifact_ids: list[str]) -> list[dict[str, Any]]:
+        """Resuelve un lote de ids en un solo SELECT, omitiendo inexistentes.
+
+        Devuelve los artefactos en el orden ``sorted(set(ids))`` (mismo contrato que resolver
+        los ids uno a uno tras deduplicar).
+        """
+        ordered_ids = sorted({str(item) for item in artifact_ids if item})
+        if not ordered_ids:
+            return []
+        placeholders = ", ".join("?" for _ in ordered_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM artifacts WHERE id IN ({placeholders})", ordered_ids
+        ).fetchall()
+        by_id = {row["id"]: row_to_artifact(row) for row in rows}
+        return [by_id[artifact_id] for artifact_id in ordered_ids if artifact_id in by_id]
+
     def get_project_artifact(self, *, project_id: str, artifact_id: str) -> dict[str, Any]:
         """Read one artifact only when both its id and owning project match."""
         row = self.connection.execute(

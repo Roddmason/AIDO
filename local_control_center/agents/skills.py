@@ -161,32 +161,51 @@ class SkillRegistry:
             return [], None
         allow_all = "*" in allowed_refs
         allowed = {str(item) for item in allowed_refs if isinstance(item, str) and item}
+        refs = [ref for ref in (str(item).strip() for item in requested_refs) if ref]
+        if not refs:
+            return [], None
+
+        # Resolución por lote: un SELECT para el catálogo y otro para las versiones, en vez
+        # de dos queries por ref. La semántica por-ref (orden, errores, allowlist, dedupe)
+        # se conserva recorriendo ``refs`` en orden sobre los mapas resueltos.
+        unique_refs = sorted(set(refs))
+        placeholders = ", ".join("?" for _ in unique_refs)
+        skill_rows = self.connection.execute(
+            f"SELECT * FROM skills WHERE id IN ({placeholders}) OR name IN ({placeholders})",
+            (*unique_refs, *unique_refs),
+        ).fetchall()
+        skills_by_ref: dict[str, dict[str, Any]] = {}
+        for row in skill_rows:
+            skill = row_to_skill(row)
+            skills_by_ref.setdefault(skill["id"], skill)
+            skills_by_ref.setdefault(skill["name"], skill)
+
+        skill_ids = sorted({skill["id"] for skill in skills_by_ref.values()})
+        latest_version_by_skill: dict[str, Any] = {}
+        if skill_ids:
+            version_placeholders = ", ".join("?" for _ in skill_ids)
+            version_rows = self.connection.execute(
+                f"""
+                SELECT * FROM skill_versions
+                WHERE skill_id IN ({version_placeholders})
+                ORDER BY created_at DESC, id DESC
+                """,
+                skill_ids,
+            ).fetchall()
+            for version in version_rows:
+                latest_version_by_skill.setdefault(version["skill_id"], version)
+
         resolved: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for requested_ref in requested_refs:
-            ref = str(requested_ref).strip()
-            if not ref:
-                continue
-            row = self.connection.execute(
-                "SELECT * FROM skills WHERE id = ? OR name = ?",
-                (ref, ref),
-            ).fetchone()
-            if not row:
+        for ref in refs:
+            skill = skills_by_ref.get(ref)
+            if skill is None:
                 return [], f"Skill is not cataloged: {ref}."
-            skill = row_to_skill(row)
             if not allow_all and skill["id"] not in allowed and skill["name"] not in allowed:
                 return [], f"Skill '{skill['name']}' is not allowed by the agent profile."
             if skill["id"] in seen:
                 continue
-            version = self.connection.execute(
-                """
-                SELECT * FROM skill_versions
-                WHERE skill_id = ?
-                ORDER BY created_at DESC, id DESC
-                LIMIT 1
-                """,
-                (skill["id"],),
-            ).fetchone()
+            version = latest_version_by_skill.get(skill["id"])
             if not version:
                 return [], f"Skill '{skill['name']}' has no immutable version record."
             resolved.append(_skill_version_row_to_record(skill, version))

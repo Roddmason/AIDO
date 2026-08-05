@@ -99,7 +99,13 @@ def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def artifact_records_from_ids(repo: Any, artifact_ids: list[str]) -> list[dict[str, Any]]:
-    """Resuelve ids a registros de artefacto vía el repo, deduplicando y omitiendo los inexistentes."""
+    """Resuelve ids a registros de artefacto vía el repo, deduplicando y omitiendo los inexistentes.
+
+    El repo llega duck-typed desde varios agentes: si expone ``get_artifacts_by_ids`` se
+    resuelve el lote en un solo SELECT; si no (dobles de test), cae al loop id a id.
+    """
+    if hasattr(repo, "get_artifacts_by_ids"):
+        return repo.get_artifacts_by_ids(artifact_ids)
     artifacts: list[dict[str, Any]] = []
     for artifact_id in sorted({str(item) for item in artifact_ids if item}):
         try:

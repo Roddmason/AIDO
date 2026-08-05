@@ -167,3 +167,27 @@ def test_download_artifact_blocks_path_traversal(tmp_path: Path, monkeypatch) ->
 
     assert response.status_code == 403
     assert "outside" in response.text.lower()
+
+
+def test_get_artifacts_by_ids_batches_dedupes_and_skips_missing(tmp_path: Path) -> None:
+    """La resolución por lote conserva el contrato del loop id a id: orden sorted, dedupe y omisión."""
+    from local_control_center.evidence.artifacts import artifact_records_from_ids
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    with open_sqlite_connection(tmp_path / "batch.sqlite") as connection:
+        initialize_platform_schema(connection)
+        repo = EvidenceRepository(connection)
+        for artifact_id in ("artifact-a", "artifact-b"):
+            repo.create_artifact(
+                artifact_id=artifact_id,
+                project_id="project-batch",
+                evidence_package_id=None,
+                kind="execution_log",
+                path=f"{artifact_id}.txt",
+            )
+
+        records = artifact_records_from_ids(
+            repo, ["artifact-b", "artifact-a", "artifact-b", "artifact-missing", ""]
+        )
+        assert [item["id"] for item in records] == ["artifact-a", "artifact-b"]

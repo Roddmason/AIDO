@@ -432,12 +432,25 @@ class ThreadsRepository:
             raise KeyError(f"Message not found: {message_id}")
         return row_to_message(row)
 
-    def list_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        """Lista los mensajes del hilo ordenados por ``sequence`` ascendente."""
-        rows = self.connection.execute(
-            "SELECT * FROM thread_messages WHERE thread_id = ? ORDER BY sequence ASC",
-            (thread_id,),
-        ).fetchall()
+    def list_messages(self, thread_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los mensajes del hilo ordenados por ``sequence`` ascendente.
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
+        if limit is None:
+            rows = self.connection.execute(
+                "SELECT * FROM thread_messages WHERE thread_id = ? ORDER BY sequence ASC",
+                (thread_id,),
+            ).fetchall()
+        else:
+            rows = list(
+                reversed(
+                    self.connection.execute(
+                        "SELECT * FROM thread_messages WHERE thread_id = ? ORDER BY sequence DESC LIMIT ?",
+                        (thread_id, int(limit)),
+                    ).fetchall()
+                )
+            )
         return [row_to_message(row) for row in rows]
 
     # -- artifacts -------------------------------------------------------------
@@ -477,12 +490,26 @@ class ThreadsRepository:
         row = self.connection.execute("SELECT * FROM thread_artifacts WHERE id = ?", (row_id,)).fetchone()
         return row_to_artifact(row)
 
-    def list_artifacts(self, thread_id: str) -> list[dict[str, Any]]:
-        """Lista los artifacts del hilo, más antiguos primero (orden de aparición)."""
-        rows = self.connection.execute(
-            "SELECT * FROM thread_artifacts WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC",
-            (thread_id,),
-        ).fetchall()
+    def list_artifacts(self, thread_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los artifacts del hilo, más antiguos primero (orden de aparición).
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
+        if limit is None:
+            rows = self.connection.execute(
+                "SELECT * FROM thread_artifacts WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC",
+                (thread_id,),
+            ).fetchall()
+        else:
+            rows = list(
+                reversed(
+                    self.connection.execute(
+                        "SELECT * FROM thread_artifacts WHERE thread_id = ?"
+                        " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                        (thread_id, int(limit)),
+                    ).fetchall()
+                )
+            )
         return [row_to_artifact(row) for row in rows]
 
     # -- events ----------------------------------------------------------------
@@ -525,12 +552,25 @@ class ThreadsRepository:
         ).fetchone()
         return row_to_event(row)
 
-    def list_events(self, thread_id: str) -> list[dict[str, Any]]:
-        """Lista los eventos del hilo ordenados por ``sequence`` ascendente."""
-        rows = self.connection.execute(
-            "SELECT * FROM thread_agent_events WHERE thread_id = ? ORDER BY sequence ASC",
-            (thread_id,),
-        ).fetchall()
+    def list_events(self, thread_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los eventos del hilo ordenados por ``sequence`` ascendente.
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
+        if limit is None:
+            rows = self.connection.execute(
+                "SELECT * FROM thread_agent_events WHERE thread_id = ? ORDER BY sequence ASC",
+                (thread_id,),
+            ).fetchall()
+        else:
+            rows = list(
+                reversed(
+                    self.connection.execute(
+                        "SELECT * FROM thread_agent_events WHERE thread_id = ? ORDER BY sequence DESC LIMIT ?",
+                        (thread_id, int(limit)),
+                    ).fetchall()
+                )
+            )
         return [row_to_event(row) for row in rows]
 
     def list_events_after(

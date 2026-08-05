@@ -51,6 +51,13 @@ from .memory_recall import ThreadMemoryRecallService
 from .repository import ThreadLifecycleError, ThreadsRepository
 from .similarity import ThreadMemoryService, ThreadSimilarityService
 
+# El detalle del hilo viaja completo en cada apertura; estas cotas conservan solo el tail
+# reciente de las colecciones que crecen sin techo. El stream incremental
+# ``GET /threads/{id}/events`` (afterSeq + limit) sigue cubriendo el historial completo.
+THREAD_DETAIL_MESSAGE_TAIL = 500
+THREAD_DETAIL_EVENT_TAIL = 500
+THREAD_DETAIL_ARTIFACT_TAIL = 300
+
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de threads: lecturas libres y mutaciones protegidas por token."""
@@ -79,10 +86,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         thread = repo.get_thread(thread_id)
         return {
             "thread": thread,
-            "messages": repo.list_messages(thread_id),
-            "artifacts": repo.list_artifacts(thread_id),
+            "messages": repo.list_messages(thread_id, limit=THREAD_DETAIL_MESSAGE_TAIL),
+            "artifacts": repo.list_artifacts(thread_id, limit=THREAD_DETAIL_ARTIFACT_TAIL),
             "decisions": repo.list_decisions(thread_id),
-            "events": repo.list_events(thread_id),
+            "events": repo.list_events(thread_id, limit=THREAD_DETAIL_EVENT_TAIL),
         }
 
     def latest_thread_audit(thread_id: str, action: str, project_id: str) -> dict[str, Any]:

@@ -8516,3 +8516,44 @@ def test_bounded_instruction_cuts_the_middle_and_keeps_head_and_tail() -> None:
     assert "[... instruction truncated ...]" in bounded
     short = "just do it"
     assert _bounded_instruction(short) is short
+
+
+def test_failover_replacement_keeps_role_preferred_resources(tmp_path: Path, monkeypatch) -> None:
+    """El request de reemplazo conserva los pins provider+model del rol (regresión: solo pasaba provider ids)."""
+    from types import SimpleNamespace
+
+    from local_control_center.agents.ai_resource_manager import AIResourceManager
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        RoutingProfileStore(connection).patch_role_policy(
+            "developer",
+            {"preferred": [{"provider": "anthropic_gateway", "model": "claude-sonnet"}]},
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        expected_preferred = coordinator._resource_role_policy("developer")["preferredResources"]
+        assert {"provider": "anthropic_gateway", "model": "claude-sonnet"} in expected_preferred
+
+        captured: list = []
+
+        def _capture(self, request, *, record=True):
+            captured.append(request)
+            raise RuntimeError("stop after capturing the request")
+
+        monkeypatch.setattr(AIResourceManager, "select_resource", _capture)
+        run = SimpleNamespace(
+            project_id="project-failover",
+            loop={"id": "loop-1"},
+            task_id="task-1",
+            team_schedule={"risk": "medium", "mode": "balanced"},
+        )
+        replacement = coordinator._failover_replacement(
+            run=run,
+            payload={},
+            attempts=[{"failureClass": "quota", "providerId": "openai_gateway", "model": "gpt-x"}],
+            provider_id="openai_gateway",
+            failed_model="gpt-x",
+        )
+
+    assert replacement is None
+    assert captured[0].preferred_resources == expected_preferred

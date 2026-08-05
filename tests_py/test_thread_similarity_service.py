@@ -254,3 +254,82 @@ def test_mark_improve_existing_records_similarity_event(tmp_path: Path) -> None:
         assert event["sourceThreadId"] == source["id"]
         assert event["candidateThreadId"] == candidate["id"]
         assert service.list_similarity_events(source_thread_id=source["id"])[0]["id"] == event["id"]
+
+
+def _insert_thread_via_sql(connection, project_id: str, thread_id: str, title: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO project_threads
+            (id, project_id, owner_type, owner_id, title, status, summary, metadata, created_at, updated_at)
+        VALUES (?, ?, 'workspace', 'workspace-1', ?, 'active', '', '{}', ?, ?)
+        """,
+        (thread_id, project_id, title, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+    )
+
+
+def test_ensure_project_index_backfills_only_missing_or_stale(tmp_path: Path) -> None:
+    """El backfill mínimo indexa lo faltante una vez y no reescribe filas frescas."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        indexed = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread indexed through the repository mutators",
+        )
+        _insert_thread_via_sql(connection, project_id, "thread-raw-1", "Raw thread without index row")
+
+        service = ThreadSimilarityService(connection)
+        fresh_before = connection.execute(
+            "SELECT updated_at FROM thread_memory_index WHERE thread_id = ?", (indexed["id"],)
+        ).fetchone()["updated_at"]
+
+        assert service.ensure_project_index(project_id) == 1
+        assert service.get_index("thread-raw-1")["title"] == "Raw thread without index row"
+        assert service.ensure_project_index(project_id) == 0
+
+        fresh_after = connection.execute(
+            "SELECT updated_at FROM thread_memory_index WHERE thread_id = ?", (indexed["id"],)
+        ).fetchone()["updated_at"]
+        assert fresh_after == fresh_before
+
+
+def test_find_similar_discovers_threads_never_indexed(tmp_path: Path) -> None:
+    """find_similar sigue encontrando threads sembrados por SQL directo (sin fila de índice)."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        _insert_thread_via_sql(
+            connection, project_id, "thread-raw-2", "Duplicate lexical similarity detection request"
+        )
+
+        results = ThreadSimilarityService(connection).find_similar(
+            project_id=project_id,
+            query="lexical similarity duplicate detection",
+        )
+        assert [item["threadId"] for item in results] == ["thread-raw-2"]
+
+
+def test_set_summary_refreshes_similarity_index(tmp_path: Path) -> None:
+    """set_summary toca updated_at y deja el summary visible en el índice de similitud."""
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Summary indexing thread",
+        )
+
+        repo.set_summary(thread["id"], "Deterministic summary payload for the index")
+
+        row = connection.execute(
+            "SELECT updated_at FROM project_threads WHERE id = ?", (thread["id"],)
+        ).fetchone()
+        assert row["updated_at"] >= thread["updatedAt"]
+        index = ThreadSimilarityService(connection).get_index(thread["id"])
+        assert "Deterministic summary payload" in index["summary"]

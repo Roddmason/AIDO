@@ -867,7 +867,7 @@ class ThreadCoordinator:
             return
         # Redact before persisting: the summary is surfaced in list_threads and the overview snapshot.
         snippet = redact_secrets(content.strip().replace("\n", " "))[:_SUMMARY_LIMIT]
-        self.connection.execute("UPDATE project_threads SET summary = ? WHERE id = ?", (snippet, thread_id))
+        self.repository.set_summary(thread_id, snippet)
 
     def _queue_product_loop_run(
         self,

@@ -627,6 +627,18 @@ class ThreadsRepository:
         ).fetchall()
         return [row_to_decision(row) for row in rows]
 
+    def set_summary(self, thread_id: str, summary: str) -> None:
+        """Actualiza el summary tocando ``updated_at`` y refrescando el índice de similitud."""
+        timestamp = utc_now()
+        with self._transaction():
+            updated = self.connection.execute(
+                "UPDATE project_threads SET summary = ?, updated_at = ? WHERE id = ?",
+                (summary, timestamp, thread_id),
+            )
+            if updated.rowcount == 0:
+                raise KeyError(f"Thread not found: {thread_id}")
+            self._index_thread(thread_id)
+
     # -- helpers ---------------------------------------------------------------
     def _index_thread(self, thread_id: str) -> None:
         from local_control_center.threads.similarity import ThreadSimilarityService

@@ -182,13 +182,58 @@ class ThreadSimilarityService:
         return _row_to_index(row)
 
     def index_project(self, project_id: str) -> None:
-        """Backfill idempotente de todos los threads del proyecto para evitar falsos negativos."""
+        """Reconstrucción total del índice del proyecto (vía explícita de ``POST .../memory/reindex``)."""
         rows = self.connection.execute(
             "SELECT id FROM project_threads WHERE project_id = ? ORDER BY updated_at ASC",
             (project_id,),
         ).fetchall()
         for row in rows:
             self.index_thread(row["id"])
+
+    def ensure_project_index(self, project_id: str) -> int:
+        """Backfill mínimo: indexa solo threads sin fila de índice o con índice más viejo que el thread.
+
+        Es la vía barata para rutas de lectura; en estado estacionario (los mutadores del
+        repositorio ya indexan en cada escritura) devuelve 0 sin reescribir nada.
+        """
+        rows = self.connection.execute(
+            """
+            SELECT t.id FROM project_threads t
+            LEFT JOIN thread_memory_index i ON i.thread_id = t.id
+            WHERE t.project_id = ? AND (i.thread_id IS NULL OR i.updated_at < t.updated_at)
+            ORDER BY t.updated_at ASC, t.rowid ASC
+            """,
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            self.index_thread(row["id"])
+        return len(rows)
+
+    def ensure_project_functionality(self, project_id: str) -> int:
+        """Materializa funcionalidad solo para threads resueltos/archivados sin registro fresco.
+
+        El JOIN por fingerprint evita re-upserts en bucle cuando dos threads comparten huella.
+        """
+        statuses = sorted(FUNCTIONALITY_SOURCE_STATUSES)
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = self.connection.execute(
+            f"""
+            SELECT DISTINCT t.id, t.updated_at, t.rowid AS thread_rowid
+            FROM project_threads t
+            JOIN thread_memory_index i ON i.thread_id = t.id
+            LEFT JOIN functionality_registry f
+                ON f.project_id = t.project_id
+               AND (f.source_thread_id = t.id OR f.fingerprint = i.fingerprint)
+            WHERE t.project_id = ?
+              AND t.status IN ({placeholders})
+              AND (f.id IS NULL OR f.updated_at < t.updated_at)
+            ORDER BY t.updated_at ASC, thread_rowid ASC
+            """,
+            (project_id, *statuses),
+        ).fetchall()
+        for row in rows:
+            self.upsert_functionality_from_thread(row["id"])
+        return len(rows)
 
     def reindex_thread_memory(self, thread_id: str) -> dict[str, Any]:
         """Reconstruye índice y registry derivado para un thread concreto."""
@@ -199,7 +244,7 @@ class ThreadSimilarityService:
         return {"index": index, "functionality": functionality}
 
     def reindex_project_memory(self, project_id: str) -> None:
-        """Backfill del índice y de funcionalidad resuelta/archivada del proyecto."""
+        """Reconstrucción total de índice + funcionalidad (vía explícita de ``POST .../memory/reindex``)."""
         rows = self.connection.execute(
             "SELECT id, status FROM project_threads WHERE project_id = ? ORDER BY updated_at ASC",
             (project_id,),
@@ -295,7 +340,8 @@ class ThreadSimilarityService:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Lista funcionalidad registrada; si hay query, ordena por similitud lexical."""
-        self.reindex_project_memory(project_id)
+        self.ensure_project_index(project_id)
+        self.ensure_project_functionality(project_id)
         bounded_limit = max(1, min(int(limit), 100))
         rows = self.connection.execute(
             """
@@ -350,7 +396,7 @@ class ThreadSimilarityService:
         limit: int = 5,
     ) -> list[dict[str, Any]]:
         """Busca candidatos similares por texto libre o por el propio índice de un thread fuente."""
-        self.index_project(project_id)
+        self.ensure_project_index(project_id)
         source_index: dict[str, Any] | None = None
         if source_thread_id:
             source_index = self.index_thread(source_thread_id)

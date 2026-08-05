@@ -13066,6 +13066,94 @@
     "app.bottomPanel.outputEmptyBody": {
       "en": "QA commands executed by the loop will be listed here with their status.",
       "es": "Los comandos de QA que ejecute el loop aparecerán aquí con su estado."
+    },
+    "app.pages.memoryIndexDegradedChip": {
+      "en": "Index degraded",
+      "es": "Índice degradado"
+    },
+    "app.pages.memoryIndexDegradedExplain": {
+      "en": "The vector index can be rebuilt without losing the source of truth in SQLite.",
+      "es": "El índice vectorial se puede reconstruir sin perder la fuente de verdad en SQLite."
+    },
+    "app.pages.memoryRecordsTitle": {
+      "en": "Memory records",
+      "es": "Registros de memoria"
+    },
+    "app.pages.memorySearchLabel": {
+      "en": "Search memory items",
+      "es": "Buscar en la memoria"
+    },
+    "app.pages.memorySearchHelp": {
+      "en": "Matches kind, scope or content.",
+      "es": "Coincide por tipo, alcance o contenido."
+    },
+    "app.pages.memorySearchPlaceholder": {
+      "en": "Search content, kind or scope",
+      "es": "Busca contenido, tipo o alcance"
+    },
+    "app.pages.memoryScopeLabel": {
+      "en": "Project scope",
+      "es": "Alcance de proyecto"
+    },
+    "app.pages.memoryScopeAll": {
+      "en": "All projects",
+      "es": "Todos los proyectos"
+    },
+    "app.pages.memoryScopeProject": {
+      "en": "This project",
+      "es": "Este proyecto"
+    },
+    "app.pages.memoryScopeNoProjectHelp": {
+      "en": "Select a project to filter memory items by it.",
+      "es": "Selecciona un proyecto para filtrar la memoria por él."
+    },
+    "app.pages.memoryFilteredCount": {
+      "en": "{filtered} of {total} items",
+      "es": "{filtered} de {total} registros"
+    },
+    "app.pages.memoryRecordsCaption": {
+      "en": "Memory items table",
+      "es": "Tabla de registros de memoria"
+    },
+    "app.pages.memoryEmptyTitle": {
+      "en": "No memory items match",
+      "es": "Ningún registro coincide"
+    },
+    "app.pages.memoryEmptyFilteredBody": {
+      "en": "No memory items match the current search and scope filters.",
+      "es": "Ningún registro coincide con la búsqueda y el alcance seleccionados."
+    },
+    "app.pages.memoryEmptyBody": {
+      "en": "Memory items accumulate as agents record decisions, lessons and evidence.",
+      "es": "La memoria se acumula a medida que los agentes registran decisiones, lecciones y evidencia."
+    },
+    "app.pages.memoryColKind": {
+      "en": "Kind",
+      "es": "Tipo"
+    },
+    "app.pages.memoryColScope": {
+      "en": "Scope",
+      "es": "Alcance"
+    },
+    "app.pages.memoryColContent": {
+      "en": "Content",
+      "es": "Contenido"
+    },
+    "app.pages.memoryColContext": {
+      "en": "Context",
+      "es": "Contexto"
+    },
+    "app.pages.memoryColCreatedAt": {
+      "en": "Created",
+      "es": "Creado"
+    },
+    "app.pages.memoryVersionLabel": {
+      "en": "v{version}",
+      "es": "v.{version}"
+    },
+    "app.pages.memoryExpiresLabel": {
+      "en": "expires {date}",
+      "es": "vence {date}"
     }
   }
 }

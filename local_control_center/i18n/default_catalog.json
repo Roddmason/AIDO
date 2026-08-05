@@ -2067,14 +2067,6 @@
       "en": "Download workflow preview artifact",
       "es": "Descargar artefacto de vista previa del flujo de trabajo"
     },
-    "app.activityBar.showExplorer": {
-      "en": "Show explorer",
-      "es": "Mostrar explorador"
-    },
-    "app.activityBar.hideExplorer": {
-      "en": "Hide explorer",
-      "es": "Ocultar explorador"
-    },
     "app.modelGateway.runtime.unconfigured": {
       "en": "unconfigured",
       "es": "sin configurar"
@@ -2698,98 +2690,6 @@
     "app.activeProjects.noActiveWorkspacesBody": {
       "en": "Workflow implementation steps allocate isolated workspaces.",
       "es": "Los pasos de implementación asignan workspaces aislados."
-    },
-    "app.explorer.showAll": {
-      "en": "Show all",
-      "es": "Ver todas"
-    },
-    "app.explorer.newProject": {
-      "en": "New project",
-      "es": "Nuevo proyecto"
-    },
-    "app.explorer.currentProject": {
-      "en": "Current project",
-      "es": "Proyecto actual"
-    },
-    "app.explorer.project": {
-      "en": "Project",
-      "es": "Proyecto"
-    },
-    "app.explorer.stackNotDetected": {
-      "en": "Stack not detected",
-      "es": "Stack no detectado"
-    },
-    "app.explorer.newTask": {
-      "en": "New task",
-      "es": "Nueva tarea"
-    },
-    "app.explorer.openFolder": {
-      "en": "Open folder",
-      "es": "Abrir carpeta"
-    },
-    "app.explorer.review": {
-      "en": "Review",
-      "es": "Revisar"
-    },
-    "app.explorer.settings": {
-      "en": "Settings",
-      "es": "Configuración"
-    },
-    "app.explorer.noProjectSelected": {
-      "en": "No project selected",
-      "es": "Sin proyecto seleccionado"
-    },
-    "app.explorer.noProjectSelectedBody": {
-      "en": "Open or pick a project to keep its context in view.",
-      "es": "Abre o elige un proyecto para mantener su contexto a la vista."
-    },
-    "app.explorer.activeRuns": {
-      "en": "Active runs",
-      "es": "Ejecuciones activas"
-    },
-    "app.explorer.noActiveRuns": {
-      "en": "No active runs",
-      "es": "Sin ejecuciones activas"
-    },
-    "app.explorer.approvals": {
-      "en": "Approvals",
-      "es": "Aprobaciones"
-    },
-    "app.explorer.noPendingApprovals": {
-      "en": "No pending approvals",
-      "es": "Sin aprobaciones pendientes"
-    },
-    "app.explorer.noWorkspaces": {
-      "en": "No workspaces",
-      "es": "Sin workspaces"
-    },
-    "app.explorer.evidence": {
-      "en": "Evidence",
-      "es": "Evidencia"
-    },
-    "app.explorer.noEvidencePackages": {
-      "en": "No evidence packages",
-      "es": "Sin paquetes de evidencia"
-    },
-    "app.explorer.projectFiles": {
-      "en": "Project files",
-      "es": "Archivos del proyecto"
-    },
-    "app.explorer.projectFilesUnavailable": {
-      "en": "Project files unavailable",
-      "es": "Archivos del proyecto no disponibles"
-    },
-    "app.explorer.projectFilesUnavailableBody": {
-      "en": "This control plane does not index project files yet. Open the folder to browse it in your OS file manager.",
-      "es": "Este panel aún no indexa archivos del proyecto. Abre la carpeta para explorarla en tu administrador de archivos."
-    },
-    "app.explorer.navigate": {
-      "en": "Navigate",
-      "es": "Navegar"
-    },
-    "app.explorer.switchProject": {
-      "en": "Switch project",
-      "es": "Cambiar proyecto"
     },
     "app.inspector.closeInspector": {
       "en": "Close inspector",
@@ -8503,14 +8403,6 @@
       "en": "View evidence",
       "es": "Ver evidencia"
     },
-    "app.explorer.aria.panel": {
-      "en": "Explorer",
-      "es": "Explorador"
-    },
-    "app.explorer.aria.nav": {
-      "en": "Explorer navigation",
-      "es": "Navegación del explorador"
-    },
     "app.workbench.tabs.aria": {
       "en": "Workbench views",
       "es": "Vistas del workbench"
@@ -8702,62 +8594,6 @@
     "app.commandPalette.empty.body": {
       "en": "Try open, runtime, evidence, approvals or settings.",
       "es": "Prueba abrir, runtime, evidencia, aprobaciones o configuración."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.0": {
-      "en": "Active work",
-      "es": "Trabajo activo"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.1": {
-      "en": "Active Projects",
-      "es": "Proyectos activos"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.2": {
-      "en": "Only active projects can run work here. Inactive and archived projects stay visible in Settings for audit and configuration.",
-      "es": "Solo los proyectos activos pueden ejecutar trabajo aquí. Los proyectos inactivos y archivados siguen visibles en Configuración para auditoría."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.4": {
-      "en": "Create a project or reactivate one in Settings before starting workflows, jobs, workspaces or governance records.",
-      "es": "Crea un proyecto o reactiva uno en Configuración antes de iniciar flujos de trabajo, trabajos, workspaces o registros de gobierno."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.5": {
-      "en": "Delivered",
-      "es": "Entregados"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.6": {
-      "en": "Finished Projects",
-      "es": "Proyectos finalizados"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.7": {
-      "en": "Completed and archived projects stay available for audit and cannot be selected to run new work.",
-      "es": "Los proyectos completados y archivados quedan disponibles para auditoría y no pueden seleccionarse para ejecutar trabajo nuevo."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.8": {
-      "en": "No finished projects",
-      "es": "No hay proyectos finalizados"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.9": {
-      "en": "Projects with completed, finished, done, finalized or archived status will appear here.",
-      "es": "Aparecerán proyectos con estado completed, finished, done, finalized o archived."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.10": {
-      "en": "Errors",
-      "es": "Errores"
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.12": {
-      "en": "Projects in failed or error states are isolated here so operators can triage without mixing them into active work.",
-      "es": "Los proyectos con error quedan aislados para revisión sin mezclarse con el trabajo activo."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.14": {
-      "en": "Projects with failed, error or errored status will appear here.",
-      "es": "Aparecerán proyectos con estado failed, error o errored."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.17": {
-      "en": "Cancelled projects stay visible for traceability, but cannot be selected to run new work.",
-      "es": "Los proyectos cancelados se mantienen visibles para trazabilidad, pero no pueden seleccionarse para ejecutar trabajo nuevo."
-    },
-    "app.copy.features.active-projects.ActiveProjectsPage.19": {
-      "en": "Projects with cancelled or canceled status will appear here.",
-      "es": "Aparecerán proyectos con estado cancelled o canceled."
     },
     "app.copy.features.settings.SettingsPage.0": {
       "en": "Runtime setup",

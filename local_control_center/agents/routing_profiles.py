@@ -42,13 +42,18 @@ def _normalize_model_refs(raw: Any) -> list[dict[str, Any]]:
     Las filas viejas guardaban ``["claude_code_cli", ...]``; el contrato actual es
     ``[{"model": ..., "provider": ...}]``. Sin esto, UNA fila legacy hacía fallar el response
     model del listado completo (500) y la UI quedaba sin políticas ni providers.
+
+    El modelo normalizado es ``"*"`` (comodín provider-level, misma semántica de ranking que
+    vacío) y no ``""``: la validación del gateway rechaza modelos vacíos, y como PATCH revalida
+    el estado fusionado, una fila legacy normalizada a vacío quedaba inmodificable para siempre
+    vía API/UI (422 en cualquier PATCH, aun de campos ajenos).
     """
     normalized: list[dict[str, Any]] = []
     for item in raw if isinstance(raw, list) else []:
         if isinstance(item, dict):
             normalized.append(item)
         elif isinstance(item, str) and item.strip():
-            normalized.append({"model": "", "provider": item.strip()})
+            normalized.append({"model": "*", "provider": item.strip()})
     return normalized
 
 

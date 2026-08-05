@@ -39,3 +39,41 @@ def test_legacy_string_model_refs_are_normalized_to_dicts(tmp_path: Path) -> Non
     store_rows = [p for p in policies if p["role"] != "aido_lead"]
     for p in store_rows:
         assert all(isinstance(item, dict) for item in p["preferred"] + p["fallback"])
+
+
+def test_legacy_policy_stays_editable_via_patch(tmp_path: Path) -> None:
+    """Una fila legacy normalizada debe aceptar PATCH de campos ajenos (regresión: 422 eterno).
+
+    PATCH revalida el estado fusionado; si la normalización produjera ``model: ""`` la
+    validación del gateway rechazaría cualquier edición de esa policy para siempre.
+    """
+    import sys
+
+    sys.modules["faiss"] = None
+
+    from fastapi.testclient import TestClient
+
+    from local_control_center.app import create_app
+    from local_control_center.control_plane.runtime import ControlCenterRuntime
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    try:
+        client = TestClient(create_app(runtime=runtime, static_dir=None))
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        runtime.connection.execute(
+            "UPDATE role_model_policies SET preferred_json = ? WHERE role = 'aido_lead'",
+            (json_dumps(["claude_code_cli"]),),
+        )
+
+        response = client.patch(
+            "/api/v1/model-gateway/role-policies/aido_lead",
+            json={"maxCostPerTaskUsd": 1.5},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert response.status_code == 200, response.text
+        policy = response.json()["rolePolicy"]
+        assert policy["maxCostPerTaskUsd"] == 1.5
+        assert {"provider": "claude_code_cli", "model": "*"} in policy["preferred"]
+    finally:
+        runtime.close()

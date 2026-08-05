@@ -9,6 +9,7 @@ cuota y benchmarks; elige el de mayor score. Registra la decisión salvo record=
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Any
 
@@ -22,6 +23,8 @@ from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
+
+logger = logging.getLogger(__name__)
 
 REMOTE_PROVIDER_TYPES = {"api", "gateway"}
 LOCAL_PROVIDER_TYPES = {"local"}
@@ -321,6 +324,20 @@ class ModelRouter:
         if not self._has_ai_resource_profiles():
             return None
         try:
+            return self._ai_resource_preview(request, record=record)
+        except Exception:
+            # El preview nunca debe devolver 500 por un perfil corrupto o un contrato roto del
+            # manager: se degrada al scorer clásico y queda traza para diagnosticar.
+            logger.warning(
+                "AI resource preview failed for role %s; falling back to the classic scorer",
+                request.role,
+                exc_info=True,
+            )
+            return None
+
+    def _ai_resource_preview(self, request: RoutingRequest, *, record: bool) -> dict[str, Any] | None:
+        """Vía AIResourceManager del preview (mismo motor que usa el product loop)."""
+        try:
             role_policy = self.routes.get_role_policy(request.role)
         except KeyError:
             role_policy = self.routes.get_role_policy("developer")
@@ -417,11 +434,15 @@ class ModelRouter:
         return float(threshold)
 
     def _has_ai_resource_profiles(self) -> bool:
+        # 'model_catalog' es lo que persiste _materialize_catalog_model_performance al observar
+        # llamadas reales; sin él, en una instalación real este guard nunca se activaba y el
+        # preview usaba un motor distinto al del product loop. Las BDs scratch (tests, specs)
+        # no tienen filas y siguen entrando por el scorer clásico.
         row = self.connection.execute(
             """
             SELECT 1
             FROM ai_model_performance
-            WHERE enabled = 1 AND profile_source = 'explicit'
+            WHERE enabled = 1 AND profile_source IN ('explicit', 'model_catalog')
             LIMIT 1
             """
         ).fetchone()

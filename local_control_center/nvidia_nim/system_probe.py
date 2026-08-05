@@ -98,6 +98,10 @@ class SubprocessProbeCommandRunner:
         if not argv or tuple(argv[1:]) not in allowed_arguments:
             raise ValueError("System probe command is not allowlisted.")
         try:
+            # Policy: sonda read-only fuera del sandbox por diseño — argv exacto allowlisteado
+            # arriba (ALLOWED_PROBE_ARGUMENTS), shell=False y timeout duro; no ejecuta input
+            # del usuario ni muta estado.
+            # nosemgrep: python-dangerous-shell-without-policy-comment
             completed = subprocess.run(
                 list(argv),
                 capture_output=True,

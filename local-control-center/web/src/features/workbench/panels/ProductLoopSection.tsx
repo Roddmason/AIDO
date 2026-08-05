@@ -247,7 +247,7 @@ export function ProductLoopSection({
 						onClick={actions?.onApproveBrief}
 						variant="primary"
 					>
-						{t('app.workbench.loop.brief.approve', 'Aprobar brief')}
+						{t('app.workbench.loop.brief.approve', 'Approve brief')}
 					</Button>
 				</div>
 				{brief.summary ? <p className="card-body">{brief.summary}</p> : null}
@@ -412,7 +412,7 @@ export function ProductLoopSection({
 						onClick={actions?.onApproveBacklog}
 						variant="primary"
 					>
-						{t('app.workbench.loop.backlog.approve', 'Aprobar backlog')}
+						{t('app.workbench.loop.backlog.approve', 'Approve backlog')}
 					</Button>
 					<Button
 						disabled={!actions?.onStartIteration || !stories.length}
@@ -420,7 +420,7 @@ export function ProductLoopSection({
 						loading={actions?.busy}
 						onClick={actions?.onStartIteration}
 					>
-						{t('app.workbench.loop.backlog.startIteration', 'Iniciar iteración')}
+						{t('app.workbench.loop.backlog.startIteration', 'Start iteration')}
 					</Button>
 				</div>
 				{epics.length ? (

@@ -12318,6 +12318,850 @@
     "app.workspaceCleanup.reason.pathMissing": {
       "en": "Path missing",
       "es": "Ruta inexistente"
+    },
+    "app.modelGateway.routeMode.freeTier": {
+      "en": "Free tier only",
+      "es": "Solo nivel gratuito"
+    },
+    "app.nvidiaNim.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.nvidiaNim.contract": {
+      "en": "Contract",
+      "es": "Contrato"
+    },
+    "app.nvidiaNim.credential": {
+      "en": "Credential",
+      "es": "Credencial"
+    },
+    "app.nvidiaNim.empty.body": {
+      "en": "Add a hosted, partner or self-hosted endpoint below.",
+      "es": "Agrega abajo un endpoint alojado, de socio o autoalojado."
+    },
+    "app.nvidiaNim.empty.title": {
+      "en": "No NVIDIA NIM endpoint accounts",
+      "es": "Sin cuentas de endpoint NVIDIA NIM"
+    },
+    "app.nvidiaNim.endpoint": {
+      "en": "Endpoint",
+      "es": "Punto de conexión"
+    },
+    "app.nvidiaNim.error.baseUrl": {
+      "en": "Enter the exact model or self-hosted endpoint URL for this API family.",
+      "es": "Ingresa la URL exacta del modelo o del endpoint autoalojado para esta familia de API."
+    },
+    "app.nvidiaNim.error.credentialRef": {
+      "en": "Hosted and partner endpoints require a configured credential reference.",
+      "es": "Los endpoints alojados y de socio requieren una referencia de credencial configurada."
+    },
+    "app.nvidiaNim.error.instanceId": {
+      "en": "Enter a stable endpoint id.",
+      "es": "Ingresa un id de endpoint estable."
+    },
+    "app.nvidiaNim.error.unsupportedContract": {
+      "en": "This API family is not supported by the selected deployment mode.",
+      "es": "Esta familia de API no está soportada por el modo de despliegue seleccionado."
+    },
+    "app.nvidiaNim.form.adapterProfile": {
+      "en": "Adapter profile",
+      "es": "Perfil de adaptador"
+    },
+    "app.nvidiaNim.form.apiFamily": {
+      "en": "API family",
+      "es": "Familia de API"
+    },
+    "app.nvidiaNim.form.baseUrl": {
+      "en": "Exact base URL",
+      "es": "URL base exacta"
+    },
+    "app.nvidiaNim.form.baseUrlHelp": {
+      "en": "Rerank and hosted visual endpoints use model-specific roots; self-hosted endpoints use the deployed NIM root.",
+      "es": "Los endpoints de rerank y visuales alojados usan raíces específicas por modelo; los autoalojados usan la raíz del NIM desplegado."
+    },
+    "app.nvidiaNim.form.credentialRef": {
+      "en": "Credential reference",
+      "es": "Referencia de credencial"
+    },
+    "app.nvidiaNim.form.credentialRefHelp": {
+      "en": "Vault or environment reference only. Never paste the API key into this form.",
+      "es": "Solo referencias de Vault o de entorno. Nunca pegues la API key en este formulario."
+    },
+    "app.nvidiaNim.form.deploymentMode": {
+      "en": "Deployment mode",
+      "es": "Modo de despliegue"
+    },
+    "app.nvidiaNim.form.displayName": {
+      "en": "Display name",
+      "es": "Nombre para mostrar"
+    },
+    "app.nvidiaNim.form.enabled": {
+      "en": "Enable endpoint after creation",
+      "es": "Habilitar el endpoint tras crearlo"
+    },
+    "app.nvidiaNim.form.instanceId": {
+      "en": "Endpoint id",
+      "es": "Id del endpoint"
+    },
+    "app.nvidiaNim.form.instanceIdHelp": {
+      "en": "Stable id used by routing, limits and execution branches.",
+      "es": "Id estable usado por el ruteo, los límites y las ramas de ejecución."
+    },
+    "app.nvidiaNim.form.pricing": {
+      "en": "Pricing state",
+      "es": "Estado de precios"
+    },
+    "app.nvidiaNim.form.pricingHelp": {
+      "en": "Use configured only after endpoint-scoped prices exist in the pricing catalog.",
+      "es": "Usa 'configurado' solo cuando existan precios por endpoint en el catálogo de precios."
+    },
+    "app.nvidiaNim.form.submit": {
+      "en": "Create endpoint account",
+      "es": "Crear cuenta de endpoint"
+    },
+    "app.nvidiaNim.form.terms": {
+      "en": "Terms state",
+      "es": "Estado de términos"
+    },
+    "app.nvidiaNim.form.unsupported": {
+      "en": "Hosted arbitrary image editing is not supported by this contract.",
+      "es": "La edición arbitraria de imágenes alojada no está soportada por este contrato."
+    },
+    "app.nvidiaNim.manifest.cachedPrice": {
+      "en": "Cached input USD / MTok",
+      "es": "USD/MTok de entrada cacheada"
+    },
+    "app.nvidiaNim.manifest.context": {
+      "en": "Context window",
+      "es": "Ventana de contexto"
+    },
+    "app.nvidiaNim.manifest.displayName": {
+      "en": "Model display name",
+      "es": "Nombre visible del modelo"
+    },
+    "app.nvidiaNim.manifest.empty": {
+      "en": "No NVIDIA endpoint account",
+      "es": "Sin cuenta de endpoint NVIDIA"
+    },
+    "app.nvidiaNim.manifest.emptyBody": {
+      "en": "Create an endpoint-scoped NVIDIA account on the Providers tab first.",
+      "es": "Primero crea una cuenta NVIDIA por endpoint en la pestaña Proveedores."
+    },
+    "app.nvidiaNim.manifest.enabled": {
+      "en": "Enable model manifest",
+      "es": "Habilitar manifiesto del modelo"
+    },
+    "app.nvidiaNim.manifest.endpoint": {
+      "en": "NVIDIA endpoint",
+      "es": "Endpoint de NVIDIA"
+    },
+    "app.nvidiaNim.manifest.freeTier": {
+      "en": "Verified provider free tier",
+      "es": "Nivel gratuito verificado del proveedor"
+    },
+    "app.nvidiaNim.manifest.freeTierHelp": {
+      "en": "Use only with a source that explicitly states zero provider billing; local compute is not cost-free.",
+      "es": "Úsalo solo con una fuente que declare explícitamente facturación cero del proveedor; el cómputo local no es gratuito."
+    },
+    "app.nvidiaNim.manifest.help": {
+      "en": "Use exact model ids from NVIDIA documentation. Capabilities and prices are endpoint/model facts: leave them false or blank when not verified. Hosted trial remains evaluation-only and is never marked as a free tier.",
+      "es": "Usa ids de modelo exactos de la documentación de NVIDIA. Las capacidades y precios son hechos por endpoint/modelo: déjalos en falso o en blanco si no están verificados. El trial alojado sigue siendo solo de evaluación y nunca se marca como nivel gratuito."
+    },
+    "app.nvidiaNim.manifest.inputPrice": {
+      "en": "Input USD / MTok",
+      "es": "USD/MTok de entrada"
+    },
+    "app.nvidiaNim.manifest.maxOutput": {
+      "en": "Max output tokens",
+      "es": "Tokens máximos de salida"
+    },
+    "app.nvidiaNim.manifest.model": {
+      "en": "Exact model id",
+      "es": "Id exacto del modelo"
+    },
+    "app.nvidiaNim.manifest.outputPrice": {
+      "en": "Output USD / MTok",
+      "es": "USD/MTok de salida"
+    },
+    "app.nvidiaNim.manifest.pricingSource": {
+      "en": "Pricing source / contract ref",
+      "es": "Fuente de precios / ref del contrato"
+    },
+    "app.nvidiaNim.manifest.reasoningPrice": {
+      "en": "Reasoning USD / MTok",
+      "es": "USD/MTok de razonamiento"
+    },
+    "app.nvidiaNim.manifest.save": {
+      "en": "Save model manifest",
+      "es": "Guardar manifiesto del modelo"
+    },
+    "app.nvidiaNim.manifest.sourcedPricing": {
+      "en": "Optional sourced USD / MTok pricing",
+      "es": "Precios USD/MTok con fuente (opcional)"
+    },
+    "app.nvidiaNim.manifest.success": {
+      "en": "Model manifest saved. Unknown prices remain null; sourced prices are active for cost admission.",
+      "es": "Manifiesto del modelo guardado. Los precios desconocidos quedan en null; los precios con fuente rigen la admisión de costos."
+    },
+    "app.nvidiaNim.manifest.title": {
+      "en": "NVIDIA model manifest and pricing",
+      "es": "Manifiesto y precios del modelo NVIDIA"
+    },
+    "app.nvidiaNim.manifest.trialPricing": {
+      "en": "Trial pricing stays unknown",
+      "es": "El precio del trial queda desconocido"
+    },
+    "app.nvidiaNim.mode": {
+      "en": "Deployment",
+      "es": "Despliegue"
+    },
+    "app.nvidiaNim.modelDocs": {
+      "en": "Official model catalog",
+      "es": "Catálogo oficial de modelos"
+    },
+    "app.nvidiaNim.preflight.blockers": {
+      "en": "Blockers and recovery",
+      "es": "Bloqueos y recuperación"
+    },
+    "app.nvidiaNim.preflight.gpu": {
+      "en": "Detected GPU",
+      "es": "GPU detectada"
+    },
+    "app.nvidiaNim.preflight.memoryScope": {
+      "en": "Memory scope",
+      "es": "Alcance de memoria"
+    },
+    "app.nvidiaNim.preflight.noBlockers": {
+      "en": "No blockers",
+      "es": "Sin bloqueos"
+    },
+    "app.nvidiaNim.preflight.noGpu": {
+      "en": "not detected",
+      "es": "no detectada"
+    },
+    "app.nvidiaNim.preflight.noProfiles": {
+      "en": "No local NIM profiles",
+      "es": "Sin perfiles NIM locales"
+    },
+    "app.nvidiaNim.preflight.noProfilesBody": {
+      "en": "No sourced local hardware profile is available.",
+      "es": "No hay disponible ningún perfil de hardware local con fuente."
+    },
+    "app.nvidiaNim.preflight.profile": {
+      "en": "Local profile",
+      "es": "Perfil local"
+    },
+    "app.nvidiaNim.preflight.readOnly": {
+      "en": "read-only; no mutation",
+      "es": "solo lectura; sin mutación"
+    },
+    "app.nvidiaNim.preflight.refresh": {
+      "en": "Refresh preflight",
+      "es": "Actualizar preflight"
+    },
+    "app.nvidiaNim.preflight.runtime": {
+      "en": "Container runtime",
+      "es": "Runtime de contenedores"
+    },
+    "app.nvidiaNim.preflight.source": {
+      "en": "Official requirement source",
+      "es": "Fuente oficial del requisito"
+    },
+    "app.nvidiaNim.preflight.status": {
+      "en": "Compatibility",
+      "es": "Compatibilidad"
+    },
+    "app.nvidiaNim.preflight.target": {
+      "en": "Observed target",
+      "es": "Objetivo observado"
+    },
+    "app.nvidiaNim.preflight.title": {
+      "en": "Local self-hosted preflight",
+      "es": "Preflight local autoalojado"
+    },
+    "app.nvidiaNim.scopeHelp": {
+      "en": "Create one account per endpoint contract. Trial access is rate-limited evaluation capacity with no production SLA; local limits remain authoritative when NVIDIA does not publish limit headers.",
+      "es": "Crea una cuenta por contrato de endpoint. El acceso trial es capacidad de evaluación con límite de tasa y sin SLA productivo; los límites locales siguen siendo autoritativos cuando NVIDIA no publica headers de límites."
+    },
+    "app.nvidiaNim.success.created": {
+      "en": "Endpoint account created. Configure an explicit model limit before productive use.",
+      "es": "Cuenta de endpoint creada. Configura un límite de modelo explícito antes del uso productivo."
+    },
+    "app.nvidiaNim.termsPricing": {
+      "en": "Terms / pricing",
+      "es": "Términos / precios"
+    },
+    "app.nvidiaNim.title": {
+      "en": "NVIDIA NIM endpoints",
+      "es": "Endpoints NVIDIA NIM"
+    },
+    "app.nvidiaNim.trialBadge": {
+      "en": "Hosted trial: evaluation only",
+      "es": "Trial alojado: solo evaluación"
+    },
+    "app.nvidiaNim.visualDocs": {
+      "en": "Visual NIM docs",
+      "es": "Docs de NIM visual"
+    },
+    "app.parallelExecution.addBranch": {
+      "en": "Add model branch",
+      "es": "Agregar rama de modelo"
+    },
+    "app.parallelExecution.branch": {
+      "en": "Branch",
+      "es": "Rama"
+    },
+    "app.parallelExecution.endpoint": {
+      "en": "Endpoint",
+      "es": "Punto de conexión"
+    },
+    "app.parallelExecution.execute": {
+      "en": "Execute admitted plan",
+      "es": "Ejecutar plan admitido"
+    },
+    "app.parallelExecution.help": {
+      "en": "Branches are explicit and admitted against endpoint/model quota leases before network calls. Parallel compare succeeds with one branch; quorum requires the configured minimum. Prompts are not persisted, but each selected provider receives them.",
+      "es": "Las ramas son explícitas y se admiten contra leases de cuota por endpoint/modelo antes de llamar a la red. La comparación paralela tiene éxito con una rama; el quórum exige el mínimo configurado. Los prompts no se persisten, pero cada proveedor seleccionado los recibe."
+    },
+    "app.parallelExecution.maxParallelism": {
+      "en": "Max parallelism",
+      "es": "Paralelismo máximo"
+    },
+    "app.parallelExecution.maxTokens": {
+      "en": "Max output tokens",
+      "es": "Tokens máximos de salida"
+    },
+    "app.parallelExecution.minSuccessful": {
+      "en": "Minimum successful",
+      "es": "Mínimo de exitosas"
+    },
+    "app.parallelExecution.modelHelp": {
+      "en": "Choose a manifest model or enter its exact provider id.",
+      "es": "Elige un modelo del manifiesto o ingresa su id exacto del proveedor."
+    },
+    "app.parallelExecution.noEndpoints": {
+      "en": "No executable chat endpoints",
+      "es": "Sin endpoints de chat ejecutables"
+    },
+    "app.parallelExecution.noEndpointsBody": {
+      "en": "Create and enable a chat-completions endpoint, configure its model manifest and add a limit policy first.",
+      "es": "Primero crea y habilita un endpoint de chat-completions, configura su manifiesto de modelos y agrega una política de límites."
+    },
+    "app.parallelExecution.project": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.parallelExecution.prompt": {
+      "en": "User prompt",
+      "es": "Prompt del usuario"
+    },
+    "app.parallelExecution.removeBranch": {
+      "en": "Remove",
+      "es": "Quitar"
+    },
+    "app.parallelExecution.showOutput": {
+      "en": "Show output",
+      "es": "Mostrar salida"
+    },
+    "app.parallelExecution.strategy": {
+      "en": "Strategy",
+      "es": "Estrategia"
+    },
+    "app.parallelExecution.succeeded": {
+      "en": "branches succeeded",
+      "es": "ramas exitosas"
+    },
+    "app.parallelExecution.systemPrompt": {
+      "en": "System message (optional)",
+      "es": "Mensaje de sistema (opcional)"
+    },
+    "app.parallelExecution.temperature": {
+      "en": "Temperature",
+      "es": "Temperatura"
+    },
+    "app.parallelExecution.temperatureHelp": {
+      "en": "Blank uses the provider default.",
+      "es": "En blanco usa el valor por defecto del proveedor."
+    },
+    "app.parallelExecution.title": {
+      "en": "One-or-many model execution",
+      "es": "Ejecución con uno o varios modelos"
+    },
+    "app.providerLimits.activeLeases": {
+      "en": "Active leases",
+      "es": "Leases activos"
+    },
+    "app.providerLimits.cancelEdit": {
+      "en": "Cancel edit",
+      "es": "Cancelar edición"
+    },
+    "app.providerLimits.concurrency": {
+      "en": "Concurrency",
+      "es": "Concurrencia"
+    },
+    "app.providerLimits.cost": {
+      "en": "Monthly / request USD",
+      "es": "USD mensual / por solicitud"
+    },
+    "app.providerLimits.create": {
+      "en": "Create policy",
+      "es": "Crear política"
+    },
+    "app.providerLimits.creating": {
+      "en": "New policy",
+      "es": "Política nueva"
+    },
+    "app.providerLimits.daily": {
+      "en": "Daily req / tokens",
+      "es": "Solicitudes/tokens diarios"
+    },
+    "app.providerLimits.edit": {
+      "en": "Edit",
+      "es": "Editar"
+    },
+    "app.providerLimits.editing": {
+      "en": "Editing existing policy",
+      "es": "Editando política existente"
+    },
+    "app.providerLimits.empty.body": {
+      "en": "Create an explicit endpoint/model policy before enabling productive calls.",
+      "es": "Crea una política explícita por endpoint/modelo antes de habilitar llamadas productivas."
+    },
+    "app.providerLimits.enabled": {
+      "en": "Enable this limit policy",
+      "es": "Habilitar esta política de límites"
+    },
+    "app.providerLimits.help": {
+      "en": "These endpoint/model limits are local guardrails. Leave unknown upstream limits unset and choose an explicit unknown-limit strategy; do not copy assumptions from a different NVIDIA endpoint.",
+      "es": "Estos límites por endpoint/modelo son guardarraíles locales. Deja sin definir los límites upstream desconocidos y elige una estrategia explícita para límites desconocidos; no copies supuestos de otro endpoint de NVIDIA."
+    },
+    "app.providerLimits.maxConcurrency": {
+      "en": "Max concurrency",
+      "es": "Concurrencia máxima"
+    },
+    "app.providerLimits.maxRequestCost": {
+      "en": "Max cost / request USD",
+      "es": "Costo máximo por solicitud en USD"
+    },
+    "app.providerLimits.modelHelp": {
+      "en": "Use * as the provider-wide fallback.",
+      "es": "Usa * como fallback a nivel de proveedor."
+    },
+    "app.providerLimits.monthly": {
+      "en": "Monthly req / tokens",
+      "es": "Solicitudes/tokens mensuales"
+    },
+    "app.providerLimits.monthlyRequests": {
+      "en": "Monthly requests",
+      "es": "Solicitudes mensuales"
+    },
+    "app.providerLimits.monthlyTokens": {
+      "en": "Monthly tokens",
+      "es": "Tokens mensuales"
+    },
+    "app.providerLimits.noWindows": {
+      "en": "No active quota windows",
+      "es": "Sin ventanas de cuota activas"
+    },
+    "app.providerLimits.pressure": {
+      "en": "Pressure",
+      "es": "Presión"
+    },
+    "app.providerLimits.preview": {
+      "en": "Preview effective status",
+      "es": "Previsualizar estado efectivo"
+    },
+    "app.providerLimits.retryAfter": {
+      "en": "Fallback Retry-After (seconds)",
+      "es": "Retry-After de respaldo (segundos)"
+    },
+    "app.providerLimits.saveEdit": {
+      "en": "Save policy",
+      "es": "Guardar política"
+    },
+    "app.providerLimits.scope": {
+      "en": "Endpoint / model",
+      "es": "Endpoint / modelo"
+    },
+    "app.providerLimits.status": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.providerLimits.success": {
+      "en": "Limit policy saved. New requests will use the updated guardrail.",
+      "es": "Política de límites guardada. Las nuevas solicitudes usarán el guardarraíl actualizado."
+    },
+    "app.providerLimits.timezone": {
+      "en": "Window timezone",
+      "es": "Zona horaria de la ventana"
+    },
+    "app.providerLimits.timezoneHelp": {
+      "en": "IANA name, for example America/Santiago.",
+      "es": "Nombre IANA, por ejemplo America/Santiago."
+    },
+    "app.providerLimits.window": {
+      "en": "Window",
+      "es": "Ventana"
+    },
+    "app.providers.wizard.errorGeminiFreeAttestation": {
+      "en": "Confirm that this Google project is on the Free tier before saving it as zero cost.",
+      "es": "Confirma que este proyecto de Google está en el nivel gratuito antes de guardarlo como costo cero."
+    },
+    "app.providers.wizard.geminiContextNotice": {
+      "en": "1,048,576 tokens is Gemini 3.5 Flash's input context window per request, not a free quota. Free-tier limits vary by project and model.",
+      "es": "1.048.576 tokens es la ventana de contexto de entrada por solicitud de Gemini 3.5 Flash, no una cuota gratuita. Los límites del nivel gratuito varían por proyecto y modelo."
+    },
+    "app.providers.wizard.geminiFreeAttestation": {
+      "en": "I verified in Google AI Studio that this project is on the Free tier. I understand AIDO cannot verify its billing state.",
+      "es": "Verifiqué en Google AI Studio que este proyecto está en el nivel gratuito. Entiendo que AIDO no puede verificar su estado de facturación."
+    },
+    "app.providers.wizard.geminiFreeDataUse": {
+      "en": "Google may use free-tier prompts and responses to improve its products. Do not send personal, sensitive, or confidential data.",
+      "es": "Google puede usar los prompts y respuestas del nivel gratuito para mejorar sus productos. No envíes datos personales, sensibles ni confidenciales."
+    },
+    "app.providers.wizard.geminiFreeNotice": {
+      "en": "Google Free tier",
+      "es": "Nivel gratuito de Google"
+    },
+    "app.providers.wizard.geminiFreeNoticeAria": {
+      "en": "Gemini free tier notice",
+      "es": "Aviso del nivel gratuito de Gemini"
+    },
+    "app.providers.wizard.geminiPaidNotice": {
+      "en": "Use this option when billing is enabled for the Google AI project; configured paid rates may apply.",
+      "es": "Usa esta opción cuando la facturación esté habilitada para el proyecto de Google AI; pueden aplicar las tarifas pagadas configuradas."
+    },
+    "app.providers.wizard.geminiTier": {
+      "en": "Gemini billing tier",
+      "es": "Nivel de facturación de Gemini"
+    },
+    "app.providers.wizard.geminiTierFree": {
+      "en": "Free tier",
+      "es": "Nivel gratuito"
+    },
+    "app.providers.wizard.geminiTierPaid": {
+      "en": "Paid / configured",
+      "es": "Pagado / configurado"
+    },
+    "app.review.productLoopDecisionHelp": {
+      "en": "Approve delivery or request changes is blocked until this reason is recorded.",
+      "es": "Aprobar la entrega o pedir cambios queda bloqueado hasta registrar este motivo."
+    },
+    "app.review.productLoopRequestChanges": {
+      "en": "Request changes",
+      "es": "Pedir cambios"
+    },
+    "app.runtime.setup.noneExecutable": {
+      "en": "No executable runtimes",
+      "es": "Sin runtimes ejecutables"
+    },
+    "app.runtime.setup.running": {
+      "en": "Running...",
+      "es": "Ejecutando..."
+    },
+    "app.settings.boolean.off": {
+      "en": "Off",
+      "es": "Desactivado"
+    },
+    "app.settings.boolean.on": {
+      "en": "On",
+      "es": "Activado"
+    },
+    "app.settings.list.empty": {
+      "en": "None configured",
+      "es": "Nada configurado"
+    },
+    "app.settings.list.placeholder": {
+      "en": "One entry per line",
+      "es": "Una entrada por línea"
+    },
+    "app.threads.research.recovery": {
+      "en": "Recovery",
+      "es": "Recuperación"
+    },
+    "app.workbench.evidence.approveDelivery": {
+      "en": "Approve delivery",
+      "es": "Aprobar entrega"
+    },
+    "app.workbench.evidence.continueDelivery": {
+      "en": "Continue",
+      "es": "Continuar"
+    },
+    "app.workbench.evidence.continueDeliveryDefaultFeedback": {
+      "en": "Continue Product Loop after requested changes.",
+      "es": "Continuar el Product Loop tras los cambios solicitados."
+    },
+    "app.workbench.evidence.deliveryDecisionTitle": {
+      "en": "Delivery decision",
+      "es": "Decisión de entrega"
+    },
+    "app.workbench.evidence.deliveryFeedbackHelp": {
+      "en": "Required when requesting changes; recorded in Product Loop feedback.",
+      "es": "Obligatoria al pedir cambios; queda registrada en el feedback del Product Loop."
+    },
+    "app.workbench.evidence.deliveryFeedbackLabel": {
+      "en": "Decision note",
+      "es": "Nota de la decisión"
+    },
+    "app.workbench.evidence.deliveryTaskHelp": {
+      "en": "Select the task that should receive the requested changes.",
+      "es": "Selecciona la tarea que debe recibir los cambios solicitados."
+    },
+    "app.workbench.evidence.deliveryTaskLabel": {
+      "en": "Rework target",
+      "es": "Destino del rework"
+    },
+    "app.workbench.evidence.deliveryTaskPlaceholder": {
+      "en": "Select task",
+      "es": "Seleccionar tarea"
+    },
+    "app.workbench.evidence.requestChanges": {
+      "en": "Request changes",
+      "es": "Pedir cambios"
+    },
+    "app.workbench.loop.aidoDecideDone": {
+      "en": "AIDO decisions recorded",
+      "es": "Decisiones de AIDO registradas"
+    },
+    "app.workbench.loop.aidoDecideFailed": {
+      "en": "Could not record AIDO decisions",
+      "es": "No se pudieron registrar las decisiones de AIDO"
+    },
+    "app.workbench.loop.backlog.acceptanceCriteria": {
+      "en": "Acceptance criteria",
+      "es": "Criterios de aceptación"
+    },
+    "app.workbench.loop.backlog.agentTasksByAgent": {
+      "en": "Agent tasks by agent",
+      "es": "Tareas por agente"
+    },
+    "app.workbench.loop.backlog.approve": {
+      "en": "Approve backlog",
+      "es": "Aprobar backlog"
+    },
+    "app.workbench.loop.backlog.criteriaCount": {
+      "en": "criteria",
+      "es": "criterios"
+    },
+    "app.workbench.loop.backlog.noAgentTasks": {
+      "en": "No technical tasks decomposed yet.",
+      "es": "Aún no hay tareas técnicas descompuestas."
+    },
+    "app.workbench.loop.backlog.startIteration": {
+      "en": "Start iteration",
+      "es": "Iniciar iteración"
+    },
+    "app.workbench.loop.backlog.storyCount": {
+      "en": "stories",
+      "es": "historias"
+    },
+    "app.workbench.loop.backlog.taskCount": {
+      "en": "tasks",
+      "es": "tareas"
+    },
+    "app.workbench.loop.backlogApproveFailed": {
+      "en": "Could not approve the product backlog",
+      "es": "No se pudo aprobar el backlog del producto"
+    },
+    "app.workbench.loop.backlogApproved": {
+      "en": "Product backlog approved",
+      "es": "Backlog del producto aprobado"
+    },
+    "app.workbench.loop.brief.approve": {
+      "en": "Approve brief",
+      "es": "Aprobar brief"
+    },
+    "app.workbench.loop.briefApproveFailed": {
+      "en": "Could not approve the product brief",
+      "es": "No se pudo aprobar el brief del producto"
+    },
+    "app.workbench.loop.briefApproved": {
+      "en": "Product brief approved",
+      "es": "Brief del producto aprobado"
+    },
+    "app.workbench.loop.deliveryApproveFailed": {
+      "en": "Could not approve the delivery",
+      "es": "No se pudo aprobar la entrega"
+    },
+    "app.workbench.loop.deliveryApproved": {
+      "en": "Delivery approved",
+      "es": "Entrega aprobada"
+    },
+    "app.workbench.loop.deliveryChangesRequestFailed": {
+      "en": "Could not request delivery changes",
+      "es": "No se pudieron pedir cambios de la entrega"
+    },
+    "app.workbench.loop.deliveryChangesRequested": {
+      "en": "Changes requested",
+      "es": "Cambios solicitados"
+    },
+    "app.workbench.loop.deliveryContinueFailed": {
+      "en": "Could not continue the delivery loop",
+      "es": "No se pudo continuar el loop de entrega"
+    },
+    "app.workbench.loop.deliveryContinued": {
+      "en": "Delivery continuation recorded",
+      "es": "Continuación de la entrega registrada"
+    },
+    "app.workbench.loop.iterationStartFailed": {
+      "en": "Could not start the iteration",
+      "es": "No se pudo iniciar la iteración"
+    },
+    "app.workbench.loop.iterationStarted": {
+      "en": "Iteration started",
+      "es": "Iteración iniciada"
+    },
+    "app.workbench.loop.questions.aidoDecide": {
+      "en": "AIDO decide",
+      "es": "Que AIDO decida"
+    },
+    "app.workbench.loop.questions.options": {
+      "en": "Options",
+      "es": "Opciones"
+    },
+    "settings.credentials.action": {
+      "en": "Action",
+      "es": "Acción"
+    },
+    "settings.credentials.actions": {
+      "en": "Actions",
+      "es": "Acciones"
+    },
+    "settings.credentials.add": {
+      "en": "Add",
+      "es": "Agregar"
+    },
+    "settings.credentials.audit": {
+      "en": "Credential audit",
+      "es": "Auditoría de credenciales"
+    },
+    "settings.credentials.auditEmptyBody": {
+      "en": "Credential operations appear here.",
+      "es": "Las operaciones de credenciales aparecen aquí."
+    },
+    "settings.credentials.auditEmptyTitle": {
+      "en": "No credential audit",
+      "es": "Sin auditoría de credenciales"
+    },
+    "settings.credentials.authMode": {
+      "en": "Auth mode",
+      "es": "Modo de autenticación"
+    },
+    "settings.credentials.backend": {
+      "en": "Backend",
+      "es": "Almacenamiento"
+    },
+    "settings.credentials.created": {
+      "en": "Credential added",
+      "es": "Credencial agregada"
+    },
+    "settings.credentials.createdAt": {
+      "en": "Created",
+      "es": "Creada"
+    },
+    "settings.credentials.credentialRef": {
+      "en": "Credential ref",
+      "es": "Ref de credencial"
+    },
+    "settings.credentials.delete": {
+      "en": "Delete",
+      "es": "Eliminar"
+    },
+    "settings.credentials.deleteConfirm": {
+      "en": "Delete this credential reference?",
+      "es": "¿Eliminar esta referencia de credencial?"
+    },
+    "settings.credentials.deleted": {
+      "en": "Credential deleted",
+      "es": "Credencial eliminada"
+    },
+    "settings.credentials.emptyBody": {
+      "en": "Add a credential to enable managed refs.",
+      "es": "Agrega una credencial para habilitar refs administradas."
+    },
+    "settings.credentials.emptyTitle": {
+      "en": "No credentials",
+      "es": "Sin credenciales"
+    },
+    "settings.credentials.invalid": {
+      "en": "Credential invalid",
+      "es": "Credencial inválida"
+    },
+    "settings.credentials.label": {
+      "en": "Label",
+      "es": "Etiqueta"
+    },
+    "settings.credentials.migrate": {
+      "en": "Migrate env",
+      "es": "Migrar entorno"
+    },
+    "settings.credentials.migrated": {
+      "en": "Environment migrated",
+      "es": "Entorno migrado"
+    },
+    "settings.credentials.newCredential": {
+      "en": "New credential",
+      "es": "Credencial nueva"
+    },
+    "settings.credentials.noProviders": {
+      "en": "None",
+      "es": "Ninguno"
+    },
+    "settings.credentials.noTarget": {
+      "en": "No credential",
+      "es": "Sin credencial"
+    },
+    "settings.credentials.operationFailed": {
+      "en": "Credential operation failed",
+      "es": "Falló la operación de credenciales"
+    },
+    "settings.credentials.outcome": {
+      "en": "Outcome",
+      "es": "Resultado"
+    },
+    "settings.credentials.providers": {
+      "en": "Providers",
+      "es": "Proveedores"
+    },
+    "settings.credentials.rotate": {
+      "en": "Rotate",
+      "es": "Rotar"
+    },
+    "settings.credentials.rotateTarget": {
+      "en": "Rotate target",
+      "es": "Credencial a rotar"
+    },
+    "settings.credentials.rotated": {
+      "en": "Credential rotated",
+      "es": "Credencial rotada"
+    },
+    "settings.credentials.secretInput": {
+      "en": "Credential",
+      "es": "Credencial"
+    },
+    "settings.credentials.source": {
+      "en": "Source",
+      "es": "Origen"
+    },
+    "settings.credentials.table": {
+      "en": "Credentials",
+      "es": "Credenciales"
+    },
+    "settings.credentials.title": {
+      "en": "Credential Manager",
+      "es": "Gestor de credenciales"
+    },
+    "settings.credentials.valid": {
+      "en": "Credential valid",
+      "es": "Credencial válida"
+    },
+    "settings.credentials.validate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "settings.credentials.validated": {
+      "en": "Validated",
+      "es": "Validada"
     }
   }
 }

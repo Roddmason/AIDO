@@ -193,3 +193,27 @@ def test_existing_i18n_catalog_merges_missing_default_keys_without_overwriting_e
     assert merged["translations"]["app.workbench.team.title"]["es"] == "Equipo IA de entrega"
 
     runtime.close()
+
+
+T_CALL_LITERAL_RE = re.compile(r"\bt\(\s*(['\"])(?P<key>[A-Za-z0-9_.-]+)\1\s*,\s*(['\"])(?:\.|(?!\3).)*\3")
+
+
+def test_every_static_t_call_key_is_registered_in_default_catalog() -> None:
+    """Toda clave literal usada en t('clave','fallback') debe existir en el catálogo bilingüe.
+
+    El gate de copy estático no captura fallbacks de t() (solo props y texto JSX), así que 211
+    claves llegaron a producción sin entrada: la UI en español renderizaba el fallback inglés.
+    Las claves construidas dinámicamente (template literals) quedan fuera por diseño.
+    """
+    payload = json.loads(CATALOG.read_text(encoding="utf-8"))
+    registered = set(payload["translations"].keys())
+
+    used: set[str] = set()
+    for path in sorted(WEB_SRC.rglob("*.ts*")):
+        if path.suffix not in {".ts", ".tsx"}:
+            continue
+        for match in T_CALL_LITERAL_RE.finditer(path.read_text(encoding="utf-8")):
+            used.add(match.group("key"))
+
+    missing = sorted(used - registered)
+    assert missing == [], f"claves t() sin entrada en default_catalog.json: {missing}"

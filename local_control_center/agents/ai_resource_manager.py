@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
+from local_control_center.agents.model_wildcards import MODEL_WILDCARDS
 from local_control_center.agents.provider_accounts import (
     ProviderAccountStore,
     provider_account_is_declared_free,
@@ -1132,7 +1133,7 @@ class AIResourceManager:
         for index, entry in enumerate(preferred_resources):
             if entry["provider"] != candidate_provider:
                 continue
-            if entry["model"] in {"", "*", "auto"}:
+            if entry["model"] in MODEL_WILDCARDS:
                 tier = 1
             elif entry["model"] == candidate_model:
                 tier = 0

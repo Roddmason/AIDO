@@ -2047,3 +2047,29 @@ def test_model_router_ai_path_still_honors_the_role_premium_threshold(
     assert result["selected"]["model"] == "expensive-frontier"
     assert result["estimatedCostUsd"] == pytest.approx(3.0)
     assert result["policyResult"]["requiresApproval"] is True
+
+
+def test_preferred_rank_treats_auto_best_available_as_wildcard() -> None:
+    """`auto_best_available` (modelo sembrado por migraciones) rankea tier-1 como los demás comodines."""
+    preferred = AIResourceManager._normalized_preferred_resources(
+        [{"provider": "openai_gateway", "model": "auto_best_available"}]
+    )
+    candidate = {"providerId": "openai_gateway", "model": "gpt-real-model"}
+    assert AIResourceManager._preferred_resource_rank(candidate, preferred) == (1, 0)
+
+
+def test_preferred_rank_specific_model_still_beats_wildcard() -> None:
+    """Un pin específico (tier 0) sigue ganando al comodín provider-level (tier 1)."""
+    preferred = AIResourceManager._normalized_preferred_resources(
+        [
+            {"provider": "openai_gateway", "model": "auto_best_available"},
+            {"provider": "openai_gateway", "model": "gpt-pinned"},
+        ]
+    )
+    pinned = {"providerId": "openai_gateway", "model": "gpt-pinned"}
+    other = {"providerId": "openai_gateway", "model": "gpt-other"}
+    assert AIResourceManager._preferred_resource_rank(pinned, preferred) == (0, 1)
+    assert AIResourceManager._preferred_resource_rank(other, preferred) == (1, 0)
+    assert AIResourceManager._preferred_resource_rank(
+        pinned, preferred
+    ) < AIResourceManager._preferred_resource_rank(other, preferred)

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .ai_resource_manager import AIResourceManager, AIResourceRequest
 from .budget_rules import BudgetRuleEvaluator
 from .model_benchmarks import ModelBenchmarkStore
+from .model_wildcards import MODEL_WILDCARDS
 from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 from .quota_manager import QuotaManager
@@ -723,11 +724,11 @@ class ModelRouter:
             capability_score += 0.15
         rank = min(
             preferred_rank.get((provider["providerId"], model["model"]), 999),
-            # "*" es el candidato comodín que el wizard y scripts/setup_omniroute.py escriben para
-            # gateways auto-ruteados: sin este alias el preferred del rol no aporta rank alguno.
-            preferred_rank.get((provider["providerId"], "*"), 999),
-            preferred_rank.get((provider["providerId"], "auto"), 999),
-            preferred_rank.get((provider["providerId"], "auto_best_available"), 999),
+            # Comodines compartidos con AIResourceManager ("*" del wizard/setup_omniroute,
+            # "auto_best_available" de las migraciones): sin ellos el preferred del rol no
+            # aporta rank alguno.
+            *(preferred_rank.get((provider["providerId"], wildcard), 999) for wildcard in MODEL_WILDCARDS),
+            # Alias legacy: datos antiguos pineados a este id concreto; no propagar al set compartido.
             preferred_rank.get((provider["providerId"], "gpt-5.5"), 999),
         )
         role_fit_score = max(0.0, 1.0 - (rank * 0.12)) if rank != 999 else 0.45
@@ -873,8 +874,7 @@ class ModelRouter:
         for item in preferences:
             if item.get("provider") == provider["providerId"] and item.get("model") in {
                 model["model"],
-                "auto",
-                "auto_best_available",
+                *MODEL_WILDCARDS,
             }:
                 return item.get("effort")
         efforts = model.get("effortLevels") or []

@@ -237,70 +237,75 @@ export function MenuBar({
 	};
 
 	return (
-		<div
-			ref={containerRef}
-			className="menu-bar"
-			role="menubar"
-			aria-label={t('app.menu.bar', 'Application menu')}
-		>
+		<div ref={containerRef} className="menu-bar">
 			<h1 className="menu-bar-brand" aria-label={t('app.brand.title', 'AIDO Control Center')}>
 				AIDO
 			</h1>
-			{MENUS.map((menu: MenuDef) => {
-				const expanded = openMenu === menu.id;
-				return (
-					<div className="menu-bar-item" key={menu.id}>
-						<button
-							ref={(element) => {
-								buttonRefs.current.set(menu.id, element);
-							}}
-							type="button"
-							role="menuitem"
-							className="menu-bar-button"
-							aria-haspopup="menu"
-							aria-expanded={expanded}
-							tabIndex={openMenu === null || expanded ? 0 : -1}
-							onClick={() => (expanded ? closeMenu(false) : openAt(menu.id, 'first'))}
-							onMouseEnter={() => {
-								if (openMenu && !expanded) openAt(menu.id, 'first');
-							}}
-							onKeyDown={(event) => onButtonKeyDown(event, menu.id)}
-						>
-							{t(menu.labelKey, menu.label)}
-						</button>
-						{expanded ? (
-							<div
-								ref={menuRef}
-								className="menu-dropdown"
-								role="menu"
-								aria-label={t(menu.labelKey, menu.label)}
-								onKeyDown={(event) => onMenuKeyDown(event, menu.id)}
+			{/* El menubar ARIA envuelve SOLO los menu items: un heading no es hijo válido de
+			    role="menubar", y el h1 de marca debe quedar fuera del patrón de teclado. */}
+			<div
+				className="menu-bar-menus"
+				role="menubar"
+				aria-label={t('app.menu.bar', 'Application menu')}
+			>
+				{MENUS.map((menu: MenuDef) => {
+					const expanded = openMenu === menu.id;
+					return (
+						<div className="menu-bar-item" key={menu.id}>
+							<button
+								ref={(element) => {
+									buttonRefs.current.set(menu.id, element);
+								}}
+								type="button"
+								role="menuitem"
+								className="menu-bar-button"
+								aria-haspopup="menu"
+								aria-expanded={expanded}
+								tabIndex={openMenu === null || expanded ? 0 : -1}
+								onClick={() => (expanded ? closeMenu(false) : openAt(menu.id, 'first'))}
+								onMouseEnter={() => {
+									if (openMenu && !expanded) openAt(menu.id, 'first');
+								}}
+								onKeyDown={(event) => onButtonKeyDown(event, menu.id)}
 							>
-								{menu.items.map((item, index) =>
-									item.kind === 'separator' ? (
-										// biome-ignore lint/suspicious/noArrayIndexKey: separators are static and positional.
-										<hr className="menu-separator" key={`sep-${index}`} />
-									) : (
-										<button
-											key={item.command}
-											type="button"
-											role="menuitem"
-											className="menu-dropdown-item"
-											onClick={() => runCommand(item.command)}
-											onMouseEnter={() => {
-												if (item.page) preloadRoute(item.page);
-											}}
-										>
-											<span>{t(item.labelKey, item.label)}</span>
-											{item.shortcut ? <kbd className="menu-shortcut">{item.shortcut}</kbd> : null}
-										</button>
-									),
-								)}
-							</div>
-						) : null}
-					</div>
-				);
-			})}
+								{t(menu.labelKey, menu.label)}
+							</button>
+							{expanded ? (
+								<div
+									ref={menuRef}
+									className="menu-dropdown"
+									role="menu"
+									aria-label={t(menu.labelKey, menu.label)}
+									onKeyDown={(event) => onMenuKeyDown(event, menu.id)}
+								>
+									{menu.items.map((item, index) =>
+										item.kind === 'separator' ? (
+											// biome-ignore lint/suspicious/noArrayIndexKey: separators are static and positional.
+											<hr className="menu-separator" key={`sep-${index}`} />
+										) : (
+											<button
+												key={item.command}
+												type="button"
+												role="menuitem"
+												className="menu-dropdown-item"
+												onClick={() => runCommand(item.command)}
+												onMouseEnter={() => {
+													if (item.page) preloadRoute(item.page);
+												}}
+											>
+												<span>{t(item.labelKey, item.label)}</span>
+												{item.shortcut ? (
+													<kbd className="menu-shortcut">{item.shortcut}</kbd>
+												) : null}
+											</button>
+										),
+									)}
+								</div>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
 		</div>
 	);
 }

@@ -508,7 +508,12 @@ export function ThreadConversation({
 							className="thread-live-scroll"
 							aria-label={t('app.threads.chatRegion', 'Thread chat')}
 						>
-							<div className="thread-chat-transcript" aria-live="polite">
+							<div
+								className="thread-chat-transcript"
+								role="log"
+								aria-live="polite"
+								aria-relevant="additions"
+							>
 								{transcriptMessages.length === 0 ? (
 									<p className="thread-chat-empty">
 										{t('app.threads.transcriptEmpty', 'No messages yet. Send the first one below.')}

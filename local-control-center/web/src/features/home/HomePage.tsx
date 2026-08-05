@@ -66,7 +66,7 @@ export function HomePage({
 				<div className="home-hero-text">
 					{/* Brand wordmark — identical in every language, intentionally not translated. */}
 					<span className="home-hero-kicker">{'AIDO Studio'}</span>
-					<h1 className="home-hero-title">{t('app.home.title', 'Open or continue a project')}</h1>
+					<h2 className="home-hero-title">{t('app.home.title', 'Open or continue a project')}</h2>
 					<p className="home-hero-summary">
 						{t(
 							'app.home.summary',

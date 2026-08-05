@@ -239,10 +239,9 @@ export function AppShell({
 	);
 
 	const workbench = (
-		<main className="workbench main-area">
+		<main className="workbench main-area" id="main-content" tabIndex={-1}>
 			<section
 				className={area === 'threads' ? 'content-frame content-frame--full-bleed' : 'content-frame'}
-				aria-live="polite"
 			>
 				{children}
 			</section>
@@ -280,6 +279,12 @@ export function AppShell({
 		/>
 	);
 
+	const skipLink = (
+		<a className="skip-link" href="#main-content">
+			{t('ui.static.skip.to.main.content.be504f61', 'Skip to main content')}
+		</a>
+	);
+
 	const menuBar = (
 		<MenuBar
 			navigateTo={navigateTo}
@@ -298,6 +303,7 @@ export function AppShell({
 	if (!isDesktop) {
 		return (
 			<div className="app-shell-ide app-shell-ide--stacked">
+				{skipLink}
 				{menuBar}
 				{explorerCollapsed ? null : explorer}
 				{workbench}
@@ -310,6 +316,7 @@ export function AppShell({
 
 	return (
 		<div className="app-shell-ide">
+			{skipLink}
 			{menuBar}
 			<div className="ide-body">
 				<Group

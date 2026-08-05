@@ -263,7 +263,19 @@ export function AppShell({
 		/>
 	);
 
-	const bottomDock = <BottomPanel onClose={toggleBottom} />;
+	const bottomDock = (
+		<BottomPanel
+			onClose={toggleBottom}
+			collapsed={bottomCollapsed}
+			threadId={
+				area === 'threads' && selectedSessionId && selectedSessionId !== NEW_SESSION_ID
+					? selectedSessionId
+					: null
+			}
+			projectId={selectedProject?.id ?? null}
+			overview={overview}
+		/>
+	);
 
 	const statusBar = (
 		<StatusBar

@@ -13202,6 +13202,34 @@
     "app.agents.errRetry": {
       "en": "Retry",
       "es": "Reintentar"
+    },
+    "app.bottomPanel.outputCaption": {
+      "en": "Executed QA commands",
+      "es": "Comandos de QA ejecutados"
+    },
+    "app.bottomPanel.outputCommand": {
+      "en": "Command",
+      "es": "Comando"
+    },
+    "app.bottomPanel.outputStatus": {
+      "en": "Status",
+      "es": "Estado"
+    },
+    "app.bottomPanel.outputDuration": {
+      "en": "Duration",
+      "es": "Duración"
+    },
+    "app.bottomPanel.outputWhen": {
+      "en": "When",
+      "es": "Cuándo"
+    },
+    "app.bottomPanel.outputEmptyTitle": {
+      "en": "No command output yet",
+      "es": "Aún no hay salida de comandos"
+    },
+    "app.bottomPanel.outputEmptyBody": {
+      "en": "QA commands executed by the loop will be listed here with their status.",
+      "es": "Los comandos de QA que ejecute el loop aparecerán aquí con su estado."
     }
   }
 }

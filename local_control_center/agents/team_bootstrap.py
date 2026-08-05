@@ -53,6 +53,9 @@ def bootstrap_role_model_policies_if_needed(connection: sqlite3.Connection) -> l
     inventadas produciría candidatos inexistentes. Vacío significa "sin pin", y el orden lo resuelve
     la selección de recursos; lo que importa aquí es que la fila exista con sus límites de costo.
 
+    El criterio completo (por qué 12 roles quedan sin pin, qué se pierde y cómo pinear uno desde la
+    UI) está en ``docs/model-routing.md`` §"Role pins".
+
     Returns:
         Los roles para los que se creó una política nueva.
     """

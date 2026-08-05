@@ -11,10 +11,12 @@
 import type { LucideProps } from 'lucide-react';
 import {
 	Bot,
+	Boxes,
 	FileCheck2,
 	History,
 	KeyRound,
 	LayoutGrid,
+	Plug,
 	ScanSearch,
 	ShieldCheck,
 	Workflow,
@@ -160,6 +162,13 @@ export const DEVELOPER_PAGE_GROUPS: ExplorerGroup[] = [
 		links: [
 			{ page: 'evidence', icon: FileCheck2, label: { en: 'Evidence & QA', es: 'Evidencia y QA' } },
 			{ page: 'audit', icon: History, label: { en: 'Audit Log', es: 'Auditoría' } },
+		],
+	},
+	{
+		label: { en: 'Runtime & connections', es: 'Runtime y conexiones' },
+		links: [
+			{ page: 'workspaces', icon: Boxes, label: { en: 'Workspaces', es: 'Espacios de trabajo' } },
+			{ page: 'integrations', icon: Plug, label: { en: 'Integrations', es: 'Integraciones' } },
 		],
 	},
 ];

@@ -13162,6 +13162,10 @@
     "settings.credentials.validated": {
       "en": "Validated",
       "es": "Validada"
+    },
+    "app.menu.goWorkspaces": {
+      "en": "Workspaces",
+      "es": "Espacios de trabajo"
     }
   }
 }

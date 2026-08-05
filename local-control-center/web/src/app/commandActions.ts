@@ -7,11 +7,13 @@
 
 import type { LucideProps } from 'lucide-react';
 import {
+	Boxes,
 	ClipboardCheck,
 	Code2,
 	FileCheck2,
 	FolderPlus,
 	Network,
+	Plug,
 	Plus,
 	RefreshCw,
 	Settings as SettingsIcon,
@@ -160,6 +162,24 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				],
 				icon: Wrench,
 				run: withClose(() => openSettings('advanced')),
+			},
+			{
+				id: 'go-workspaces',
+				group: 'navigate',
+				label: 'Go to Workspaces',
+				hint: 'Inspect runtime worktrees and clean up stale workspaces',
+				keywords: ['worktrees', 'cleanup', 'runtime', 'disk'],
+				icon: Boxes,
+				run: withClose(() => navigateTo('workspaces')),
+			},
+			{
+				id: 'go-integrations',
+				group: 'navigate',
+				label: 'Go to Integrations',
+				hint: 'MCP servers, IDE connections and automation hooks',
+				keywords: ['mcp', 'ide', 'n8n', 'webhooks', 'connections'],
+				icon: Plug,
+				run: withClose(() => navigateTo('integrations')),
 			},
 			{
 				id: 'open-folder',

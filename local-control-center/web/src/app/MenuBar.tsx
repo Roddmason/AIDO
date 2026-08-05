@@ -80,6 +80,8 @@ export function MenuBar({
 			'go-workbench': () => navigateTo('workbench'),
 			'go-review': () => navigateTo('review-board'),
 			'go-memory': () => navigateTo('memory'),
+			'go-workspaces': () => navigateTo('workspaces'),
+			'go-integrations': () => navigateTo('integrations'),
 			'go-settings': () => (onOpenSettings ? onOpenSettings() : navigateTo('home')),
 			'keyboard-shortcuts': onOpenCommandPalette,
 			about: () =>

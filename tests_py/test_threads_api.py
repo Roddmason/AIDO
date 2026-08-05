@@ -1487,3 +1487,38 @@ def test_overview_includes_threads(tmp_path: Path) -> None:
         assert any(item["id"] == thread["id"] for item in body["threads"])
     finally:
         runtime.close()
+
+
+def test_thread_detail_keeps_only_the_most_recent_tail(tmp_path, monkeypatch) -> None:
+    """El detalle acota mensajes/eventos al tail reciente en orden ascendente; hilos chicos van completos."""
+    from local_control_center.threads import api as threads_api
+
+    monkeypatch.setattr(threads_api, "THREAD_DETAIL_MESSAGE_TAIL", 3)
+    monkeypatch.setattr(threads_api, "THREAD_DETAIL_EVENT_TAIL", 3)
+
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        headers = _token(runtime)
+        thread = _create_thread(client, headers, project_id)
+        repo = ThreadsRepository(runtime.connection)
+        for position in range(6):
+            repo.append_message(
+                thread_id=thread["id"],
+                kind="operator_note",
+                author="operator",
+                content=f"Message {position:02d}",
+            )
+            repo.record_event(
+                thread_id=thread["id"],
+                type="loop.progress",
+                payload={"position": position},
+            )
+
+        detail = client.get(f"/api/v1/threads/{thread['id']}").json()
+        contents = [item["content"] for item in detail["messages"]]
+        assert contents == ["Message 03", "Message 04", "Message 05"]
+        events = [item["payload"]["position"] for item in detail["events"] if item["type"] == "loop.progress"]
+        assert events == [3, 4, 5]
+    finally:
+        runtime.close()

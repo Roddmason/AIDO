@@ -1916,7 +1916,7 @@ def test_model_router_uses_ai_resource_manager_when_profiles_exist(
     assert gateway_decision["selected_provider"] == "ollama"
 
 
-def test_catalog_outcome_does_not_bypass_classic_model_router_role_policy(
+def test_catalog_outcome_does_not_bypass_role_policy_on_the_ai_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1977,7 +1977,10 @@ def test_catalog_outcome_does_not_bypass_classic_model_router_role_policy(
         )
 
     assert routed["selected"] is None
-    assert routed["policyResult"].get("source") != "ai_resource_manager"
+    # El perfil 'model_catalog' del outcome ahora activa la vía AIResourceManager (mismo motor
+    # que el product loop); la propiedad protegida se mantiene: la policy del rol sigue
+    # rechazando el CLI también por esa vía.
+    assert routed["policyResult"].get("source") == "ai_resource_manager"
 
 
 def test_model_router_ai_path_applies_mutable_role_execution_policy(
@@ -2073,3 +2076,73 @@ def test_preferred_rank_specific_model_still_beats_wildcard() -> None:
     assert AIResourceManager._preferred_resource_rank(
         pinned, preferred
     ) < AIResourceManager._preferred_resource_rank(other, preferred)
+
+
+def test_preview_recognizes_model_catalog_profiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Los perfiles materializados desde el catálogo ('model_catalog') activan la vía AIResourceManager.
+
+    Regresión: el guard exigía profile_source='explicit', que ningún flujo productivo escribe,
+    así que el preview de una instalación real siempre usaba el scorer clásico (un motor
+    distinto al que ejecuta el product loop).
+    """
+    advertise_executable_runtimes(monkeypatch, "anthropic_gateway")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="anthropic_gateway",
+            model="claude-sonnet",
+            quality_score=0.9,
+            success_rate=0.95,
+        )
+        connection.execute("UPDATE ai_model_performance SET profile_source = 'model_catalog'")
+
+        result = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="developer",
+                taskType="implementation",
+                contextTokensEstimate=8000,
+            ),
+            record=False,
+        )
+
+    assert result["policyResult"]["source"] == "ai_resource_manager"
+
+
+def test_preview_falls_back_to_classic_scorer_when_the_manager_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Una excepción del manager degrada al scorer clásico en vez de propagar un 500."""
+    advertise_executable_runtimes(monkeypatch, "anthropic_gateway")
+    with open_initialized_connection(tmp_path) as connection:
+        manager = AIResourceManager(connection)
+        _register_selectable_remote(
+            manager,
+            connection,
+            provider_id="anthropic_gateway",
+            model="claude-sonnet",
+            quality_score=0.9,
+            success_rate=0.95,
+        )
+        connection.execute("UPDATE ai_model_performance SET profile_source = 'model_catalog'")
+
+        def _boom(self, request, *, record=True):
+            raise RuntimeError("manager contract broke")
+
+        monkeypatch.setattr(AIResourceManager, "select_resource", _boom)
+        result = ModelRouter(connection).preview(
+            RoutingRequest(
+                role="developer",
+                taskType="implementation",
+                contextTokensEstimate=8000,
+            ),
+            record=False,
+        )
+
+    assert result is not None
+    assert (result.get("policyResult") or {}).get("source") != "ai_resource_manager"

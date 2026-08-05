@@ -21,6 +21,7 @@ TEXT_EXTENSIONS = {
     ".yml",
 }
 IGNORED_PARTS = {
+    ".claude",
     ".git",
     ".mypy_cache",
     ".pytest_cache",

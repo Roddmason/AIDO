@@ -396,33 +396,6 @@ class ProductDiscoveryRepository:
         ).fetchall()
         return [row_to_discovery_session(row) for row in rows]
 
-    def update_discovery_session(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre una sesión (title, objective, status, facilitator, metadata).
-
-        Raises:
-            KeyError: si la sesión no existe.
-        """
-        current = self.get_discovery_session(session_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE discovery_sessions
-            SET title = ?, objective = ?, status = ?, facilitator = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["title"],
-                next_value["objective"],
-                next_value["status"],
-                next_value["facilitator"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                session_id,
-            ),
-        )
-        return self.get_discovery_session(session_id)
-
     def append_conversation_message(self, body: dict[str, Any]) -> dict[str, Any]:
         """Anexa un mensaje a una sesión asignándole el siguiente ``sequence`` y lo devuelve.
 
@@ -633,31 +606,6 @@ class ProductDiscoveryRepository:
         ).fetchall()
         return [row_to_clarification_answer(row) for row in rows]
 
-    def update_clarification_answer(self, answer_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre una respuesta (answer, status, metadata).
-
-        Raises:
-            KeyError: si la respuesta no existe.
-        """
-        current = self.get_clarification_answer(answer_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE clarification_answers
-            SET answer = ?, status = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["answer"],
-                next_value["status"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                answer_id,
-            ),
-        )
-        return self.get_clarification_answer(answer_id)
-
     def upsert_product_brief(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza un brief de producto y anexa su snapshot a ``product_brief_versions``.
 
@@ -797,19 +745,6 @@ class ProductDiscoveryRepository:
             f"SELECT * FROM product_briefs {where} ORDER BY updated_at DESC", params
         ).fetchall()
         return [row_to_product_brief(row) for row in rows]
-
-    def get_product_brief_version(self, version_id: str) -> dict[str, Any]:
-        """Recupera un snapshot de versión de brief por id.
-
-        Raises:
-            KeyError: si no existe ningún snapshot con ese id.
-        """
-        row = self.connection.execute(
-            "SELECT * FROM product_brief_versions WHERE id = ?", (version_id,)
-        ).fetchone()
-        if not row:
-            raise KeyError(f"Product brief version not found: {version_id}")
-        return row_to_product_brief_version(row)
 
     def list_product_brief_versions(self, brief_id: str) -> list[dict[str, Any]]:
         """Lista el historial de versiones de un brief, de la más reciente a la más antigua."""

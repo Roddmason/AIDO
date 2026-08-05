@@ -83,9 +83,6 @@ class OllamaAdapter:
         legacy_base_url = str(source.get("OLLAMA_BASE_URL") or source.get("OLLAMA_HOST") or "").strip()
         return legacy_base_url.rstrip("/") or None, ""
 
-    def _configured_base_url(self) -> str | None:
-        return self._resolved_endpoint()[0]
-
     def _auth_headers_or_block(self, credential_ref: str) -> tuple[dict[str, str], str | None]:
         if not credential_ref:
             return {}, None

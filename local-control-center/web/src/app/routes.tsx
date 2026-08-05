@@ -185,7 +185,13 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		preload: importPolicy,
 	},
 	memory: {
-		render: (ctx) => <MemoryPage overview={ctx.overview} retrievalStatus={ctx.retrievalStatus} />,
+		render: (ctx) => (
+			<MemoryPage
+				overview={ctx.overview}
+				retrievalStatus={ctx.retrievalStatus}
+				selectedProject={ctx.selectedProject}
+			/>
+		),
 		preload: importMemory,
 	},
 	evidence: {

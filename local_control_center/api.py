@@ -1,6 +1,6 @@
 """Ensambla la aplicacion FastAPI del Local Control Center: routers, middleware y estaticos.
 
-Punto unico de cableado HTTP: inicializa el runtime del control plane, monta los 15 routers
+Punto unico de cableado HTTP: inicializa el runtime del control plane, monta los routers
 de dominio (jobs, memoria, workflows, seguridad, evidencia, agents, gateway, etc.), instala el
 middleware que serializa el acceso al runtime y registra correlacion/telemetria, expone las rutas
 de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con fallback al SPA.

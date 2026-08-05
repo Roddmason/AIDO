@@ -7,6 +7,26 @@
 
 ---
 
+## Addendum 2026-08-02 — los 8 "borrados seguros pendientes" ya están ejecutados
+
+Re-verificación contra HEAD actual de `dev` (posterior a `c1b117e`): los 8 items listados abajo
+como **Borrado seguro pendiente** (§ Desglose y § 6) **ya no existen en HEAD**. Evidencia por item:
+
+| Item | Verificación en HEAD |
+|---|---|
+| `FE-CORE-001/002/003` (CSS muerto) | Selectores ausentes; el propio `aggressive-cleanup-audit.md` los marca "✅ Resuelto (cleanup CSS, 2026-06-19)". |
+| `FE-FEAT-B-001` (`features/memory/index.ts`) | El archivo no existe; la carpeta contiene solo `MemoryPage.tsx`. |
+| `FE-CORE-005` (`createWorkflow` 3-arg) | 0 ocurrencias de `createWorkflow` a secas en `api/client.ts`; solo queda `createWorkflowWithBody` (tripwire conservado). |
+| `BE-SLICES-B-001` (`execute_with_input`) | Ausente de `security_policy/sandbox.py`. |
+| `DOCS-001` (`docs/HU/`) | La carpeta no existe. |
+| `SCRIPTS-DEPS-001` (3 deps `@radix-ui`) | 0 ocurrencias en `package.json` y en `pnpm-lock.yaml`. |
+
+Con esto, las **Fases 1, 2 y 3** del audit quedan completas. Los estados `still_open` de las
+tablas siguientes se conservan como registro histórico de la reconciliación de 2026-06-18;
+este addendum es la fuente vigente para esos 8 items.
+
+---
+
 ## 1. Cómo se produjo esta reconciliación
 
 - **Fan-out de verificación:** 11 agentes (uno por grupo de hallazgos) verificaron cada hallazgo **abriendo el archivo en HEAD** (`rg`/`git grep`/lectura directa), no infiriendo del diffstat.

@@ -90,12 +90,6 @@ def _runtime_mode(runtime_id: str) -> str:
     return "hybrid"
 
 
-def _status_for_failure(runtime: dict[str, Any]) -> tuple[str, str]:
-    return RUNTIME_UNAVAILABLE_STATUS, str(
-        runtime.get("reason") or "No executable runtime is configured for issue_to_patch."
-    )
-
-
 def _select_runtime(
     statuses: list[dict[str, Any]],
     *,

@@ -226,15 +226,3 @@ class ResearchRepository:
             "SELECT * FROM research_findings WHERE id = ?", (finding_id,)
         ).fetchone()
         return row_to_research_finding(row)
-
-    def list_findings(self, research_run_id: str) -> list[dict[str, Any]]:
-        """Lista los findings de un run en orden de creación."""
-        rows = self.connection.execute(
-            """
-            SELECT * FROM research_findings
-            WHERE research_run_id = ?
-            ORDER BY created_at ASC, rowid ASC
-            """,
-            (research_run_id,),
-        ).fetchall()
-        return [row_to_research_finding(row) for row in rows]

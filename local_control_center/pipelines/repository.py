@@ -87,25 +87,6 @@ class PipelinesRepository:
         )
         return self.get_pipeline(pipeline_id)
 
-    def update_pipeline(
-        self,
-        pipeline_id: str,
-        *,
-        status: str,
-        stages: list[dict[str, Any]],
-        metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Actualiza estado, etapas y metadata de un pipeline existente."""
-        self.connection.execute(
-            """
-            UPDATE pipelines
-            SET status = ?, stages = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (status, json_dumps(stages), json_dumps(metadata), utc_now(), pipeline_id),
-        )
-        return self.get_pipeline(pipeline_id)
-
     def get_pipeline(self, pipeline_id: str) -> dict[str, Any]:
         """Devuelve el pipeline por id; lanza `KeyError` si no existe."""
         row = self.connection.execute("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,)).fetchone()

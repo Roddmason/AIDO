@@ -93,9 +93,6 @@ def row_to_runtime_account(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-row_to_cli_account = row_to_runtime_account
-
-
 def row_to_runtime_preference(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``runtime_preferences`` al dict camelCase del contrato."""
     return {
@@ -536,22 +533,6 @@ class RuntimeConfigRepository:
                 (current["runtimeId"], account_id),
             )
         return self.get_runtime_account(account_id)
-
-    def create_cli_account(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Alias compatible: usa ``create_runtime_account``."""
-        return self.create_runtime_account(body)
-
-    def get_cli_account(self, account_id: str) -> dict[str, Any]:
-        """Alias compatible: usa ``get_runtime_account``."""
-        return self.get_runtime_account(account_id)
-
-    def list_cli_accounts(self, runtime_id: str | None = None) -> list[dict[str, Any]]:
-        """Alias compatible: usa ``list_runtime_accounts``."""
-        return self.list_runtime_accounts(runtime_id)
-
-    def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Alias compatible: usa ``update_runtime_account``."""
-        return self.update_runtime_account(account_id, body)
 
     def record_health_check(
         self, *, runtime_id: str, check_type: str, status: str, payload: dict[str, Any]

@@ -76,11 +76,6 @@ def trust_rank(level: str) -> int:
     return TRUST_LEVELS.index(level) if level in TRUST_LEVELS else len(TRUST_LEVELS)
 
 
-def is_trusted(level: str) -> bool:
-    """Indica si el nivel pertenece a la jerarquía de confianza de la política (no ``untrusted``)."""
-    return level in TRUST_LEVELS
-
-
 def _host_and_path(url: str) -> tuple[str, str]:
     parsed = urlparse(url if "://" in url else f"https://{url}")
     host = (parsed.netloc or "").lower().split("@")[-1].split(":")[0]

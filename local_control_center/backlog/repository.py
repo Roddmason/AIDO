@@ -703,31 +703,6 @@ class BacklogRepository:
         ).fetchall()
         return [row_to_acceptance_criterion(row) for row in rows]
 
-    def update_acceptance_criterion(self, criterion_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre un criterio (criterion, status, metadata).
-
-        Raises:
-            KeyError: si el criterio no existe.
-        """
-        current = self.get_acceptance_criterion(criterion_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE acceptance_criteria
-            SET criterion = ?, status = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["criterion"],
-                next_value["status"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                criterion_id,
-            ),
-        )
-        return self.get_acceptance_criterion(criterion_id)
-
     def create_story_dependency(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una arista de dependencia entre dos historias y la devuelve.
 
@@ -793,10 +768,6 @@ class BacklogRepository:
             f"SELECT * FROM story_dependencies {where} ORDER BY created_at ASC", params
         ).fetchall()
         return [row_to_story_dependency(row) for row in rows]
-
-    def delete_story_dependency(self, dependency_id: str) -> None:
-        """Elimina una dependencia entre historias por id (idempotente: no falla si no existe)."""
-        self.connection.execute("DELETE FROM story_dependencies WHERE id = ?", (dependency_id,))
 
     def create_agent_task(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una agent task (id ``agent-task-<uuid>``, versión 1) y devuelve el registro.

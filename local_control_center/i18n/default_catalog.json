@@ -13166,6 +13166,10 @@
     "app.menu.goWorkspaces": {
       "en": "Workspaces",
       "es": "Espacios de trabajo"
+    },
+    "ui.static.skip.to.main.content.be504f61": {
+      "en": "Skip to main content",
+      "es": "Saltar al contenido principal"
     }
   }
 }

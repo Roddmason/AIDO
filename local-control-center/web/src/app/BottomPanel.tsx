@@ -108,6 +108,10 @@ export function BottomPanel({
 	);
 
 	const logsBody = () => {
+		// El pane desktop deja montado a su hijo aunque esté colapsado (solo lo oculta por CSS):
+		// renderizar las filas ahí dejaría cientos de nodos invisibles en el árbol accesible y en
+		// los locators de cualquier otra superficie.
+		if (collapsed) return null;
 		if (streamError) {
 			return (
 				<div className="thread-console-status" data-tone="danger">
@@ -166,7 +170,7 @@ export function BottomPanel({
 				onChange={setActiveTab}
 			>
 				<div className="bottom-panel-body">
-					{activeTab === 'logs' ? (
+					{collapsed ? null : activeTab === 'logs' ? (
 						logsBody()
 					) : (
 						<DataTable<TestResultRecord>

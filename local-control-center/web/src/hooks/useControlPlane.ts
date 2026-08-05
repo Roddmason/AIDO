@@ -158,10 +158,21 @@ export function useControlPlane() {
 	useEffect(() => {
 		mountedRef.current = true;
 		void refresh();
-		const interval = window.setInterval(() => void refresh(true), 5000);
+		// Pestaña oculta: no hay nadie mirando el snapshot, asi que el tick no gasta red ni
+		// lock del backend; al volver a visible se refresca de inmediato para no mostrar
+		// datos de hace minutos.
+		const interval = window.setInterval(() => {
+			if (document.visibilityState === 'hidden') return;
+			void refresh(true);
+		}, 5000);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') void refresh(true);
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			mountedRef.current = false;
 			window.clearInterval(interval);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			for (const controller of controllersRef.current) {
 				controller.abort();
 			}

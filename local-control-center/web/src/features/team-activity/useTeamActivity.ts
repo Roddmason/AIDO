@@ -69,10 +69,20 @@ export function useTeamActivity(
 		};
 
 		load(true);
-		const timer = window.setInterval(() => load(false), POLL_INTERVAL_MS);
+		// Mismo contrato que el poll de overview: sin tick con la pestaña oculta y refetch
+		// inmediato al volver a visible.
+		const timer = window.setInterval(() => {
+			if (document.visibilityState === 'hidden') return;
+			load(false);
+		}, POLL_INTERVAL_MS);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') load(false);
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			aborted = true;
 			window.clearInterval(timer);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			controller?.abort();
 		};
 	}, [projectId, enabled, reloadToken]);

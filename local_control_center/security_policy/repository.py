@@ -251,21 +251,26 @@ class SecurityPolicyRepository:
             raise KeyError(f"Policy revision not found: {revision_id}")
         return row_to_policy_revision(row)
 
-    def list_policy_revisions(self, subject_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista revisiones (de un sujeto si se indica) de la mas reciente a la mas antigua."""
+    def list_policy_revisions(
+        self, subject_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista revisiones (de un sujeto si se indica) de la mas reciente a la mas antigua.
+
+        ``limit`` acota a las N más recientes con desempate determinista por rowid.
+        """
+        order = (
+            "ORDER BY created_at DESC, version DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY created_at DESC, version DESC"
+        )
         if subject_id:
+            params = (subject_id, int(limit)) if limit is not None else (subject_id,)
             rows = self.connection.execute(
-                """
-                SELECT * FROM policy_revisions
-                WHERE subject_id = ?
-                ORDER BY created_at DESC, version DESC
-                """,
-                (subject_id,),
+                f"SELECT * FROM policy_revisions WHERE subject_id = ? {order}", params
             ).fetchall()
         else:
-            rows = self.connection.execute(
-                "SELECT * FROM policy_revisions ORDER BY created_at DESC, version DESC"
-            ).fetchall()
+            params = (int(limit),) if limit is not None else ()
+            rows = self.connection.execute(f"SELECT * FROM policy_revisions {order}", params).fetchall()
         return [row_to_policy_revision(row) for row in rows]
 
     def record_decision(
@@ -535,17 +540,24 @@ class SecurityPolicyRepository:
             raise KeyError(f"Permission grant not found: {grant_id}")
         return row_to_grant(row)
 
-    def list_grants(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista grants (de un proyecto si se indica) del mas reciente al mas antiguo."""
+    def list_grants(self, project_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista grants (de un proyecto si se indica) del mas reciente al mas antiguo.
+
+        ``limit`` acota a los N más recientes con desempate determinista por rowid.
+        """
+        order = (
+            "ORDER BY granted_at DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY granted_at DESC"
+        )
         if project_id:
+            params = (project_id, int(limit)) if limit is not None else (project_id,)
             rows = self.connection.execute(
-                "SELECT * FROM permission_grants WHERE project_id = ? ORDER BY granted_at DESC",
-                (project_id,),
+                f"SELECT * FROM permission_grants WHERE project_id = ? {order}", params
             ).fetchall()
         else:
-            rows = self.connection.execute(
-                "SELECT * FROM permission_grants ORDER BY granted_at DESC"
-            ).fetchall()
+            params = (int(limit),) if limit is not None else ()
+            rows = self.connection.execute(f"SELECT * FROM permission_grants {order}", params).fetchall()
         return [row_to_grant(row) for row in rows]
 
     def validate_and_consume_grant(

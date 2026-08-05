@@ -232,14 +232,22 @@ class JobsRepository:
             raise KeyError(f"Job not found: {job_id}")
         return row_to_job(row)
 
-    def list_jobs(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista los jobs (todos o de un proyecto) ordenados del más reciente al más antiguo."""
+    def list_jobs(self, project_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los jobs (todos o de un proyecto) ordenados del más reciente al más antiguo.
+
+        ``limit`` acota a los N más recientes con desempate determinista por rowid.
+        """
+        order = (
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY created_at DESC"
+        )
         if project_id:
-            rows = self._query(
-                "SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,)
-            )
+            params = (project_id, int(limit)) if limit is not None else (project_id,)
+            rows = self._query(f"SELECT * FROM jobs WHERE project_id = ? {order}", params)
         else:
-            rows = self._query("SELECT * FROM jobs ORDER BY created_at DESC")
+            params = (int(limit),) if limit is not None else ()
+            rows = self._query(f"SELECT * FROM jobs {order}", params)
         return [row_to_job(row) for row in rows]
 
     def list_jobs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
@@ -332,14 +340,36 @@ class JobsRepository:
             raise KeyError(f"Action request not found: {action_id}")
         return row_to_action_request(row)
 
-    def list_action_requests(self, job_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista action requests: por job en orden cronológico, o todas de la más reciente a la más antigua."""
+    def list_action_requests(
+        self, job_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista action requests: por job en orden cronológico, o todas de la más reciente a la más antigua.
+
+        ``limit`` acota a las N más recientes preservando el orden de cada rama.
+        """
         if job_id:
-            rows = self._query(
-                "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
-            )
-        else:
+            if limit is None:
+                rows = self._query(
+                    "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
+                )
+            else:
+                # Tail: trae las N más recientes en DESC determinista y las invierte a ASC.
+                rows = list(
+                    reversed(
+                        self._query(
+                            "SELECT * FROM action_requests WHERE job_id = ?"
+                            " ORDER BY requested_at DESC, rowid DESC LIMIT ?",
+                            (job_id, int(limit)),
+                        )
+                    )
+                )
+        elif limit is None:
             rows = self._query("SELECT * FROM action_requests ORDER BY requested_at DESC")
+        else:
+            rows = self._query(
+                "SELECT * FROM action_requests ORDER BY requested_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            )
         return [row_to_action_request(row) for row in rows]
 
     def _pending_actions(self, job_id: str) -> list[dict[str, Any]]:
@@ -736,12 +766,25 @@ class JobsRepository:
             "run": row_to_job_run(self._query_one("SELECT * FROM job_runs WHERE id = ?", (run_id,))),
         }
 
-    def list_job_runs(self, job_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista los runs (de un job o globales) en orden cronológico de inicio."""
-        if job_id:
-            rows = self._query("SELECT * FROM job_runs WHERE job_id = ? ORDER BY started_at ASC", (job_id,))
+    def list_job_runs(self, job_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los runs (de un job o globales) en orden cronológico de inicio.
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
+        where = "WHERE job_id = ?" if job_id else ""
+        base_params: tuple[Any, ...] = (job_id,) if job_id else ()
+        if limit is None:
+            rows = self._query(f"SELECT * FROM job_runs {where} ORDER BY started_at ASC", base_params)
         else:
-            rows = self._query("SELECT * FROM job_runs ORDER BY started_at ASC")
+            # Tail: trae los N más recientes en DESC determinista y los invierte a ASC.
+            rows = list(
+                reversed(
+                    self._query(
+                        f"SELECT * FROM job_runs {where} ORDER BY started_at DESC, rowid DESC LIMIT ?",
+                        (*base_params, int(limit)),
+                    )
+                )
+            )
         return [row_to_job_run(row) for row in rows]
 
     def record_event(

@@ -39,6 +39,20 @@ OVERVIEW_COST_USAGE_LIMIT = 200
 OVERVIEW_EVIDENCE_LIMIT = 100
 OVERVIEW_TEST_RESULT_LIMIT = 150
 OVERVIEW_ARTIFACT_LIMIT = 300
+# Colecciones históricas: crecen sin techo natural, así que el snapshot (poll de 5 s del
+# dashboard) conserva solo el tail más reciente. Los catálogos de configuración
+# (projects, providers, agentProfiles, modelProviders, skills, …) van completos a propósito.
+OVERVIEW_THREAD_LIMIT = 500
+OVERVIEW_JOB_LIMIT = 200
+OVERVIEW_JOB_RUN_LIMIT = 200
+OVERVIEW_MEMORY_ITEM_LIMIT = 200
+OVERVIEW_ACTION_REQUEST_LIMIT = 500
+OVERVIEW_WORKFLOW_LIMIT = 200
+OVERVIEW_WORKFLOW_RUN_LIMIT = 200
+OVERVIEW_WORKFLOW_STEP_LIMIT = 500
+OVERVIEW_WORKFLOW_EVENT_LIMIT = 300
+OVERVIEW_POLICY_REVISION_LIMIT = 200
+OVERVIEW_PERMISSION_GRANT_LIMIT = 300
 OVERVIEW_EMBEDDED_VALUE_BYTE_LIMIT = 8_192
 _COMPACT_DEPTH = 2
 _COMPACT_LIST_HEAD = 20
@@ -149,23 +163,23 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "providers": projects.list_providers(),
         "teams": projects.list_teams(),
         "agents": projects.list_agents(),
-        "threads": threads.list_threads(),
-        "jobs": jobs.list_jobs(),
-        "jobRuns": jobs.list_job_runs(),
+        "threads": threads.list_threads(limit=OVERVIEW_THREAD_LIMIT),
+        "jobs": jobs.list_jobs(limit=OVERVIEW_JOB_LIMIT),
+        "jobRuns": jobs.list_job_runs(limit=OVERVIEW_JOB_RUN_LIMIT),
         "events": events.list_events(limit=OVERVIEW_EVENT_LIMIT),
         "auditEvents": events.list_audit_events(limit=OVERVIEW_AUDIT_EVENT_LIMIT),
-        "memoryItems": memory.list_memory_items(),
+        "memoryItems": memory.list_memory_items(limit=OVERVIEW_MEMORY_ITEM_LIMIT),
         "promptTemplates": prompts.list_prompt_templates(),
-        "actionRequests": jobs.list_action_requests(),
+        "actionRequests": jobs.list_action_requests(limit=OVERVIEW_ACTION_REQUEST_LIMIT),
         "ideConnections": integrations.list_ide_connections(),
         "mcpServers": integrations.list_mcp_servers(),
-        "workflows": workflows.list_workflows(),
-        "workflowRuns": workflows.list_workflow_runs(),
-        "workflowSteps": workflows.list_workflow_steps(),
-        "workflowEvents": workflows.list_workflow_events(),
+        "workflows": workflows.list_workflows(limit=OVERVIEW_WORKFLOW_LIMIT),
+        "workflowRuns": workflows.list_workflow_runs(limit=OVERVIEW_WORKFLOW_RUN_LIMIT),
+        "workflowSteps": workflows.list_workflow_steps(limit=OVERVIEW_WORKFLOW_STEP_LIMIT),
+        "workflowEvents": workflows.list_workflow_events(limit=OVERVIEW_WORKFLOW_EVENT_LIMIT),
         "permissionDecisions": security_policy.list_decisions(limit=OVERVIEW_PERMISSION_DECISION_LIMIT),
-        "policyRevisions": security_policy.list_policy_revisions(),
-        "permissionGrants": security_policy.list_grants(),
+        "policyRevisions": security_policy.list_policy_revisions(limit=OVERVIEW_POLICY_REVISION_LIMIT),
+        "permissionGrants": security_policy.list_grants(limit=OVERVIEW_PERMISSION_GRANT_LIMIT),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
         "evidencePackages": [
             _compact_overview_record(record)

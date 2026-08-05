@@ -30,6 +30,8 @@ export type MenuCommandId =
 	| 'go-workbench'
 	| 'go-review'
 	| 'go-memory'
+	| 'go-workspaces'
+	| 'go-integrations'
 	| 'go-settings'
 	| 'keyboard-shortcuts'
 	| 'about';
@@ -211,6 +213,20 @@ export const MENUS: MenuDef[] = [
 				labelKey: 'app.menu.goMemory',
 				label: 'Memory',
 				page: 'memory',
+			},
+			{
+				kind: 'command',
+				command: 'go-workspaces',
+				labelKey: 'app.menu.goWorkspaces',
+				label: 'Workspaces',
+				page: 'workspaces',
+			},
+			{
+				kind: 'command',
+				command: 'go-integrations',
+				labelKey: 'app.menu.goIntegrations',
+				label: 'Integrations',
+				page: 'integrations',
 			},
 			separator,
 			{

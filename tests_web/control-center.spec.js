@@ -2263,7 +2263,10 @@ test('Memory & Retrieval shows backend status and memory records', async ({ page
 	await expect(page.getByRole('heading', { name: 'Memory & Retrieval' })).toBeVisible();
 	await expect(page.getByText('Retrieval Backend')).toBeVisible();
 	await expect(page.getByText('SQLite is canonical')).toBeVisible();
-	await expect(page.getByText('Memory items')).toBeVisible();
+	// Por rol: la página lista los registros, así que "Memory items" también aparece en el buscador
+	// y en el empty state; el heading es el que ancla la métrica.
+	await expect(page.getByRole('heading', { name: 'Memory items' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Memory records' })).toBeVisible();
 });
 
 test('mobile layout has no horizontal overflow', async ({ page }) => {

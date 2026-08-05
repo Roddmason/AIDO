@@ -3,8 +3,8 @@
  * brief → assumptions → decisions → architecture → backlog → iteration → execution → review),
  * laid out with the explorer and inspector. Owns the page-level UI state (prompt, active loop
  * section, selected thread/run) and wires intake to project threads; the derived data comes from
- * useWorkbenchData. Sections wired to live overview data render
- * real content; the discovery/backlog sections render an honest shell until their endpoint exists.
+ * useWorkbenchData. Every section renders live data: discovery/backlog come from the product
+ * loop endpoints via useProductLoop.
  *
  * When hideExplorer=true (shell mode) the center renders a clean chat-first layout: transcript
  * leads, composer is pinned at the bottom, auxiliary panels are hidden.

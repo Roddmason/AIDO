@@ -207,8 +207,12 @@ class ThreadsRepository:
         owner_id: str | None = None,
         include_archived: bool = False,
         include_deleted: bool = False,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Lista hilos (más recientes primero) con filtro opcional por proyecto y entidad dueña."""
+        """Lista hilos (más recientes primero) con filtro opcional por proyecto y entidad dueña.
+
+        ``limit`` acota a los N con actividad más reciente (desempate determinista por rowid).
+        """
         clauses: list[str] = []
         params: list[Any] = []
         if project_id is not None:
@@ -228,8 +232,12 @@ class ThreadsRepository:
                 archived_clause = f"({archived_clause} OR deleted_at IS NOT NULL OR status = 'deleted')"
             clauses.append(archived_clause)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = ""
+        if limit is not None:
+            limit_sql = " LIMIT ?"
+            params.append(int(limit))
         rows = self.connection.execute(
-            f"SELECT * FROM project_threads {where} ORDER BY updated_at DESC, rowid DESC",
+            f"SELECT * FROM project_threads {where} ORDER BY updated_at DESC, rowid DESC{limit_sql}",
             params,
         ).fetchall()
         return [row_to_thread(row) for row in rows]

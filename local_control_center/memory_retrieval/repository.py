@@ -150,8 +150,12 @@ class MemoryRepository:
         project_id: str | None = None,
         *,
         include_inactive: bool = False,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Lista memory items por proyecto, activos primero por created_at ascendente."""
+        """Lista memory items por proyecto, activos primero por created_at ascendente.
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
         clauses: list[str] = []
         params: list[Any] = []
         if project_id:
@@ -162,7 +166,18 @@ class MemoryRepository:
             clauses.append("(expires_at IS NULL OR expires_at = '' OR expires_at > ?)")
             params.append(utc_now())
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = self._query(f"SELECT * FROM memory_items {where} ORDER BY created_at ASC", params)
+        if limit is None:
+            rows = self._query(f"SELECT * FROM memory_items {where} ORDER BY created_at ASC", params)
+        else:
+            # Tail: trae los N más recientes en DESC determinista y los invierte a ASC.
+            rows = list(
+                reversed(
+                    self._query(
+                        f"SELECT * FROM memory_items {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                        [*params, int(limit)],
+                    )
+                )
+            )
         return [row_to_memory(row) for row in rows]
 
     def delete_memory_item(self, memory_id: str, *, reason: str = "") -> dict[str, Any]:

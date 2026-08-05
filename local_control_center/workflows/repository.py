@@ -254,15 +254,26 @@ class WorkflowsRepository:
             raise KeyError(f"Workflow not found: {workflow_id}")
         return row_to_workflow(row)
 
-    def list_workflows(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """List workflows newest-first, optionally scoped to one project."""
+    def list_workflows(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """List workflows newest-first, optionally scoped to one project.
+
+        ``limit`` keeps the N most recent rows with a deterministic rowid tie-break.
+        """
+        order = (
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY created_at DESC"
+        )
         if project_id:
+            params = (project_id, int(limit)) if limit is not None else (project_id,)
             rows = self.connection.execute(
-                "SELECT * FROM workflows WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM workflows WHERE project_id = ? {order}", params
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM workflows ORDER BY created_at DESC").fetchall()
+            params = (int(limit),) if limit is not None else ()
+            rows = self.connection.execute(f"SELECT * FROM workflows {order}", params).fetchall()
         return [row_to_workflow(row) for row in rows]
 
     def start_workflow(self, workflow_id: str, *, reason: str = "") -> dict[str, Any]:
@@ -609,38 +620,85 @@ class WorkflowsRepository:
             raise KeyError(f"Workflow run not found: {run_id}")
         return row_to_workflow_run(row)
 
-    def list_workflow_runs(self, workflow_id: str | None = None) -> list[dict[str, Any]]:
-        """List runs newest-first, optionally scoped to one workflow."""
+    def list_workflow_runs(
+        self, workflow_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """List runs newest-first, optionally scoped to one workflow.
+
+        ``limit`` keeps the N most recent rows with a deterministic rowid tie-break.
+        """
+        order = (
+            "ORDER BY started_at DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY started_at DESC"
+        )
         if workflow_id:
+            params = (workflow_id, int(limit)) if limit is not None else (workflow_id,)
             rows = self.connection.execute(
-                "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC",
-                (workflow_id,),
+                f"SELECT * FROM workflow_runs WHERE workflow_id = ? {order}", params
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM workflow_runs ORDER BY started_at DESC").fetchall()
+            params = (int(limit),) if limit is not None else ()
+            rows = self.connection.execute(f"SELECT * FROM workflow_runs {order}", params).fetchall()
         return [row_to_workflow_run(row) for row in rows]
 
-    def list_workflow_steps(self, workflow_run_id: str | None = None) -> list[dict[str, Any]]:
-        """List steps in creation (execution) order, optionally scoped to one run."""
-        if workflow_run_id:
+    def list_workflow_steps(
+        self, workflow_run_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """List steps in creation (execution) order, optionally scoped to one run.
+
+        ``limit`` keeps the most recent tail without changing the ascending order.
+        """
+        where = "WHERE workflow_run_id = ?" if workflow_run_id else ""
+        base_params: tuple[Any, ...] = (workflow_run_id,) if workflow_run_id else ()
+        if limit is None:
             rows = self.connection.execute(
-                "SELECT * FROM workflow_steps WHERE workflow_run_id = ? ORDER BY created_at ASC",
-                (workflow_run_id,),
+                f"SELECT * FROM workflow_steps {where} ORDER BY created_at ASC", base_params
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM workflow_steps ORDER BY created_at ASC").fetchall()
+            # Tail: keep the N most recent rows in deterministic DESC order, then flip to ASC.
+            rows = list(
+                reversed(
+                    self.connection.execute(
+                        f"SELECT * FROM workflow_steps {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                        (*base_params, int(limit)),
+                    ).fetchall()
+                )
+            )
         return [row_to_workflow_step(row) for row in rows]
 
-    def list_workflow_events(self, workflow_run_id: str | None = None) -> list[dict[str, Any]]:
-        """List events for one run oldest-first, or all events newest-first when no run is given."""
+    def list_workflow_events(
+        self, workflow_run_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """List events for one run oldest-first, or all events newest-first when no run is given.
+
+        ``limit`` keeps the N most recent events preserving each branch's ordering.
+        """
         if workflow_run_id:
+            if limit is None:
+                rows = self.connection.execute(
+                    "SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY created_at ASC",
+                    (workflow_run_id,),
+                ).fetchall()
+            else:
+                # Tail: keep the N most recent rows in deterministic DESC order, then flip to ASC.
+                rows = list(
+                    reversed(
+                        self.connection.execute(
+                            "SELECT * FROM workflow_events WHERE workflow_run_id = ?"
+                            " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                            (workflow_run_id, int(limit)),
+                        ).fetchall()
+                    )
+                )
+        elif limit is None:
             rows = self.connection.execute(
-                "SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY created_at ASC",
-                (workflow_run_id,),
+                "SELECT * FROM workflow_events ORDER BY created_at DESC"
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM workflow_events ORDER BY created_at DESC"
+                "SELECT * FROM workflow_events ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
             ).fetchall()
         return [row_to_workflow_event(row) for row in rows]
 

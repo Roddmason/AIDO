@@ -39,6 +39,39 @@ decisions can be traced back to the price input used at the time.
 
 Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds, budget deny/approval behavior, quota cooldown diagnostics, pricing staleness, benchmark confidence thresholds, fail-closed real execution and workflow-step routing decision linkage.
 
+## Role pins: which roles have one and why the rest do not
+
+A role policy has three preference lists (`preferred`, `fallback`, `escalation`), each a list of
+`{provider, model}` pairs. `AIResourceManager` ranks candidates by tier: an exact `{provider, model}`
+match wins (tier 0), a provider-level wildcard (`""`, `"*"`, `"auto"`, `"auto_best_available"` — the
+shared set in `agents/model_wildcards.py`) comes next (tier 1), and everything else ties at tier 2,
+where the score decides.
+
+The migrations seed model pins for a subset of roles (`product_owner`, `technical_lead`,
+`backend_engineer`, `frontend_engineer`, `release_manager`, plus legacy ids such as `developer` and
+`qa`). The remaining roles of `ALL_ROLES` — `aido_lead`, `project_manager`, `scrum_master`,
+`architect`, `mobile_engineer`, `database_engineer`, `data_engineer`, `qa_engineer`,
+`security_engineer`, `pentester`, `devops_engineer`, `researcher` — are seeded by
+`bootstrap_role_model_policies_if_needed` **with an empty `preferred` on purpose**. This is a product
+decision, not an oversight:
+
+- At bootstrap time nothing is known about which models each configured endpoint actually exposes.
+  Seeding invented pairs would produce candidates that do not exist, and a pin to a missing model is
+  worse than no pin: it degrades to tier 2 anyway, but silently and with a misleading policy.
+- Without a pin the router still applies every hard filter (transport, cost ceiling, privacy, quota,
+  context window) and then picks the best-scoring candidate available today. A hand-written pin ages
+  badly: it survives provider catalog changes and keeps routing a role to a model that is no longer
+  the best — or no longer offered.
+- What the seeded policy *does* fix is the part that must never be implicit: the cost ceiling, the
+  token ceiling and the approval threshold per role. Before this seed, a role without a policy fell
+  back silently to `developer`'s limits.
+
+To pin a model for a role, use **Model Gateway → Policies** (or `PATCH
+/api/v1/model-gateway/role-policies/{id}`) and add the `{provider, model}` pair to `preferred`. Use
+the provider-level wildcard `{"provider": "...", "model": "*"}` when the intent is "any model from
+this provider", which is what the provider wizard and `scripts/setup_omniroute.py` write for
+auto-routed gateways.
+
 ## Risks
 
 - The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can

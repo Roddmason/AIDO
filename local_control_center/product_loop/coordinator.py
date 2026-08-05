@@ -4561,6 +4561,7 @@ class ProductLoopCoordinator:
                     routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
                     required_capabilities=["chat"],
                     preferred_provider_ids=policy["preferredProviderIds"],
+                    preferred_resources=policy["preferredResources"],
                     blocked_resources=policy["blockedResources"],
                     excluded_resources=excluded,
                     context_token_limit=policy["maxTokensPerRun"],

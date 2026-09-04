@@ -255,7 +255,8 @@ def test_shared_migrations_owns_schema_bootstrap() -> None:
     migrations_source = migrations.read_text(encoding="utf-8")
 
     assert "from local_control_center.shared.migrations import initialize_platform_schema" in runtime_source
-    assert "initialize_platform_schema(self.connection)" in runtime_source
+    assert "initialize_platform_schema(connection)" in runtime_source
+    assert "with self.operation_connection() as connection:" in runtime_source
 
     schema_tokens = [
         "CREATE TABLE IF NOT EXISTS",

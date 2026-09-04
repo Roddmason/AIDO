@@ -2,8 +2,8 @@
 
 Expone estado Git, ramas, checkout, diff y gitleaks por proyecto. Las mutaciones exigen el
 token local y la ejecucion real se delega a ``GitWorkspaceService``. Los GET de snapshot
-(status/branches) corren su fase subprocess fuera del lock global de /api/ sobre una conexion
-sqlite dedicada, con single-flight por proyecto para no apilar snapshots concurrentes.
+(status/branches) usan conexión por request y single-flight por proyecto para no apilar
+subprocess concurrentes.
 
 @author Rodrigo Mason
 """
@@ -50,12 +50,7 @@ GIT_SNAPSHOT_WAIT_SECONDS = GIT_TIMEOUT_SECONDS * 8
 
 
 def is_git_snapshot_request(method: str, path: str) -> bool:
-    """Indica si el request es un GET de snapshot git (status/branches) exento del lock global.
-
-    Única fuente de verdad para el middleware de ``api.py``: estos dos GET corren su fase
-    sqlite bajo el lock por su cuenta y ejecutan los subprocess git fuera de él. Solo GET:
-    el POST de branches (crear rama) es mutación y sigue serializado como el resto de /api/.
-    """
+    """Indica si el request es un GET de snapshot Git (status/branches)."""
     return method.upper() == "GET" and GIT_SNAPSHOT_PATH_PATTERN.match(path) is not None
 
 
@@ -68,13 +63,11 @@ class _SnapshotFlight:
     error: BaseException | None = None
 
 
-def create_router(
-    *, platform: Any, require_write: Callable[[Request], None], snapshot_lock: threading.Lock
-) -> APIRouter:
+def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router Git por proyecto.
 
-    ``snapshot_lock`` es el mismo lock global que serializa /api/: los GET de snapshot lo toman
-    solo durante su fase sqlite corta (``prepare_status``) y sueltan el resto de la request.
+    Cada request ya posee su conexión SQLite. Los snapshots conservan single-flight por proyecto
+    para no duplicar subprocess, sin serializar el resto de la API.
     """
     router = APIRouter()
     in_flight_snapshots: dict[str, _SnapshotFlight] = {}
@@ -84,12 +77,8 @@ def create_router(
         return GitWorkspaceService(platform.connection, root=Path(platform.cwd))
 
     def execute_status_snapshot(project_id: str) -> dict[str, Any]:
-        """Corre un snapshot completo: fase sqlite bajo el lock global, subprocess sin él."""
-        snapshot_lock.acquire()
-        try:
-            early, prepared = service().prepare_status(project_id)
-        finally:
-            snapshot_lock.release()
+        """Corre un snapshot completo sobre la conexión de request y una conexión colectora."""
+        early, prepared = service().prepare_status(project_id)
         if early is not None or prepared is None:
             return early or {}
         connection = open_sqlite_connection(platform.db_path)

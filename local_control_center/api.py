@@ -2,7 +2,7 @@
 
 Punto unico de cableado HTTP: inicializa el runtime del control plane, monta los routers
 de dominio (jobs, memoria, workflows, seguridad, evidencia, agents, gateway, etc.), instala el
-middleware que serializa el acceso al runtime y registra correlacion/telemetria, expone las rutas
+middleware que aísla la conexión por request y registra correlacion/telemetria, expone las rutas
 de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con fallback al SPA.
 
 @author Rodrigo Mason
@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-import threading
-from contextlib import asynccontextmanager
+import sqlite3
+from collections.abc import Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,6 @@ from .control_plane.runtime import ControlCenterRuntime
 from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
 from .git_workspace.api import create_router as create_git_workspace_router
-from .git_workspace.api import is_git_snapshot_request
 from .governance.api import create_router as create_governance_router
 from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
@@ -54,9 +54,15 @@ from .security_policy.api import create_router as create_security_policy_router
 from .self_improvement.api import create_router as create_self_improvement_router
 from .sessions_chats.api import create_router as create_sessions_chats_router
 from .settings.api import create_router as create_settings_router
-from .shared.db import open_sqlite_connection
+from .shared.db import open_sqlite_connection, passive_wal_checkpoint, sqlite_database_diagnostics
 from .shared.migrations import initialize_platform_schema
-from .shared.schemas import HandshakeResponse, HealthResponse, TelemetryStatusResponse
+from .shared.schemas import (
+    HandshakeResponse,
+    HealthResponse,
+    SqliteCheckpointResponse,
+    SqliteDiagnosticsResponse,
+    TelemetryStatusResponse,
+)
 from .shared.telemetry import (
     configure_external_telemetry_from_env,
     elapsed_ms,
@@ -73,6 +79,55 @@ from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
 
 logger = logging.getLogger(__name__)
+HTTP_TELEMETRY_BUSY_TIMEOUT_MS = 75
+
+
+@contextmanager
+def _operation_connection_scope(platform: Any) -> Iterator[Any]:
+    """Adapta runtimes productivos y el fixture de composición sin compartir conexión HTTP."""
+    runtime_boundary = getattr(platform, "runtime", platform)
+    operation_connection = getattr(runtime_boundary, "operation_connection", None)
+    if callable(operation_connection):
+        with operation_connection() as connection:
+            yield connection
+        return
+    yield platform.connection
+
+
+def _record_http_request_without_blocking(
+    connection: sqlite3.Connection,
+    *,
+    method: str,
+    path: str,
+    status_code: int,
+    duration_ms: int,
+    correlation_id: str,
+) -> None:
+    """Record HTTP telemetry best-effort without blocking a read behind a busy writer."""
+    original_timeout_ms: int | None = None
+    try:
+        original_timeout_ms = int(connection.execute("PRAGMA busy_timeout").fetchone()[0])
+        connection.execute(f"PRAGMA busy_timeout = {HTTP_TELEMETRY_BUSY_TIMEOUT_MS}")
+        record_http_request(
+            connection,
+            method=method,
+            path=path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+            correlation_id=correlation_id,
+        )
+    except sqlite3.Error as error:
+        logger.warning(
+            "HTTP telemetry write skipped (correlation_id=%s, error=%s).",
+            correlation_id,
+            type(error).__name__,
+        )
+    finally:
+        if original_timeout_ms is not None:
+            try:
+                connection.execute(f"PRAGMA busy_timeout = {original_timeout_ms}")
+            except sqlite3.Error:
+                logger.debug("Could not restore SQLite busy_timeout after HTTP telemetry.")
 
 
 def create_app(
@@ -96,9 +151,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         try:
-            deleted = await anyio.to_thread.run_sync(
-                lambda: prune_http_request_telemetry(platform.connection)
-            )
+
+            def prune_stale_http_telemetry() -> int:
+                with _operation_connection_scope(platform) as connection:
+                    return prune_http_request_telemetry(connection)
+
+            deleted = await anyio.to_thread.run_sync(prune_stale_http_telemetry)
             if deleted:
                 logger.info("Pruned %d telemetry.http.request events past retention.", deleted)
         except Exception as error:  # pragma: no cover - la retención nunca debe impedir el arranque
@@ -107,7 +165,6 @@ def create_app(
 
     app = FastAPI(title="Local Control Center", version="0.1.0", lifespan=lifespan)
     app.state.runtime = platform
-    store_request_lock = threading.Lock()
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation_error(
@@ -151,37 +208,28 @@ def create_app(
         )
 
     @app.middleware("http")
-    async def serialize_runtime_access(request: Request, call_next):
+    async def bind_request_database_connection(request: Request, call_next):
         if not request.url.path.startswith("/api/"):
             return await call_next(request)
 
         correlation_id = resolve_correlation_id(request.headers)
         started_ms = monotonic_ms()
-        if is_git_snapshot_request(request.method, request.url.path):
-            # Los GET de snapshot git toman el lock global por su cuenta solo durante su fase
-            # sqlite (router git); retenerlo aquí bloquearía todo /api/ durante los 5-7s de
-            # subprocess git. Su telemetría sí se escribe serializada bajo el lock.
-            response = await call_next(request)
-            response.headers["X-Correlation-ID"] = correlation_id
-            await anyio.to_thread.run_sync(store_request_lock.acquire)
+        with _operation_connection_scope(platform) as connection:
             try:
-                record_http_request(
-                    platform.connection,
+                response = await call_next(request)
+            except Exception:
+                _record_http_request_without_blocking(
+                    connection,
                     method=request.method,
                     path=request.url.path,
-                    status_code=response.status_code,
+                    status_code=500,
                     duration_ms=elapsed_ms(started_ms),
                     correlation_id=correlation_id,
                 )
-            finally:
-                store_request_lock.release()
-            return response
-        await anyio.to_thread.run_sync(store_request_lock.acquire)
-        try:
-            response = await call_next(request)
+                raise
             response.headers["X-Correlation-ID"] = correlation_id
-            record_http_request(
-                platform.connection,
+            _record_http_request_without_blocking(
+                connection,
                 method=request.method,
                 path=request.url.path,
                 status_code=response.status_code,
@@ -189,8 +237,6 @@ def create_app(
                 correlation_id=correlation_id,
             )
             return response
-        finally:
-            store_request_lock.release()
 
     def require_write(request: Request) -> None:
         expected = platform.get_handshake()["token"]
@@ -217,11 +263,7 @@ def create_app(
     app.include_router(create_integrations_router(platform=platform, require_write=require_write))
     app.include_router(create_prompts_router(platform=platform, require_write=require_write))
     app.include_router(create_projects_router(platform=platform, require_write=require_write))
-    app.include_router(
-        create_git_workspace_router(
-            platform=platform, require_write=require_write, snapshot_lock=store_request_lock
-        )
-    )
+    app.include_router(create_git_workspace_router(platform=platform, require_write=require_write))
     app.include_router(create_product_loop_router(platform=platform, require_write=require_write))
     app.include_router(create_project_constitution_router(platform=platform, require_write=require_write))
     app.include_router(create_self_improvement_router(platform=platform, require_write=require_write))
@@ -256,6 +298,18 @@ def create_app(
     @app.get("/api/v1/telemetry/status", response_model=TelemetryStatusResponse)
     async def telemetry_status() -> dict[str, Any]:
         return {"externalExporter": external_telemetry_status()}
+
+    @app.get("/api/v1/operations/database", response_model=SqliteDiagnosticsResponse)
+    async def database_status() -> dict[str, Any]:
+        return sqlite_database_diagnostics(platform.connection, db_path=platform.db_path)
+
+    @app.post(
+        "/api/v1/operations/database/checkpoint",
+        response_model=SqliteCheckpointResponse,
+    )
+    async def checkpoint_database(request: Request) -> dict[str, Any]:
+        require_write(request)
+        return passive_wal_checkpoint(platform.connection, db_path=platform.db_path)
 
     @app.get("/api/v1/events")
     async def events() -> StreamingResponse:

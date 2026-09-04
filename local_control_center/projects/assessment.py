@@ -23,6 +23,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 
 from .discovery import discover_project_path
@@ -595,22 +596,23 @@ def run_project_assessment(
     result = assess_project(root_path)
     summary = redact_secrets(result["summary"])
     redacted_findings = [redact_secrets(finding) for finding in result["findings"]]
-    assessment = repository.create_project_assessment(
-        {
-            "projectId": project_id,
-            "rootPath": result["rootPath"],
-            "status": result["status"],
-            "source": result["source"],
-            "summary": summary,
-            "findingsCount": len(redacted_findings),
-            "riskCount": summary["riskCount"],
-            "gapCount": summary["gapCount"],
-        }
-    )
-    findings = [
-        repository.create_project_finding(
-            {"assessmentId": assessment["id"], "projectId": project_id, **finding}
+    with immediate_transaction(repository.connection):
+        assessment = repository.create_project_assessment(
+            {
+                "projectId": project_id,
+                "rootPath": result["rootPath"],
+                "status": result["status"],
+                "source": result["source"],
+                "summary": summary,
+                "findingsCount": len(redacted_findings),
+                "riskCount": summary["riskCount"],
+                "gapCount": summary["gapCount"],
+            }
         )
-        for finding in redacted_findings
-    ]
+        findings = [
+            repository.create_project_finding(
+                {"assessmentId": assessment["id"], "projectId": project_id, **finding}
+            )
+            for finding in redacted_findings
+        ]
     return {"assessment": assessment, "findings": findings}

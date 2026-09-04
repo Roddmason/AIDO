@@ -61,6 +61,30 @@ class TelemetryStatusResponse(BaseModel):
     external_exporter: ExternalTelemetryStatus = Field(alias="externalExporter")
 
 
+class SqliteDiagnosticsResponse(BaseModel):
+    """Estado observable de la base local y su WAL, sin incluir rutas del host."""
+
+    sqlite_version: str = Field(alias="sqliteVersion")
+    journal_mode: str = Field(alias="journalMode")
+    busy_timeout_ms: int = Field(alias="busyTimeoutMs")
+    wal_auto_checkpoint_pages: int = Field(alias="walAutoCheckpointPages")
+    page_size_bytes: int = Field(alias="pageSizeBytes")
+    database_bytes: int = Field(alias="databaseBytes")
+    wal_bytes: int = Field(alias="walBytes")
+    shared_memory_bytes: int = Field(alias="sharedMemoryBytes")
+
+
+class SqliteCheckpointResponse(BaseModel):
+    """Resultado medible de un checkpoint WAL no interruptivo."""
+
+    mode: str
+    busy: int
+    log_frames: int = Field(alias="logFrames")
+    checkpointed_frames: int = Field(alias="checkpointedFrames")
+    wal_bytes: int = Field(alias="walBytes")
+    duration_ms: int = Field(alias="durationMs")
+
+
 class EventRecord(BaseModel):
     """Evento operativo expuesto por la API: tipo, severidad, payload y vínculos a job/proyecto."""
 

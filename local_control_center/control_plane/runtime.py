@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -34,14 +37,41 @@ class ControlCenterRuntime:
         self.cwd = Path(cwd) if cwd is not None else default_cwd()
         self.db_path = Path(db_path) if db_path is not None else default_db_path()
         self._connection: sqlite3.Connection | None = None
+        self._operation_connection: ContextVar[sqlite3.Connection | None] = ContextVar(
+            f"aido_sqlite_connection_{id(self)}",
+            default=None,
+        )
         self._token = secrets.token_urlsafe(32)
 
     @property
     def connection(self) -> sqlite3.Connection:
-        """Conexion SQLite abierta de forma perezosa y cacheada para el resto del proceso."""
+        """Devuelve la conexión de la operación actual o la conexión de compatibilidad directa.
+
+        Los requests HTTP y las operaciones productivas usan ``operation_connection``. El fallback
+        cacheado se conserva para pruebas y llamadas directas existentes que todavía componen
+        repositorios a partir de ``runtime.connection`` fuera de un límite operacional.
+        """
+        operation_connection = self._operation_connection.get()
+        if operation_connection is not None:
+            return operation_connection
         if self._connection is None:
             self._connection = open_sqlite_connection(self.db_path)
         return self._connection
+
+    @contextmanager
+    def operation_connection(self) -> Iterator[sqlite3.Connection]:
+        """Vincula una conexión SQLite corta al contexto y garantiza su cierre determinista."""
+        existing = self._operation_connection.get()
+        if existing is not None:
+            yield existing
+            return
+        connection = open_sqlite_connection(self.db_path)
+        token = self._operation_connection.set(connection)
+        try:
+            yield connection
+        finally:
+            self._operation_connection.reset(token)
+            connection.close()
 
     def close(self) -> None:
         """Cierra la conexion cacheada si existe; idempotente tras el primer cierre."""
@@ -52,10 +82,11 @@ class ControlCenterRuntime:
     def init(self) -> None:
         """Crea el directorio de la base y aplica el esquema de plataforma sobre la conexion."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        initialize_platform_schema(self.connection)
-        from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
+        with self.operation_connection() as connection:
+            initialize_platform_schema(connection)
+            from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 
-        bootstrap_base_team_if_needed(self.connection)
+            bootstrap_base_team_if_needed(connection)
 
     def get_handshake(self) -> dict[str, Any]:
         """Devuelve el token de escritura por sesion y la marca de acceso solo-loopback."""
@@ -67,23 +98,24 @@ class ControlCenterRuntime:
         Invariante: registra el evento de auditoria ``project.create`` solo en la creacion
         real (cuando el repositorio reporta ``_created``), no al reusar uno existente.
         """
-        projects = ProjectsRepository(self.connection)
-        existing = projects.get_project_by_path(self.cwd)
-        if existing:
-            return existing
-        project = projects.create_project(
-            name=self.cwd.name or "Local Control Center",
-            path=self.cwd,
-            template_id="other",
-            create_directory=True,
-            source="runtime",
-        )
-        created = bool(project.pop("_created", False))
-        if created:
-            EventBus(self.connection).record_audit(
-                project_id=project["id"],
-                action="project.create",
-                target=project["id"],
-                payload={"path": project["path"], "source": "runtime"},
+        with self.operation_connection() as connection:
+            projects = ProjectsRepository(connection)
+            existing = projects.get_project_by_path(self.cwd)
+            if existing:
+                return existing
+            project = projects.create_project(
+                name=self.cwd.name or "Local Control Center",
+                path=self.cwd,
+                template_id="other",
+                create_directory=True,
+                source="runtime",
             )
-        return project
+            created = bool(project.pop("_created", False))
+            if created:
+                EventBus(connection).record_audit(
+                    project_id=project["id"],
+                    action="project.create",
+                    target=project["id"],
+                    payload={"path": project["path"], "source": "runtime"},
+                )
+            return project

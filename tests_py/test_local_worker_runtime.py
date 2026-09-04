@@ -22,6 +22,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.workers.runtime import LocalWorkerRuntime
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 
@@ -117,19 +118,29 @@ def _pending_remediation_actions(connection, thread_id: str) -> set[tuple[str, s
     return {(row["blocker_type"], row["action_type"]) for row in rows}
 
 
+def _execute_worker_once(runtime, tmp_path: Path) -> tuple[LocalWorkerRuntime, dict[str, Any]]:
+    worker = LocalWorkerRuntime.from_settings(
+        connection=runtime.connection,
+        db_path=runtime.db_path,
+        cwd=tmp_path,
+    )
+    return worker, worker.run_once()
+
+
 def test_worker_preserves_waiting_decision_for_awaiting_user_product_loop() -> None:
     assert _thread_status_for_product_loop_result("awaiting_user") == "waiting_decision"
     assert _thread_terminal_event_for_product_loop_result("awaiting_user") == "decision_required"
 
 
-def test_worker_settings_default_autostart_is_enabled(tmp_path: Path) -> None:
+def test_worker_settings_default_autostart_is_disabled(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:
         response = client.get("/api/v1/settings?projectId=proj-worker")
         assert response.status_code == 200
         general = {item["key"]: item for item in response.json()["general"]}
-        assert general["worker.autostart"]["value"] is True
+        assert general["worker.autostart"]["value"] is False
         assert general["worker.autostart"]["origin"] == "default"
+        assert general["worker.maxConcurrentJobs"]["value"] == 1
     finally:
         runtime.close()
 
@@ -170,8 +181,9 @@ def test_worker_run_once_executes_queued_thread_job(monkeypatch, tmp_path: Path)
 
         response = client.post("/api/v1/workers/run-once", headers=headers)
 
-        assert response.status_code == 200, response.text
-        body = response.json()
+        assert response.status_code == 202, response.text
+        assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
+        _worker, body = _execute_worker_once(runtime, tmp_path)
         assert body["status"] == "completed"
         assert body["claimedJobs"] == 1
         assert body["runs"][0]["job"]["id"] == job_id
@@ -270,7 +282,9 @@ def test_worker_run_once_preserves_product_loop_job_run_metadata(monkeypatch, tm
 
         response = client.post("/api/v1/workers/run-once", headers=headers)
 
-        assert response.status_code == 200, response.text
+        assert response.status_code == 202, response.text
+        _worker, worker_result = _execute_worker_once(runtime, tmp_path)
+        assert worker_result["status"] == "completed"
         metadata = captured["run_metadata"]
         assert captured["preferred_runtime"] == "nvidia_nim"
         assert captured["qa_commands"] == ["uv run pytest -q"]
@@ -319,8 +333,8 @@ def test_worker_run_once_leaves_job_queued_when_preflight_fails(monkeypatch, tmp
 
         response = client.post("/api/v1/workers/run-once", headers=headers)
 
-        assert response.status_code == 200, response.text
-        body = response.json()
+        assert response.status_code == 202, response.text
+        _worker, body = _execute_worker_once(runtime, tmp_path)
         assert body["status"] == "blocked"
         assert body["claimedJobs"] == 0
         assert "runtime" in body["reason"].lower()
@@ -356,8 +370,8 @@ def test_worker_run_once_requires_gitleaks(monkeypatch, tmp_path: Path) -> None:
 
         response = client.post("/api/v1/workers/run-once", headers=headers)
 
-        assert response.status_code == 200, response.text
-        body = response.json()
+        assert response.status_code == 202, response.text
+        _worker, body = _execute_worker_once(runtime, tmp_path)
         assert body["status"] == "blocked"
         assert "gitleaks" in body["reason"].lower()
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
@@ -423,8 +437,9 @@ def test_worker_product_loop_exception_creates_worker_retry_remediation(
 
         response = client.post("/api/v1/workers/run-once", headers=headers)
 
-        assert response.status_code == 200, response.text
-        body = response.json()
+        assert response.status_code == 202, response.text
+        worker, body = _execute_worker_once(runtime, tmp_path)
+        runtime.local_worker_runtime = worker
         assert body["status"] == "failed"
         assert ThreadsRepository(runtime.connection).get_thread(thread["id"])["status"] == "blocked"
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "failed"
@@ -591,8 +606,9 @@ def test_worker_autostart_disabled_keeps_queued_job_and_status_stopped(tmp_path:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["running"] is False
-        assert body["paused"] is False
+        assert body["paused"] is True
         assert body["autostart"] is False
+        assert body["desiredState"] == "paused"
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
     finally:
         runtime.close()
@@ -633,7 +649,9 @@ def test_worker_status_pause_and_resume_reflect_runtime_state(monkeypatch, tmp_p
         headers = _headers(runtime)
         resumed = client.post("/api/v1/workers/resume", headers=headers)
         assert resumed.status_code == 200, resumed.text
-        assert resumed.json()["running"] is True
+        assert resumed.json()["running"] is False
+        assert resumed.json()["connected"] is False
+        assert resumed.json()["desiredState"] == "running"
 
         paused = client.post("/api/v1/workers/pause", headers=headers)
         assert paused.status_code == 200, paused.text

@@ -31,8 +31,14 @@ from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 
+from .leadership import (
+    DEFAULT_LEADER_LEASE_SECONDS,
+    WorkerControlRepository,
+    WorkerLeadershipRepository,
+)
+
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
-DEFAULT_MAX_CONCURRENT_JOBS = 2
+DEFAULT_MAX_CONCURRENT_JOBS = 1
 TELEMETRY_PRUNE_INTERVAL_SECONDS = 3600.0
 
 
@@ -40,7 +46,7 @@ TELEMETRY_PRUNE_INTERVAL_SECONDS = 3600.0
 class WorkerSettings:
     """Resolved settings that control local worker scheduling."""
 
-    autostart: bool = True
+    autostart: bool = False
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS
     max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS
 
@@ -64,7 +70,7 @@ def resolve_worker_settings(connection: sqlite3.Connection) -> WorkerSettings:
     interval = repo.get_value("worker.pollIntervalSeconds", "general", None)
     max_jobs = repo.get_value("worker.maxConcurrentJobs", "general", None)
     return WorkerSettings(
-        autostart=True if autostart is UNSET else bool(autostart),
+        autostart=False if autostart is UNSET else bool(autostart),
         poll_interval_seconds=_bounded_interval(interval if interval is not UNSET else None),
         max_concurrent_jobs=_bounded_max_jobs(max_jobs if max_jobs is not UNSET else None),
     )
@@ -104,6 +110,7 @@ class LocalWorkerRuntime:
         self._pause_event = threading.Event()
         self._batch_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._leadership_thread: threading.Thread | None = None
         self._status = "stopped"
         self._reason = "Worker has not started."
         self._last_run_at: str | None = None
@@ -114,6 +121,7 @@ class LocalWorkerRuntime:
         self._failed_runs = 0
         self._in_flight_jobs = 0
         self._last_telemetry_prune_monotonic: float | None = None
+        self._fencing_token: int | None = None
 
     @classmethod
     def from_settings(
@@ -181,10 +189,112 @@ class LocalWorkerRuntime:
         thread = self._thread
         if thread and thread.is_alive():
             thread.join(timeout=2.0)
+        leadership_thread = self._leadership_thread
+        if leadership_thread and leadership_thread.is_alive():
+            leadership_thread.join(timeout=2.0)
         self._thread = None
+        self._leadership_thread = None
+        self._release_leadership(reason)
         self._status = "stopped"
         self._reason = reason
         return self.status()
+
+    def run_forever(self) -> None:
+        """Ejecuta el scheduler en primer plano como proceso worker independiente.
+
+        El proceso siempre publica heartbeat, pero sólo el owner de la lease vigente puede reclamar
+        jobs. El estado durable ``paused`` permite arrancarlo conectado sin ejecutar trabajo.
+        """
+        self._stop_event.clear()
+        self._status = "standby"
+        while not self._stop_event.is_set():
+            connection = open_sqlite_connection(self.db_path)
+            try:
+                initialize_platform_schema(connection)
+                self.settings = resolve_worker_settings(connection)
+                leadership = WorkerLeadershipRepository(connection)
+                decision = leadership.acquire(
+                    owner_id=self.worker_id,
+                    lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
+                )
+                self._fencing_token = decision.fencing_token if decision.acquired else None
+                control = WorkerControlRepository(connection).get()
+            finally:
+                connection.close()
+            if not decision.acquired:
+                self._status = "standby"
+                self._reason = decision.reason
+                self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
+                continue
+            self._ensure_leadership_watcher()
+            desired_state = str(control["desiredState"])
+            self._status = desired_state
+            self._reason = str(control["reason"] or f"Worker is {desired_state}.")
+            if desired_state in {"stopped", "emergency_stopped"}:
+                self._release_leadership(self._reason)
+                return
+            if desired_state == "draining":
+                self._release_leadership("Worker drained and stopped.")
+                return
+            run_once_at = control.get("runOnceRequestedAt")
+            should_run = desired_state == "running" or bool(run_once_at)
+            if should_run and self._fencing_token is not None:
+                if run_once_at:
+                    with open_sqlite_connection(self.db_path) as consume_connection:
+                        initialize_platform_schema(consume_connection)
+                        if not WorkerControlRepository(consume_connection).consume_run_once(str(run_once_at)):
+                            self._stop_event.wait(0.1)
+                            continue
+                self._run_batch_once()
+            else:
+                self._renew_leadership(status=desired_state)
+            self._stop_event.wait(self.settings.poll_interval_seconds)
+
+    def _renew_leadership(self, *, status: str) -> bool:
+        if self._fencing_token is None:
+            return False
+        with open_sqlite_connection(self.db_path) as connection:
+            initialize_platform_schema(connection)
+            renewed = WorkerLeadershipRepository(connection).renew(
+                owner_id=self.worker_id,
+                fencing_token=self._fencing_token,
+                lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
+                status=status,
+            )
+        if not renewed:
+            self._fencing_token = None
+            self._status = "standby"
+            self._reason = "Worker leadership fence is no longer valid."
+        return renewed
+
+    def _ensure_leadership_watcher(self) -> None:
+        """Mantiene heartbeat mientras el hilo principal está dentro de un job largo."""
+        if self._leadership_thread and self._leadership_thread.is_alive():
+            return
+        self._leadership_thread = threading.Thread(
+            target=self._leadership_watch_loop,
+            name="aido-worker-leadership-heartbeat",
+            daemon=True,
+        )
+        self._leadership_thread.start()
+
+    def _leadership_watch_loop(self) -> None:
+        interval = max(0.5, DEFAULT_LEADER_LEASE_SECONDS / 3)
+        while not self._stop_event.wait(interval):
+            if self._fencing_token is not None:
+                self._renew_leadership(status=self._status)
+
+    def _release_leadership(self, reason: str) -> None:
+        if self._fencing_token is None:
+            return
+        with open_sqlite_connection(self.db_path) as connection:
+            initialize_platform_schema(connection)
+            WorkerLeadershipRepository(connection).release(
+                owner_id=self.worker_id,
+                fencing_token=self._fencing_token,
+                reason=reason,
+            )
+        self._fencing_token = None
 
     def pause(self) -> dict[str, Any]:
         """Pause background and manual worker execution."""
@@ -326,6 +436,8 @@ class LocalWorkerRuntime:
             runs = ConcurrentWorker(db_path=self.db_path).run_batch(
                 worker_count=self.settings.max_concurrent_jobs,
                 max_jobs=self.settings.max_concurrent_jobs,
+                worker_id=self.worker_id,
+                fencing_token=self._fencing_token,
             )
             now = utc_now()
             self._last_run_at = now

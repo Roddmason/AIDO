@@ -94,7 +94,14 @@ def test_pause_does_not_claim_to_cancel_an_active_batch(tmp_path: Path, monkeypa
         def __init__(self, *, db_path: Path) -> None:
             self.db_path = db_path
 
-        def run_batch(self, *, worker_count: int, max_jobs: int) -> list[dict[str, object]]:
+        def run_batch(
+            self,
+            *,
+            worker_count: int,
+            max_jobs: int,
+            worker_id: str | None = None,
+            fencing_token: int | None = None,
+        ) -> list[dict[str, object]]:
             entered.set()
             release.wait(timeout=2)
             return []

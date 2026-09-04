@@ -12,8 +12,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import threading
-import time
 from pathlib import Path
 
 import uvicorn
@@ -21,7 +19,7 @@ import uvicorn
 from .app import create_app
 from .control_plane.runtime import ControlCenterRuntime
 from .shared.settings import default_db_path
-from .worker import ConcurrentWorker
+from .workers.runtime import LocalWorkerRuntime, resolve_worker_settings
 
 
 def configure_windows_event_loop_policy(platform_name: str = os.name) -> bool:
@@ -78,8 +76,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Punto de entrada de la CLI: configura runtime y arranca worker y/o dashboard segun flags.
 
-    Con `--worker --no-dashboard` corre el loop del worker en primer plano; en otro caso opcionalmente
-    lanza el worker en un hilo daemon y sirve la app FastAPI con uvicorn.
+    Con `--worker --no-dashboard` corre el worker en primer plano. La API nunca aloja un worker;
+    el arranque combinado pertenece al supervisor local de procesos.
     """
     configure_windows_event_loop_policy()
     args = parse_args()
@@ -90,18 +88,19 @@ def main() -> None:
     runtime.init()
     runtime.ensure_runtime_project()
 
-    def worker_loop() -> None:
-        worker = ConcurrentWorker(db_path=db_path)
-        while True:
-            worker.run_batch(worker_count=args.worker_count, max_jobs=args.worker_count)
-            time.sleep(max(args.worker_interval_ms, 100) / 1000)
-
     if args.worker and args.no_dashboard:
-        worker_loop()
+        settings = resolve_worker_settings(runtime.connection)
+        runtime.close()
+        worker = LocalWorkerRuntime(db_path=db_path, cwd=cwd, settings=settings)
+        try:
+            worker.run_forever()
+        except KeyboardInterrupt:
+            worker.stop(reason="Worker interrumpido por el operador.")
     else:
         if args.worker and not args.no_worker:
-            thread = threading.Thread(target=worker_loop, name="local-control-center-worker", daemon=True)
-            thread.start()
+            raise SystemExit(
+                "La API no puede alojar el worker. Usa `pnpm run start` para iniciar ambos procesos."
+            )
         host = validate_dashboard_host(
             args.dashboard_host,
             allow_external=os.environ.get("AIDO_ALLOW_EXTERNAL_DASHBOARD") == "1",

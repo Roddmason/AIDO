@@ -97,6 +97,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase56_schema(connection)
     init_phase57_schema(connection)
     init_phase58_schema(connection)
+    init_phase59_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -5941,6 +5942,78 @@ def init_phase58_schema(connection: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (58, utc_now()),
     )
+
+
+def init_phase59_schema(connection: sqlite3.Connection) -> None:
+    """Fase 59: liderazgo durable y plano de control del worker con fencing monotónico."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 59").fetchone():
+        return
+    savepoint = "aido_phase59_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        worker_ddl = """
+            CREATE TABLE IF NOT EXISTS worker_leader_leases (
+                instance_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                fencing_token INTEGER NOT NULL CHECK (fencing_token > 0)
+            );
+            CREATE TABLE IF NOT EXISTS worker_control_state (
+                instance_id TEXT PRIMARY KEY,
+                desired_state TEXT NOT NULL DEFAULT 'paused'
+                    CHECK (desired_state IN ('paused', 'running', 'draining', 'stopped', 'emergency_stopped')),
+                run_once_requested_at TEXT,
+                reason TEXT NOT NULL DEFAULT '',
+                requested_by TEXT NOT NULL DEFAULT 'system',
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS worker_heartbeats (
+                owner_id TEXT PRIMARY KEY,
+                instance_id TEXT NOT NULL,
+                fencing_token INTEGER,
+                role TEXT NOT NULL CHECK (role IN ('leader', 'standby')),
+                status TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_instance_time
+                ON worker_heartbeats(instance_id, heartbeat_at);
+            """
+        for statement in worker_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        _add_column_if_missing(
+            connection,
+            "job_runs",
+            "worker_owner_id",
+            "worker_owner_id TEXT",
+        )
+        _add_column_if_missing(
+            connection,
+            "job_runs",
+            "leader_fencing_token",
+            "leader_fencing_token INTEGER",
+        )
+        now = utc_now()
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO worker_control_state
+                (instance_id, desired_state, run_once_requested_at, reason, requested_by, updated_at)
+            VALUES ('local', 'paused', NULL, 'Worker requires an explicit resume.', 'migration', ?)
+            """,
+            (now,),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (59, now),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
 
 
 def _legacy_thread_id(record_id: str) -> str:

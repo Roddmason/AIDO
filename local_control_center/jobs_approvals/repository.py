@@ -27,6 +27,10 @@ from local_control_center.shared.time import add_millis, utc_now
 from .models import SENSITIVE_JOB_KINDS
 
 
+class StaleWorkerFenceError(RuntimeError):
+    """Indica que un worker perdió liderazgo y ya no puede mutar el run reclamado."""
+
+
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     """Proyecta una fila de `jobs` al dict camelCase de la API, deserializando el payload JSON."""
     return {
@@ -56,6 +60,8 @@ def row_to_job_run(row: sqlite3.Row) -> dict[str, Any]:
         "completedAt": row["completed_at"],
         "summary": row["summary"],
         "metadata": json_loads(row["metadata"]),
+        "workerOwnerId": row["worker_owner_id"] if "worker_owner_id" in row.keys() else None,
+        "leaderFencingToken": (row["leader_fencing_token"] if "leader_fencing_token" in row.keys() else None),
     }
 
 
@@ -614,7 +620,13 @@ class JobsRepository:
         )
         return self.get_job(job_id)
 
-    def claim_next_job(self, *, worker_id: str, lease_ms: int = 300000) -> dict[str, Any] | None:
+    def claim_next_job(
+        self,
+        *,
+        worker_id: str,
+        lease_ms: int = 300000,
+        leader_fencing_token: int | None = None,
+    ) -> dict[str, Any] | None:
         """Reclama atómicamente el job `queued` más antiguo, lo pone `running` y abre su run.
 
         Transacción propia: abre `BEGIN IMMEDIATE` para serializar el reclamo entre workers
@@ -629,6 +641,12 @@ class JobsRepository:
         run_id = f"run-{uuid.uuid4()}"
         try:
             self.connection.execute("BEGIN IMMEDIATE")
+            if leader_fencing_token is not None and not self._worker_fence_is_active(
+                worker_id=worker_id,
+                leader_fencing_token=leader_fencing_token,
+                now_iso=timestamp,
+            ):
+                raise StaleWorkerFenceError("Worker leadership fence is not active.")
             row = self.connection.execute(
                 """
                 SELECT * FROM jobs
@@ -651,10 +669,21 @@ class JobsRepository:
             self.connection.execute(
                 """
                 INSERT INTO job_runs
-                    (id, job_id, provider_id, status, started_at, completed_at, summary, metadata)
-                VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+                    (id, job_id, provider_id, status, started_at, completed_at, summary, metadata,
+                     worker_owner_id, leader_fencing_token)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
                 """,
-                (run_id, row["id"], worker_id, "running", timestamp, "", json_dumps({})),
+                (
+                    run_id,
+                    row["id"],
+                    worker_id,
+                    "running",
+                    timestamp,
+                    "",
+                    json_dumps({}),
+                    worker_id,
+                    leader_fencing_token,
+                ),
             )
             self.connection.execute("COMMIT")
         except Exception:
@@ -723,6 +752,8 @@ class JobsRepository:
         status: str,
         summary: str = "",
         metadata: dict[str, Any] | None = None,
+        worker_id: str | None = None,
+        leader_fencing_token: int | None = None,
     ) -> dict[str, Any]:
         """Cierra un run con su resultado y propaga el estado terminal al job, liberando el lease.
 
@@ -730,6 +761,55 @@ class JobsRepository:
         Summary y metadata se redactan antes de persistir y de emitir `job.<status>`; usa la
         transacción del caller. `cancelled` es terminal: un worker que termina tarde no lo reescribe.
         """
+        fenced = worker_id is not None or leader_fencing_token is not None
+        if fenced and (not worker_id or leader_fencing_token is None):
+            raise ValueError("worker_id and leader_fencing_token must be provided together.")
+        owns_transaction = not self.connection.in_transaction
+        if owns_transaction:
+            self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            if fenced and not self._worker_fence_is_active(
+                worker_id=str(worker_id),
+                leader_fencing_token=int(leader_fencing_token),
+                now_iso=utc_now(),
+            ):
+                raise StaleWorkerFenceError("Worker leadership fence is no longer active.")
+            claimed_job = self.get_job(job_id)
+            if fenced and claimed_job.get("leaseOwner") != worker_id:
+                raise StaleWorkerFenceError("Job lease is no longer owned by this worker.")
+            run_row = self._query_one("SELECT * FROM job_runs WHERE id = ? AND job_id = ?", (run_id, job_id))
+            if not run_row:
+                raise KeyError(f"Job run not found: {run_id}")
+            if fenced and (
+                run_row["worker_owner_id"] != worker_id
+                or run_row["leader_fencing_token"] != leader_fencing_token
+            ):
+                raise StaleWorkerFenceError("Job run fence does not match the active worker.")
+            result = self._complete_job_run_in_transaction(
+                job_id=job_id,
+                run_id=run_id,
+                status=status,
+                summary=summary,
+                metadata=metadata,
+            )
+            if owns_transaction:
+                self.connection.execute("COMMIT")
+            return result
+        except Exception:
+            if owns_transaction and self.connection.in_transaction:
+                self.connection.execute("ROLLBACK")
+            raise
+
+    def _complete_job_run_in_transaction(
+        self,
+        *,
+        job_id: str,
+        run_id: str,
+        status: str,
+        summary: str,
+        metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Cierra un run dentro de la transacción ya validada por ``complete_job_run``."""
         job_status = "completed" if status == "completed" else "failed"
         # A cancel the operator already issued is the truth: keep it, or the audit trail would claim the
         # stopped job finished and `_thread_job_was_cancelled` would stop seeing the cancellation.
@@ -765,6 +845,50 @@ class JobsRepository:
             "job": job,
             "run": row_to_job_run(self._query_one("SELECT * FROM job_runs WHERE id = ?", (run_id,))),
         }
+
+    def heartbeat_job_lease(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        leader_fencing_token: int,
+        lease_ms: int,
+    ) -> bool:
+        """Renueva una lease de job sólo bajo el fence de liderazgo vigente."""
+        now = utc_now()
+        if not self._worker_fence_is_active(
+            worker_id=worker_id,
+            leader_fencing_token=leader_fencing_token,
+            now_iso=now,
+        ):
+            return False
+        cursor = self.connection.execute(
+            """
+            UPDATE jobs
+            SET lease_expires_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'running' AND lease_owner = ?
+            """,
+            (add_millis(lease_ms), now, job_id, worker_id),
+        )
+        return cursor.rowcount == 1
+
+    def _worker_fence_is_active(
+        self,
+        *,
+        worker_id: str,
+        leader_fencing_token: int,
+        now_iso: str,
+    ) -> bool:
+        return (
+            self.connection.execute(
+                """
+                SELECT 1 FROM worker_leader_leases
+                WHERE instance_id = 'local' AND owner_id = ? AND fencing_token = ? AND expires_at > ?
+                """,
+                (worker_id, int(leader_fencing_token), now_iso),
+            ).fetchone()
+            is not None
+        )
 
     def list_job_runs(self, job_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
         """Lista los runs (de un job o globales) en orden cronológico de inicio.

@@ -8,9 +8,10 @@
     "node": ">=24.16.0 <25.0.0"
   },
   "scripts": {
-    "prestart": "corepack pnpm@10.24.0 run build:web",
-    "start": "uv run python local-control-center/scripts/start_control_center.py --dashboard-host 127.0.0.1 --dashboard-port 4310",
-    "start:py": "uv run python local-control-center/scripts/start_control_center.py --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start": "uv run python local-control-center/scripts/start_control_center.py --mode supervisor --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start:api": "uv run python local-control-center/scripts/start_control_center.py --mode api --dashboard-host 127.0.0.1 --dashboard-port 4310",
+    "start:worker": "uv run python local-control-center/scripts/start_control_center.py --mode worker",
+    "start:py": "uv run python local-control-center/scripts/start_control_center.py --mode supervisor --dashboard-host 127.0.0.1 --dashboard-port 4310",
     "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File local-control-center/scripts/start-control-center.ps1 -DashboardHost 127.0.0.1 -DashboardPort 4310",
     "build": "corepack pnpm@10.24.0 run build:web",
     "build:web": "vite build --config local-control-center/web/vite.config.ts",

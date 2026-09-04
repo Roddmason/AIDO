@@ -19,7 +19,7 @@ def test_release_certification_is_opt_in_package_script_only() -> None:
     assert package["scripts"]["release:certify"] == (
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-certify.ps1"
     )
-    assert "release:certify" not in package["scripts"]["prestart"]
+    assert "prestart" not in package["scripts"]
     assert "release:certify" not in package["scripts"]["start"]
     assert "release:certify" not in package["scripts"]["start:py"]
     assert "release:certify" not in package["scripts"]["start:windows"]

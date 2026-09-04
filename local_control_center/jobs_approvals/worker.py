@@ -10,11 +10,13 @@ siguen fallando cerrados si todavía no tienen executor configurado.
 from __future__ import annotations
 
 import concurrent.futures
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.research_agent import ResearchAgentRunner
-from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.jobs_approvals.repository import JobsRepository, StaleWorkerFenceError
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
 from local_control_center.remediations.service import BlockerRemediationService
@@ -45,9 +47,13 @@ class ConcurrentWorker:
         *,
         db_path: str | Path,
         lease_ms: int = 300000,
+        worker_id: str | None = None,
+        fencing_token: int | None = None,
     ):
         self.db_path = Path(db_path)
         self.lease_ms = lease_ms
+        self.worker_id = worker_id
+        self.fencing_token = fencing_token
 
     def recover(self) -> list[dict]:
         """Reencola los jobs cuyo lease venció antes de empezar a procesar la cola."""
@@ -58,7 +64,7 @@ class ConcurrentWorker:
         finally:
             connection.close()
 
-    def run_once(self, *, worker_id: str) -> dict | None:
+    def run_once(self, *, worker_id: str, fencing_token: int | None = None) -> dict | None:
         """Reclama y ejecuta un único job, cerrando su run como completado o fallido.
 
         Todo fallo de ejecución (incluido `JobExecutionUnavailable`) se captura y se materializa
@@ -71,43 +77,105 @@ class ConcurrentWorker:
         try:
             initialize_platform_schema(connection)
             jobs = JobsRepository(connection)
-            claimed = jobs.claim_next_job(worker_id=worker_id, lease_ms=self.lease_ms)
+            try:
+                claimed = jobs.claim_next_job(
+                    worker_id=worker_id,
+                    lease_ms=self.lease_ms,
+                    leader_fencing_token=fencing_token,
+                )
+            except StaleWorkerFenceError:
+                return None
             if not claimed:
                 return None
-            try:
-                execution = execute_job(
-                    claimed["job"],
-                    connection=connection,
-                    db_path=self.db_path,
-                    worker_id=worker_id,
-                )
-                return jobs.complete_job_run(
-                    job_id=claimed["job"]["id"],
-                    run_id=claimed["run"]["id"],
-                    status="completed",
-                    summary=execution["summary"],
-                    metadata=execution["metadata"],
-                )
-            except JobExecutionUnavailable as error:
-                return jobs.complete_job_run(
-                    job_id=claimed["job"]["id"],
-                    run_id=claimed["run"]["id"],
-                    status="failed",
-                    summary=error.summary,
-                    metadata={"status": error.status, **error.metadata},
-                )
-            except Exception as error:
-                return jobs.complete_job_run(
-                    job_id=claimed["job"]["id"],
-                    run_id=claimed["run"]["id"],
-                    status="failed",
-                    summary=str(error),
-                    metadata={"error": str(error)},
-                )
+            with self._job_lease_heartbeat(
+                job_id=claimed["job"]["id"],
+                worker_id=worker_id,
+                fencing_token=fencing_token,
+            ):
+                try:
+                    execution = execute_job(
+                        claimed["job"],
+                        connection=connection,
+                        db_path=self.db_path,
+                        worker_id=worker_id,
+                    )
+                    return jobs.complete_job_run(
+                        job_id=claimed["job"]["id"],
+                        run_id=claimed["run"]["id"],
+                        status="completed",
+                        summary=execution["summary"],
+                        metadata=execution["metadata"],
+                        worker_id=worker_id if fencing_token is not None else None,
+                        leader_fencing_token=fencing_token,
+                    )
+                except JobExecutionUnavailable as error:
+                    return jobs.complete_job_run(
+                        job_id=claimed["job"]["id"],
+                        run_id=claimed["run"]["id"],
+                        status="failed",
+                        summary=error.summary,
+                        metadata={"status": error.status, **error.metadata},
+                        worker_id=worker_id if fencing_token is not None else None,
+                        leader_fencing_token=fencing_token,
+                    )
+                except StaleWorkerFenceError:
+                    return None
+                except Exception as error:
+                    return jobs.complete_job_run(
+                        job_id=claimed["job"]["id"],
+                        run_id=claimed["run"]["id"],
+                        status="failed",
+                        summary=str(error),
+                        metadata={"error": str(error)},
+                        worker_id=worker_id if fencing_token is not None else None,
+                        leader_fencing_token=fencing_token,
+                    )
         finally:
             connection.close()
 
-    def run_batch(self, *, worker_count: int = 2, max_jobs: int | None = None) -> list[dict]:
+    @contextmanager
+    def _job_lease_heartbeat(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        fencing_token: int | None,
+    ):
+        """Renueva la lease del job mientras su ejecución síncrona todavía está en curso."""
+        if fencing_token is None:
+            yield
+            return
+        stop = threading.Event()
+
+        def renew() -> None:
+            interval = max(0.1, self.lease_ms / 3000)
+            while not stop.wait(interval):
+                with open_sqlite_connection(self.db_path) as heartbeat_connection:
+                    initialize_platform_schema(heartbeat_connection)
+                    if not JobsRepository(heartbeat_connection).heartbeat_job_lease(
+                        job_id=job_id,
+                        worker_id=worker_id,
+                        leader_fencing_token=fencing_token,
+                        lease_ms=self.lease_ms,
+                    ):
+                        return
+
+        thread = threading.Thread(target=renew, name=f"aido-job-heartbeat-{job_id}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+
+    def run_batch(
+        self,
+        *,
+        worker_count: int = 1,
+        max_jobs: int | None = None,
+        worker_id: str | None = None,
+        fencing_token: int | None = None,
+    ) -> list[dict]:
         """Recupera leases y drena la cola con un pool de hilos, devolviendo los runs ejecutados.
 
         Lanza `max_jobs` (o `worker_count`) intentos `run_once` en paralelo; cada intento sin job
@@ -116,8 +184,17 @@ class ConcurrentWorker:
         self.recover()
         total = max_jobs or worker_count
         results: list[dict] = []
+        resolved_worker_id = worker_id or self.worker_id
+        resolved_fence = fencing_token if fencing_token is not None else self.fencing_token
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
-            futures = [pool.submit(self.run_once, worker_id=f"worker-{index}") for index in range(total)]
+            futures = [
+                pool.submit(
+                    self.run_once,
+                    worker_id=resolved_worker_id or f"worker-{index}",
+                    fencing_token=resolved_fence,
+                )
+                for index in range(total)
+            ]
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
                 if result:

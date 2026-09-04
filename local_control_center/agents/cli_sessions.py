@@ -18,6 +18,7 @@ from typing import Any
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.process_supervision.service import safe_command_summary
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -54,6 +55,7 @@ class CliSessionStore:
         y enlaza el usage_ledger_id resultante en una única transacción de la conexión del caller.
         """
         session_id = f"cli-session-{uuid.uuid4()}"
+        command = safe_command_summary(command)
         now = utc_now()
         artifact_ids = self._write_artifacts(
             session_id=session_id,

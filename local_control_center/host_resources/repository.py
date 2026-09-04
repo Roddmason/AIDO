@@ -1,5 +1,7 @@
 """Persistencia SQLite de leases, admisiones, muestras y violaciones de recursos.
 
+Las transacciones compuestas pertenecen al gobernador; los helpers no mantienen locks externos.
+
 @author Rodrigo Mason
 """
 
@@ -55,12 +57,37 @@ class ResourceRepository:
         rows = self.connection.execute(
             """
             SELECT * FROM resource_leases
-            WHERE released_at IS NULL AND expires_at > ?
+            WHERE released_at IS NULL
             ORDER BY acquired_at ASC, rowid ASC
             """,
-            (now_value,),
         ).fetchall()
-        return [_lease_from_row(row) for row in rows]
+        held = self._native_lease_ids()
+        return [_lease_from_row(row) for row in rows if row["expires_at"] > now_value or row["id"] in held]
+
+    def _native_lease_ids(self) -> set[str]:
+        """Una lease vencida no demuestra que terminó el proceso o contenedor que contenía."""
+        tables = {
+            row[0]
+            for row in self.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('managed_processes', 'managed_containers')"
+            )
+        }
+        held: set[str] = set()
+        if "managed_processes" in tables:
+            held.update(
+                row[0]
+                for row in self.connection.execute(
+                    "SELECT resource_lease_id FROM managed_processes WHERE finished_at IS NULL AND resource_lease_id IS NOT NULL"
+                )
+            )
+        if "managed_containers" in tables:
+            held.update(
+                row[0]
+                for row in self.connection.execute(
+                    "SELECT resource_lease_id FROM managed_containers WHERE released_at IS NULL"
+                )
+            )
+        return held
 
     def active_lease_for_execution(
         self, execution_id: str, *, now_iso: str | None = None
@@ -153,6 +180,8 @@ class ResourceRepository:
     ) -> ResourceLease:
         """Libera una lease de forma idempotente, preservando el primer motivo."""
         now_value = now_iso or utc_now()
+        if lease_id in self._native_lease_ids():
+            return self.get_lease(lease_id)
         self.connection.execute(
             """
             UPDATE resource_leases
@@ -177,6 +206,7 @@ class ResourceRepository:
                 (now_value,),
             ).fetchall()
         ]
+        ids = [lease_id for lease_id in ids if lease_id not in self._native_lease_ids()]
         for lease_id in ids:
             self.release(lease_id, reason="lease_expired", now_iso=now_value)
         return [self.get_lease(lease_id) for lease_id in ids]

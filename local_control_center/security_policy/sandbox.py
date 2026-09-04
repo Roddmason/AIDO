@@ -14,15 +14,22 @@ estructurado (sin inyeccion) y la salida capturada se trunca a un maximo de cara
 
 from __future__ import annotations
 
+import math
 import os
+import re
 import shutil
-import signal
 import subprocess
-import threading
 import time
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+from local_control_center.process_supervision.docker import run_docker_capture
+from local_control_center.process_supervision.service import (
+    ProcessSupervisorService,
+    classify_workload,
+    run_probe_command,
+    run_supervised_capture,
+)
 
 ALLOWED_EXECUTABLES = {
     "claude",
@@ -80,71 +87,12 @@ AUTH_STATUS_ARGS: set[tuple[str, ...]] = {("auth", "status", "--json"), ("login"
 MAX_CAPTURE_CHARS = 4000
 MAX_COMPLETE_CAPTURE_BYTES = 1_048_576
 MAX_RESTRICTED_SUBPROCESS_TIMEOUT_SECONDS = 900
-CAPTURE_CHUNK_BYTES = 65_536
-TRUNCATION_MARKER_BYTES = b"\n[truncated]"
 
 
 def _truncate(value: str) -> str:
     if len(value) <= MAX_CAPTURE_CHARS:
         return value
     return value[:MAX_CAPTURE_CHARS] + "\n[truncated]"
-
-
-def _drain_bounded_stream(stream: Any, *, max_bytes: int, state: dict[str, Any]) -> None:
-    """Drena un pipe sin bloquear al hijo y conserva solo un prefijo acotado en memoria."""
-    prefix = bytearray()
-    total_bytes = 0
-    capture_error = False
-    try:
-        while True:
-            chunk = stream.read(CAPTURE_CHUNK_BYTES)
-            if not chunk:
-                break
-            if isinstance(chunk, str):
-                chunk = chunk.encode("utf-8", errors="replace")
-            total_bytes += len(chunk)
-            remaining = max_bytes - len(prefix)
-            if remaining > 0:
-                prefix.extend(chunk[:remaining])
-    except (OSError, ValueError):
-        capture_error = True
-    finally:
-        truncated = capture_error or total_bytes > max_bytes
-        content = bytes(prefix)
-        if truncated:
-            prefix_limit = max(0, max_bytes - len(TRUNCATION_MARKER_BYTES))
-            content = content[:prefix_limit] + TRUNCATION_MARKER_BYTES
-        state.update(
-            {
-                "text": content.decode("utf-8", errors="replace"),
-                "totalBytes": total_bytes,
-                "truncated": truncated,
-            }
-        )
-
-
-def _terminate_process_tree(process: subprocess.Popen[Any]) -> None:
-    """Termina el grupo aislado y usa kill del padre como fallback acotado."""
-    if os.name == "nt":
-        with suppress(OSError, subprocess.TimeoutExpired):
-            subprocess.run(
-                ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                shell=False,
-                check=False,
-            )
-    else:
-        with suppress(OSError):
-            os.killpg(process.pid, signal.SIGKILL)
-
-    if process.poll() is None:
-        with suppress(OSError):
-            process.kill()
-    with suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=5)
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -217,6 +165,8 @@ def open_restricted_text_process(
     argv: Any,
     cwd: str | None,
     workspace_path: str | None,
+    execution_id: str | None = None,
+    db_path: str | Path | None = None,
 ) -> subprocess.Popen[str]:
     """Abre un proceso de texto restringido con pipes stdin/stdout/stderr y ``shell=False``.
 
@@ -228,17 +178,21 @@ def open_restricted_text_process(
     if error:
         raise PermissionError(error)
     run_cwd = str(Path(cwd).resolve(strict=False)) if cwd else None
-    return subprocess.Popen(
-        _resolved_subprocess_argv([str(item) for item in argv]),
-        cwd=run_cwd,
+    command = _resolved_subprocess_argv([str(item) for item in argv])
+    service = ProcessSupervisorService(db_path=db_path, popen_factory=subprocess.Popen)
+    managed = service.start(
+        argv=command,
+        cwd=run_cwd or Path.cwd(),
+        execution_id=execution_id,
+        workload_class=classify_workload(command),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         bufsize=1,
-        shell=False,
     )
+    return managed.process
 
 
 def run_version_check(
@@ -271,13 +225,13 @@ def run_version_check(
         }
     started = time.perf_counter()
     try:
-        completed = subprocess.run(
+        completed = run_probe_command(
             _resolved_subprocess_argv([str(item) for item in argv]),
+            run_factory=subprocess.run,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=max(1, min(timeout_seconds, 30)),
-            shell=False,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -337,13 +291,13 @@ def run_auth_status_check(
         }
     started = time.perf_counter()
     try:
-        completed = subprocess.run(
+        completed = run_probe_command(
             _resolved_subprocess_argv([str(item) for item in argv]),
+            run_factory=subprocess.run,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=max(1, min(timeout_seconds, 30)),
-            shell=False,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -460,27 +414,17 @@ class RestrictedSubprocessSandbox:
                 "reason": "Working directory does not exist.",
             }
 
-        started = time.perf_counter()
-        capture_limit = MAX_CAPTURE_CHARS if truncate_output else MAX_COMPLETE_CAPTURE_BYTES
-        stdout_state: dict[str, Any] = {}
-        stderr_state: dict[str, Any] = {}
-        process_group_kwargs: dict[str, Any]
-        if os.name == "nt":
-            process_group_kwargs = {
-                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
-            }
-        else:
-            process_group_kwargs = {"start_new_session": True}
+        command = _resolved_subprocess_argv([str(item) for item in argv])
+        workload_class = classify_workload(command)
         try:
-            process = subprocess.Popen(
-                _resolved_subprocess_argv([str(item) for item in argv]),
+            result = run_supervised_capture(
+                command,
                 cwd=str(run_cwd),
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                **process_group_kwargs,
+                timeout_seconds=timeout_seconds,
+                workload_class=workload_class,
+                environment=environment,
+                popen_factory=subprocess.Popen,
+                capture_limit=MAX_CAPTURE_CHARS if truncate_output else MAX_COMPLETE_CAPTURE_BYTES,
             )
         except OSError as exc:
             return {
@@ -488,72 +432,7 @@ class RestrictedSubprocessSandbox:
                 "blocked": True,
                 "reason": str(exc),
             }
-
-        if process.stdout is None or process.stderr is None:
-            _terminate_process_tree(process)
-            return {
-                "executed": False,
-                "blocked": True,
-                "reason": "Restricted subprocess could not establish bounded output pipes.",
-            }
-
-        stdout_thread = threading.Thread(
-            target=_drain_bounded_stream,
-            args=(process.stdout,),
-            kwargs={"max_bytes": capture_limit, "state": stdout_state},
-            daemon=True,
-        )
-        stderr_thread = threading.Thread(
-            target=_drain_bounded_stream,
-            args=(process.stderr,),
-            kwargs={"max_bytes": capture_limit, "state": stderr_state},
-            daemon=True,
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-
-        timed_out = False
-        return_code: int | None
-        try:
-            return_code = process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            return_code = None
-            _terminate_process_tree(process)
-        finally:
-            stdout_thread.join(timeout=5)
-            stderr_thread.join(timeout=5)
-            if stdout_thread.is_alive():
-                process.stdout.close()
-                stdout_thread.join(timeout=1)
-            if stderr_thread.is_alive():
-                process.stderr.close()
-                stderr_thread.join(timeout=1)
-            if not process.stdout.closed:
-                process.stdout.close()
-            if not process.stderr.closed:
-                process.stderr.close()
-
-        stdout_state.setdefault("text", "")
-        stdout_state.setdefault("totalBytes", 0)
-        stdout_state.setdefault("truncated", stdout_thread.is_alive())
-        stderr_state.setdefault("text", "")
-        stderr_state.setdefault("totalBytes", 0)
-        stderr_state.setdefault("truncated", stderr_thread.is_alive())
-
-        return {
-            "executed": True,
-            "blocked": False,
-            "timedOut": timed_out,
-            "returnCode": return_code,
-            "durationMs": int((time.perf_counter() - started) * 1000),
-            "stdout": stdout_state["text"],
-            "stderr": stderr_state["text"],
-            "stdoutCaptureTruncated": bool(stdout_state["truncated"]),
-            "stderrCaptureTruncated": bool(stderr_state["truncated"]),
-            "stdoutTotalBytes": int(stdout_state["totalBytes"]),
-            "stderrTotalBytes": int(stderr_state["totalBytes"]),
-        }
+        return {"executed": True, "blocked": False, **result}
 
 
 class DockerSandbox:
@@ -602,8 +481,20 @@ class DockerSandbox:
         workspace montado de solo lectura. Lanza ``ValueError`` si la imagen no es un unico valor
         de catalogo (sin espacios) o si el argv no es una lista de strings no vacios.
         """
-        if not image or any(char.isspace() for char in image):
+        if not image or image.startswith("-") or any(char.isspace() for char in image):
             raise ValueError("Docker image must be a single catalog value.")
+        if network not in {"none", "bridge"}:
+            raise ValueError("Docker host/custom networks are not allowed by this sandbox.")
+        memory_match = re.fullmatch(r"([1-9][0-9]*)([kmg]?)", str(memory).lower())
+        memory_bytes = (
+            int(memory_match[1]) * {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[memory_match[2]]
+            if memory_match
+            else 0
+        )
+        if not 0 < memory_bytes <= 2 * 1024**3:
+            raise ValueError("Docker memory must be positive and no more than 2 GiB.")
+        if not math.isfinite(float(cpus)) or not 0 < float(cpus) <= 2:
+            raise ValueError("Docker CPU budget must be positive and no more than 2 CPUs.")
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise ValueError("Docker sandbox requires structured argv.")
         workspace = Path(workspace_path).resolve(strict=False)
@@ -619,6 +510,12 @@ class DockerSandbox:
             "--cpus",
             cpus,
             "--read-only",
+            "--pids-limit",
+            "16",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=256m",
             "--mount",
@@ -671,25 +568,11 @@ class DockerSandbox:
         )
         started = time.perf_counter()
         try:
-            completed = subprocess.run(
+            completed = run_docker_capture(
                 args,
-                cwd=str(workspace),
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(timeout_seconds, 900)),
-                shell=False,
-                check=False,
+                cwd=workspace,
+                timeout_seconds=max(1, min(timeout_seconds, 900)),
             )
-        except subprocess.TimeoutExpired as exc:
-            return {
-                "executed": True,
-                "blocked": False,
-                "timedOut": True,
-                "returnCode": None,
-                "durationMs": int((time.perf_counter() - started) * 1000),
-                "stdout": _truncate(exc.stdout or ""),
-                "stderr": _truncate(exc.stderr or ""),
-            }
         except OSError as exc:
             return {
                 "executed": False,
@@ -699,10 +582,14 @@ class DockerSandbox:
         return {
             "executed": True,
             "blocked": False,
-            "timedOut": False,
-            "returnCode": completed.returncode,
+            "timedOut": completed["timedOut"],
+            "returnCode": completed["returnCode"],
             "durationMs": int((time.perf_counter() - started) * 1000),
-            "stdout": _truncate(completed.stdout or ""),
-            "stderr": _truncate(completed.stderr or ""),
+            "stdout": _truncate(completed["stdout"]),
+            "stderr": _truncate(completed["stderr"]),
             "command": args,
+            "managedProcessId": completed["managedProcessId"],
+            "peakMemoryBytes": completed["peakMemoryBytes"],
+            "cpuTimeSeconds": completed["cpuTimeSeconds"],
+            "terminationReason": completed["terminationReason"],
         }

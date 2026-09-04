@@ -14,6 +14,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,7 @@ class LocalWorkerRuntime:
         self._in_flight_jobs = 0
         self._last_telemetry_prune_monotonic: float | None = None
         self._last_resource_sample_monotonic: float | None = None
+        self._resource_sample_lock = threading.Lock()
         self._latest_resource_snapshot: ResourceSnapshot | None = None
         self._resource_probe = HostResourceProbe(
             relevant_paths=[self.cwd, self.db_path],
@@ -237,6 +239,15 @@ class LocalWorkerRuntime:
                 self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
                 continue
             self._ensure_leadership_watcher()
+            try:
+                from local_control_center.process_supervision.recovery import recover_managed_processes
+
+                recover_managed_processes(self.db_path)
+            except (OSError, RuntimeError) as error:
+                self._reason = f"Recuperación de procesos pendiente: {type(error).__name__}."
+                self._renew_leadership(status="resource_wait")
+                self._stop_event.wait(self.settings.poll_interval_seconds)
+                continue
             if not self._govern_resources_if_due():
                 self._renew_leadership(status="resource_wait")
                 self._stop_event.wait(self.settings.poll_interval_seconds)
@@ -254,7 +265,7 @@ class LocalWorkerRuntime:
             should_run = desired_state == "running" or bool(run_once_at)
             if should_run and self._fencing_token is not None:
                 if run_once_at:
-                    with open_sqlite_connection(self.db_path) as consume_connection:
+                    with closing(open_sqlite_connection(self.db_path)) as consume_connection:
                         initialize_platform_schema(consume_connection)
                         if not WorkerControlRepository(consume_connection).consume_run_once(str(run_once_at)):
                             self._stop_event.wait(0.1)
@@ -267,7 +278,7 @@ class LocalWorkerRuntime:
     def _renew_leadership(self, *, status: str) -> bool:
         if self._fencing_token is None:
             return False
-        with open_sqlite_connection(self.db_path) as connection:
+        with closing(open_sqlite_connection(self.db_path)) as connection:
             initialize_platform_schema(connection)
             renewed = WorkerLeadershipRepository(connection).renew(
                 owner_id=self.worker_id,
@@ -293,15 +304,16 @@ class LocalWorkerRuntime:
         self._leadership_thread.start()
 
     def _leadership_watch_loop(self) -> None:
-        interval = max(0.5, DEFAULT_LEADER_LEASE_SECONDS / 3)
+        interval = min(1.0, max(0.5, DEFAULT_LEADER_LEASE_SECONDS / 3))
         while not self._stop_event.wait(interval):
             if self._fencing_token is not None:
                 self._renew_leadership(status=self._status)
+                self._govern_resources_if_due()
 
     def _release_leadership(self, reason: str) -> None:
         if self._fencing_token is None:
             return
-        with open_sqlite_connection(self.db_path) as connection:
+        with closing(open_sqlite_connection(self.db_path)) as connection:
             initialize_platform_schema(connection)
             WorkerLeadershipRepository(connection).release(
                 owner_id=self.worker_id,
@@ -488,9 +500,18 @@ class LocalWorkerRuntime:
             self._batch_lock.release()
 
     def _govern_resources_if_due(self) -> bool:
+        """Evita sondas simultáneas entre heartbeat y polling principal."""
+        if not self._resource_sample_lock.acquire(blocking=False):
+            return self._latest_resource_snapshot is not None
+        try:
+            return self._sample_resources_if_due()
+        finally:
+            self._resource_sample_lock.release()
+
+    def _sample_resources_if_due(self) -> bool:
         """Muestrea, retiene y reevalúa esperas sin mantener una transacción durante la sonda."""
         now_monotonic = time.monotonic()
-        with open_sqlite_connection(self.db_path) as settings_connection:
+        with closing(open_sqlite_connection(self.db_path)) as settings_connection:
             initialize_platform_schema(settings_connection)
             configured_interval = SettingsRepository(settings_connection).get_value(
                 "resources.sampleIntervalSeconds", "general", None
@@ -508,7 +529,7 @@ class LocalWorkerRuntime:
             return True
         try:
             snapshot = self._resource_probe.sample(cpu_interval_seconds=min(1.0, interval))
-            with open_sqlite_connection(self.db_path) as connection:
+            with closing(open_sqlite_connection(self.db_path)) as connection:
                 initialize_platform_schema(connection)
                 governor = HostResourceGovernor(connection)
                 governor.record_sample(snapshot)
@@ -527,7 +548,7 @@ class LocalWorkerRuntime:
 
     def _active_workload_classes(self) -> list[str]:
         """Lee las clases reservadas desde una conexión corta propia de la sonda."""
-        with open_sqlite_connection(self.db_path) as connection:
+        with closing(open_sqlite_connection(self.db_path)) as connection:
             initialize_platform_schema(connection)
             return [lease.workload_class for lease in ResourceRepository(connection).active_leases()]
 

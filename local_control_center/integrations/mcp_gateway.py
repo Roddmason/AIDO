@@ -22,6 +22,11 @@ import uuid
 from subprocess import TimeoutExpired
 from typing import Any
 
+from local_control_center.process_supervision.context import connection_execution_scope
+from local_control_center.process_supervision.service import (
+    complete_managed_process,
+    terminate_managed_process,
+)
 from local_control_center.security_policy.sandbox import (
     open_restricted_text_process,
     validate_restricted_process,
@@ -116,9 +121,14 @@ def _request_for_tool_call(method: str, tool_call: dict[str, Any]) -> dict[str, 
     return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
 
 
-def _reader(stream: Any, output: queue.Queue[str]) -> None:
+def _reader(stream: Any, output: queue.Queue[str], closing: threading.Event) -> None:
     for line in iter(stream.readline, ""):
-        output.put(line)
+        while not closing.is_set():
+            try:
+                output.put(line, timeout=0.1)
+                break
+            except queue.Full:
+                continue
 
 
 class McpStdioSession:
@@ -132,9 +142,12 @@ class McpStdioSession:
         self.argv = argv
         self.cwd = cwd
         self.timeout_seconds = max(1, min(timeout_seconds, 120))
-        self.stdout_lines: queue.Queue[str] = queue.Queue()
-        self.stderr_lines: queue.Queue[str] = queue.Queue()
+        self.stdout_lines: queue.Queue[str] = queue.Queue(maxsize=64)
+        self.stderr_lines: queue.Queue[str] = queue.Queue(maxsize=64)
         self.stderr: list[str] = []
+        self.stderr_chars = 0
+        self.closing = threading.Event()
+        self.readers: list[threading.Thread] = []
         self.process: Any | None = None
 
     def __enter__(self) -> McpStdioSession:
@@ -145,23 +158,41 @@ class McpStdioSession:
         )
         assert self.process.stdout is not None
         assert self.process.stderr is not None
-        threading.Thread(target=_reader, args=(self.process.stdout, self.stdout_lines), daemon=True).start()
-        threading.Thread(target=_reader, args=(self.process.stderr, self.stderr_lines), daemon=True).start()
+        self.readers = [
+            threading.Thread(target=_reader, args=(stream, output, self.closing), daemon=True)
+            for stream, output in (
+                (self.process.stdout, self.stdout_lines),
+                (self.process.stderr, self.stderr_lines),
+            )
+        ]
+        for reader in self.readers:
+            reader.start()
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         process = self.process
         if process is None:
             return
+        self.closing.set()
         if process.stdin:
             with contextlib.suppress(OSError):
                 process.stdin.close()
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except TimeoutExpired:
-                process.kill()
+        terminate_managed_process(process, reason="mcp_session_closed", grace_seconds=2)
+        try:
+            exit_code = process.wait(timeout=5)
+        except TimeoutExpired:
+            terminate_managed_process(process, reason="mcp_session_close_timeout", grace_seconds=0)
+            exit_code = process.poll()
+        for reader in self.readers:
+            reader.join(timeout=5)
+        complete_managed_process(
+            process,
+            exit_code=exit_code,
+            termination_reason="mcp_session_closed",
+        )
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
 
     def send(self, message: dict[str, Any]) -> None:
         """Serializa el mensaje JSON-RPC y lo escribe como una línea en el stdin del proceso.
@@ -205,7 +236,11 @@ class McpStdioSession:
     def _drain_stderr(self) -> None:
         while True:
             try:
-                self.stderr.append(self.stderr_lines.get_nowait())
+                line = self.stderr_lines.get_nowait()
+                remaining = MAX_CAPTURE_CHARS - self.stderr_chars
+                if remaining > 0:
+                    self.stderr.append(line[:remaining])
+                    self.stderr_chars += len(line[:remaining])
             except queue.Empty:
                 return
 
@@ -227,6 +262,7 @@ class McpBrokerAdapter:
         self.connection = connection
         self.repository = IntegrationsRepository(connection)
 
+    @connection_execution_scope
     def execute(self, *, tool_call: dict[str, Any], policy_input: dict[str, Any]) -> dict[str, Any]:
         """Ejecuta la operación MCP solicitada respetando las guardas de política y sandbox.
 

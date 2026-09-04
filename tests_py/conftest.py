@@ -16,6 +16,12 @@ if sys.platform == "win32":
 
 
 @pytest.fixture(autouse=True)
+def isolated_default_process_database(tmp_path, monkeypatch):
+    """Evita que ejecuciones reales de sandbox en tests escriban la base del operador."""
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "default-runtime.sqlite"))
+
+
+@pytest.fixture(autouse=True)
 def reset_runtime_status_caches() -> Iterator[None]:
     """Aísla los cachés TTL de estado de runtimes (detección CLI y probe Ollama) entre tests."""
     reset_detection_cache()

@@ -2621,19 +2621,22 @@ def test_docker_sandbox_execute_is_optional_and_captures_results(tmp_path: Path,
 
     calls: list[list[str]] = []
 
-    class Completed:
-        returncode = 0
-        stdout = "Python 3.13\n"
-        stderr = ""
-
     def fake_run(args, **kwargs):
         calls.append(args)
-        assert kwargs["shell"] is False
-        assert kwargs["capture_output"] is True
-        assert kwargs["text"] is True
-        return Completed()
+        assert kwargs["cwd"] == tmp_path
+        assert kwargs["timeout_seconds"] == 10
+        return {
+            "returnCode": 0,
+            "stdout": "Python 3.13\n",
+            "stderr": "",
+            "timedOut": False,
+            "managedProcessId": "test-managed",
+            "peakMemoryBytes": 1024,
+            "cpuTimeSeconds": 0.1,
+            "terminationReason": "",
+        }
 
-    monkeypatch.setattr("local_control_center.security_policy.sandbox.subprocess.run", fake_run)
+    monkeypatch.setattr("local_control_center.security_policy.sandbox.run_docker_capture", fake_run)
     result = DockerSandbox(docker_executable="docker").execute(
         image="python:3.13-slim",
         argv=["python", "--version"],

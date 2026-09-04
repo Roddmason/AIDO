@@ -16,6 +16,8 @@ import sqlite3
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
+CURRENT_SCHEMA_VERSION = 60
+
 
 def _execute_atomic_statements(
     connection: sqlite3.Connection, statements: list[tuple[str, tuple[object, ...]]]
@@ -39,6 +41,23 @@ def _execute_atomic_statements(
 
 def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma."""
+    schema_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+    ).fetchone()
+    if schema_exists:
+        current = connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = ?", (CURRENT_SCHEMA_VERSION,)
+        ).fetchone()
+        provider_catalog_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'"
+        ).fetchone()
+        provider_catalog_seeded = (
+            connection.execute("SELECT 1 FROM provider_accounts LIMIT 1").fetchone()
+            if provider_catalog_exists
+            else None
+        )
+        if current and provider_catalog_seeded:
+            return
     init_base_schema(connection)
     init_phase2_schema(connection)
     init_phase3_schema(connection)
@@ -98,6 +117,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase57_schema(connection)
     init_phase58_schema(connection)
     init_phase59_schema(connection)
+    init_phase60_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6008,6 +6028,83 @@ def init_phase59_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (59, now),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase60_schema(connection: sqlite3.Connection) -> None:
+    """Fase 60: admisión global, leases, muestras y violaciones de recursos del host."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 60").fetchone():
+        return
+    savepoint = "aido_phase60_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        resource_ddl = """
+            CREATE TABLE IF NOT EXISTS resource_leases (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                workload_class TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                cpu_limit_percent REAL NOT NULL,
+                memory_limit_bytes INTEGER NOT NULL,
+                process_limit INTEGER NOT NULL,
+                gpu_required INTEGER NOT NULL,
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                released_at TEXT,
+                release_reason TEXT NOT NULL DEFAULT ''
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_resource_leases_active_execution
+                ON resource_leases(execution_id) WHERE released_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_resource_leases_active_expiry
+                ON resource_leases(released_at, expires_at);
+            CREATE TABLE IF NOT EXISTS resource_usage_samples (
+                id TEXT PRIMARY KEY,
+                sampled_at TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_usage_samples_time
+                ON resource_usage_samples(sampled_at);
+            CREATE TABLE IF NOT EXISTS resource_violations (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                lease_id TEXT,
+                violation_type TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_violations_execution
+                ON resource_violations(execution_id, created_at);
+            CREATE TABLE IF NOT EXISTS resource_admission_decisions (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                job_id TEXT,
+                workload_class TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('admitted', 'resource_wait')),
+                reason_code TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                lease_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_admission_job_time
+                ON resource_admission_decisions(job_id, created_at);
+        """
+        for statement in resource_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (60, utc_now()),
         )
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
     except Exception:

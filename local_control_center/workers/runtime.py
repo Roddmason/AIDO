@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.host_resources.governor import HostResourceGovernor
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.probes import HostResourceProbe
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import UNSET, SettingsRepository
@@ -89,7 +93,7 @@ def _bounded_max_jobs(value: Any) -> int:
         parsed = int(float(value if value is not None else DEFAULT_MAX_CONCURRENT_JOBS))
     except (TypeError, ValueError):
         parsed = DEFAULT_MAX_CONCURRENT_JOBS
-    return max(1, min(parsed, 16))
+    return max(1, min(parsed, DEFAULT_MAX_CONCURRENT_JOBS))
 
 
 class LocalWorkerRuntime:
@@ -121,6 +125,12 @@ class LocalWorkerRuntime:
         self._failed_runs = 0
         self._in_flight_jobs = 0
         self._last_telemetry_prune_monotonic: float | None = None
+        self._last_resource_sample_monotonic: float | None = None
+        self._latest_resource_snapshot: ResourceSnapshot | None = None
+        self._resource_probe = HostResourceProbe(
+            relevant_paths=[self.cwd, self.db_path],
+            active_workload_source=self._active_workload_classes,
+        )
         self._fencing_token: int | None = None
 
     @classmethod
@@ -227,6 +237,10 @@ class LocalWorkerRuntime:
                 self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
                 continue
             self._ensure_leadership_watcher()
+            if not self._govern_resources_if_due():
+                self._renew_leadership(status="resource_wait")
+                self._stop_event.wait(self.settings.poll_interval_seconds)
+                continue
             desired_state = str(control["desiredState"])
             self._status = desired_state
             self._reason = str(control["reason"] or f"Worker is {desired_state}.")
@@ -433,7 +447,10 @@ class LocalWorkerRuntime:
         try:
             self._prune_telemetry_if_due()
             self._in_flight_jobs = self.settings.max_concurrent_jobs
-            runs = ConcurrentWorker(db_path=self.db_path).run_batch(
+            worker_options: dict[str, Any] = {"db_path": self.db_path}
+            if self._latest_resource_snapshot is not None:
+                worker_options["resource_snapshot"] = self._latest_resource_snapshot
+            runs = ConcurrentWorker(**worker_options).run_batch(
                 worker_count=self.settings.max_concurrent_jobs,
                 max_jobs=self.settings.max_concurrent_jobs,
                 worker_id=self.worker_id,
@@ -469,6 +486,50 @@ class LocalWorkerRuntime:
         finally:
             self._in_flight_jobs = 0
             self._batch_lock.release()
+
+    def _govern_resources_if_due(self) -> bool:
+        """Muestrea, retiene y reevalúa esperas sin mantener una transacción durante la sonda."""
+        now_monotonic = time.monotonic()
+        with open_sqlite_connection(self.db_path) as settings_connection:
+            initialize_platform_schema(settings_connection)
+            configured_interval = SettingsRepository(settings_connection).get_value(
+                "resources.sampleIntervalSeconds", "general", None
+            )
+        try:
+            interval = float(2 if configured_interval is UNSET else configured_interval)
+        except (TypeError, ValueError):
+            interval = 2.0
+        interval = max(0.25, min(interval, 60.0))
+        if (
+            self._latest_resource_snapshot is not None
+            and self._last_resource_sample_monotonic is not None
+            and now_monotonic - self._last_resource_sample_monotonic < interval
+        ):
+            return True
+        try:
+            snapshot = self._resource_probe.sample(cpu_interval_seconds=min(1.0, interval))
+            with open_sqlite_connection(self.db_path) as connection:
+                initialize_platform_schema(connection)
+                governor = HostResourceGovernor(connection)
+                governor.record_sample(snapshot)
+                governor.recover_expired()
+                governor.reevaluate_waiting(snapshot=snapshot)
+                governor.violations_for_snapshot(snapshot)
+            self._latest_resource_snapshot = snapshot
+            self._last_resource_sample_monotonic = time.monotonic()
+            return True
+        except Exception as error:
+            reason = f"Host resource probe failed closed: {type(error).__name__}."
+            self._status = "resource_wait"
+            self._reason = reason
+            self._last_error = reason
+            return False
+
+    def _active_workload_classes(self) -> list[str]:
+        """Lee las clases reservadas desde una conexión corta propia de la sonda."""
+        with open_sqlite_connection(self.db_path) as connection:
+            initialize_platform_schema(connection)
+            return [lease.workload_class for lease in ResourceRepository(connection).active_leases()]
 
     def _prune_telemetry_if_due(self) -> None:
         """Prune expired ``telemetry.http.request`` events at most once per interval.

@@ -42,6 +42,10 @@ ALLOWED_PROBE_ARGUMENTS = {
             "--query-gpu=index,name,memory.total,driver_version,compute_cap",
             "--format=csv,noheader,nounits",
         ),
+        (
+            "--query-gpu=utilization.gpu,memory.used,memory.free",
+            "--format=csv,noheader,nounits",
+        ),
     },
     "podman": {
         ("--version",),

@@ -10,6 +10,7 @@ dependencies = [
 	"uvicorn>=0.37.0",
 	"numpy>=1.26.0",
 	"tzdata>=2025.2",
+	"psutil>=6.1.0",
 ]
 
 [project.optional-dependencies]

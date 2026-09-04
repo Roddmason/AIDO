@@ -16,7 +16,18 @@ class _Aliased(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-WorkerRuntimeState = Literal["running", "stopped", "paused", "idle", "blocked", "failed", "completed"]
+WorkerRuntimeState = Literal[
+    "running",
+    "stopped",
+    "paused",
+    "standby",
+    "draining",
+    "emergency_stopped",
+    "idle",
+    "blocked",
+    "failed",
+    "completed",
+]
 
 
 class WorkerStatusResponse(_Aliased):
@@ -36,6 +47,14 @@ class WorkerStatusResponse(_Aliased):
     last_run_at: str | None = Field(default=None, alias="lastRunAt")
     last_idle_at: str | None = Field(default=None, alias="lastIdleAt")
     last_error: str | None = Field(default=None, alias="lastError")
+    connected: bool = False
+    role: Literal["leader", "standby", "offline"] = "offline"
+    desired_state: str = Field(default="paused", alias="desiredState")
+    owner_id: str | None = Field(default=None, alias="ownerId")
+    fencing_token: int | None = Field(default=None, alias="fencingToken")
+    heartbeat_at: str | None = Field(default=None, alias="heartbeatAt")
+    lease_expires_at: str | None = Field(default=None, alias="leaseExpiresAt")
+    standby_count: int = Field(default=0, alias="standbyCount")
 
 
 class WorkerRunOnceResponse(WorkerStatusResponse):

@@ -88,6 +88,8 @@ class JobRunRecord(BaseModel):
     completed_at: str | None = Field(default=None, alias="completedAt")
     summary: str
     metadata: dict[str, Any]
+    worker_owner_id: str | None = Field(default=None, alias="workerOwnerId")
+    leader_fencing_token: int | None = Field(default=None, alias="leaderFencingToken")
 
 
 class ActionRequestRecord(BaseModel):

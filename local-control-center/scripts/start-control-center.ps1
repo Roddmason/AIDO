@@ -5,6 +5,7 @@ param(
 	[int]$WorkerCount = 2,
 	[string]$Workspace = "",
 	[string]$DbPath = "",
+	[ValidateSet("supervisor", "api", "worker")][string]$Mode = "supervisor",
 	[switch]$Worker,
 	[switch]$NoBuild
 )
@@ -15,6 +16,10 @@ $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptRoot "..\..")
 $StaticDir = Join-Path $ProjectRoot "local-control-center\dist\web"
 $UvPath = (Get-Command uv).Source
+
+if ($Worker) {
+	$Mode = "supervisor"
+}
 
 if (-not $NoBuild -and -not (Test-Path -LiteralPath (Join-Path $StaticDir "index.html"))) {
 	Push-Location $ProjectRoot
@@ -48,12 +53,10 @@ $arguments = @(
 	"--worker-count",
 	"$WorkerCount",
 	"--static-dir",
-	"`"$StaticDir`""
+	"`"$StaticDir`"",
+	"--mode",
+	$Mode
 )
-
-if ($Worker) {
-	$arguments += "--worker"
-}
 
 if ($Workspace.Trim()) {
 	$arguments += @("--workspace", "`"$Workspace`"")

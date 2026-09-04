@@ -69,7 +69,6 @@ from .shared.telemetry import (
 from .team_activity.api import create_router as create_team_activity_router
 from .threads.api import create_router as create_threads_router
 from .workers.api import create_router as create_workers_router
-from .workers.runtime import LocalWorkerRuntime
 from .workflows.api import create_router as create_workflows_router
 from .workspaces_projects.api import create_router as create_workspaces_router
 
@@ -93,11 +92,6 @@ def create_app(
     platform.init()
     platform.ensure_runtime_project()
     configure_external_telemetry_from_env()
-    worker_runtime = LocalWorkerRuntime.from_settings(
-        connection=platform.connection,
-        db_path=platform.db_path,
-        cwd=platform.cwd,
-    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -109,18 +103,10 @@ def create_app(
                 logger.info("Pruned %d telemetry.http.request events past retention.", deleted)
         except Exception as error:  # pragma: no cover - la retención nunca debe impedir el arranque
             logger.warning("HTTP telemetry pruning failed at startup: %s", error)
-        worker_runtime.refresh_settings(platform.connection)
-        if worker_runtime.settings.autostart:
-            await anyio.to_thread.run_sync(worker_runtime.start)
-        try:
-            yield
-        finally:
-            await anyio.to_thread.run_sync(lambda: worker_runtime.stop(reason="FastAPI shutdown."))
+        yield
 
     app = FastAPI(title="Local Control Center", version="0.1.0", lifespan=lifespan)
     app.state.runtime = platform
-    app.state.worker_runtime = worker_runtime
-    platform.local_worker_runtime = worker_runtime
     store_request_lock = threading.Lock()
 
     @app.exception_handler(RequestValidationError)

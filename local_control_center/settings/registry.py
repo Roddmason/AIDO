@@ -32,6 +32,8 @@ class SettingDescriptor:
     default: Any
     enum: tuple[str, ...] | None = None
     label_key: str = ""
+    minimum: float | None = None
+    maximum: float | None = None
 
 
 REGISTRY: list[SettingDescriptor] = [
@@ -138,7 +140,7 @@ REGISTRY: list[SettingDescriptor] = [
         section="worker",
         project_section=None,
         type="boolean",
-        default=True,
+        default=False,
         label_key="app.settings.worker.autostart",
     ),
     SettingDescriptor(
@@ -148,14 +150,18 @@ REGISTRY: list[SettingDescriptor] = [
         type="number",
         default=5,
         label_key="app.settings.worker.pollIntervalSeconds",
+        minimum=0.25,
+        maximum=3600,
     ),
     SettingDescriptor(
         key="worker.maxConcurrentJobs",
         section="worker",
         project_section=None,
         type="number",
-        default=2,
+        default=1,
         label_key="app.settings.worker.maxConcurrentJobs",
+        minimum=1,
+        maximum=1,
     ),
     SettingDescriptor(
         key="research.internetPolicy",
@@ -331,9 +337,14 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
         return value
     if descriptor.type == "number":
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid numeric value {value!r} for {descriptor.key!r}.") from exc
+        if descriptor.minimum is not None and parsed < descriptor.minimum:
+            raise ValueError(f"Value for {descriptor.key!r} must be at least {descriptor.minimum}.")
+        if descriptor.maximum is not None and parsed > descriptor.maximum:
+            raise ValueError(f"Value for {descriptor.key!r} must be at most {descriptor.maximum}.")
+        return parsed
     if descriptor.type == "boolean":
         if isinstance(value, bool):
             return value

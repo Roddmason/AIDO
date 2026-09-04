@@ -1,8 +1,7 @@
-"""Concurrencia del snapshot git: los GET status/branches no retienen el lock global de /api/.
+"""Concurrencia del snapshot Git con conexión SQLite por request.
 
-La fase subprocess (7 comandos git brokered) corre fuera del ``store_request_lock`` sobre una
-conexión sqlite dedicada; la fase con carrera lógica (workspace/agent run) sigue bajo el lock y
-los requests concurrentes del mismo proyecto comparten una sola ejecución brokered (single-flight).
+La fase subprocess (7 comandos git brokered) usa una conexión colectora dedicada y los requests
+concurrentes del mismo proyecto comparten una sola ejecución brokered (single-flight).
 
 @author Rodrigo Mason
 """
@@ -87,7 +86,7 @@ def install_fake_git(bin_dir: Path, monkeypatch: pytest.MonkeyPatch, *, sleep_se
 def test_is_git_snapshot_request_matches_only_get_snapshot_paths() -> None:
     assert is_git_snapshot_request("GET", "/api/v1/projects/project-1/git/status")
     assert is_git_snapshot_request("GET", "/api/v1/projects/project-1/git/branches")
-    # El POST de branches (crear rama) es mutación y debe seguir serializado bajo el lock global.
+    # El POST de branches es mutación y nunca se clasifica como snapshot de lectura.
     assert not is_git_snapshot_request("POST", "/api/v1/projects/project-1/git/branches")
     assert not is_git_snapshot_request("POST", "/api/v1/projects/project-1/git/status")
     assert not is_git_snapshot_request("GET", "/api/v1/projects/project-1/git/diff")

@@ -8553,7 +8553,54 @@ def test_failover_replacement_keeps_role_preferred_resources(tmp_path: Path, mon
             attempts=[{"failureClass": "quota", "providerId": "openai_gateway", "model": "gpt-x"}],
             provider_id="openai_gateway",
             failed_model="gpt-x",
+            role="developer",
         )
 
     assert replacement is None
+    assert captured[0].preferred_resources == expected_preferred
+    assert captured[0].agent_id == "developer"
+
+
+def test_failover_replacement_uses_the_callers_role_policy(tmp_path: Path, monkeypatch) -> None:
+    """El failover acota el reemplazo con la policy del rol del caller, no siempre la del developer."""
+    from types import SimpleNamespace
+
+    from local_control_center.agents.ai_resource_manager import AIResourceManager
+
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        RoutingProfileStore(connection).upsert_role_policy(
+            {
+                "role": "qa_engineer",
+                "preferred": [{"provider": "nim_gateway", "model": "qa-pinned-model"}],
+            }
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        expected_preferred = coordinator._resource_role_policy("qa_engineer")["preferredResources"]
+        assert {"provider": "nim_gateway", "model": "qa-pinned-model"} in expected_preferred
+
+        captured: list = []
+
+        def _capture(self, request, *, record=True):
+            captured.append(request)
+            raise RuntimeError("stop after capturing the request")
+
+        monkeypatch.setattr(AIResourceManager, "select_resource", _capture)
+        run = SimpleNamespace(
+            project_id="project-failover",
+            loop={"id": "loop-1"},
+            task_id="task-1",
+            team_schedule={"risk": "medium", "mode": "balanced"},
+        )
+        coordinator._failover_replacement(
+            run=run,
+            payload={},
+            attempts=[{"failureClass": "quota", "providerId": "openai_gateway", "model": "gpt-x"}],
+            provider_id="openai_gateway",
+            failed_model="gpt-x",
+            role="qa_engineer",
+        )
+
+    assert captured[0].agent_id == "qa_engineer"
+    assert captured[0].task_type == "qa_engineer.implement"
     assert captured[0].preferred_resources == expected_preferred

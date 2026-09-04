@@ -4528,6 +4528,7 @@ class ProductLoopCoordinator:
         attempts: list[dict[str, Any]],
         provider_id: str,
         failed_model: str,
+        role: str,
     ) -> dict[str, Any] | None:
         """Elige otro proveedor para reintentar, o ``None`` si ninguno es viable ni asequible.
 
@@ -4535,7 +4536,7 @@ class ProductLoopCoordinator:
         routing: sin el sufijo, el snapshot de costo del hilo sumaría runtimes que nunca corrieron.
 
         No relaja jamás la política de transporte del rol ni el tope de costo: el failover solo se
-        mueve dentro de lo que la política ya permitía.
+        mueve dentro de lo que la política de ``role`` ya permitía.
         """
         excluded = [
             exclusion_for(
@@ -4545,7 +4546,7 @@ class ProductLoopCoordinator:
             )
             for item in attempts
         ]
-        policy = self._resource_role_policy("developer")
+        policy = self._resource_role_policy(role)
         # Instancia nueva: AIResourceManager memoiza el estado de runtimes por proyecto y no lo
         # invalida, asi que reusar la anterior devolveria el mismo proveedor ya caido.
         manager = AIResourceManager(self.connection)
@@ -4554,9 +4555,9 @@ class ProductLoopCoordinator:
                 AIResourceRequest(
                     project_id=run.project_id,
                     workflow_run_id=run.loop["id"],
-                    agent_id="developer",
+                    agent_id=role,
                     task_id=f"{run.task_id}:f{len(attempts)}",
-                    task_type="developer.implement",
+                    task_type=f"{role}.implement",
                     risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
                     routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
                     required_capabilities=["chat"],
@@ -4611,8 +4612,12 @@ class ProductLoopCoordinator:
         run: _UserMessageRun,
         attempts: list[dict[str, Any]],
         thread_id: str | None,
+        role: str = "developer",
     ) -> dict[str, Any]:
         """Ejecuta el runtime y, ante una falla de transporte o cuota, reintenta en otro proveedor.
+
+        ``role`` gobierna qué política de recursos acota el reemplazo (hoy solo lo usa la fase
+        del developer; un caller nuevo debe pasar su propio rol o heredará esa política).
 
         Solo reintenta lo que dice algo del proveedor y no del trabajo: un fallo de contrato se
         propaga tal cual, porque repetirlo en otro modelo gasta dinero para obtener el mismo error.
@@ -4650,6 +4655,7 @@ class ProductLoopCoordinator:
                     attempts=attempts,
                     provider_id=failed_provider,
                     failed_model=failed_model,
+                    role=role,
                 )
                 if replacement is None:
                     raise
@@ -4657,7 +4663,7 @@ class ProductLoopCoordinator:
                 self._record_thread_event(
                     thread_id=thread_id,
                     event_type="runtime_failover",
-                    agent_role="developer",
+                    agent_role=role,
                     payload={
                         "loopId": run.loop["id"],
                         "runtimeId": current_payload.get("preferredRuntime"),

@@ -258,6 +258,7 @@ def execute_developer_phase(
             run=run,
             attempts=failover_attempts,
             thread_id=thread_id,
+            role="developer",
         )
     except Exception as error:
         reason = str(redact_secrets(str(error)))

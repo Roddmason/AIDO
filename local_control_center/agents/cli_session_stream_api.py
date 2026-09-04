@@ -15,6 +15,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.process_supervision.repository import ManagedProcessRepository
+
 from .cli_session_events import CliSessionEventStore
 from .cli_session_stream import (
     DEFAULT_SESSION_TIMEOUT_SECONDS,
@@ -80,6 +82,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post("/api/v1/cli-sessions/{session_id}/cancel", response_model=CliSessionCancelResponse)
     async def cancel_session(session_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        return {"cancelled": cancel_cli_session(session_id)}
+        row = platform.connection.execute(
+            "SELECT status FROM cli_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None or row[0] != "running":
+            return {"cancelled": False}
+        ManagedProcessRepository(platform.connection).request_execution_cancel(
+            session_id, reason="cancelled_by_operator"
+        )
+        cancel_cli_session(session_id)
+        return {"cancelled": True}
 
     return router

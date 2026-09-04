@@ -46,6 +46,7 @@ from .nvidia_nim.api import create_router as create_nvidia_nim_router
 from .ollama.api import create_router as create_ollama_router
 from .pipelines.api import create_router as create_pipelines_router
 from .plugins.api import create_router as create_plugins_router
+from .process_supervision.api import create_router as create_process_supervision_router
 from .product_loop.api import create_router as create_product_loop_router
 from .project_constitution.api import create_router as create_project_constitution_router
 from .projects.api import create_router as create_projects_router
@@ -259,6 +260,7 @@ def create_app(
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
     app.include_router(create_host_resources_router(platform=platform, require_write=require_write))
+    app.include_router(create_process_supervision_router(platform=platform, require_write=require_write))
     app.include_router(create_sessions_chats_router(platform=platform, require_write=require_write))
     app.include_router(create_pipelines_router(platform=platform, require_write=require_write))
     app.include_router(create_plugins_router(platform=platform, require_write=require_write))

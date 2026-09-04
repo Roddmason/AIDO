@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import closing
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -28,7 +29,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     router = APIRouter()
 
     def status_snapshot() -> dict[str, Any]:
-        with open_sqlite_connection(platform.db_path) as connection:
+        with closing(open_sqlite_connection(platform.db_path)) as connection:
             initialize_platform_schema(connection)
             leadership = WorkerLeadershipRepository(connection)
             control = WorkerControlRepository(connection).get()
@@ -86,7 +87,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         }
 
     def request_state(state: str, *, reason: str) -> dict[str, Any]:
-        with open_sqlite_connection(platform.db_path) as connection:
+        with closing(open_sqlite_connection(platform.db_path)) as connection:
             initialize_platform_schema(connection)
             WorkerControlRepository(connection).request_state(state, reason=reason)
             EventBus(connection).record_event(
@@ -122,7 +123,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def worker_run_once(request: Request) -> dict[str, Any]:
         """Persist one bounded-batch request for the separate worker process."""
         require_write(request)
-        with open_sqlite_connection(platform.db_path) as connection:
+        with closing(open_sqlite_connection(platform.db_path)) as connection:
             initialize_platform_schema(connection)
             WorkerControlRepository(connection).request_run_once(reason="Run once requested by operator.")
             EventBus(connection).record_event(

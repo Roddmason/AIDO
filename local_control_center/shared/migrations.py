@@ -16,7 +16,7 @@ import sqlite3
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 60
+CURRENT_SCHEMA_VERSION = 63
 
 
 def _execute_atomic_statements(
@@ -118,6 +118,9 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase58_schema(connection)
     init_phase59_schema(connection)
     init_phase60_schema(connection)
+    init_phase61_schema(connection)
+    init_phase62_schema(connection)
+    init_phase63_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6110,6 +6113,129 @@ def init_phase60_schema(connection: sqlite3.Connection) -> None:
     except Exception:
         connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase61_schema(connection: sqlite3.Connection) -> None:
+    """Fase 61: ciclo de vida durable de árboles de procesos administrados."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 61").fetchone():
+        return
+    savepoint = "aido_phase61_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS managed_processes (
+                managed_process_id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                root_pid INTEGER NOT NULL,
+                workload_class TEXT NOT NULL,
+                command_fingerprint TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                exit_code INTEGER,
+                timed_out INTEGER NOT NULL DEFAULT 0,
+                cancelled INTEGER NOT NULL DEFAULT 0,
+                peak_memory_bytes INTEGER NOT NULL DEFAULT 0,
+                cpu_time_seconds REAL NOT NULL DEFAULT 0,
+                stdout_artifact_id TEXT,
+                stderr_artifact_id TEXT,
+                termination_reason TEXT NOT NULL DEFAULT '',
+                cancel_requested_at TEXT,
+                released_at TEXT,
+                resource_lease_id TEXT,
+                owner_pid INTEGER NOT NULL DEFAULT 0,
+                owner_create_time REAL NOT NULL DEFAULT 0,
+                root_create_time REAL NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_managed_processes_execution
+            ON managed_processes(execution_id, started_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_managed_processes_active
+            ON managed_processes(finished_at, started_at)
+            """
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS process_execution_controls (
+                execution_id TEXT PRIMARY KEY,
+                cancel_requested_at TEXT NOT NULL,
+                reason TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (61, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+def init_phase62_schema(connection: sqlite3.Connection) -> None:
+    """Agrega identidad verificable y control durable a instalaciones del supervisor inicial."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 62").fetchone():
+        return
+    connection.execute("SAVEPOINT aido_phase62_schema")
+    try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(managed_processes)")}
+        for name, declaration in (
+            ("resource_lease_id", "TEXT"),
+            ("owner_pid", "INTEGER NOT NULL DEFAULT 0"),
+            ("owner_create_time", "REAL NOT NULL DEFAULT 0"),
+            ("root_create_time", "REAL NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE managed_processes ADD COLUMN {name} {declaration}")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS process_execution_controls (
+                execution_id TEXT PRIMARY KEY,
+                cancel_requested_at TEXT NOT NULL,
+                reason TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (62, ?)", (utc_now(),)
+        )
+        connection.execute("RELEASE SAVEPOINT aido_phase62_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase62_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase62_schema")
+        raise
+
+
+def init_phase63_schema(connection: sqlite3.Connection) -> None:
+    """Registra contenedores externos para cleanup durable tras cancelar o reiniciar el worker."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 63").fetchone():
+        return
+    connection.execute("SAVEPOINT aido_phase63_schema")
+    try:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS managed_containers (
+                name TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                executable TEXT NOT NULL,
+                owner_pid INTEGER NOT NULL,
+                owner_create_time REAL NOT NULL,
+                resource_lease_id TEXT NOT NULL,
+                owns_lease INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                released_at TEXT
+            )
+        """)
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (63, ?)", (utc_now(),))
+        connection.execute("RELEASE SAVEPOINT aido_phase63_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase63_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase63_schema")
         raise
 
 

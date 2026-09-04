@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.providers.base import UsageRecord
+from local_control_center.process_supervision.context import connection_execution_scope
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy import sandbox as subprocess_sandbox
 from local_control_center.security_policy.policy_engine import evaluate_action
@@ -268,6 +269,7 @@ class CliRuntime(ABC):
         """
         raise NotImplementedError
 
+    @connection_execution_scope
     def run(self, request: RuntimeRequest) -> RuntimeResult:
         """Ejecuta el CLI bajo el sandbox tras pasar validación, política runtime y security policy.
 

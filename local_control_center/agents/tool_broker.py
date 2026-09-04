@@ -23,6 +23,7 @@ from typing import Any
 from local_control_center.evidence.artifacts import promote_execution_result_outputs
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.process_supervision.context import connection_execution_scope
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.security_policy.sandbox import DockerSandbox, RestrictedSubprocessSandbox
@@ -562,6 +563,7 @@ class ToolBroker:
         except Exception:
             return
 
+    @connection_execution_scope
     def evaluate_tool_call(
         self,
         *,

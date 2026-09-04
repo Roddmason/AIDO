@@ -556,8 +556,13 @@ class JobsRepository:
     def cancel_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
         """Cancela el job, libera su lease y deja evento `job.cancelled` más auditoría."""
         job = self.get_job(job_id)
+        from local_control_center.process_supervision.repository import ManagedProcessRepository
+
+        ManagedProcessRepository(self.connection).request_execution_cancel(
+            job_id, reason=reason or "cancelled_by_operator"
+        )
         self.connection.execute(
-            "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
+            "UPDATE jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
             (utc_now(), job_id),
         )
         self.record_event(
@@ -575,6 +580,15 @@ class JobsRepository:
     def retry_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
         """Reencola el job liberando su lease; vuelve a `approval_required` si aún tiene acciones pendientes."""
         job = self.get_job(job_id)
+        active = self.connection.execute(
+            "SELECT 1 FROM managed_processes WHERE execution_id = ? AND finished_at IS NULL LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if active or (
+            job.get("leaseOwner") and job.get("leaseExpiresAt") and job["leaseExpiresAt"] > utc_now()
+        ):
+            raise ValueError("La ejecución anterior todavía no ha liberado sus procesos y leases.")
+        self.connection.execute("DELETE FROM process_execution_controls WHERE execution_id = ?", (job_id,))
         status = "approval_required" if self._pending_actions(job_id) else "queued"
         self.connection.execute(
             "UPDATE jobs SET status = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -834,6 +848,7 @@ class JobsRepository:
         # stopped job finished and `_thread_job_was_cancelled` would stop seeing the cancellation.
         if self.get_job(job_id)["status"] == "cancelled":
             job_status = "cancelled"
+            status = "cancelled"
         timestamp = utc_now()
         clean_summary = str(redact_secrets(summary))
         clean_metadata = redact_secrets(metadata or {})

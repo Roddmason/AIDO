@@ -30,6 +30,14 @@ from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.process_supervision.service import (
+    command_fingerprint,
+    complete_managed_process,
+    managed_process_for,
+    request_managed_cancellation,
+    safe_command_summary,
+    terminate_managed_process,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.sandbox import open_restricted_text_process
 from local_control_center.shared.db import open_sqlite_connection
@@ -125,7 +133,7 @@ def start_cli_session(
             executable,
             workspace_id,
             DEVELOPER_AGENT_ID,
-            json_dumps(redact_secrets(list(argv))),
+            json_dumps(safe_command_summary(argv)),
             json_dumps(redact_secrets(session_policy)),
             CLI_SESSION_RUNNING_STATUS,
             now,
@@ -205,6 +213,9 @@ def _run(
     broker_summary: dict[str, Any] = {}
     changed_files: list[str] = []
     diff_summary: dict[str, Any] = {}
+    process = None
+    reader_stop = threading.Event()
+    readers: list[threading.Thread] = []
     try:
         events.record_event(
             session_id,
@@ -212,7 +223,8 @@ def _run(
             {
                 "runtime": runtime,
                 "workspaceId": workspace_id,
-                "command": list(argv),
+                "command": safe_command_summary(argv),
+                "commandFingerprint": command_fingerprint(argv),
                 "agentId": DEVELOPER_AGENT_ID,
                 "requestedAgentId": agent_id,
                 "agentRunId": agent_run_id,
@@ -407,7 +419,16 @@ def _run(
             session_id=session_id,
         )
         try:
-            process = process_opener(argv=argv, cwd=workspace_path, workspace_path=workspace_path)
+            if process_opener is open_restricted_text_process:
+                process = process_opener(
+                    argv=argv,
+                    cwd=workspace_path,
+                    workspace_path=workspace_path,
+                    execution_id=session_id,
+                    db_path=db_path,
+                )
+            else:
+                process = process_opener(argv=argv, cwd=workspace_path, workspace_path=workspace_path)
         except (PermissionError, OSError) as error:
             reason = str(error)
             finish = _finish(
@@ -442,10 +463,14 @@ def _run(
         with _LOCK:
             handle.process = process
 
-        output: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        output: queue.Queue[tuple[str, str | None]] = queue.Queue(maxsize=128)
         readers = [
-            threading.Thread(target=_reader, args=(process.stdout, "stdout", output), daemon=True),
-            threading.Thread(target=_reader, args=(process.stderr, "stderr", output), daemon=True),
+            threading.Thread(
+                target=_reader, args=(process.stdout, "stdout", output, reader_stop), daemon=True
+            ),
+            threading.Thread(
+                target=_reader, args=(process.stderr, "stderr", output, reader_stop), daemon=True
+            ),
         ]
         for reader in readers:
             reader.start()
@@ -456,17 +481,24 @@ def _run(
         deadline = time.monotonic() + timeout_seconds
         while ended < 2:
             now_monotonic = time.monotonic()
+            from local_control_center.process_supervision.repository import ManagedProcessRepository
+
+            if ManagedProcessRepository(connection).cancellation_reason(session_id):
+                handle.cancel.set()
             if handle.cancel.is_set() and termination_requested_at is None:
                 termination_requested_at = now_monotonic
                 _terminate(process)
             elif not timed_out and now_monotonic >= deadline:
                 timed_out = True
                 termination_requested_at = now_monotonic
-                _terminate(process)
+                terminate_managed_process(process, reason="timeout", grace_seconds=0)
+            if process.poll() is not None and managed_process_for(process) is not None:
+                entry = managed_process_for(process)
+                if entry[0].backend.stats(entry[1]).remaining_descendant_count:
+                    terminate_managed_process(process, reason="descendants_cleanup", grace_seconds=0)
             if (
                 termination_requested_at is not None
                 and not killed
-                and process.poll() is None
                 and now_monotonic - termination_requested_at >= _TERMINATE_GRACE_SECONDS
             ):
                 killed = True
@@ -490,6 +522,9 @@ def _run(
         for reader in readers:
             reader.join(timeout=5)
 
+        if ManagedProcessRepository(connection).cancellation_reason(session_id):
+            handle.cancel.set()
+
         if handle.cancel.is_set():
             status, event_type, error = "cancelled", "cancelled", "Cancelled by operator."
         elif timed_out:
@@ -501,24 +536,32 @@ def _run(
             status, event_type = "runtime_failed", "failed"
             error = f"CLI process exited with code {return_code}."
 
-        after = _changed_files(
-            connection,
-            project_id=project_id,
-            workspace_id=workspace_id,
-            workspace_path=workspace_path,
-            root=root,
-            session_id=session_id,
+        after = (
+            before
+            if handle.cancel.is_set() or timed_out
+            else _changed_files(
+                connection,
+                project_id=project_id,
+                workspace_id=workspace_id,
+                workspace_path=workspace_path,
+                root=root,
+                session_id=session_id,
+            )
         )
         changed_files = sorted(after - before)
         for path in changed_files:
             events.record_event(session_id, "file_changed", {"path": path})
-        diff_summary = _capture_diff(
-            connection,
-            project_id=project_id,
-            workspace_id=workspace_id,
-            workspace_path=workspace_path,
-            root=root,
-            session_id=session_id,
+        diff_summary = (
+            {"state": "unavailable", "reason": "execution_stopped"}
+            if handle.cancel.is_set() or timed_out
+            else _capture_diff(
+                connection,
+                project_id=project_id,
+                workspace_id=workspace_id,
+                workspace_path=workspace_path,
+                root=root,
+                session_id=session_id,
+            )
         )
         finish = _finish(
             connection,
@@ -540,6 +583,15 @@ def _run(
             broker_summary=broker_summary,
             stdout="".join(stdout_acc),
             stderr="".join(stderr_acc),
+        )
+        complete_managed_process(
+            process,
+            exit_code=return_code,
+            timed_out=timed_out,
+            cancelled=handle.cancel.is_set(),
+            termination_reason=(
+                "cancelled_by_operator" if handle.cancel.is_set() else "timeout" if timed_out else ""
+            ),
         )
         payload: dict[str, Any] = {
             "status": status,
@@ -603,24 +655,43 @@ def _run(
         except Exception:
             pass
     finally:
+        reader_stop.set()
+        if process is not None and managed_process_for(process) is not None:
+            terminate_managed_process(process, reason="session_cleanup", grace_seconds=0)
+            for reader in readers:
+                reader.join(timeout=5)
+            complete_managed_process(process, exit_code=process.poll(), cancelled=handle.cancel.is_set())
         with _LOCK:
             _RUNNING.pop(session_id, None)
         connection.close()
 
 
-def _reader(pipe: Any, stream: str, output: queue.Queue[tuple[str, str | None]]) -> None:
+def _reader(
+    pipe: Any, stream: str, output: queue.Queue[tuple[str, str | None]], stop: threading.Event
+) -> None:
+    def enqueue(value):
+        while not stop.is_set():
+            try:
+                output.put(value, timeout=0.1)
+                return
+            except queue.Full:
+                continue
+
     try:
         if pipe is not None:
             for line in iter(pipe.readline, ""):
-                output.put((stream, line))
+                enqueue((stream, line))
     finally:
-        output.put((stream, None))
+        enqueue((stream, None))
         if pipe is not None:
             with contextlib.suppress(Exception):
                 pipe.close()
 
 
 def _terminate(process: subprocess.Popen[str]) -> None:
+    request_managed_cancellation(process, reason="cancel_requested")
+    if managed_process_for(process) is not None:
+        return
     try:
         if process.poll() is None:
             process.terminate()
@@ -629,18 +700,17 @@ def _terminate(process: subprocess.Popen[str]) -> None:
 
 
 def _kill(process: subprocess.Popen[str]) -> None:
-    try:
-        if process.poll() is None:
-            process.kill()
-    except Exception:
-        pass
+    if managed_process_for(process) is None:
+        process.kill()
+    else:
+        terminate_managed_process(process, reason="forced_after_grace", grace_seconds=0)
 
 
 def _wait_for_process(process: subprocess.Popen[str]) -> int | None:
     try:
         return process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        _kill(process)
+        terminate_managed_process(process, reason="wait_timeout", grace_seconds=0)
         try:
             return process.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -968,7 +1038,8 @@ def _create_agent_run(
             "cliSessionId": session_id,
             "workspaceId": workspace_id,
             "runtime": runtime,
-            "argv": argv,
+            "argv": safe_command_summary(argv),
+            "commandFingerprint": command_fingerprint(argv),
             "timeoutSeconds": timeout_seconds,
             "branch": {"name": branch_name} if branch_name else None,
             "worktree": {"id": worktree_id} if worktree_id else None,
@@ -1108,7 +1179,8 @@ def _write_runtime_log_artifact(
                 "sessionId": session_id,
                 "runtime": runtime,
                 "workspaceId": workspace_id,
-                "argv": argv,
+                "argv": safe_command_summary(argv),
+                "commandFingerprint": command_fingerprint(argv),
                 "status": status,
                 "reason": error,
                 "exitCode": exit_code,
@@ -1207,7 +1279,8 @@ def _create_evidence_package(
         test_plan="Capture broker-authorized CLI session execution.",
         test_results=[
             {
-                "command": " ".join(argv),
+                "command": " ".join(safe_command_summary(argv)),
+                "commandFingerprint": command_fingerprint(argv),
                 "status": status,
                 "returnCode": exit_code,
                 "reason": error,

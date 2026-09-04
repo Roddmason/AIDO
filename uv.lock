@@ -736,6 +736,7 @@ dependencies = [
     { name = "keyring" },
     { name = "numpy" },
     { name = "psutil" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "tzdata" },
     { name = "uvicorn" },
 ]
@@ -776,6 +777,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.0" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=311" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15,<0.16" },
     { name = "semgrep", marker = "extra == 'dev'", specifier = ">=1.145.0" },
     { name = "tzdata", specifier = ">=2025.2" },

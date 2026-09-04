@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,8 @@ from local_control_center.host_resources.models import (
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository, StaleWorkerFenceError
+from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+from local_control_center.process_supervision.repository import ManagedProcessRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
 from local_control_center.remediations.service import BlockerRemediationService
@@ -70,6 +72,9 @@ class ConcurrentWorker:
         connection = open_sqlite_connection(self.db_path)
         try:
             initialize_platform_schema(connection)
+            from local_control_center.process_supervision.recovery import recover_managed_processes
+
+            recover_managed_processes(self.db_path)
             return JobsRepository(connection).requeue_expired_jobs()
         finally:
             connection.close()
@@ -120,11 +125,24 @@ class ConcurrentWorker:
                 governor.release(resource_lease.id, reason="job_claim_lost")
                 return None
             try:
-                with self._job_lease_heartbeat(
-                    job_id=claimed["job"]["id"],
-                    worker_id=worker_id,
-                    fencing_token=fencing_token,
-                    resource_lease_id=resource_lease.id,
+                with (
+                    self._job_lease_heartbeat(
+                        job_id=claimed["job"]["id"],
+                        worker_id=worker_id,
+                        fencing_token=fencing_token,
+                        resource_lease_id=resource_lease.id,
+                    ),
+                    execution_scope(
+                        ProcessExecutionContext(
+                            db_path=self.db_path,
+                            execution_id=claimed["job"]["id"],
+                            project_id=claimed["job"]["projectId"],
+                            resource_lease_id=resource_lease.id,
+                            connection=connection,
+                            worker_id=worker_id,
+                            fencing_token=fencing_token,
+                        )
+                    ),
                 ):
                     try:
                         execution = execute_job(
@@ -133,21 +151,27 @@ class ConcurrentWorker:
                             db_path=self.db_path,
                             worker_id=worker_id,
                         )
+                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
+                            claimed["job"]["id"]
+                        )
                         return jobs.complete_job_run(
                             job_id=claimed["job"]["id"],
                             run_id=claimed["run"]["id"],
-                            status="completed",
-                            summary=execution["summary"],
+                            status="cancelled" if cancellation else "completed",
+                            summary=cancellation or execution["summary"],
                             metadata=execution["metadata"],
                             worker_id=worker_id if fencing_token is not None else None,
                             leader_fencing_token=fencing_token,
                         )
                     except JobExecutionUnavailable as error:
+                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
+                            claimed["job"]["id"]
+                        )
                         return jobs.complete_job_run(
                             job_id=claimed["job"]["id"],
                             run_id=claimed["run"]["id"],
-                            status="failed",
-                            summary=error.summary,
+                            status="cancelled" if cancellation else "failed",
+                            summary=cancellation or error.summary,
                             metadata={"status": error.status, **error.metadata},
                             worker_id=worker_id if fencing_token is not None else None,
                             leader_fencing_token=fencing_token,
@@ -155,11 +179,14 @@ class ConcurrentWorker:
                     except StaleWorkerFenceError:
                         return None
                     except Exception as error:
+                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
+                            claimed["job"]["id"]
+                        )
                         return jobs.complete_job_run(
                             job_id=claimed["job"]["id"],
                             run_id=claimed["run"]["id"],
-                            status="failed",
-                            summary=str(error),
+                            status="cancelled" if cancellation else "failed",
+                            summary=cancellation or str(error),
                             metadata={"error": str(error)},
                             worker_id=worker_id if fencing_token is not None else None,
                             leader_fencing_token=fencing_token,
@@ -199,7 +226,7 @@ class ConcurrentWorker:
         def renew() -> None:
             interval = max(0.1, self.lease_ms / 3000)
             while not stop.wait(interval):
-                with open_sqlite_connection(self.db_path) as heartbeat_connection:
+                with closing(open_sqlite_connection(self.db_path)) as heartbeat_connection:
                     initialize_platform_schema(heartbeat_connection)
                     if fencing_token is not None and not JobsRepository(
                         heartbeat_connection

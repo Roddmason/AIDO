@@ -63,6 +63,36 @@ class FakeSupervisor:
         self.released.append(process.managed_process_id)
 
 
+def test_live_metrics_write_contention_does_not_cancel_healthy_process(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    backend = FakeSupervisor()
+    sampled = threading.Event()
+    original = backend.stats
+
+    def stats(process):
+        sampled.set()
+        return original(process)
+
+    monkeypatch.setattr(backend, "stats", stats)
+    service = ProcessSupervisorService(
+        db_path=tmp_path / "runtime.sqlite",
+        backend=backend,
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
+    managed = service.start(argv=[sys.executable, "--version"], cwd=tmp_path)
+    with open_sqlite_connection(service.db_path) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            assert sampled.wait(2)
+            time.sleep(0.5)
+            assert backend.terminated == []
+        finally:
+            connection.rollback()
+            service.complete(managed, exit_code=0)
+
+
 def test_capture_initialization_failure_releases_the_tree_and_lease(tmp_path, monkeypatch):
     import io
 
@@ -336,6 +366,30 @@ def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path) -> None:
     data = Path(artifact["path"]).read_bytes()
     assert data == b"x" * count
     assert hashlib.sha256(data).hexdigest() == artifact["hash"]
+    assert result["stdoutSha256"] == artifact["hash"]
+    import json
+
+    from local_control_center.agents.cli_sessions import CliSessionStore
+
+    with open_sqlite_connection(default_db_path()) as connection:
+        session = CliSessionStore(connection).record_result(
+            runtime="test",
+            executable=sys.executable,
+            workspace_id="test",
+            command=[sys.executable],
+            env_policy={},
+            status="completed",
+            stdout=result["stdout"],
+            process_evidence=result,
+        )
+        logs = connection.execute(
+            "SELECT path FROM artifacts WHERE id=?", (session["logs_artifact_id"],)
+        ).fetchone()
+        recorded = json.loads(Path(logs["path"]).read_text(encoding="utf-8"))["processEvidence"]
+        assert recorded["managedProcessId"] == result["managedProcessId"]
+        assert recorded["durationMs"] >= 0
+        assert recorded["returnCode"] == 0
+        assert session["stdout_artifact_id"] == result["stdoutArtifactId"]
 
 
 def test_cli_session_command_logs_never_store_the_prompt(tmp_path):

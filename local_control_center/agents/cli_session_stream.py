@@ -568,6 +568,15 @@ def _run(
                 session_id=session_id,
             )
         )
+        complete_managed_process(
+            process,
+            exit_code=return_code,
+            timed_out=timed_out,
+            cancelled=handle.cancel.is_set(),
+            termination_reason=(
+                "cancelled_by_operator" if handle.cancel.is_set() else "timeout" if timed_out else ""
+            ),
+        )
         finish = _finish(
             connection,
             session_id,
@@ -588,15 +597,6 @@ def _run(
             broker_summary=broker_summary,
             stdout="".join(stdout_acc),
             stderr="".join(stderr_acc),
-        )
-        complete_managed_process(
-            process,
-            exit_code=return_code,
-            timed_out=timed_out,
-            cancelled=handle.cancel.is_set(),
-            termination_reason=(
-                "cancelled_by_operator" if handle.cancel.is_set() else "timeout" if timed_out else ""
-            ),
         )
         payload: dict[str, Any] = {
             "status": status,
@@ -620,6 +620,17 @@ def _run(
     except Exception as error:
         reason = str(error)
         try:
+            if process is not None and managed_process_for(process) is not None:
+                terminate_managed_process(process, reason="session_failed", grace_seconds=0)
+                reader_stop.set()
+                for reader in readers:
+                    reader.join(timeout=5)
+                complete_managed_process(
+                    process,
+                    exit_code=process.poll(),
+                    cancelled=handle.cancel.is_set(),
+                    termination_reason="session_failed",
+                )
             finish = _finish(
                 connection,
                 session_id,
@@ -781,8 +792,22 @@ def _finish(
     stdout: str = "",
     stderr: str = "",
 ) -> dict[str, Any]:
-    stdout_artifact_id = _write_log_artifact(connection, project_id, root, session_id, "stdout", stdout)
-    stderr_artifact_id = _write_log_artifact(connection, project_id, root, session_id, "stderr", stderr)
+    from local_control_center.process_supervision.evidence import process_evidence
+    from local_control_center.process_supervision.repository import _record
+
+    process_row = connection.execute(
+        "SELECT * FROM managed_processes WHERE execution_id=? ORDER BY started_at DESC LIMIT 1", (session_id,)
+    ).fetchone()
+    evidence = (
+        process_evidence(connection, _record(process_row)) if process_row else {"status": "unavailable"}
+    )
+    broker_summary = {**broker_summary, "processEvidence": evidence}
+    stdout_artifact_id = evidence.get("stdoutArtifactId") or _write_log_artifact(
+        connection, project_id, root, session_id, "stdout", stdout
+    )
+    stderr_artifact_id = evidence.get("stderrArtifactId") or _write_log_artifact(
+        connection, project_id, root, session_id, "stderr", stderr
+    )
     diff_artifact_id = _write_diff_artifact(connection, project_id, root, session_id, diff_summary)
     logs_artifact_id = _write_runtime_log_artifact(
         connection=connection,
@@ -1197,6 +1222,7 @@ def _write_runtime_log_artifact(
                 "stderrArtifactId": stderr_artifact_id,
                 "diffArtifactId": diff_artifact_id,
                 "toolBroker": broker_summary,
+                "processEvidence": broker_summary.get("processEvidence", {}),
             }
         )
     )

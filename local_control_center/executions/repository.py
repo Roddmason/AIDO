@@ -75,6 +75,13 @@ class ExecutionRepository:
         status = row["status"]
         if status == "queued" and row["job_status"] == "resource_wait":
             status = "resource_wait"
+        reason = row["reason"]
+        if status == "resource_wait":
+            decision = self.connection.execute(
+                "SELECT reason FROM resource_admission_decisions WHERE job_id=? ORDER BY rowid DESC LIMIT 1",
+                (row["job_id"],),
+            ).fetchone()
+            reason = decision["reason"] if decision else reason
         return {
             "executionId": row["id"],
             "jobId": row["job_id"],
@@ -86,10 +93,19 @@ class ExecutionRepository:
             "startedAt": row["started_at"],
             "finishedAt": row["finished_at"],
             "cancelRequestedAt": row["cancel_requested_at"],
-            "reason": row["reason"],
+            "reason": reason,
+            "canCancel": status not in TERMINAL_STATUSES and status != "cancel_requested",
             "result": json_loads(row["result_json"]) if row["result_json"] is not None else None,
             "resultStatusCode": row["result_status_code"],
         }
+
+    def list_recent(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Lista lecturas de estado efectivo sin invocar trabajo productivo."""
+        rows = self.connection.execute(
+            "SELECT id FROM operational_executions ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+        return [self.get(row["id"]) for row in rows]
 
     def attach_claimed_job(
         self, job: dict, *, workload_class: str, cwd: str, owner_id: str, fencing_token: int

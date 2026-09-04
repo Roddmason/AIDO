@@ -81,6 +81,8 @@ export type CliSessionResponse = { "cliSession": CliSessionRecord };
 export type CliSessionStartRequest = { "agentId"?: null | string; "argv": Array<string>; "branchName"?: null | string; "envPolicy"?: JsonObject | null; "runtime"?: null | string; "timeoutSeconds"?: null | number; "workspaceId": string; "worktreeId"?: null | string };
 export type CliSessionStartResponse = { "id": string; "startedAt": string; "status": string };
 export type CliSessionsListResponse = { "cliSessions": Array<CliSessionRecord> };
+export type CodexCompatibilityResponse = { "binaryFingerprint"?: null | string; "blockingReasons": Array<string>; "contractFingerprint"?: null | string; "lastCheckedAt"?: null | string; "missingFlags"?: Array<string>; "requiredFlags"?: Array<string>; "status": "incompatible" | "validation_required" | "compatible"; "version"?: null | string };
+export type CodexSmokeRequest = { "approved"?: boolean; "reason": string; "workspaceId": string };
 export type CostUsageRecord = { "amountUsd": number; "createdAt": string; "id": string; "metadata": JsonObject; "projectId": string; "scope": string };
 export type CredentialAuditRecord = { "action": string; "actor": string; "backendKind": string; "createdAt": string; "credentialId": string; "detail": string; "id": string; "name": string; "outcome": string };
 export type CredentialAuditResponse = { "audit": Array<CredentialAuditRecord> };
@@ -115,25 +117,31 @@ export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
 export type DockerSandboxStatus = { "available": boolean; "defaultNetwork": string; "executable"?: null | string; "fallback": string; "hostMount": string; "mode": string; "policy": SandboxProfileRecord; "required": boolean; "writes": string };
 export type EmbeddingResponse = { "data": Array<EmbeddingVector>; "model": string; "providerId": string; "usage"?: CapabilityUsage | null };
 export type EmbeddingVector = { "embedding": Array<number>; "index": number; "object"?: string };
+export type EmergencyStopResponse = { "managedProcessIds": Array<string>; "status"?: string };
 export type EpicRecord = { "createdAt": string; "description"?: null | string; "id": string; "metadata": JsonObject; "owner"?: null | string; "priority": string; "projectId": string; "status": string; "title": string; "updatedAt": string; "version": number };
 export type EventRecord = { "createdAt": string; "id": string; "jobId"?: null | string; "payload": JsonObject; "projectId"?: null | string; "severity"?: string; "type": string };
-export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<JsonValue>; "actualCostUsd"?: null | number; "agentId"?: null | string; "agentRunId"?: null | string; "approvals"?: Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts"?: Array<JsonObject>; "diffRefs"?: Array<JsonValue>; "diffSummary"?: JsonObject; "estimatedCostUsd"?: null | number; "evidenceSource"?: "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes"?: JsonObject; "jobId"?: null | string; "latencyMs"?: null | number; "logs"?: Array<JsonValue>; "model"?: null | string; "modelCalls"?: Array<JsonObject>; "policyDecisions"?: Array<JsonObject>; "projectId": string; "providerId"?: null | string; "qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason" | "backlog_generated" | "brief_ready" | "blocked_pending_decisions"; "rework"?: boolean | null; "riskNotes"?: Array<JsonValue>; "role"?: null | string; "runtimeHealth"?: JsonObject; "runtimeId"?: null | string; "runtimeType"?: null | string; "screenshotRefs"?: Array<JsonValue>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "toolCalls"?: Array<JsonObject>; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string; "workspaceId"?: null | string };
+export type EvidenceCreateRequest = { "acceptanceChecklist"?: Array<JsonValue>; "actualCostUsd"?: null | number; "agentId"?: null | string; "agentRunId"?: null | string; "approvals"?: Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts"?: Array<JsonObject>; "diffRefs"?: Array<JsonValue>; "diffSummary"?: JsonObject; "estimatedCostUsd"?: null | number; "evidenceSource"?: "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes"?: Record<string, string>; "jobId"?: null | string; "latencyMs"?: null | number; "logs"?: Array<JsonValue>; "model"?: null | string; "modelCalls"?: Array<JsonObject>; "policyDecisions"?: Array<JsonObject>; "projectId": string; "providerId"?: null | string; "qaVerdict"?: "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason" | "backlog_generated" | "brief_ready" | "blocked_pending_decisions"; "rework"?: boolean | null; "riskNotes"?: Array<JsonValue>; "role"?: null | string; "runtimeHealth"?: JsonObject; "runtimeId"?: null | string; "runtimeType"?: null | string; "screenshotRefs"?: Array<JsonValue>; "taskId"?: string; "testPlan"?: string; "testResultReports"?: Array<JsonObject>; "testResults"?: Array<JsonObject>; "toolCalls"?: Array<JsonObject>; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string; "workspaceId"?: null | string };
 export type EvidenceDetailResponse = { "artifacts": Array<ArtifactRecord>; "evidencePackage": EvidencePackageRecord; "testResultRecords": Array<TestResultRecord> };
 export type EvidenceListResponse = { "evidencePackages": Array<EvidencePackageRecord> };
-export type EvidencePackageRecord = { "acceptanceChecklist": Array<JsonValue>; "agentId"?: null | string; "agentRunId": null | string; "approvals": Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts": Array<JsonObject>; "createdAt": string; "diffRefs": Array<JsonValue>; "diffSummary": JsonObject; "evidenceSource": "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes": JsonObject; "id": string; "jobId": null | string; "logs": Array<JsonValue>; "modelCalls": Array<JsonObject>; "policyDecisions": Array<JsonObject>; "projectId": string; "qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason" | "backlog_generated" | "brief_ready" | "blocked_pending_decisions"; "riskNotes": Array<JsonValue>; "runtimeHealth": JsonObject; "runtimeId": null | string; "screenshotRefs": Array<JsonValue>; "taskId": string; "testPlan": string; "testResults": Array<JsonValue>; "toolCalls": Array<JsonObject>; "workflowRunId": null | string; "workflowStepId"?: null | string; "workspaceId": null | string };
+export type EvidencePackageRecord = { "acceptanceChecklist": Array<JsonValue>; "agentId"?: null | string; "agentRunId": null | string; "approvals": Array<JsonObject>; "artifactIds"?: Array<string>; "artifacts": Array<JsonObject>; "createdAt": string; "diffRefs": Array<JsonValue>; "diffSummary": JsonObject; "evidenceSource": "operator_attested" | "evidence_collected" | "qa_passed_by_command" | "verified_completion"; "hashes": Record<string, string>; "id": string; "jobId": null | string; "logs": Array<JsonValue>; "modelCalls": Array<JsonObject>; "policyDecisions": Array<JsonObject>; "projectId": string; "qaVerdict": "not_started" | "passed" | "failed" | "blocked" | "needs_human_review" | "evidence_collected" | "architecture_reviewed" | "devops_risk" | "devops_blocked" | "security_passed" | "security_blocked" | "skipped_with_reason" | "backlog_generated" | "brief_ready" | "blocked_pending_decisions"; "riskNotes": Array<JsonValue>; "runtimeHealth": JsonObject; "runtimeId": null | string; "screenshotRefs": Array<JsonValue>; "taskId": string; "testPlan": string; "testResults": Array<JsonValue>; "toolCalls": Array<JsonObject>; "workflowRunId": null | string; "workflowStepId"?: null | string; "workspaceId": null | string };
 export type EvidencePackageResponse = { "evidencePackage": EvidencePackageRecord };
+export type ExecutionAccepted = { "executionId": string; "jobId": string; "operation": string; "status": "queued" | "resource_wait" | "running" | "cancel_requested" | "cancelled" | "completed" | "failed" | "blocked" | "interrupted" };
+export type ExecutionEvent = { "createdAt": string; "payload": JsonObject; "seq": number; "type": string };
+export type ExecutionEventsResponse = { "events": Array<ExecutionEvent>; "executionId": string; "nextSeq": number };
+export type ExecutionResponse = { "canCancel"?: boolean; "cancelRequestedAt": null | string; "createdAt": string; "executionId": string; "finishedAt": null | string; "jobId": string; "operation": string; "projectId": null | string; "reason": string; "result"?: JsonValue; "resultStatusCode"?: null | number; "startedAt": null | string; "status": "queued" | "resource_wait" | "running" | "cancel_requested" | "cancelled" | "completed" | "failed" | "blocked" | "interrupted"; "workloadClass": string };
+export type ExecutionsResponse = { "executions": Array<ExecutionResponse> };
 export type ExpiredArtifactRecord = { "createdAt": string; "evidencePackageId"?: null | string; "expiresAt": string; "hash"?: null | string; "id": string; "kind": "generated_image" | "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact" | "git_patch" | "git_status" | "git_diff" | "security_findings" | "model_call" | "evidence_manifest" | "devops_command_report" | "devops_report" | "security_report" | "research_source" | "research_report" | "cli_stdout" | "cli_stderr" | "cli_runtime_log" | "workspace_patch_manifest" | "project_assessment" | "product_owner_manifest" | "product_owner_output" | "product_brief" | "product_backlog" | "technical_plan"; "metadata": JsonObject; "path": string; "projectId": string; "retentionStatus": string };
 export type ExternalTelemetryStatus = { "available": boolean; "enabled": boolean; "metricsEnabled": boolean; "metricsEndpoint"?: null | string; "mode": string; "reason": string; "serviceName"?: null | string; "tracesEnabled": boolean; "tracesEndpoint"?: null | string };
 export type GitBranchCreateRequest = { "base"?: null | string; "name": string };
 export type GitBranchMutationResponse = { "base"?: null | string; "branch": string; "currentBranch"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitBranchPolicyApplyRequest = { "allowProtected"?: boolean; "branchName"?: null | string; "createBranch"?: boolean; "intent": string; "selectedBase"?: string };
 export type GitBranchPolicyApplyResponse = { "created": boolean; "currentBranch"?: string; "intent": string; "policyDecisionIds"?: Array<string>; "projectId": string; "protectedBranches": Array<string>; "reason": string; "selectedBase": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "suggestedBranchName": string; "targetBranch": string; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
-export type GitBranchesResponse = { "currentBranch"?: string; "dirty"?: boolean; "localBranches"?: Array<string>; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remoteBranches"?: Array<string>; "remotes"?: Array<GitRemoteRecord>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
+export type GitBranchesResponse = { "currentBranch"?: string; "dirty"?: boolean; "localBranches"?: Array<string>; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "refreshRequired"?: boolean; "remoteBranches"?: Array<string>; "remotes"?: Array<GitRemoteRecord>; "snapshotAt"?: null | string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitCheckoutRequest = { "allowDirty"?: boolean; "branch": string };
 export type GitCheckoutResponse = { "currentBranch"?: string; "dirty"?: boolean; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "requestedBranch": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitCommandTraceRecord = { "execution"?: string; "permissionDecisionId"?: null | string; "returnCode"?: null | number; "toolCallId": string; "toolCallStatus": string };
 export type GitCommitRecord = { "author"?: string; "authoredAt"?: string; "hash"?: string; "shortHash"?: string; "subject"?: string };
-export type GitDiffResponse = { "changedFiles"?: Array<string>; "diff": string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "root": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
+export type GitDiffResponse = { "changedFiles"?: Array<string>; "diff": string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "refreshRequired"?: boolean; "root": string; "snapshotAt"?: null | string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitGitleaksRecord = { "configured": boolean; "executable": boolean; "exitCode"?: null | number; "findingCount"?: number; "permissionDecisionId"?: null | string; "reason": string; "report"?: JsonValue | null; "reportPath"?: null | string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCallId"?: null | string };
 export type GitGitleaksScanResponse = { "deliveryBlocked": boolean; "gitleaks": GitGitleaksRecord; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitInitRequest = { "defaultBranch"?: "main" | "dev" };
@@ -144,14 +152,14 @@ export type GitRemoteMutationResponse = { "policyDecisionIds"?: Array<string>; "
 export type GitRemoteRecord = { "direction": "fetch" | "push"; "name": string; "url": string };
 export type GitRemoteTestRequest = { "allowNetwork"?: boolean };
 export type GitRemoteTestResponse = { "outputPreview"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remoteName": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "tested": boolean; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
-export type GitStatusResponse = { "changedFiles"?: Array<string>; "currentBranch"?: string; "dirty"?: boolean; "lastCommit"?: GitCommitRecord | null; "policyDecisionIds"?: Array<string>; "porcelain"?: Array<string>; "projectId": string; "reason": string; "remotes"?: Array<GitRemoteRecord>; "root": string; "stagedFiles"?: Array<string>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "untrackedFiles"?: Array<string>; "workspaceId": string; "worktrees"?: Array<GitWorktreeRecord> };
+export type GitStatusResponse = { "changedFiles"?: Array<string>; "currentBranch"?: string; "dirty"?: boolean; "lastCommit"?: GitCommitRecord | null; "policyDecisionIds"?: Array<string>; "porcelain"?: Array<string>; "projectId": string; "reason": string; "refreshRequired"?: boolean; "remotes"?: Array<GitRemoteRecord>; "root": string; "snapshotAt"?: null | string; "stagedFiles"?: Array<string>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "untrackedFiles"?: Array<string>; "workspaceId": string; "worktrees"?: Array<GitWorktreeRecord> };
 export type GitWorktreeRecord = { "bare"?: boolean; "branch"?: string; "detached"?: boolean; "head"?: string; "path": string };
 export type GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>; "nextSteps": Array<NextStepRecord>; "risks": Array<RiskRecord> };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
 export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
 export type HealthResponse = { "ok": boolean };
-export type I18nCatalog = { "defaultLanguage": string; "languages": Array<I18nLanguage>; "translations": JsonObject };
-export type I18nCatalogResponse = { "defaultLanguage": string; "languages": Array<I18nLanguage>; "translations": JsonObject };
+export type I18nCatalog = { "defaultLanguage": string; "languages": Array<I18nLanguage>; "translations": Record<string, Record<string, string>> };
+export type I18nCatalogResponse = { "defaultLanguage": string; "languages": Array<I18nLanguage>; "translations": Record<string, Record<string, string>> };
 export type I18nLanguage = { "code": string; "enabled"?: boolean; "name": string; "nativeName": string };
 export type IdeConnectionRecord = { "createdAt": string; "diagnostics": Array<JsonValue>; "editor": string; "id": string; "openFiles": Array<JsonValue>; "projectId": string; "selection": JsonObject; "status": string; "terminalContext": JsonObject; "updatedAt": string; "workspaceRoot": string };
 export type IdeConnectionResponse = { "ideConnection": IdeConnectionRecord };
@@ -184,7 +192,7 @@ export type ModelBenchmarkOutcomeCreateRequest = { "actualCostUsd"?: null | numb
 export type ModelBenchmarkOutcomeRecord = { "actualCostUsd"?: null | number; "agentId"?: null | string; "createdAt": string; "estimatedCostUsd"?: null | number; "id": string; "jobId"?: null | string; "latencyMs"?: null | number; "metadata": JsonObject; "model": string; "provenance": "operator_reported" | "automated_run" | "release_validation"; "providerId": string; "qaPass"?: boolean | null; "rework"?: boolean | null; "role"?: null | string; "runtimeType": string; "success"?: boolean | null; "taskId"?: null | string; "usageLedgerId"?: null | string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type ModelBenchmarkOutcomeResponse = { "outcome": ModelBenchmarkOutcomeRecord };
 export type ModelBenchmarkOutcomesListResponse = { "outcomes": Array<ModelBenchmarkOutcomeRecord> };
-export type ModelBenchmarkRecord = { "automatedRunTasks": number; "avgCost"?: null | number; "avgLatencyMs"?: null | number; "createdAt": string; "id": string; "insufficientData": boolean; "lastUsedAt"?: null | string; "metadata": JsonObject; "model": string; "objectiveTasksAttempted": number; "operatorReportedTasks": number; "provenanceCounts": JsonObject; "providerId": string; "qaPassRate"?: null | number; "releaseValidationTasks": number; "reworkRate"?: null | number; "role"?: null | string; "successRate"?: null | number; "tasksAttempted": number; "updatedAt": string };
+export type ModelBenchmarkRecord = { "automatedRunTasks": number; "avgCost"?: null | number; "avgLatencyMs"?: null | number; "createdAt": string; "id": string; "insufficientData": boolean; "lastUsedAt"?: null | string; "metadata": JsonObject; "model": string; "objectiveTasksAttempted": number; "operatorReportedTasks": number; "provenanceCounts": Record<string, number>; "providerId": string; "qaPassRate"?: null | number; "releaseValidationTasks": number; "reworkRate"?: null | number; "role"?: null | string; "successRate"?: null | number; "tasksAttempted": number; "updatedAt": string };
 export type ModelBenchmarksListResponse = { "benchmarks": Array<ModelBenchmarkRecord> };
 export type ModelCallRecord = { "agentRunId"?: null | string; "completionTokens": null | number; "costUsd"?: null | number; "createdAt": string; "id": string; "metadata": JsonObject; "model": string; "modelPolicyId"?: null | string; "projectId": string; "promptTokens": null | number; "provider": string; "status": "planned" | "completed" | "failed" | "blocked" | "unavailable" };
 export type ModelCallSummary = { "completionTokens": null | number; "costUsd"?: null | number; "createdAt": string; "id": string; "model": string; "promptTokens": null | number; "provider": string; "status": string };
@@ -254,7 +262,7 @@ export type PluginScanLocalResponse = { "candidates": Array<PluginScanCandidateR
 export type PluginSkillRecord = { "contractHash": string; "createdAt": string; "id": string; "path": string; "status": string };
 export type PluginToolRecord = { "brokerTool": string; "createdAt": string; "id": string; "name": string; "policy": JsonValue; "policyRequired": boolean; "schema": JsonObject; "status": string };
 export type PluginValidationResponse = { "issues": Array<string>; "plugin"?: PluginRecord | null; "valid": boolean };
-export type PluginVersionRecord = { "agents": Array<PluginAgentRecord>; "checksums": JsonObject; "entrypoints": JsonObject; "id": string; "installedAt": string; "manifest": JsonObject; "manifestHash": string; "manifestPath": string; "minAidoVersion": string; "packageHash": string; "permissions": Array<PluginPermissionRecord>; "pluginId": string; "skills": Array<PluginSkillRecord>; "status": string; "tools": Array<PluginToolRecord>; "validatedAt": string; "version": string };
+export type PluginVersionRecord = { "agents": Array<PluginAgentRecord>; "checksums": Record<string, string>; "entrypoints": JsonObject; "id": string; "installedAt": string; "manifest": JsonObject; "manifestHash": string; "manifestPath": string; "minAidoVersion": string; "packageHash": string; "permissions": Array<PluginPermissionRecord>; "pluginId": string; "skills": Array<PluginSkillRecord>; "status": string; "tools": Array<PluginToolRecord>; "validatedAt": string; "version": string };
 export type PluginsListResponse = { "plugins": Array<PluginRecord> };
 export type PoliciesListResponse = { "permissionDecisions": Array<PermissionDecisionRecord>; "permissionGrants": Array<ApprovalGrantRecord>; "policies": Array<PolicyRecord>; "policyRevisions": Array<PolicyRevisionRecord>; "sandboxProfiles": Array<SandboxProfileRecord> };
 export type PolicyEvaluateRequest = { "agentId"?: null | string; "command"?: null | string; "deploymentTarget"?: null | string; "environment"?: null | string; "gitOperation"?: null | string; "networkRequired"?: boolean | null; "operation"?: null | string; "path"?: null | string; "permissionProfile"?: null | string; "projectId"?: null | string; "riskLevel"?: "low" | "medium" | "high" | "critical" | null; "role"?: null | string; "secretsRequired"?: boolean | null; "tool"?: null | string; "workspaceId"?: null | string };
@@ -265,6 +273,8 @@ export type PricingSnapshotCreateRequest = { "applyToCatalog"?: boolean; "cached
 export type PricingSnapshotRecord = { "applyToCatalog": boolean; "cachedInputPricePerMtok"?: null | number; "createdAt": string; "effectiveAt"?: null | string; "freeTier": boolean; "id": string; "inputPricePerMtok"?: null | number; "metadata": JsonObject; "model": string; "outputPricePerMtok"?: null | number; "providerId": string; "reasoningPricePerMtok"?: null | number; "sourceRef": string };
 export type PricingSnapshotResponse = { "pricingSnapshot": PricingSnapshotRecord };
 export type PricingSnapshotsListResponse = { "pricingSnapshots": Array<PricingSnapshotRecord> };
+export type ProcessRecordResponse = { "cancelRequestedAt": null | string; "cancelled": boolean; "commandFingerprint": string; "cpuTimeSeconds": number; "executionId": string; "exitCode": null | number; "finishedAt": null | string; "managedProcessId": string; "peakMemoryBytes": number; "releasedAt": null | string; "resourceLeaseId": null | string; "rootPid": number; "startedAt": string; "stderrArtifactId": null | string; "stdoutArtifactId": null | string; "terminationReason": string; "timedOut": boolean; "workloadClass": string };
+export type ProcessesResponse = { "processes": Array<ProcessRecordResponse> };
 export type ProductBriefRecord = { "createdAt": string; "goals": Array<JsonValue>; "id": string; "initiativeId"?: null | string; "outOfScope"?: null | string; "problemStatement"?: null | string; "projectId": string; "scope"?: null | string; "status": string; "successMetrics": Array<JsonValue>; "summary"?: null | string; "targetUsers": Array<JsonValue>; "title": string; "updatedAt": string; "version": number };
 export type ProductDecisionRecord = { "briefId"?: null | string; "consequences": Array<JsonValue>; "context"?: null | string; "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "decision"?: null | string; "id": string; "initiativeId"?: null | string; "linkedAssumptionIds": Array<JsonValue>; "linkedQuestionIds": Array<JsonValue>; "metadata": JsonObject; "projectId": string; "rationale"?: null | string; "status": string; "supersedesId"?: null | string; "title": string; "updatedAt": string; "version": number };
 export type ProductLoopAidoDecideRequest = { "actor"?: null | string; "reason"?: null | string };
@@ -361,7 +371,7 @@ export type ResolvedSetting = { "editableScopes": Array<string>; "enum"?: Array<
 export type ResourceLease = { "acquiredAt": string; "cpuLimitPercent": number; "executionId": string; "expiresAt": string; "gpuRequired": boolean; "heartbeatAt": string; "id": string; "memoryLimitBytes": number; "ownerId": string; "processLimit": number; "releaseReason"?: string; "releasedAt"?: null | string; "workloadClass": "control_plane" | "remote_llm_light" | "agent_cli" | "qa_light" | "browser_test" | "build_heavy" | "unreal_editor" | "unreal_cook" | "local_gpu_model" };
 export type ResourceLeaseResponse = { "lease": ResourceLease };
 export type ResourceSampleResponse = { "snapshot": ResourceSnapshot };
-export type ResourceSnapshot = { "activeAidoProcessCount": number; "activeWorkloads"?: Array<string>; "availableMemoryBytes": number; "commitLimitBytes"?: null | number; "committedMemoryBytes"?: null | number; "cpuPercent1s": number; "cpuPercent30s": number; "diskFreeBytes": JsonObject; "diskReadBytesPerSecond": number; "diskWriteBytesPerSecond": number; "dockerRunning": boolean; "gpuMemoryFreeBytes"?: null | number; "gpuMemoryUsedBytes"?: null | number; "gpuUtilizationPercent"?: null | number; "logicalProcessors": number; "ollamaRunning": boolean; "sampledAt": string; "swapOrPagefileUsedBytes": number; "totalMemoryBytes": number; "unrealEditorRunning": boolean; "wslRunning": boolean };
+export type ResourceSnapshot = { "activeAidoProcessCount": number; "activeWorkloads"?: Array<string>; "availableMemoryBytes": number; "commitLimitBytes"?: null | number; "committedMemoryBytes"?: null | number; "cpuPercent1s": number; "cpuPercent30s": number; "diskFreeBytes": Record<string, number>; "diskReadBytesPerSecond": number; "diskWriteBytesPerSecond": number; "dockerRunning": boolean; "gpuMemoryFreeBytes"?: null | number; "gpuMemoryUsedBytes"?: null | number; "gpuUtilizationPercent"?: null | number; "logicalProcessors": number; "ollamaRunning": boolean; "sampledAt": string; "swapOrPagefileUsedBytes": number; "totalMemoryBytes": number; "unrealEditorRunning": boolean; "wslRunning": boolean };
 export type ResourceStatusResponse = { "activeLeases"?: Array<ResourceLease>; "latestSample"?: ResourceUsageSample | null; "resourceWaitCount": number };
 export type ResourceUsageSample = { "id": string; "sampledAt": string; "snapshot": ResourceSnapshot };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
@@ -384,12 +394,12 @@ export type RolePolicyRecord = { "allowApi": boolean; "allowCli": boolean; "allo
 export type RolePolicyResponse = { "rolePolicy": RolePolicyRecord };
 export type RolePolicyUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowLocal"?: boolean; "allowRemote"?: boolean; "allowUnknownCost"?: boolean; "blocked"?: Array<JsonObject>; "escalation"?: Array<JsonObject>; "fallback"?: Array<JsonObject>; "id"?: null | string; "maxCostPerTaskUsd"?: number; "maxTokensPerRun"?: number; "preferred"?: Array<JsonObject>; "requireApprovalForUnknownCost"?: boolean; "requiresApprovalForReasoningMax"?: boolean; "requiresApprovalOverUsd"?: null | number; "role": string; "routingProfileId"?: null | string };
 export type RouteExecuteResponse = { "content"?: null | string; "routing": RoutingPreviewResponse; "usage"?: UsageLedgerRecord | null };
-export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "freeTier"?: boolean; "model": string; "priceKnown"?: boolean; "pricingSource"?: string; "pricingStaleness"?: string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": JsonObject };
+export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "freeTier"?: boolean; "model": string; "priceKnown"?: boolean; "pricingSource"?: string; "pricingStaleness"?: string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": Record<string, number> };
 export type RoutingDecisionRecord = { "agentId"?: null | string; "candidates": Array<JsonObject>; "createdAt": string; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens"?: null | number; "id": string; "jobId"?: null | string; "mode": string; "policyResult": JsonObject; "rejected": Array<JsonObject>; "role": string; "scoreBreakdown": JsonObject; "selectedEffort"?: null | string; "selectedModel"?: null | string; "selectedProvider"?: null | string; "selectedRuntime"?: null | string; "taskId"?: null | string; "taskType": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type RoutingDecisionsListResponse = { "routingDecisions": Array<RoutingDecisionRecord> };
 export type RoutingPolicyResult = { "allowUnknownCost"?: boolean; "freeTierOnly"?: boolean; "maxCostPerTaskUsd"?: null | number; "requireApprovalForUnknownCost"?: boolean; "requiresApproval": boolean; "rolePolicyId": string; "unknownCostPolicy"?: JsonObject };
 export type RoutingPreviewRequest = { "agentId"?: null | string; "allowFallback"?: boolean; "budgetRemainingUsd"?: null | number; "contextTokensEstimate"?: number; "jobId"?: null | string; "manualModel"?: null | string; "manualProvider"?: null | string; "manualRuntime"?: null | string; "mode"?: string; "privacyLevel"?: string; "projectId"?: null | string; "requiresCodeEdit"?: boolean; "requiresJson"?: boolean; "requiresReasoning"?: boolean; "requiresSearch"?: boolean; "requiresTools"?: boolean; "requiresVision"?: boolean; "riskLevel"?: string; "role"?: string; "taskId"?: null | string; "taskType"?: string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
-export type RoutingPreviewResponse = { "budgetResult"?: JsonObject; "candidates": Array<RoutingCandidateRecord>; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens": number; "policyResult": RoutingPolicyResult; "quotaResult"?: JsonObject; "rejected": Array<RoutingRejectedRecord>; "scoreBreakdown": JsonObject; "selected": RoutingSelection | null };
+export type RoutingPreviewResponse = { "budgetResult"?: JsonObject; "candidates": Array<RoutingCandidateRecord>; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens": number; "policyResult": RoutingPolicyResult; "quotaResult"?: JsonObject; "rejected": Array<RoutingRejectedRecord>; "scoreBreakdown": Record<string, number>; "selected": RoutingSelection | null };
 export type RoutingProfilePatchRequest = { "enabled"?: boolean | null; "mode"?: null | string; "name"?: null | string; "objective"?: null | string; "rules"?: JsonObject | null };
 export type RoutingProfileRecord = { "createdAt": string; "enabled": boolean; "id": string; "mode": string; "name": string; "objective": string; "rules": JsonObject; "updatedAt": string };
 export type RoutingProfileResponse = { "routingProfile": RoutingProfileRecord };
@@ -404,7 +414,7 @@ export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displ
 export type RuntimeProviderConfigurationResponse = { "providers": Array<RuntimeProviderConfigurationRecord> };
 export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fingerprint"?: null | string; "key": string; "name": string; "required": boolean; "secret": boolean };
 export type RuntimeProviderSafety = { "network"?: "blocked_by_default" | "runtime_policy_gated" | "remote_calls_disabled_by_default" | "local_only"; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
-export type RuntimeProviderStatus = { "authenticated"?: boolean; "available": boolean; "blockerType"?: null | string; "canEditWorkspace"?: boolean; "canRunPrompt"?: boolean; "canRunVersionCheck"?: boolean; "capabilities"?: Array<string>; "configurationWarnings"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "executable": boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "id": string; "installed"?: boolean; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastError"?: string; "productOwnerExecutable"?: boolean; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string; "versionVerified"?: boolean };
+export type RuntimeProviderStatus = { "authenticated"?: boolean; "available": boolean; "blockerType"?: null | string; "blockingReasons"?: Array<string>; "canEditWorkspace"?: boolean; "canRunPrompt"?: boolean; "canRunVersionCheck"?: boolean; "capabilities"?: Array<string>; "compatibility"?: JsonObject | null; "configurationWarnings"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "effectiveStatus"?: string; "executable": boolean; "globallyEnabled"?: boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "healthy"?: boolean; "id": string; "installed"?: boolean; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastCheckedAt"?: null | string; "lastError"?: string; "policyAllowed"?: boolean; "productOwnerExecutable"?: boolean; "projectEnabled"?: boolean; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "resourceAdmissible"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string; "versionVerified"?: boolean };
 export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "configurationWarnings"?: Array<string>; "developerAgent": DeveloperAgentStatus; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual"> };
 export type SandboxProfileMutationResponse = { "policyRevision"?: PolicyRevisionRecord | null; "sandboxProfile": SandboxProfileRecord };
 export type SandboxProfilePatchRequest = { "allowedImages"?: Array<string> | null; "allowedNetworks"?: Array<string> | null; "cpus"?: null | string; "defaultNetwork"?: null | string; "memory"?: null | string; "name"?: null | string; "reason": string; "status"?: "active" | "disabled" | "revoked" | null; "timeoutSeconds"?: null | number };
@@ -439,6 +449,7 @@ export type SkillsSyncRequest = { "skillsPath"?: string };
 export type SkillsSyncResponse = { "skills": Array<SkillRecord>; "synced": number };
 export type SqliteCheckpointResponse = { "busy": number; "checkpointedFrames": number; "durationMs": number; "logFrames": number; "mode": string; "walBytes": number };
 export type SqliteDiagnosticsResponse = { "busyTimeoutMs": number; "databaseBytes": number; "journalMode": string; "pageSizeBytes": number; "sharedMemoryBytes": number; "sqliteVersion": string; "walAutoCheckpointPages": number; "walBytes": number };
+export type StopReasonRequest = { "reason": string };
 export type StoryDependencyRecord = { "createdAt": string; "dependsOnStoryId": string; "id": string; "metadata": JsonObject; "projectId": string; "reason": string; "storyId": string; "type": string };
 export type StorySpecAcceptanceCriterion = { "criterion": string; "id": string; "sequence": number; "status": string };
 export type StorySpecDependency = { "role": string; "taskId": string };
@@ -588,6 +599,10 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "ingest_artifact_api_v1_evidence__evidence_id__artifacts_post", "path": "/api/v1/evidence/{evidence_id}/artifacts", "summary": "Ingest Artifact"},
 	{"method": "GET", "operationId": "get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get", "path": "/api/v1/evidence/{evidence_id}/artifacts/{artifact_id}", "summary": "Get Artifact"},
 	{"method": "GET", "operationId": "export_evidence_report_api_v1_evidence__evidence_id__report_get", "path": "/api/v1/evidence/{evidence_id}/report", "summary": "Export Evidence Report"},
+	{"method": "GET", "operationId": "list_executions_api_v1_executions_get", "path": "/api/v1/executions", "summary": "List Executions"},
+	{"method": "GET", "operationId": "execution_api_v1_executions__execution_id__get", "path": "/api/v1/executions/{execution_id}", "summary": "Execution"},
+	{"method": "POST", "operationId": "cancel_api_v1_executions__execution_id__cancel_post", "path": "/api/v1/executions/{execution_id}/cancel", "summary": "Cancel"},
+	{"method": "GET", "operationId": "events_api_v1_executions__execution_id__events_get", "path": "/api/v1/executions/{execution_id}/events", "summary": "Events"},
 	{"method": "GET", "operationId": "governance_api_v1_governance_get", "path": "/api/v1/governance", "summary": "Governance"},
 	{"method": "GET", "operationId": "get_i18n_catalog_api_v1_i18n_catalog_get", "path": "/api/v1/i18n/catalog", "summary": "Get I18N Catalog"},
 	{"method": "PUT", "operationId": "put_i18n_catalog_api_v1_i18n_catalog_put", "path": "/api/v1/i18n/catalog", "summary": "Put I18N Catalog"},
@@ -625,6 +640,9 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_budget_rule_api_v1_model_gateway_budget_rules_post", "path": "/api/v1/model-gateway/budget-rules", "summary": "Create Budget Rule"},
 	{"method": "PATCH", "operationId": "patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch", "path": "/api/v1/model-gateway/budget-rules/{rule_id}", "summary": "Patch Budget Rule"},
 	{"method": "GET", "operationId": "list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get", "path": "/api/v1/model-gateway/cli-runtimes", "summary": "List Cli Runtimes"},
+	{"method": "POST", "operationId": "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/capabilities/probe", "summary": "Codex Capabilities"},
+	{"method": "GET", "operationId": "codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/compatibility", "summary": "Codex Compatibility"},
+	{"method": "POST", "operationId": "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/compatibility/smoke", "summary": "Codex Smoke"},
 	{"method": "POST", "operationId": "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post", "path": "/api/v1/model-gateway/cli-runtimes/{runtime_id}/detect", "summary": "Detect Cli Runtime"},
 	{"method": "POST", "operationId": "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post", "path": "/api/v1/model-gateway/cli-runtimes/{runtime_id}/health-check", "summary": "Health Cli Runtime"},
 	{"method": "GET", "operationId": "list_cli_sessions_api_v1_model_gateway_cli_sessions_get", "path": "/api/v1/model-gateway/cli-sessions", "summary": "List Cli Sessions"},
@@ -672,6 +690,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
 	{"method": "GET", "operationId": "database_status_api_v1_operations_database_get", "path": "/api/v1/operations/database", "summary": "Database Status"},
 	{"method": "POST", "operationId": "checkpoint_database_api_v1_operations_database_checkpoint_post", "path": "/api/v1/operations/database/checkpoint", "summary": "Checkpoint Database"},
+	{"method": "GET", "operationId": "processes_api_v1_operations_processes_get", "path": "/api/v1/operations/processes", "summary": "Processes"},
+	{"method": "POST", "operationId": "cancel_api_v1_operations_processes__process_id__cancel_post", "path": "/api/v1/operations/processes/{process_id}/cancel", "summary": "Cancel"},
 	{"method": "GET", "operationId": "resource_status_api_v1_operations_resources_get", "path": "/api/v1/operations/resources", "summary": "Resource Status"},
 	{"method": "POST", "operationId": "release_lease_api_v1_operations_resources_leases__lease_id__release_post", "path": "/api/v1/operations/resources/leases/{lease_id}/release", "summary": "Release Lease"},
 	{"method": "POST", "operationId": "sample_resources_api_v1_operations_resources_sample_post", "path": "/api/v1/operations/resources/sample", "summary": "Sample Resources"},
@@ -705,6 +725,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "git_diff_api_v1_projects__project_id__git_diff_get", "path": "/api/v1/projects/{project_id}/git/diff", "summary": "Git Diff"},
 	{"method": "POST", "operationId": "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post", "path": "/api/v1/projects/{project_id}/git/gitleaks/scan", "summary": "Git Gitleaks Scan"},
 	{"method": "POST", "operationId": "init_git_repository_api_v1_projects__project_id__git_init_post", "path": "/api/v1/projects/{project_id}/git/init", "summary": "Init Git Repository"},
+	{"method": "POST", "operationId": "refresh_git_api_v1_projects__project_id__git_refresh_post", "path": "/api/v1/projects/{project_id}/git/refresh", "summary": "Refresh Git"},
 	{"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
 	{"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	{"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
@@ -771,6 +792,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	{"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
 	{"method": "POST", "operationId": "worker_drain_api_v1_workers_drain_post", "path": "/api/v1/workers/drain", "summary": "Worker Drain"},
+	{"method": "POST", "operationId": "emergency_stop_api_v1_workers_emergency_stop_post", "path": "/api/v1/workers/emergency-stop", "summary": "Emergency Stop"},
 	{"method": "POST", "operationId": "worker_pause_api_v1_workers_pause_post", "path": "/api/v1/workers/pause", "summary": "Worker Pause"},
 	{"method": "POST", "operationId": "worker_resume_api_v1_workers_resume_post", "path": "/api/v1/workers/resume", "summary": "Worker Resume"},
 	{"method": "POST", "operationId": "worker_run_once_api_v1_workers_run_once_post", "path": "/api/v1/workers/run-once", "summary": "Worker Run Once"},
@@ -825,6 +847,8 @@ export type OperationRequestBodies = {
 	"architect_agent_status_api_v1_agents_architect_status_get": never,
 	"archive_thread_api_v1_threads__thread_id__archive_post": ThreadArchiveRequest,
 	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveRequest,
+	"cancel_api_v1_executions__execution_id__cancel_post": StopReasonRequest,
+	"cancel_api_v1_operations_processes__process_id__cancel_post": StopReasonRequest,
 	"cancel_execution_api_v1_threads__thread_id__cancel_post": ThreadCancelRequest | null,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": OptionalReasonRequest,
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": unknown,
@@ -832,6 +856,9 @@ export type OperationRequestBodies = {
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutRequest,
 	"checkpoint_database_api_v1_operations_database_checkpoint_post": unknown,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
+	"codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": unknown,
+	"codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get": never,
+	"codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": CodexSmokeRequest,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest,
 	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountFromCatalogRequest,
 	"create_agent_run_api_v1_agent_runs_post": AgentRunCreateRequest,
@@ -871,17 +898,20 @@ export type OperationRequestBodies = {
 	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": unknown,
 	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryRequest,
 	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": unknown,
+	"emergency_stop_api_v1_workers_emergency_stop_post": StopReasonRequest,
 	"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventEmitRequest,
 	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventEmitRequest,
 	"enable_plugin_api_v1_plugins__plugin_id__enable_post": unknown,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluateRequest,
 	"events_api_v1_events_get": never,
+	"events_api_v1_executions__execution_id__events_get": never,
 	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": AIExecutionPlan,
 	"execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": ProviderEmbeddingRequest,
 	"execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": ProviderImageEditingRequest,
 	"execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": ProviderImageGenerationRequest,
 	"execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": ProviderRerankRequest,
 	"execute_remediation_api_v1_remediations__remediation_id__execute_post": RemediationExecuteRequest | null,
+	"execution_api_v1_executions__execution_id__get": never,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": never,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": never,
@@ -926,6 +956,7 @@ export type OperationRequestBodies = {
 	"list_credentials_api_v1_credentials_get": never,
 	"list_endpoints_api_v1_ollama_endpoints_get": never,
 	"list_evidence_api_v1_evidence_get": never,
+	"list_executions_api_v1_executions_get": never,
 	"list_findings_api_v1_projects__project_id__findings_get": never,
 	"list_ide_connections_api_v1_ide_connections_get": never,
 	"list_integrations_api_v1_integrations_get": never,
@@ -970,6 +1001,7 @@ export type OperationRequestBodies = {
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanRequest,
 	"post_message_api_v1_threads__thread_id__messages_post": ThreadMessageRequest,
 	"post_note_api_v1_threads__thread_id__notes_post": ThreadNoteRequest,
+	"processes_api_v1_operations_processes_get": never,
 	"product_owner_agent_status_api_v1_agents_product_owner_status_get": never,
 	"project_functionality_api_v1_projects__project_id__functionality_get": never,
 	"project_templates_api_v1_project_templates_get": never,
@@ -987,6 +1019,7 @@ export type OperationRequestBodies = {
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookRequest,
 	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonRequest,
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceRequest,
+	"refresh_git_api_v1_projects__project_id__git_refresh_post": unknown,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": unknown,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": unknown,
@@ -1057,52 +1090,57 @@ export type OperationRequestBodies = {
 };
 
 export type OperationResponseBodies = {
-	"add_git_remote_api_v1_projects__project_id__git_remotes_post": GitRemoteMutationResponse,
-	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceResponse,
+	"add_git_remote_api_v1_projects__project_id__git_remotes_post": ExecutionAccepted,
+	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": ExecutionAccepted,
 	"agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put": AgentProfileResponse,
 	"agents_api_v1_agents_get": AgentsListResponse,
-	"aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": ProductLoopStateResponse,
-	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
+	"aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": ExecutionAccepted,
+	"allocate_workspace_api_v1_workspaces_post": ExecutionAccepted,
 	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
-	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": GitBranchPolicyApplyResponse,
-	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackApplyResponse,
+	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": ExecutionAccepted,
+	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ExecutionAccepted,
 	"approvals_api_v1_approvals_get": ApprovalsListResponse,
 	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
-	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": IssueToPatchResponse,
-	"approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": IssueToPrResponse,
+	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": ExecutionAccepted,
+	"approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": ExecutionAccepted,
 	"approve_job_api_v1_jobs__job_id__approve_post": JobMutationResponse,
-	"approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": ProductLoopStateResponse,
-	"approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": ProductLoopStateResponse,
+	"approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": ExecutionAccepted,
+	"approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": ExecutionAccepted,
 	"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse,
 	"archive_thread_api_v1_threads__thread_id__archive_post": ThreadArchiveResponse,
-	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
+	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": ExecutionAccepted,
+	"cancel_api_v1_executions__execution_id__cancel_post": ExecutionResponse,
+	"cancel_api_v1_operations_processes__process_id__cancel_post": ProcessRecordResponse,
 	"cancel_execution_api_v1_threads__thread_id__cancel_post": ThreadCancelResponse,
 	"cancel_job_api_v1_jobs__job_id__cancel_post": JobMutationResponse,
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": CliSessionCancelResponse,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
-	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutResponse,
+	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": ExecutionAccepted,
 	"checkpoint_database_api_v1_operations_database_checkpoint_post": SqliteCheckpointResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
+	"codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": ExecutionAccepted,
+	"codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get": CodexCompatibilityResponse,
+	"codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": ExecutionAccepted,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse,
 	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountResponse,
-	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
+	"create_agent_run_api_v1_agent_runs_post": ExecutionAccepted,
 	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
 	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleResponse,
 	"create_credential_api_v1_credentials_post": CredentialResponse,
 	"create_endpoint_api_v1_ollama_endpoints_post": OllamaEndpointResponse,
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
-	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchMutationResponse,
+	"create_git_branch_api_v1_projects__project_id__git_branches_post": ExecutionAccepted,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
 	"create_memory_api_v1_memory_post": MemoryResponse,
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogResponse,
 	"create_next_step_api_v1_next_steps_post": NextStepResponse,
 	"create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post": PricingSnapshotResponse,
-	"create_project_api_v1_projects_post": ProjectResponse,
+	"create_project_api_v1_projects_post": ExecutionAccepted,
 	"create_provider_api_v1_model_gateway_providers_post": ProviderAccountResponse,
 	"create_provider_limit_api_v1_model_gateway_provider_limits_post": ProviderLimitResponse,
-	"create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": IssueToPrResponse,
-	"create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": IssueToPatchResponse,
+	"create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": ExecutionAccepted,
+	"create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": ExecutionAccepted,
 	"create_risk_api_v1_risks_post": RiskResponse,
 	"create_role_policy_api_v1_model_gateway_role_policies_post": RolePolicyResponse,
 	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileResponse,
@@ -1115,24 +1153,27 @@ export type OperationResponseBodies = {
 	"delete_setting_api_v1_settings__key__delete": never,
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
-	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
+	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": ExecutionAccepted,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
 	"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse,
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
-	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
-	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
+	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": ExecutionAccepted,
+	"discover_project_api_v1_projects_discover_post": ExecutionAccepted,
 	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": RemediationDismissResponse,
-	"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventDeliveryResponse,
-	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventDeliveryResponse,
+	"emergency_stop_api_v1_workers_emergency_stop_post": EmergencyStopResponse,
+	"emit_n8n_api_v1_integrations_n8n_emit_post": ExecutionAccepted,
+	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": ExecutionAccepted,
 	"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse,
 	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
 	"events_api_v1_events_get": never,
-	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": AIExecutionResponse,
-	"execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": ProviderEmbeddingResponse,
-	"execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": ProviderImageEditingResponse,
-	"execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": ProviderImageGenerationResponse,
-	"execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": ProviderRerankResponse,
+	"events_api_v1_executions__execution_id__events_get": ExecutionEventsResponse,
+	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": ExecutionAccepted,
+	"execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": ExecutionAccepted,
+	"execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": ExecutionAccepted,
+	"execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": ExecutionAccepted,
+	"execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": ExecutionAccepted,
 	"execute_remediation_api_v1_remediations__remediation_id__execute_post": RemediationExecuteResponse,
+	"execution_api_v1_executions__execution_id__get": ExecutionResponse,
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": ThreadSimilarityResponse,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": ThreadSimilarityResponse,
@@ -1152,15 +1193,15 @@ export type OperationResponseBodies = {
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
-	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": GitGitleaksScanResponse,
+	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": ExecutionAccepted,
 	"git_status_api_v1_projects__project_id__git_status_get": GitStatusResponse,
 	"governance_api_v1_governance_get": GovernanceResponse,
 	"handshake_api_v1_security_handshake_get": HandshakeResponse,
-	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": RuntimeHealthResponse,
-	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": OllamaEndpointHealthResponse,
+	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": ExecutionAccepted,
+	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": ExecutionAccepted,
 	"healthz_healthz_get": HealthResponse,
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
-	"init_git_repository_api_v1_projects__project_id__git_init_post": GitInitResponse,
+	"init_git_repository_api_v1_projects__project_id__git_init_post": ExecutionAccepted,
 	"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse,
 	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
 	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
@@ -1177,6 +1218,7 @@ export type OperationResponseBodies = {
 	"list_credentials_api_v1_credentials_get": CredentialsListResponse,
 	"list_endpoints_api_v1_ollama_endpoints_get": OllamaEndpointsListResponse,
 	"list_evidence_api_v1_evidence_get": EvidenceListResponse,
+	"list_executions_api_v1_executions_get": ExecutionsResponse,
 	"list_findings_api_v1_projects__project_id__findings_get": ProjectFindingsListResponse,
 	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
@@ -1221,6 +1263,273 @@ export type OperationResponseBodies = {
 	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
 	"post_message_api_v1_threads__thread_id__messages_post": ThreadMessageResultResponse,
 	"post_note_api_v1_threads__thread_id__notes_post": ThreadNoteResponse,
+	"processes_api_v1_operations_processes_get": ProcessesResponse,
+	"product_owner_agent_status_api_v1_agents_product_owner_status_get": ProductOwnerAgentStatusResponse,
+	"project_functionality_api_v1_projects__project_id__functionality_get": ProjectFunctionalityResponse,
+	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
+	"projects_api_v1_projects_get": ProjectsListResponse,
+	"promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": ExecutionAccepted,
+	"promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": ExecutionAccepted,
+	"promote_self_improvement_lesson_api_v1_self_improvement_lessons__lesson_id__promote_post": SelfImprovementLessonResponse,
+	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ExecutionAccepted,
+	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": ProviderLimitStatusResponse,
+	"providers_api_v1_providers_get": ProvidersListResponse,
+	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
+	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionResponse,
+	"put_setting_api_v1_settings__key__put": never,
+	"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookResponse,
+	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse,
+	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonResponse,
+	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceResponse,
+	"refresh_git_api_v1_projects__project_id__git_refresh_post": ExecutionAccepted,
+	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
+	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
+	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
+	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
+	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
+	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
+	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
+	"retrieval_reindex_api_v1_retrieval_reindex_post": ExecutionAccepted,
+	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchResponse,
+	"retrieval_status_api_v1_retrieval_status_get": RetrievalStatusResponse,
+	"retry_job_api_v1_jobs__job_id__retry_post": JobMutationResponse,
+	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": PermissionGrantResponse,
+	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": SandboxProfileResponse,
+	"rotate_credential_api_v1_credentials__credential_id__rotate_post": CredentialResponse,
+	"route_execute_api_v1_model_gateway_route_execute_post": ExecutionAccepted,
+	"route_preview_api_v1_model_gateway_route_preview_post": RoutingPreviewResponse,
+	"run_architect_agent_api_v1_agents_architect_runs_post": ExecutionAccepted,
+	"run_assessment_api_v1_projects__project_id__assessment_post": ExecutionAccepted,
+	"run_developer_agent_api_v1_agents_developer_runs_post": ExecutionAccepted,
+	"run_devops_agent_api_v1_agents_devops_runs_post": ExecutionAccepted,
+	"run_issue_to_patch_api_v1_workflows_issue_to_patch_post": ExecutionAccepted,
+	"run_issue_to_pr_api_v1_workflows_issue_to_pr_post": ExecutionAccepted,
+	"run_product_owner_agent_api_v1_agents_product_owner_runs_post": ExecutionAccepted,
+	"run_qa_agent_api_v1_agents_qa_runs_post": ExecutionAccepted,
+	"run_research_agent_api_v1_agents_research_runs_post": ExecutionAccepted,
+	"run_security_agent_api_v1_agents_security_runs_post": ExecutionAccepted,
+	"sample_resources_api_v1_operations_resources_sample_post": ResourceSampleResponse,
+	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
+	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalResponse,
+	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
+	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
+	"session_events_api_v1_cli_sessions__session_id__events_get": CliSessionEventsResponse,
+	"start_product_loop_api_v1_projects__project_id__product_loop_post": ExecutionAccepted,
+	"start_session_api_v1_cli_sessions_post": ExecutionAccepted,
+	"start_workflow_api_v1_workflows__workflow_id__start_post": ExecutionAccepted,
+	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": ExecutionAccepted,
+	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": ExecutionAccepted,
+	"sync_skills_api_v1_skills_sync_post": ExecutionAccepted,
+	"team_activity_api_v1_projects__project_id__team_activity_get": TeamActivityResponse,
+	"teams_api_v1_teams_get": TeamsListResponse,
+	"telemetry_status_api_v1_telemetry_status_get": TelemetryStatusResponse,
+	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": ExecutionAccepted,
+	"test_n8n_target_api_v1_integrations_n8n_test_post": ExecutionAccepted,
+	"test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": ExecutionAccepted,
+	"thread_cost_performance_api_v1_threads__thread_id__cost_performance_get": ThreadCostPerformanceResponse,
+	"thread_events_api_v1_threads__thread_id__events_get": ThreadEventsResponse,
+	"thread_memory_api_v1_threads__thread_id__memory_get": ThreadMemoryRecallResponse,
+	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
+	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": ThreadArchiveResponse,
+	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
+	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
+	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,
+	"update_thread_api_v1_threads__thread_id__patch": ThreadDetailResponse,
+	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
+	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
+	"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse,
+	"upsert_prompt_api_v1_prompts_post": PromptResponse,
+	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
+	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse,
+	"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse,
+	"worker_drain_api_v1_workers_drain_post": WorkerStatusResponse,
+	"worker_pause_api_v1_workers_pause_post": WorkerStatusResponse,
+	"worker_resume_api_v1_workers_resume_post": WorkerStatusResponse,
+	"worker_run_once_api_v1_workers_run_once_post": WorkerRunOnceResponse,
+	"worker_status_api_v1_workers_status_get": WorkerStatusResponse,
+	"workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": ExecutionAccepted,
+	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": WorkspaceCleanupPlanResponse
+};
+
+export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
+export type OperationResponse<T extends ApiOperationId> = OperationResponseBodies[T];
+
+// Terminal domain results are distinct from the actual HTTP 202 acknowledgement.
+export type OperationResultBodies = {
+	"add_git_remote_api_v1_projects__project_id__git_remotes_post": GitRemoteMutationResponse,
+	"advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": WorkflowGateAdvanceResponse,
+	"agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put": AgentProfileResponse,
+	"agents_api_v1_agents_get": AgentsListResponse,
+	"aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": ProductLoopStateResponse,
+	"allocate_workspace_api_v1_workspaces_post": WorkspaceResponse,
+	"apply_artifact_retention_action_api_v1_evidence_artifacts_retention_actions_post": ArtifactRetentionActionResponse,
+	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": GitBranchPolicyApplyResponse,
+	"apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": ProductLoopFeedbackApplyResponse,
+	"approvals_api_v1_approvals_get": ApprovalsListResponse,
+	"approve_action_api_v1_jobs__job_id__actions__action_id__approve_post": JobMutationResponse,
+	"approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": IssueToPatchResponse,
+	"approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": IssueToPrResponse,
+	"approve_job_api_v1_jobs__job_id__approve_post": JobMutationResponse,
+	"approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": ProductLoopStateResponse,
+	"approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": ProductLoopStateResponse,
+	"architect_agent_status_api_v1_agents_architect_status_get": ArchitectAgentStatusResponse,
+	"archive_thread_api_v1_threads__thread_id__archive_post": ThreadArchiveResponse,
+	"archive_workspace_api_v1_workspaces__workspace_id__archive_post": WorkspaceArchiveResponse,
+	"cancel_api_v1_executions__execution_id__cancel_post": ExecutionResponse,
+	"cancel_api_v1_operations_processes__process_id__cancel_post": ProcessRecordResponse,
+	"cancel_execution_api_v1_threads__thread_id__cancel_post": ThreadCancelResponse,
+	"cancel_job_api_v1_jobs__job_id__cancel_post": JobMutationResponse,
+	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": CliSessionCancelResponse,
+	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
+	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutResponse,
+	"checkpoint_database_api_v1_operations_database_checkpoint_post": SqliteCheckpointResponse,
+	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
+	"codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": CodexCompatibilityResponse,
+	"codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get": CodexCompatibilityResponse,
+	"codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": JsonObject,
+	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse,
+	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountResponse,
+	"create_agent_run_api_v1_agent_runs_post": AgentRunResponse,
+	"create_architecture_decision_api_v1_architecture_decisions_post": ArchitectureDecisionResponse,
+	"create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post": ModelBenchmarkOutcomeResponse,
+	"create_budget_rule_api_v1_model_gateway_budget_rules_post": BudgetRuleResponse,
+	"create_credential_api_v1_credentials_post": CredentialResponse,
+	"create_endpoint_api_v1_ollama_endpoints_post": OllamaEndpointResponse,
+	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
+	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchMutationResponse,
+	"create_job_api_v1_jobs_post": JobMutationResponse,
+	"create_memory_api_v1_memory_post": MemoryResponse,
+	"create_model_api_v1_model_gateway_models_post": ModelCatalogResponse,
+	"create_next_step_api_v1_next_steps_post": NextStepResponse,
+	"create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post": PricingSnapshotResponse,
+	"create_project_api_v1_projects_post": ProjectResponse,
+	"create_provider_api_v1_model_gateway_providers_post": ProviderAccountResponse,
+	"create_provider_limit_api_v1_model_gateway_provider_limits_post": ProviderLimitResponse,
+	"create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": IssueToPrResponse,
+	"create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": IssueToPatchResponse,
+	"create_risk_api_v1_risks_post": RiskResponse,
+	"create_role_policy_api_v1_model_gateway_role_policies_post": RolePolicyResponse,
+	"create_routing_profile_api_v1_model_gateway_routing_profiles_post": RoutingProfileResponse,
+	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": SelfImprovementProposalResponse,
+	"create_thread_api_v1_threads_post": ThreadDetailResponse,
+	"create_workflow_api_v1_workflows_post": WorkflowResponse,
+	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
+	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
+	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
+	"delete_setting_api_v1_settings__key__delete": never,
+	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
+	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
+	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
+	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
+	"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse,
+	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
+	"discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": DiscoverModelsResponse,
+	"discover_project_api_v1_projects_discover_post": ProjectDiscoveryResponse,
+	"dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post": RemediationDismissResponse,
+	"emergency_stop_api_v1_workers_emergency_stop_post": EmergencyStopResponse,
+	"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventDeliveryResponse,
+	"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventDeliveryResponse,
+	"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse,
+	"evaluate_policy_api_v1_policies_evaluate_post": PolicyEvaluationResponse,
+	"events_api_v1_events_get": never,
+	"events_api_v1_executions__execution_id__events_get": ExecutionEventsResponse,
+	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": AIExecutionResponse,
+	"execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": ProviderEmbeddingResponse,
+	"execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": ProviderImageEditingResponse,
+	"execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": ProviderImageGenerationResponse,
+	"execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": ProviderRerankResponse,
+	"execute_remediation_api_v1_remediations__remediation_id__execute_post": RemediationExecuteResponse,
+	"execution_api_v1_executions__execution_id__get": ExecutionResponse,
+	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
+	"find_similar_threads_api_v1_threads_similar_get": ThreadSimilarityResponse,
+	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": ThreadSimilarityResponse,
+	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
+	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": CliSessionResponse,
+	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
+	"get_i18n_catalog_api_v1_i18n_catalog_get": I18nCatalogResponse,
+	"get_n8n_status_api_v1_integrations_n8n_status_get": N8nIntegrationStatusResponse,
+	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": ProductLoopStateResponse,
+	"get_project_constitution_api_v1_projects__project_id__constitution_get": ProjectConstitutionResponse,
+	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
+	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
+	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
+	"get_settings_api_v1_settings_get": SettingsResponse,
+	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
+	"get_thread_api_v1_threads__thread_id__get": ThreadDetailResponse,
+	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
+	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
+	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
+	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": GitGitleaksScanResponse,
+	"git_status_api_v1_projects__project_id__git_status_get": GitStatusResponse,
+	"governance_api_v1_governance_get": GovernanceResponse,
+	"handshake_api_v1_security_handshake_get": HandshakeResponse,
+	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": RuntimeHealthResponse,
+	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": OllamaEndpointHealthResponse,
+	"healthz_healthz_get": HealthResponse,
+	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactResponse,
+	"init_git_repository_api_v1_projects__project_id__git_init_post": GitInitResponse,
+	"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse,
+	"list_agent_profiles_api_v1_agent_profiles_get": AgentProfilesListResponse,
+	"list_agent_runs_api_v1_agent_runs_get": AgentRunsListResponse,
+	"list_architecture_decisions_api_v1_architecture_decisions_get": ArchitectureDecisionsListResponse,
+	"list_assessments_api_v1_projects__project_id__assessments_get": ProjectAssessmentsListResponse,
+	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": ModelBenchmarkOutcomesListResponse,
+	"list_benchmarks_api_v1_model_gateway_benchmarks_get": ModelBenchmarksListResponse,
+	"list_budget_rules_api_v1_model_gateway_budget_rules_get": BudgetRulesListResponse,
+	"list_catalog_api_v1_providers_catalog_get": ProviderCatalogListResponse,
+	"list_chats_api_v1_legacy_chats_get": ChatsListResponse,
+	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": CliRuntimesListResponse,
+	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": CliSessionsListResponse,
+	"list_credential_audit_api_v1_credentials_audit_get": CredentialAuditResponse,
+	"list_credentials_api_v1_credentials_get": CredentialsListResponse,
+	"list_endpoints_api_v1_ollama_endpoints_get": OllamaEndpointsListResponse,
+	"list_evidence_api_v1_evidence_get": EvidenceListResponse,
+	"list_executions_api_v1_executions_get": ExecutionsResponse,
+	"list_findings_api_v1_projects__project_id__findings_get": ProjectFindingsListResponse,
+	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
+	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
+	"list_jobs_api_v1_jobs_get": JobsListResponse,
+	"list_memory_api_v1_memory_get": MemoryListResponse,
+	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
+	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
+	"list_pipelines_api_v1_legacy_pipelines_get": PipelinesListResponse,
+	"list_plugin_install_events_api_v1_plugins_install_events_get": PluginInstallEventsResponse,
+	"list_plugins_api_v1_plugins_get": PluginsListResponse,
+	"list_policies_api_v1_policies_get": PoliciesListResponse,
+	"list_pricing_snapshots_api_v1_model_gateway_pricing_snapshots_get": PricingSnapshotsListResponse,
+	"list_prompts_api_v1_prompts_get": PromptTemplatesListResponse,
+	"list_provider_limits_api_v1_model_gateway_provider_limits_get": ProviderLimitsListResponse,
+	"list_providers_api_v1_model_gateway_providers_get": ProviderAccountsListResponse,
+	"list_risks_api_v1_risks_get": RisksListResponse,
+	"list_role_policies_api_v1_model_gateway_role_policies_get": RolePoliciesListResponse,
+	"list_routing_decisions_api_v1_model_gateway_routing_decisions_get": RoutingDecisionsListResponse,
+	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": RoutingProfilesListResponse,
+	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": RuntimeProviderConfigurationResponse,
+	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
+	"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse,
+	"list_skills_api_v1_skills_get": SkillsListResponse,
+	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": RemediationListResponse,
+	"list_threads_api_v1_threads_get": ThreadListResponse,
+	"list_usage_ledger_api_v1_model_gateway_usage_ledger_get": UsageLedgerListResponse,
+	"list_workflows_api_v1_workflows_get": WorkflowsListResponse,
+	"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse,
+	"local_preflight_api_v1_nvidia_nim_preflight_get": NvidiaNimPreflightResponse,
+	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": ThreadSimilarityMarkResponse,
+	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
+	"open_design_api_v1_open_design_get": OpenDesignResponse,
+	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
+	"overview_api_v1_overview_get": OverviewResponse,
+	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
+	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
+	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountResponse,
+	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitResponse,
+	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": RolePolicyResponse,
+	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfileResponse,
+	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
+	"plan_artifact_retention_api_v1_evidence_artifacts_retention_post": ArtifactRetentionPlanResponse,
+	"post_message_api_v1_threads__thread_id__messages_post": ThreadMessageResultResponse,
+	"post_note_api_v1_threads__thread_id__notes_post": ThreadNoteResponse,
+	"processes_api_v1_operations_processes_get": ProcessesResponse,
 	"product_owner_agent_status_api_v1_agents_product_owner_status_get": ProductOwnerAgentStatusResponse,
 	"project_functionality_api_v1_projects__project_id__functionality_get": ProjectFunctionalityResponse,
 	"project_templates_api_v1_project_templates_get": ProjectTemplatesResponse,
@@ -1238,6 +1547,7 @@ export type OperationResponseBodies = {
 	"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse,
 	"record_self_improvement_lesson_api_v1_self_improvement_lessons_post": SelfImprovementLessonResponse,
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceResponse,
+	"refresh_git_api_v1_projects__project_id__git_refresh_post": JsonObject,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
@@ -1306,9 +1616,8 @@ export type OperationResponseBodies = {
 	"workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": WorkspaceCleanupApplyResponse,
 	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": WorkspaceCleanupPlanResponse
 };
-
-export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
-export type OperationResponse<T extends ApiOperationId> = OperationResponseBodies[T];
+export type OperationResult<T extends ApiOperationId> = OperationResultBodies[T];
+export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {"add_git_remote_api_v1_projects__project_id__git_remotes_post": "/api/v1/executions/{execution_id}", "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": "/api/v1/executions/{execution_id}", "aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": "/api/v1/executions/{execution_id}", "allocate_workspace_api_v1_workspaces_post": "/api/v1/executions/{execution_id}", "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": "/api/v1/executions/{execution_id}", "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": "/api/v1/executions/{execution_id}", "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": "/api/v1/executions/{execution_id}", "archive_workspace_api_v1_workspaces__workspace_id__archive_post": "/api/v1/executions/{execution_id}", "checkout_git_branch_api_v1_projects__project_id__git_checkout_post": "/api/v1/executions/{execution_id}", "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": "/api/v1/executions/{execution_id}", "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": "/api/v1/executions/{execution_id}", "create_agent_run_api_v1_agent_runs_post": "/api/v1/executions/{execution_id}", "create_git_branch_api_v1_projects__project_id__git_branches_post": "/api/v1/executions/{execution_id}", "create_project_api_v1_projects_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": "/api/v1/executions/{execution_id}", "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": "/api/v1/executions/{execution_id}", "discover_project_api_v1_projects_discover_post": "/api/v1/executions/{execution_id}", "emit_n8n_api_v1_integrations_n8n_emit_post": "/api/v1/executions/{execution_id}", "emit_n8n_event_api_v1_integrations_n8n_emit_event_post": "/api/v1/executions/{execution_id}", "execute_ai_execution_api_v1_model_gateway_ai_executions_post": "/api/v1/executions/{execution_id}", "execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": "/api/v1/executions/{execution_id}", "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": "/api/v1/executions/{execution_id}", "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": "/api/v1/executions/{execution_id}", "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": "/api/v1/executions/{execution_id}", "execute_remediation_api_v1_remediations__remediation_id__execute_post": "/api/v1/executions/{execution_id}", "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": "/api/v1/executions/{execution_id}", "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": "/api/v1/executions/{execution_id}", "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": "/api/v1/executions/{execution_id}", "init_git_repository_api_v1_projects__project_id__git_init_post": "/api/v1/executions/{execution_id}", "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": "/api/v1/executions/{execution_id}", "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": "/api/v1/executions/{execution_id}", "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": "/api/v1/executions/{execution_id}", "refresh_git_api_v1_projects__project_id__git_refresh_post": "/api/v1/executions/{execution_id}", "retrieval_reindex_api_v1_retrieval_reindex_post": "/api/v1/executions/{execution_id}", "route_execute_api_v1_model_gateway_route_execute_post": "/api/v1/executions/{execution_id}", "run_architect_agent_api_v1_agents_architect_runs_post": "/api/v1/executions/{execution_id}", "run_assessment_api_v1_projects__project_id__assessment_post": "/api/v1/executions/{execution_id}", "run_developer_agent_api_v1_agents_developer_runs_post": "/api/v1/executions/{execution_id}", "run_devops_agent_api_v1_agents_devops_runs_post": "/api/v1/executions/{execution_id}", "run_issue_to_patch_api_v1_workflows_issue_to_patch_post": "/api/v1/executions/{execution_id}", "run_issue_to_pr_api_v1_workflows_issue_to_pr_post": "/api/v1/executions/{execution_id}", "run_product_owner_agent_api_v1_agents_product_owner_runs_post": "/api/v1/executions/{execution_id}", "run_qa_agent_api_v1_agents_qa_runs_post": "/api/v1/executions/{execution_id}", "run_research_agent_api_v1_agents_research_runs_post": "/api/v1/executions/{execution_id}", "run_security_agent_api_v1_agents_security_runs_post": "/api/v1/executions/{execution_id}", "start_product_loop_api_v1_projects__project_id__product_loop_post": "/api/v1/executions/{execution_id}", "start_session_api_v1_cli_sessions_post": "/api/v1/executions/{execution_id}", "start_workflow_api_v1_workflows__workflow_id__start_post": "/api/v1/executions/{execution_id}", "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_skills_api_v1_skills_sync_post": "/api/v1/executions/{execution_id}", "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": "/api/v1/executions/{execution_id}", "test_n8n_target_api_v1_integrations_n8n_test_post": "/api/v1/executions/{execution_id}", "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": "/api/v1/executions/{execution_id}", "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": "/api/v1/executions/{execution_id}"};
 
 export const OPERATIONS_BY_ID = {
 	"list_agent_profiles_api_v1_agent_profiles_get": {"method": "GET", "operationId": "list_agent_profiles_api_v1_agent_profiles_get", "path": "/api/v1/agent-profiles", "summary": "List Agent Profiles"},
@@ -1352,6 +1661,10 @@ export const OPERATIONS_BY_ID = {
 	"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": {"method": "POST", "operationId": "ingest_artifact_api_v1_evidence__evidence_id__artifacts_post", "path": "/api/v1/evidence/{evidence_id}/artifacts", "summary": "Ingest Artifact"},
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": {"method": "GET", "operationId": "get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get", "path": "/api/v1/evidence/{evidence_id}/artifacts/{artifact_id}", "summary": "Get Artifact"},
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": {"method": "GET", "operationId": "export_evidence_report_api_v1_evidence__evidence_id__report_get", "path": "/api/v1/evidence/{evidence_id}/report", "summary": "Export Evidence Report"},
+	"list_executions_api_v1_executions_get": {"method": "GET", "operationId": "list_executions_api_v1_executions_get", "path": "/api/v1/executions", "summary": "List Executions"},
+	"execution_api_v1_executions__execution_id__get": {"method": "GET", "operationId": "execution_api_v1_executions__execution_id__get", "path": "/api/v1/executions/{execution_id}", "summary": "Execution"},
+	"cancel_api_v1_executions__execution_id__cancel_post": {"method": "POST", "operationId": "cancel_api_v1_executions__execution_id__cancel_post", "path": "/api/v1/executions/{execution_id}/cancel", "summary": "Cancel"},
+	"events_api_v1_executions__execution_id__events_get": {"method": "GET", "operationId": "events_api_v1_executions__execution_id__events_get", "path": "/api/v1/executions/{execution_id}/events", "summary": "Events"},
 	"governance_api_v1_governance_get": {"method": "GET", "operationId": "governance_api_v1_governance_get", "path": "/api/v1/governance", "summary": "Governance"},
 	"get_i18n_catalog_api_v1_i18n_catalog_get": {"method": "GET", "operationId": "get_i18n_catalog_api_v1_i18n_catalog_get", "path": "/api/v1/i18n/catalog", "summary": "Get I18N Catalog"},
 	"put_i18n_catalog_api_v1_i18n_catalog_put": {"method": "PUT", "operationId": "put_i18n_catalog_api_v1_i18n_catalog_put", "path": "/api/v1/i18n/catalog", "summary": "Put I18N Catalog"},
@@ -1389,6 +1702,9 @@ export const OPERATIONS_BY_ID = {
 	"create_budget_rule_api_v1_model_gateway_budget_rules_post": {"method": "POST", "operationId": "create_budget_rule_api_v1_model_gateway_budget_rules_post", "path": "/api/v1/model-gateway/budget-rules", "summary": "Create Budget Rule"},
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": {"method": "PATCH", "operationId": "patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch", "path": "/api/v1/model-gateway/budget-rules/{rule_id}", "summary": "Patch Budget Rule"},
 	"list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get": {"method": "GET", "operationId": "list_cli_runtimes_api_v1_model_gateway_cli_runtimes_get", "path": "/api/v1/model-gateway/cli-runtimes", "summary": "List Cli Runtimes"},
+	"codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": {"method": "POST", "operationId": "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/capabilities/probe", "summary": "Codex Capabilities"},
+	"codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get": {"method": "GET", "operationId": "codex_compatibility_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_get", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/compatibility", "summary": "Codex Compatibility"},
+	"codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": {"method": "POST", "operationId": "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post", "path": "/api/v1/model-gateway/cli-runtimes/codex_cli/compatibility/smoke", "summary": "Codex Smoke"},
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": {"method": "POST", "operationId": "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post", "path": "/api/v1/model-gateway/cli-runtimes/{runtime_id}/detect", "summary": "Detect Cli Runtime"},
 	"health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": {"method": "POST", "operationId": "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post", "path": "/api/v1/model-gateway/cli-runtimes/{runtime_id}/health-check", "summary": "Health Cli Runtime"},
 	"list_cli_sessions_api_v1_model_gateway_cli_sessions_get": {"method": "GET", "operationId": "list_cli_sessions_api_v1_model_gateway_cli_sessions_get", "path": "/api/v1/model-gateway/cli-sessions", "summary": "List Cli Sessions"},
@@ -1436,6 +1752,8 @@ export const OPERATIONS_BY_ID = {
 	"open_design_api_v1_open_design_get": {"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
 	"database_status_api_v1_operations_database_get": {"method": "GET", "operationId": "database_status_api_v1_operations_database_get", "path": "/api/v1/operations/database", "summary": "Database Status"},
 	"checkpoint_database_api_v1_operations_database_checkpoint_post": {"method": "POST", "operationId": "checkpoint_database_api_v1_operations_database_checkpoint_post", "path": "/api/v1/operations/database/checkpoint", "summary": "Checkpoint Database"},
+	"processes_api_v1_operations_processes_get": {"method": "GET", "operationId": "processes_api_v1_operations_processes_get", "path": "/api/v1/operations/processes", "summary": "Processes"},
+	"cancel_api_v1_operations_processes__process_id__cancel_post": {"method": "POST", "operationId": "cancel_api_v1_operations_processes__process_id__cancel_post", "path": "/api/v1/operations/processes/{process_id}/cancel", "summary": "Cancel"},
 	"resource_status_api_v1_operations_resources_get": {"method": "GET", "operationId": "resource_status_api_v1_operations_resources_get", "path": "/api/v1/operations/resources", "summary": "Resource Status"},
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": {"method": "POST", "operationId": "release_lease_api_v1_operations_resources_leases__lease_id__release_post", "path": "/api/v1/operations/resources/leases/{lease_id}/release", "summary": "Release Lease"},
 	"sample_resources_api_v1_operations_resources_sample_post": {"method": "POST", "operationId": "sample_resources_api_v1_operations_resources_sample_post", "path": "/api/v1/operations/resources/sample", "summary": "Sample Resources"},
@@ -1469,6 +1787,7 @@ export const OPERATIONS_BY_ID = {
 	"git_diff_api_v1_projects__project_id__git_diff_get": {"method": "GET", "operationId": "git_diff_api_v1_projects__project_id__git_diff_get", "path": "/api/v1/projects/{project_id}/git/diff", "summary": "Git Diff"},
 	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": {"method": "POST", "operationId": "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post", "path": "/api/v1/projects/{project_id}/git/gitleaks/scan", "summary": "Git Gitleaks Scan"},
 	"init_git_repository_api_v1_projects__project_id__git_init_post": {"method": "POST", "operationId": "init_git_repository_api_v1_projects__project_id__git_init_post", "path": "/api/v1/projects/{project_id}/git/init", "summary": "Init Git Repository"},
+	"refresh_git_api_v1_projects__project_id__git_refresh_post": {"method": "POST", "operationId": "refresh_git_api_v1_projects__project_id__git_refresh_post", "path": "/api/v1/projects/{project_id}/git/refresh", "summary": "Refresh Git"},
 	"add_git_remote_api_v1_projects__project_id__git_remotes_post": {"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
 	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": {"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	"git_status_api_v1_projects__project_id__git_status_get": {"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
@@ -1535,6 +1854,7 @@ export const OPERATIONS_BY_ID = {
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": {"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": {"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
 	"worker_drain_api_v1_workers_drain_post": {"method": "POST", "operationId": "worker_drain_api_v1_workers_drain_post", "path": "/api/v1/workers/drain", "summary": "Worker Drain"},
+	"emergency_stop_api_v1_workers_emergency_stop_post": {"method": "POST", "operationId": "emergency_stop_api_v1_workers_emergency_stop_post", "path": "/api/v1/workers/emergency-stop", "summary": "Emergency Stop"},
 	"worker_pause_api_v1_workers_pause_post": {"method": "POST", "operationId": "worker_pause_api_v1_workers_pause_post", "path": "/api/v1/workers/pause", "summary": "Worker Pause"},
 	"worker_resume_api_v1_workers_resume_post": {"method": "POST", "operationId": "worker_resume_api_v1_workers_resume_post", "path": "/api/v1/workers/resume", "summary": "Worker Resume"},
 	"worker_run_once_api_v1_workers_run_once_post": {"method": "POST", "operationId": "worker_run_once_api_v1_workers_run_once_post", "path": "/api/v1/workers/run-once", "summary": "Worker Run Once"},

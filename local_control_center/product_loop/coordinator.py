@@ -67,6 +67,7 @@ from local_control_center.product_loop.metadata import strip_untrusted_resource_
 from local_control_center.project_constitution.prompt import render_constitution_prompt
 from local_control_center.project_constitution.repository import ProjectConstitutionRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.quality.plans import iteration_scripts
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -4310,13 +4311,16 @@ class ProductLoopCoordinator:
                             "workspaceId": run.workspace["id"],
                             "taskId": f"{run.task_id}.devops",
                             "buildScripts": [],
-                            "qualityScripts": [
-                                str(item) for item in (gate_commands or []) if str(item).strip()
-                            ],
+                            "qualityScripts": iteration_scripts(
+                                [str(item) for item in (gate_commands or []) if str(item).strip()],
+                                tier="story",
+                            ),
                             "dockerHealthcheck": False,
                         }
                     )
                     reviews["devops"] = {
+                        "qualityTier": "story",
+                        "fullDeliveryGateVerified": False,
                         "status": str(devops.get("status") or ""),
                         "verdict": str(devops.get("verdict") or ""),
                         "reason": str(devops.get("reason") or ""),

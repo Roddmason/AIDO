@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -44,6 +46,7 @@ from .repository import ManagedProcessRepository
 _REGISTRY_LOCK = threading.RLock()
 _ACTIVE: dict[str, tuple[ProcessSupervisorService, SupervisedProcess]] = {}
 _PROCESS_IDS: dict[int, str] = {}
+_LOGGER = logging.getLogger(__name__)
 
 
 class ExecutionCancelled(RuntimeError):
@@ -214,6 +217,13 @@ class ProcessSupervisorService:
         )
         managed = None
         try:
+            if set(argv).intersection(
+                {"quality", "quality:fast", "quality:story", "quality:pr", "quality:release"}
+            ) and Path(argv[0]).stem.lower() in {"node", "corepack", "pnpm", "npm"}:
+                # Routing only; quality validates native ancestor identity before borrowing its lease.
+                environment = dict(popen_kwargs.get("env") or os.environ)
+                environment["AIDO_QUALITY_DB_PATH"] = str(self.db_path.resolve())
+                popen_kwargs["env"] = environment
             managed = self.backend.start(spec, popen_factory=self.popen_factory, **popen_kwargs)
             managed.resource_lease_id = lease.id
             managed.owns_resource_lease = inherited_id is None
@@ -406,6 +416,10 @@ class ProcessSupervisorService:
                             reason = "hard_memory_floor"
                             repository.request_execution_cancel(managed.execution_id, reason=reason)
                         next_memory_check = time.monotonic() + 1
+                        with managed.lock:
+                            if not managed.released:
+                                stats = self.backend.stats(managed)
+                                self._record_live_metrics(connection, managed, stats)
                     if managed.owns_resource_lease and time.monotonic() >= next_heartbeat:
                         renewed = HostResourceGovernor(connection).heartbeat(
                             managed.resource_lease_id, owner_id=managed.managed_process_id
@@ -423,14 +437,39 @@ class ProcessSupervisorService:
                             )
                             managed.terminal_stats.cancelled = True
                     return
-            except Exception:
+            except Exception as error:
+                _LOGGER.error(
+                    "process_control_watch_failed error_type=%s sqlite_error_code=%s managed_process_id=%s",
+                    type(error).__name__,
+                    getattr(error, "sqlite_errorcode", None),
+                    managed.managed_process_id,
+                )
                 with managed.lock:
                     if not managed.released and managed.terminal_stats is None:
                         managed.terminal_stats = self.backend.terminate_tree(
                             managed, grace_seconds=0, reason="control_watch_failed"
                         )
                         managed.terminal_stats.cancelled = True
-                return
+                    return
+
+    @staticmethod
+    def _record_live_metrics(connection: Any, managed: SupervisedProcess, stats: ProcessStats) -> None:
+        # Telemetry is best-effort. Leadership/cancel/lease reads above remain fail-closed.
+        connection.execute("PRAGMA busy_timeout = 0")
+        try:
+            connection.execute(
+                """UPDATE managed_processes SET peak_memory_bytes=MAX(peak_memory_bytes, ?),
+                cpu_time_seconds=MAX(cpu_time_seconds, ?) WHERE managed_process_id=? AND finished_at IS NULL""",
+                (stats.peak_memory_bytes, stats.cpu_time_seconds, managed.managed_process_id),
+            )
+        except sqlite3.OperationalError as error:
+            if (getattr(error, "sqlite_errorcode", 0) & 255) not in {
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            }:
+                raise
+        finally:
+            connection.execute("PRAGMA busy_timeout = 250")
 
     def _register_captures(self, managed: SupervisedProcess) -> None:
         from local_control_center.evidence.repository import EvidenceRepository
@@ -639,7 +678,12 @@ def run_supervised_capture(
                 timed_out=timed_out,
                 termination_reason=termination_reason,
             )
+    from .evidence import process_evidence
+
+    with closing(open_sqlite_connection(service.db_path)) as connection:
+        evidence = process_evidence(connection, record)
     return {
+        **evidence,
         "stdout": states["stdout"].get("text", ""),
         "stderr": states["stderr"].get("text", ""),
         "stdoutCaptureTruncated": states["stdout"].get("truncated", True),

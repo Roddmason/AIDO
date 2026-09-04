@@ -121,5 +121,6 @@ def test_quality_scripts_wire_local_quality_gate_and_scanner() -> None:
     assert "productive-truth-scan.py" in scripts["quality:productive-truth"]
     assert "quality:architecture" in scripts
     assert "test_real_readiness_architecture.py" in scripts["quality:architecture"]
-    assert "scripts/quality-local.ps1" in scripts["quality"]
+    assert scripts["quality"] == "corepack pnpm@10.24.0 run quality:pr"
+    assert "scripts/quality-local.ps1 -Tier pr" in scripts["quality:pr"]
     assert (ROOT / "scripts" / "quality-local.ps1").exists()

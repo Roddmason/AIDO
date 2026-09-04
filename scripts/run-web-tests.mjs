@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
-const cleanupScript = fileURLToPath(new URL('./cleanup-playwright-webserver.mjs', import.meta.url));
 const viteCli = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
 const windowsPython = fileURLToPath(new URL('../.venv/Scripts/python.exe', import.meta.url));
@@ -18,6 +17,13 @@ const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
 const artifactRoot = process.env.PLAYWRIGHT_ARTIFACT_ROOT || `.tmp/playwright-artifacts-${process.pid}`;
+const selectedTestFiles = process.argv.slice(2);
+for (const file of selectedTestFiles) {
+	const relative = path.relative(path.resolve('tests_web'), path.resolve(file));
+	if (relative.startsWith('..') || path.isAbsolute(relative) || !existsSync(file) || !file.endsWith('.spec.js')) {
+		throw new Error(`Focused web tests must be existing files under tests_web: ${file}`);
+	}
+}
 
 function runNode(args, options = {}) {
 	return spawnSync(process.execPath, args, {
@@ -57,10 +63,6 @@ function dashboardServerCommand(port, sqlitePath) {
 		return { command: pythonPath, args: dashboardArgs };
 	}
 	return { command: 'uv', args: ['run', 'python', ...dashboardArgs] };
-}
-
-function cleanup(env = process.env) {
-	return runNode([cleanupScript], { env }).status ?? 1;
 }
 
 function escapeRegExp(value) {
@@ -111,26 +113,10 @@ async function stopDashboardServer(childProcess) {
 	if (await waitForExit(childProcess, 5000)) {
 		return;
 	}
-	if (process.platform === 'win32' && childProcess.pid) {
-		spawnSync(
-			'powershell',
-			[
-				'-NoProfile',
-				'-ExecutionPolicy',
-				'Bypass',
-				'-Command',
-				`Stop-Process -Id ${childProcess.pid} -Force -ErrorAction SilentlyContinue`,
-			],
-			{ stdio: 'inherit' },
-		);
-		return;
-	}
-	if (childProcess.pid) {
-		try {
-			process.kill(childProcess.pid, 'SIGKILL');
-		} catch {
-			// The process may have exited between the graceful and forced stop.
-		}
+	// Use only the ChildProcess handle we own, never discover/kill another run by port.
+	childProcess.kill('SIGKILL');
+	if (!(await waitForExit(childProcess, 5000))) {
+		throw new Error('Owned dashboard process did not exit; supervisor cleanup is required.');
 	}
 }
 
@@ -157,7 +143,7 @@ async function waitForDashboardHealth(port, childProcess) {
 }
 
 function listProjectTests(project, env) {
-	const result = runNodeCaptured([playwrightCli, 'test', `--project=${project}`, '--list'], {
+	const result = runNodeCaptured([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--list'], {
 		env: { ...env, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
 	});
 	if ((result.status ?? 1) !== 0) {
@@ -189,7 +175,7 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 	try {
 		await waitForDashboardHealth(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, dashboardProcess);
 		const grep = `(?:${chunk.map(escapeRegExp).join('|')})`;
-		const result = runNode([playwrightCli, 'test', `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
+		const result = runNode([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
 			env: { ...chunkEnv, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
 		}).status ?? 1;
 		if (result === 0 && dashboardExitedEarly) {
@@ -205,7 +191,7 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 	}
 }
 
-let status = cleanup();
+let status = 0;
 
 if (status === 0) {
 	status = runNode([
@@ -245,23 +231,12 @@ if (status === 0) {
 			};
 			const chunkOutput = path.join(artifactRoot, safePathSegment(project), `chunk-${chunkIndex + 1}`);
 			mkdirSync(chunkOutput, { recursive: true });
-			status = cleanup(chunkEnv);
-			if (status !== 0) break;
 			const chunk = chunks[chunkIndex];
 			status = await runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
-			const projectCleanupStatus = cleanup(chunkEnv);
-			if (status === 0 && projectCleanupStatus !== 0) {
-				status = projectCleanupStatus;
-			}
 			if (status !== 0) break;
 		}
 		if (status !== 0) break;
 	}
-}
-
-const cleanupStatus = cleanup();
-if (status === 0 && cleanupStatus !== 0) {
-	status = cleanupStatus;
 }
 
 process.exit(status);

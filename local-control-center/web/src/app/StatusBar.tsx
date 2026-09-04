@@ -9,6 +9,8 @@
  * @author Rodrigo Mason
  */
 import { Moon, Rows3, Sun } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { ExecutionResponse } from '../api/generated/openapi';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { Button, IconButton, StatusDot, Tooltip } from '../components/ui';
@@ -44,6 +46,13 @@ export function StatusBar({
 	onOpenRuntimeHealth: () => void;
 	t: (key: string, fallback?: string) => string;
 }) {
+	const [execution, setExecution] = useState<ExecutionResponse | null>(null);
+	useEffect(() => {
+		const observe = (event: Event) =>
+			setExecution((event as CustomEvent<ExecutionResponse>).detail);
+		window.addEventListener('aido:execution', observe);
+		return () => window.removeEventListener('aido:execution', observe);
+	}, []);
 	const status = deriveShellStatus(overview, runtimeProviders, connected, selectedProject);
 	const runtimeAlerts = deriveRuntimeAlerts(runtimeProviders);
 	const projectName = status.projectName ?? t('app.global.noProject', 'no project');
@@ -72,6 +81,14 @@ export function StatusBar({
 				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
 				<strong>{projectName}</strong>
 			</span>
+			<a
+				className="status-bar-item settings-console-link"
+				href="#settings"
+				title={execution ? `${execution.executionId} · ${execution.reason}` : undefined}
+			>
+				{t('app.operations.title', 'Operations')}
+				{execution ? ` · ${execution.status}` : ''}
+			</a>
 			<span className="status-bar-item">
 				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
 				<span className="tnum">{status.executableRuntimes}</span>{' '}

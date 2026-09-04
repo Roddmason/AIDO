@@ -163,22 +163,40 @@ def test_quality_and_security_scripts_are_declared() -> None:
 def test_quality_scripts_include_web_typecheck() -> None:
     package = json.loads(read("package.json"))
     scripts = package["scripts"]
-    quality_local = read("scripts/quality-local.ps1")
+    from local_control_center.quality.plans import build_plan
+
+    steps = build_plan(ROOT, "pr")
 
     assert "typecheck:web" in scripts
     assert "typecheck:web" in scripts["test:all"]
-    assert "typecheck:web" in quality_local
-    assert "security:secrets" in quality_local
-    assert "security:sast" in quality_local
+    assert {"typecheck", "secrets", "semgrep"} <= {step.name for step in steps}
 
 
 def test_quality_local_runs_direct_commands_for_long_gates() -> None:
     quality_local = read("scripts/quality-local.ps1")
+    from local_control_center.quality.plans import build_plan
 
-    assert "Resolve-LocalPython" in quality_local
-    assert 'Command @($PythonCommand, "-m", "pytest", "tests_py", "-q")' in quality_local
-    assert 'Command @("uv", "run", "--extra", "dev", "ruff", "check", ".")' in quality_local
-    assert 'Command @("uv", "run", "--extra", "dev", "semgrep", "scan"' in quality_local
+    steps = build_plan(ROOT, "pr")
+    assert '"-m", "local_control_center.quality"' in quality_local
+    assert next(step for step in steps if step.name == "python").argv[1:4] == ("-m", "pytest", "tests_py")
+    assert next(step for step in steps if step.name == "ruff").argv == (
+        "uv",
+        "run",
+        "--extra",
+        "dev",
+        "ruff",
+        "check",
+        ".",
+    )
+    assert next(step for step in steps if step.name == "semgrep").argv[:6] == (
+        "uv",
+        "run",
+        "--extra",
+        "dev",
+        "semgrep",
+        "scan",
+    )
+    assert "run_supervised_capture" in read("local_control_center/quality/__main__.py")
     assert "& corepack pnpm@10.24.0 run $Script" not in quality_local
 
 

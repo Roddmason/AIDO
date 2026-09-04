@@ -45,6 +45,13 @@ class ExecutionResponse(ExecutionAccepted):
     reason: str
     result: Any = None
     resultStatusCode: int | None = None
+    canCancel: bool = False
+
+
+class ExecutionsResponse(BaseModel):
+    """Página operacional acotada, ordenada por creación descendente."""
+
+    executions: list[ExecutionResponse]
 
 
 class ExecutionEvent(BaseModel):

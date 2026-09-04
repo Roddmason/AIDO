@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -15,11 +16,14 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.settings.repository import UNSET, SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
-from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 
-from .leadership import WorkerControlRepository, WorkerLeadershipRepository
+from .leadership import (
+    DEFAULT_HEARTBEAT_STALE_SECONDS,
+    WorkerControlRepository,
+    WorkerLeadershipRepository,
+)
 from .models import WorkerRunOnceResponse, WorkerStatusResponse
 from .runtime import DEFAULT_MAX_CONCURRENT_JOBS, DEFAULT_POLL_INTERVAL_SECONDS
 
@@ -34,11 +38,30 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             control = WorkerControlRepository(connection).get()
             lease = leadership.current()
             heartbeats = leadership.list_heartbeats()
+            runs = connection.execute(
+                """SELECT COUNT(*) AS claimed, COALESCE(SUM(status='running'), 0) AS active,
+                COALESCE(SUM(status='completed'), 0) AS completed,
+                COALESCE(SUM(status='failed'), 0) AS failed, MAX(started_at) AS last_run
+                FROM job_runs"""
+            ).fetchone()
+            last_error = connection.execute(
+                "SELECT summary FROM job_runs WHERE status='failed' ORDER BY completed_at DESC LIMIT 1"
+            ).fetchone()
             settings = SettingsRepository(connection)
             interval = settings.get_value("worker.pollIntervalSeconds", "general", None)
             max_jobs = settings.get_value("worker.maxConcurrentJobs", "general", None)
             autostart = settings.get_value("worker.autostart", "general", None)
         now = utc_now()
+        fresh_after = (
+            (datetime.now(UTC) - timedelta(seconds=DEFAULT_HEARTBEAT_STALE_SECONDS))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        heartbeats = [
+            row
+            for row in heartbeats
+            if row["heartbeatAt"] > fresh_after and row["status"] not in {"stopped", "fenced"}
+        ]
         active_lease = lease if lease and str(lease["expires_at"]) > now else None
         connected = active_lease is not None
         leader_owner = str(active_lease["owner_id"]) if active_lease else None
@@ -62,13 +85,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 DEFAULT_MAX_CONCURRENT_JOBS if max_jobs is UNSET else max(1, min(int(float(max_jobs)), 1))
             ),
             "pollIntervalSeconds": (DEFAULT_POLL_INTERVAL_SECONDS if interval is UNSET else float(interval)),
-            "inFlightJobs": 0,
-            "claimedJobs": 0,
-            "completedRuns": 0,
-            "failedRuns": 0,
-            "lastRunAt": None,
+            "inFlightJobs": runs["active"],
+            "claimedJobs": runs["claimed"],
+            "completedRuns": runs["completed"],
+            "failedRuns": runs["failed"],
+            "lastRunAt": runs["last_run"],
             "lastIdleAt": None,
-            "lastError": None,
+            "lastError": last_error["summary"] if last_error else None,
             "connected": connected,
             "role": role,
             "desiredState": desired,
@@ -87,7 +110,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def request_state(state: str, *, reason: str) -> dict[str, Any]:
         with closing(open_sqlite_connection(platform.db_path)) as connection:
-            initialize_platform_schema(connection)
             WorkerControlRepository(connection).request_state(state, reason=reason)
             EventBus(connection).record_event(
                 event_type=f"worker.{state}",
@@ -123,7 +145,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         """Persist one bounded-batch request for the separate worker process."""
         require_write(request)
         with closing(open_sqlite_connection(platform.db_path)) as connection:
-            initialize_platform_schema(connection)
             WorkerControlRepository(connection).request_run_once(reason="Run once requested by operator.")
             EventBus(connection).record_event(
                 event_type="worker.run_once_requested",

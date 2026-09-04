@@ -35,13 +35,16 @@ class OperationSpec:
     name: str
     workload_class: WorkloadClass
     result_model: Any = None
+    validate: Callable[[dict[str, Any]], None] | None = None
 
 
-def queued_operation(name: str, *, workload_class: WorkloadClass):
+def queued_operation(
+    name: str, *, workload_class: WorkloadClass, validate: Callable[[dict[str, Any]], None] | None = None
+):
     """Declara un handler existente como trabajo durable ejecutable sólo por el worker."""
 
     def decorate(handler):
-        handler._aido_operation = OperationSpec(name, workload_class)
+        handler._aido_operation = OperationSpec(name, workload_class, validate=validate)
         return handler
 
     return decorate
@@ -112,6 +115,8 @@ def enqueue_registered_operation(
         raise ValueError("Operation must be registered by application code.")
     payload = jsonable_encoder(arguments)
     _reject_credentials(payload)
+    if spec.validate is not None:
+        spec.validate(payload)
     project_id = project_id or payload.get("project_id") or payload.get("projectId")
     if isinstance(payload.get("body"), dict):
         project_id = project_id or payload["body"].get("projectId")

@@ -529,8 +529,8 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
 
     job = _generated_type_line(content, "JobRecord")
     assert (
-        '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"'
-        in job
+        '"status": "queued" | "resource_wait" | "running" | "approval_required" | "completed" | '
+        '"approved" | "failed" | "cancelled"' in job
     )
 
     workflow = _generated_type_line(content, "WorkflowRecord")

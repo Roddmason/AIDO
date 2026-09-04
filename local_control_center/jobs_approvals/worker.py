@@ -16,6 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from local_control_center.agents.research_agent import ResearchAgentRunner
+from local_control_center.host_resources.governor import HostResourceGovernor
+from local_control_center.host_resources.models import (
+    ResourceAdmissionRequest,
+    ResourceSnapshot,
+    WorkloadClass,
+)
+from local_control_center.host_resources.probes import HostResourceProbe
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository, StaleWorkerFenceError
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
@@ -49,11 +57,13 @@ class ConcurrentWorker:
         lease_ms: int = 300000,
         worker_id: str | None = None,
         fencing_token: int | None = None,
+        resource_snapshot: ResourceSnapshot | None = None,
     ):
         self.db_path = Path(db_path)
         self.lease_ms = lease_ms
         self.worker_id = worker_id
         self.fencing_token = fencing_token
+        self.resource_snapshot = resource_snapshot
 
     def recover(self) -> list[dict]:
         """Reencola los jobs cuyo lease venció antes de empezar a procesar la cola."""
@@ -77,61 +87,99 @@ class ConcurrentWorker:
         try:
             initialize_platform_schema(connection)
             jobs = JobsRepository(connection)
+            governor = HostResourceGovernor(connection)
+            snapshot = self._resource_snapshot(connection)
+            governor.reevaluate_waiting(snapshot=snapshot)
+            next_job = jobs.peek_next_job()
+            if next_job is None:
+                return None
+            admission = governor.admit(
+                ResourceAdmissionRequest(
+                    execution_id=next_job["id"],
+                    workload_class=_workload_class_for_job(next_job),
+                    owner_id=worker_id,
+                    job_id=next_job["id"],
+                    lease_seconds=max(1, self.lease_ms // 1000),
+                ),
+                snapshot=snapshot,
+            )
+            if admission.status == "resource_wait" or admission.lease is None:
+                return None
+            resource_lease = admission.lease
             try:
                 claimed = jobs.claim_next_job(
                     worker_id=worker_id,
                     lease_ms=self.lease_ms,
                     leader_fencing_token=fencing_token,
+                    job_id=next_job["id"],
                 )
             except StaleWorkerFenceError:
+                governor.release(resource_lease.id, reason="leadership_fence_lost")
                 return None
             if not claimed:
+                governor.release(resource_lease.id, reason="job_claim_lost")
                 return None
-            with self._job_lease_heartbeat(
-                job_id=claimed["job"]["id"],
-                worker_id=worker_id,
-                fencing_token=fencing_token,
-            ):
-                try:
-                    execution = execute_job(
-                        claimed["job"],
-                        connection=connection,
-                        db_path=self.db_path,
-                        worker_id=worker_id,
-                    )
-                    return jobs.complete_job_run(
-                        job_id=claimed["job"]["id"],
-                        run_id=claimed["run"]["id"],
-                        status="completed",
-                        summary=execution["summary"],
-                        metadata=execution["metadata"],
-                        worker_id=worker_id if fencing_token is not None else None,
-                        leader_fencing_token=fencing_token,
-                    )
-                except JobExecutionUnavailable as error:
-                    return jobs.complete_job_run(
-                        job_id=claimed["job"]["id"],
-                        run_id=claimed["run"]["id"],
-                        status="failed",
-                        summary=error.summary,
-                        metadata={"status": error.status, **error.metadata},
-                        worker_id=worker_id if fencing_token is not None else None,
-                        leader_fencing_token=fencing_token,
-                    )
-                except StaleWorkerFenceError:
-                    return None
-                except Exception as error:
-                    return jobs.complete_job_run(
-                        job_id=claimed["job"]["id"],
-                        run_id=claimed["run"]["id"],
-                        status="failed",
-                        summary=str(error),
-                        metadata={"error": str(error)},
-                        worker_id=worker_id if fencing_token is not None else None,
-                        leader_fencing_token=fencing_token,
-                    )
+            try:
+                with self._job_lease_heartbeat(
+                    job_id=claimed["job"]["id"],
+                    worker_id=worker_id,
+                    fencing_token=fencing_token,
+                    resource_lease_id=resource_lease.id,
+                ):
+                    try:
+                        execution = execute_job(
+                            claimed["job"],
+                            connection=connection,
+                            db_path=self.db_path,
+                            worker_id=worker_id,
+                        )
+                        return jobs.complete_job_run(
+                            job_id=claimed["job"]["id"],
+                            run_id=claimed["run"]["id"],
+                            status="completed",
+                            summary=execution["summary"],
+                            metadata=execution["metadata"],
+                            worker_id=worker_id if fencing_token is not None else None,
+                            leader_fencing_token=fencing_token,
+                        )
+                    except JobExecutionUnavailable as error:
+                        return jobs.complete_job_run(
+                            job_id=claimed["job"]["id"],
+                            run_id=claimed["run"]["id"],
+                            status="failed",
+                            summary=error.summary,
+                            metadata={"status": error.status, **error.metadata},
+                            worker_id=worker_id if fencing_token is not None else None,
+                            leader_fencing_token=fencing_token,
+                        )
+                    except StaleWorkerFenceError:
+                        return None
+                    except Exception as error:
+                        return jobs.complete_job_run(
+                            job_id=claimed["job"]["id"],
+                            run_id=claimed["run"]["id"],
+                            status="failed",
+                            summary=str(error),
+                            metadata={"error": str(error)},
+                            worker_id=worker_id if fencing_token is not None else None,
+                            leader_fencing_token=fencing_token,
+                        )
+            finally:
+                governor.release(resource_lease.id, reason="execution_finished")
         finally:
             connection.close()
+
+    def _resource_snapshot(self, connection: Any) -> ResourceSnapshot:
+        if self.resource_snapshot is not None:
+            return self.resource_snapshot
+        repository = ResourceRepository(connection)
+        probe = HostResourceProbe(
+            relevant_paths=[self.db_path.parent, self.db_path],
+            active_workload_source=lambda: [lease.workload_class for lease in repository.active_leases()],
+        )
+        snapshot = probe.sample(cpu_interval_seconds=0)
+        HostResourceGovernor(connection).record_sample(snapshot)
+        return snapshot
 
     @contextmanager
     def _job_lease_heartbeat(
@@ -140,9 +188,10 @@ class ConcurrentWorker:
         job_id: str,
         worker_id: str,
         fencing_token: int | None,
+        resource_lease_id: str | None = None,
     ):
         """Renueva la lease del job mientras su ejecución síncrona todavía está en curso."""
-        if fencing_token is None:
+        if fencing_token is None and resource_lease_id is None:
             yield
             return
         stop = threading.Event()
@@ -152,11 +201,21 @@ class ConcurrentWorker:
             while not stop.wait(interval):
                 with open_sqlite_connection(self.db_path) as heartbeat_connection:
                     initialize_platform_schema(heartbeat_connection)
-                    if not JobsRepository(heartbeat_connection).heartbeat_job_lease(
+                    if fencing_token is not None and not JobsRepository(
+                        heartbeat_connection
+                    ).heartbeat_job_lease(
                         job_id=job_id,
                         worker_id=worker_id,
                         leader_fencing_token=fencing_token,
                         lease_ms=self.lease_ms,
+                    ):
+                        return
+                    if resource_lease_id is not None and not HostResourceGovernor(
+                        heartbeat_connection
+                    ).heartbeat(
+                        resource_lease_id,
+                        owner_id=worker_id,
+                        lease_seconds=max(1, self.lease_ms // 1000),
                     ):
                         return
 
@@ -200,6 +259,16 @@ class ConcurrentWorker:
                 if result:
                     results.append(result)
         return results
+
+
+def _workload_class_for_job(job: dict[str, Any]) -> WorkloadClass:
+    """Clasifica conservadoramente jobs productivos antes de reservar capacidad."""
+    kind = str(job.get("kind") or "")
+    if kind == THREAD_RESEARCH_JOB_KIND or kind in {"prompt.optimize", "chat.route"}:
+        return "remote_llm_light"
+    if kind.startswith("pipeline."):
+        return "build_heavy"
+    return "agent_cli"
 
 
 def execute_job(

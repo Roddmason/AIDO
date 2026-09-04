@@ -30,6 +30,8 @@ class ResolvedSetting(_Aliased):
     project_section: str | None = Field(default=None, alias="projectSection")
     type: str
     enum: list[str] | None = None
+    minimum: float | None = None
+    maximum: float | None = None
     value: Any
     origin: Literal["default", "general", "project"]
     inherited: bool

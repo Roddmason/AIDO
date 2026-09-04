@@ -37,6 +37,7 @@ from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
 from .git_workspace.api import create_router as create_git_workspace_router
 from .governance.api import create_router as create_governance_router
+from .host_resources.api import create_router as create_host_resources_router
 from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
@@ -257,6 +258,7 @@ def create_app(
     app.include_router(create_ollama_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
+    app.include_router(create_host_resources_router(platform=platform, require_write=require_write))
     app.include_router(create_sessions_chats_router(platform=platform, require_write=require_write))
     app.include_router(create_pipelines_router(platform=platform, require_write=require_write))
     app.include_router(create_plugins_router(platform=platform, require_write=require_write))

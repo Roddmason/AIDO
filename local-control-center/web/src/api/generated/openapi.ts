@@ -168,8 +168,8 @@ export type IssueToPrRequest = { "buildScripts"?: Array<string>; "createPullRequ
 export type IssueToPrResponse = { "agentRun": AgentRunRecord; "completion": JsonObject; "dag": JsonObject; "diffSummary": JsonObject; "evidencePackage": EvidencePackageRecord; "gateResults": Array<JsonObject>; "job": JobRecord; "pullRequest"?: JsonObject | null; "qaResults": Array<JsonObject>; "reason": string; "rework": JsonObject; "runtime": JsonObject; "runtimeResult": JsonObject; "status": string; "timeline"?: Array<JsonObject>; "workflow": WorkflowRecord; "workflowRun": WorkflowRunRecord; "workflowSteps": Array<WorkflowStepRecord>; "workspace": WorkspaceRecord };
 export type JobCreateRequest = { "idempotencyKey"?: null | string; "kind": string; "payload"?: JsonObject; "projectId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
 export type JobMutationResponse = { "actionRequest"?: ActionRequestRecord | null; "actionRequests"?: Array<ActionRequestRecord>; "auditEvent"?: AuditEventRecord | null; "events"?: Array<EventRecord>; "job": JobRecord; "permissionGrant"?: ApprovalGrantRecord | null };
-export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
-export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId": string; "metadata": JsonObject; "providerId"?: null | string; "startedAt": string; "status": "queued" | "running" | "completed" | "failed" | "cancelled"; "summary": string };
+export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: null | string; "kind": string; "leaseExpiresAt"?: null | string; "leaseOwner"?: null | string; "payload": JsonObject; "projectId": string; "status": "queued" | "resource_wait" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"; "updatedAt": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
+export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId": string; "leaderFencingToken"?: null | number; "metadata": JsonObject; "providerId"?: null | string; "startedAt": string; "status": "queued" | "running" | "completed" | "failed" | "cancelled"; "summary": string; "workerOwnerId"?: null | string };
 export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord> };
 export type LowLevelEvents = { "modelCalls"?: Array<ModelCallSummary>; "toolCalls"?: Array<ToolCallSummary> };
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
@@ -357,7 +357,13 @@ export type ResearchClaimRequest = { "sourceUrl": string; "topic": string; "valu
 export type ResearchConclusionRequest = { "citations"?: Array<string>; "statement": string; "webBased"?: boolean };
 export type ResearchSourceRequest = { "content"?: null | string; "fetchedAt"?: null | string; "publisher": string; "relatedArtifact"?: null | string; "sourceType"?: null | string; "title"?: null | string; "trustLevel"?: "official_documentation" | "official_repository" | "standard_rfc" | "primary_research" | "reputable_secondary" | "untrusted" | null; "url": string };
 export type ResearchTechnicalDecisionRequest = { "decision": string; "sourceUrls"?: Array<string>; "title": string };
-export type ResolvedSetting = { "editableScopes": Array<string>; "enum"?: Array<string> | null; "inherited": boolean; "key": string; "labelKey"?: string; "origin": "default" | "general" | "project"; "projectSection"?: null | string; "section": string; "source": "default" | "general" | "project"; "type": string; "value": JsonValue };
+export type ResolvedSetting = { "editableScopes": Array<string>; "enum"?: Array<string> | null; "inherited": boolean; "key": string; "labelKey"?: string; "maximum"?: null | number; "minimum"?: null | number; "origin": "default" | "general" | "project"; "projectSection"?: null | string; "section": string; "source": "default" | "general" | "project"; "type": string; "value": JsonValue };
+export type ResourceLease = { "acquiredAt": string; "cpuLimitPercent": number; "executionId": string; "expiresAt": string; "gpuRequired": boolean; "heartbeatAt": string; "id": string; "memoryLimitBytes": number; "ownerId": string; "processLimit": number; "releaseReason"?: string; "releasedAt"?: null | string; "workloadClass": "control_plane" | "remote_llm_light" | "agent_cli" | "qa_light" | "browser_test" | "build_heavy" | "unreal_editor" | "unreal_cook" | "local_gpu_model" };
+export type ResourceLeaseResponse = { "lease": ResourceLease };
+export type ResourceSampleResponse = { "snapshot": ResourceSnapshot };
+export type ResourceSnapshot = { "activeAidoProcessCount": number; "activeWorkloads"?: Array<string>; "availableMemoryBytes": number; "commitLimitBytes"?: null | number; "committedMemoryBytes"?: null | number; "cpuPercent1s": number; "cpuPercent30s": number; "diskFreeBytes": JsonObject; "diskReadBytesPerSecond": number; "diskWriteBytesPerSecond": number; "dockerRunning": boolean; "gpuMemoryFreeBytes"?: null | number; "gpuMemoryUsedBytes"?: null | number; "gpuUtilizationPercent"?: null | number; "logicalProcessors": number; "ollamaRunning": boolean; "sampledAt": string; "swapOrPagefileUsedBytes": number; "totalMemoryBytes": number; "unrealEditorRunning": boolean; "wslRunning": boolean };
+export type ResourceStatusResponse = { "activeLeases"?: Array<ResourceLease>; "latestSample"?: ResourceUsageSample | null; "resourceWaitCount": number };
+export type ResourceUsageSample = { "id": string; "sampledAt": string; "snapshot": ResourceSnapshot };
 export type RestrictedSubprocessStatus = { "available": boolean; "fallbackOnlyForLowRisk": boolean; "requiresArgv": boolean; "shell": boolean; "workspaceBound": boolean };
 export type RetrievalIndexSummary = { "backend": string; "degraded": boolean; "dimensions": number; "ids": Array<string>; "indexed": number; "projectId": string; "reason": string; "status": string };
 export type RetrievalReindexRequest = { "projectId": string };
@@ -431,6 +437,8 @@ export type SkillRecord = { "compatibility": string; "createdAt": string; "descr
 export type SkillsListResponse = { "skills": Array<SkillRecord> };
 export type SkillsSyncRequest = { "skillsPath"?: string };
 export type SkillsSyncResponse = { "skills": Array<SkillRecord>; "synced": number };
+export type SqliteCheckpointResponse = { "busy": number; "checkpointedFrames": number; "durationMs": number; "logFrames": number; "mode": string; "walBytes": number };
+export type SqliteDiagnosticsResponse = { "busyTimeoutMs": number; "databaseBytes": number; "journalMode": string; "pageSizeBytes": number; "sharedMemoryBytes": number; "sqliteVersion": string; "walAutoCheckpointPages": number; "walBytes": number };
 export type StoryDependencyRecord = { "createdAt": string; "dependsOnStoryId": string; "id": string; "metadata": JsonObject; "projectId": string; "reason": string; "storyId": string; "type": string };
 export type StorySpecAcceptanceCriterion = { "criterion": string; "id": string; "sequence": number; "status": string };
 export type StorySpecDependency = { "role": string; "taskId": string };
@@ -503,8 +511,8 @@ export type UsageSummaryRecord = { "actualCostUsd"?: null | number; "byProvider"
 export type UsageSummaryResponse = { "summary": UsageSummaryRecord };
 export type UserStoryRecord = { "asA"?: null | string; "businessValue"?: null | string; "createdAt": string; "description"?: null | string; "epicId"?: null | string; "iWant"?: null | string; "id": string; "metadata": JsonObject; "owner"?: null | string; "priority": string; "projectId": string; "soThat"?: null | string; "status": string; "storyPoints"?: null | number; "title": string; "updatedAt": string; "version": number };
 export type ValidationError = { "ctx"?: JsonObject; "input"?: JsonValue; "loc": Array<number | string>; "msg": string; "type": string };
-export type WorkerRunOnceResponse = { "autostart": boolean; "claimedJobs": number; "completedRuns": number; "failedRuns": number; "inFlightJobs": number; "lastError"?: null | string; "lastIdleAt"?: null | string; "lastRunAt"?: null | string; "maxConcurrentJobs": number; "paused": boolean; "pollIntervalSeconds": number; "reason": string; "running": boolean; "runs": Array<JsonObject>; "status": "running" | "stopped" | "paused" | "idle" | "blocked" | "failed" | "completed" };
-export type WorkerStatusResponse = { "autostart": boolean; "claimedJobs": number; "completedRuns": number; "failedRuns": number; "inFlightJobs": number; "lastError"?: null | string; "lastIdleAt"?: null | string; "lastRunAt"?: null | string; "maxConcurrentJobs": number; "paused": boolean; "pollIntervalSeconds": number; "reason": string; "running": boolean; "status": "running" | "stopped" | "paused" | "idle" | "blocked" | "failed" | "completed" };
+export type WorkerRunOnceResponse = { "autostart": boolean; "claimedJobs": number; "completedRuns": number; "connected"?: boolean; "desiredState"?: string; "failedRuns": number; "fencingToken"?: null | number; "heartbeatAt"?: null | string; "inFlightJobs": number; "lastError"?: null | string; "lastIdleAt"?: null | string; "lastRunAt"?: null | string; "leaseExpiresAt"?: null | string; "maxConcurrentJobs": number; "ownerId"?: null | string; "paused": boolean; "pollIntervalSeconds": number; "reason": string; "role"?: "leader" | "standby" | "offline"; "running": boolean; "runs": Array<JsonObject>; "standbyCount"?: number; "status": "running" | "stopped" | "paused" | "standby" | "draining" | "emergency_stopped" | "idle" | "blocked" | "failed" | "completed" };
+export type WorkerStatusResponse = { "autostart": boolean; "claimedJobs": number; "completedRuns": number; "connected"?: boolean; "desiredState"?: string; "failedRuns": number; "fencingToken"?: null | number; "heartbeatAt"?: null | string; "inFlightJobs": number; "lastError"?: null | string; "lastIdleAt"?: null | string; "lastRunAt"?: null | string; "leaseExpiresAt"?: null | string; "maxConcurrentJobs": number; "ownerId"?: null | string; "paused": boolean; "pollIntervalSeconds": number; "reason": string; "role"?: "leader" | "standby" | "offline"; "running": boolean; "standbyCount"?: number; "status": "running" | "stopped" | "paused" | "standby" | "draining" | "emergency_stopped" | "idle" | "blocked" | "failed" | "completed" };
 export type WorkflowCreateRequest = { "idea"?: null | string; "kind"?: "idea_to_pr" | "project_discovery" | "issue_to_patch" | "issue_to_pr" | "qa_validation" | "release_candidate" | "pr_release_retro"; "metadata"?: JsonObject; "projectId": string; "title"?: null | string };
 export type WorkflowDetailResponse = { "actionRequests"?: Array<ActionRequestRecord>; "agentRuns": Array<AgentRunRecord>; "agentToolCalls"?: Array<AgentToolCallRecord>; "artifacts"?: Array<ArtifactRecord>; "evidencePackages": Array<EvidencePackageRecord>; "jobRuns"?: Array<JobRunRecord>; "jobs": Array<JobRecord>; "modelCalls"?: Array<ModelCallRecord>; "permissionDecisions"?: Array<PermissionDecisionRecord>; "testResultRecords"?: Array<TestResultRecord>; "workflow": WorkflowRecord; "workflowEvents"?: Array<WorkflowEventRecord>; "workflowRunDetails"?: Array<WorkflowRunDetail>; "workflowRuns": Array<WorkflowRunRecord>; "workflowSteps": Array<WorkflowStepRecord>; "workspaces": Array<WorkspaceRecord> };
 export type WorkflowEventRecord = { "causationId"?: null | string; "correlationId"?: null | string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "severity": string; "type": string; "workflowId": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -662,6 +670,11 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
 	{"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	{"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
+	{"method": "GET", "operationId": "database_status_api_v1_operations_database_get", "path": "/api/v1/operations/database", "summary": "Database Status"},
+	{"method": "POST", "operationId": "checkpoint_database_api_v1_operations_database_checkpoint_post", "path": "/api/v1/operations/database/checkpoint", "summary": "Checkpoint Database"},
+	{"method": "GET", "operationId": "resource_status_api_v1_operations_resources_get", "path": "/api/v1/operations/resources", "summary": "Resource Status"},
+	{"method": "POST", "operationId": "release_lease_api_v1_operations_resources_leases__lease_id__release_post", "path": "/api/v1/operations/resources/leases/{lease_id}/release", "summary": "Release Lease"},
+	{"method": "POST", "operationId": "sample_resources_api_v1_operations_resources_sample_post", "path": "/api/v1/operations/resources/sample", "summary": "Sample Resources"},
 	{"method": "GET", "operationId": "overview_api_v1_overview_get", "path": "/api/v1/overview", "summary": "Overview"},
 	{"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
 	{"method": "GET", "operationId": "list_plugins_api_v1_plugins_get", "path": "/api/v1/plugins", "summary": "List Plugins"},
@@ -757,6 +770,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	{"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	{"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
+	{"method": "POST", "operationId": "worker_drain_api_v1_workers_drain_post", "path": "/api/v1/workers/drain", "summary": "Worker Drain"},
 	{"method": "POST", "operationId": "worker_pause_api_v1_workers_pause_post", "path": "/api/v1/workers/pause", "summary": "Worker Pause"},
 	{"method": "POST", "operationId": "worker_resume_api_v1_workers_resume_post", "path": "/api/v1/workers/resume", "summary": "Worker Resume"},
 	{"method": "POST", "operationId": "worker_run_once_api_v1_workers_run_once_post", "path": "/api/v1/workers/run-once", "summary": "Worker Run Once"},
@@ -816,6 +830,7 @@ export type OperationRequestBodies = {
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": unknown,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowStatusChangeRequest,
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutRequest,
+	"checkpoint_database_api_v1_operations_database_checkpoint_post": unknown,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupRequest,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest,
 	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountFromCatalogRequest,
@@ -843,6 +858,7 @@ export type OperationRequestBodies = {
 	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": SelfImprovementProposalRequest,
 	"create_thread_api_v1_threads_post": ThreadCreateRequest,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
+	"database_status_api_v1_operations_database_get": never,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -973,8 +989,10 @@ export type OperationRequestBodies = {
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceRequest,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": unknown,
+	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": unknown,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveRequest,
+	"resource_status_api_v1_operations_resources_get": never,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest,
 	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest,
@@ -995,6 +1013,7 @@ export type OperationRequestBodies = {
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunRequest,
 	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunRequest,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest,
+	"sample_resources_api_v1_operations_resources_sample_post": unknown,
 	"sandbox_status_api_v1_sandbox_status_get": never,
 	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalRequest,
 	"security_agent_status_api_v1_agents_security_status_get": never,
@@ -1028,6 +1047,7 @@ export type OperationRequestBodies = {
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": never,
 	"validate_credential_api_v1_credentials__credential_id__validate_post": unknown,
 	"validate_plugin_api_v1_plugins__plugin_id__validate_post": unknown,
+	"worker_drain_api_v1_workers_drain_post": unknown,
 	"worker_pause_api_v1_workers_pause_post": unknown,
 	"worker_resume_api_v1_workers_resume_post": unknown,
 	"worker_run_once_api_v1_workers_run_once_post": unknown,
@@ -1061,6 +1081,7 @@ export type OperationResponseBodies = {
 	"cancel_session_api_v1_cli_sessions__session_id__cancel_post": CliSessionCancelResponse,
 	"cancel_workflow_api_v1_workflows__workflow_id__cancel_post": WorkflowResponse,
 	"checkout_git_branch_api_v1_projects__project_id__git_checkout_post": GitCheckoutResponse,
+	"checkpoint_database_api_v1_operations_database_checkpoint_post": SqliteCheckpointResponse,
 	"cleanup_artifacts_api_v1_evidence_artifacts_cleanup_post": ArtifactCleanupResponse,
 	"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse,
 	"create_account_from_catalog_api_v1_provider_accounts_from_catalog_post": ProviderAccountResponse,
@@ -1088,6 +1109,7 @@ export type OperationResponseBodies = {
 	"create_self_improvement_proposal_api_v1_self_improvement_proposals_post": SelfImprovementProposalResponse,
 	"create_thread_api_v1_threads_post": ThreadDetailResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
+	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1218,8 +1240,10 @@ export type OperationResponseBodies = {
 	"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": SelfImprovementPerformanceResponse,
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
+	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
+	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexResponse,
 	"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchResponse,
@@ -1240,6 +1264,7 @@ export type OperationResponseBodies = {
 	"run_qa_agent_api_v1_agents_qa_runs_post": QAAgentRunResponse,
 	"run_research_agent_api_v1_agents_research_runs_post": ResearchAgentRunResponse,
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunResponse,
+	"sample_resources_api_v1_operations_resources_sample_post": ResourceSampleResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
 	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
@@ -1273,6 +1298,7 @@ export type OperationResponseBodies = {
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
 	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse,
 	"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse,
+	"worker_drain_api_v1_workers_drain_post": WorkerStatusResponse,
 	"worker_pause_api_v1_workers_pause_post": WorkerStatusResponse,
 	"worker_resume_api_v1_workers_resume_post": WorkerStatusResponse,
 	"worker_run_once_api_v1_workers_run_once_post": WorkerRunOnceResponse,
@@ -1408,6 +1434,11 @@ export const OPERATIONS_BY_ID = {
 	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": {"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": {"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	"open_design_api_v1_open_design_get": {"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
+	"database_status_api_v1_operations_database_get": {"method": "GET", "operationId": "database_status_api_v1_operations_database_get", "path": "/api/v1/operations/database", "summary": "Database Status"},
+	"checkpoint_database_api_v1_operations_database_checkpoint_post": {"method": "POST", "operationId": "checkpoint_database_api_v1_operations_database_checkpoint_post", "path": "/api/v1/operations/database/checkpoint", "summary": "Checkpoint Database"},
+	"resource_status_api_v1_operations_resources_get": {"method": "GET", "operationId": "resource_status_api_v1_operations_resources_get", "path": "/api/v1/operations/resources", "summary": "Resource Status"},
+	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": {"method": "POST", "operationId": "release_lease_api_v1_operations_resources_leases__lease_id__release_post", "path": "/api/v1/operations/resources/leases/{lease_id}/release", "summary": "Release Lease"},
+	"sample_resources_api_v1_operations_resources_sample_post": {"method": "POST", "operationId": "sample_resources_api_v1_operations_resources_sample_post", "path": "/api/v1/operations/resources/sample", "summary": "Sample Resources"},
 	"overview_api_v1_overview_get": {"method": "GET", "operationId": "overview_api_v1_overview_get", "path": "/api/v1/overview", "summary": "Overview"},
 	"revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post": {"method": "POST", "operationId": "revoke_permission_grant_api_v1_permissions_grants__grant_id__revoke_post", "path": "/api/v1/permissions/grants/{grant_id}/revoke", "summary": "Revoke Permission Grant"},
 	"list_plugins_api_v1_plugins_get": {"method": "GET", "operationId": "list_plugins_api_v1_plugins_get", "path": "/api/v1/plugins", "summary": "List Plugins"},
@@ -1503,6 +1534,7 @@ export const OPERATIONS_BY_ID = {
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": {"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": {"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": {"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
+	"worker_drain_api_v1_workers_drain_post": {"method": "POST", "operationId": "worker_drain_api_v1_workers_drain_post", "path": "/api/v1/workers/drain", "summary": "Worker Drain"},
 	"worker_pause_api_v1_workers_pause_post": {"method": "POST", "operationId": "worker_pause_api_v1_workers_pause_post", "path": "/api/v1/workers/pause", "summary": "Worker Pause"},
 	"worker_resume_api_v1_workers_resume_post": {"method": "POST", "operationId": "worker_resume_api_v1_workers_resume_post", "path": "/api/v1/workers/resume", "summary": "Worker Resume"},
 	"worker_run_once_api_v1_workers_run_once_post": {"method": "POST", "operationId": "worker_run_once_api_v1_workers_run_once_post", "path": "/api/v1/workers/run-once", "summary": "Worker Run Once"},

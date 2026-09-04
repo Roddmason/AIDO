@@ -626,6 +626,7 @@ class JobsRepository:
         worker_id: str,
         lease_ms: int = 300000,
         leader_fencing_token: int | None = None,
+        job_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Reclama atómicamente el job `queued` más antiguo, lo pone `running` y abre su run.
 
@@ -647,14 +648,20 @@ class JobsRepository:
                 now_iso=timestamp,
             ):
                 raise StaleWorkerFenceError("Worker leadership fence is not active.")
-            row = self.connection.execute(
-                """
-                SELECT * FROM jobs
-                WHERE status = 'queued'
-                ORDER BY created_at ASC
-                LIMIT 1
-                """
-            ).fetchone()
+            if job_id is None:
+                row = self.connection.execute(
+                    """
+                    SELECT * FROM jobs
+                    WHERE status = 'queued'
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """
+                ).fetchone()
+            else:
+                row = self.connection.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = 'queued'",
+                    (job_id,),
+                ).fetchone()
             if not row:
                 self.connection.execute("ROLLBACK")
                 return None
@@ -698,6 +705,18 @@ class JobsRepository:
             payload={"workerId": worker_id},
         )
         return {"job": job, "run": run}
+
+    def peek_next_job(self) -> dict[str, Any] | None:
+        """Devuelve el próximo job queued sin reclamarlo para ejecutar admisión previa."""
+        row = self.connection.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status = 'queued'
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row_to_job(row) if row else None
 
     def requeue_expired_jobs(self, *, now_iso: str | None = None) -> list[dict[str, Any]]:
         """Recupera jobs `running` cuyo lease venció: los reencola y marca su run como `failed`.

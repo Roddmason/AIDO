@@ -60,6 +60,8 @@ def _resolve_one(
         "projectSection": descriptor.project_section,
         "type": descriptor.type,
         "enum": list(descriptor.enum) if descriptor.enum is not None else None,
+        "minimum": descriptor.minimum,
+        "maximum": descriptor.maximum,
         "value": value,
         "origin": origin,
         "inherited": inherited,

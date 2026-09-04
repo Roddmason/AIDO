@@ -24,7 +24,7 @@ from fastapi.responses import Response
 
 from .models import SetSettingRequest, SettingsResponse
 from .registry import descriptor_for, validate_value
-from .repository import SettingsRepository
+from .repository import UNSET, SettingsRepository
 from .resolver import resolve_settings
 
 
@@ -51,6 +51,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
 
         if body.scope == "project":
+            if descriptor.project_section is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Setting {key!r} is only editable at general scope.",
+                )
             if not body.scope_id:
                 raise HTTPException(
                     status_code=422,
@@ -71,6 +76,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         repo = SettingsRepository(platform.connection)
+        if key in {"resources.minFreeMemoryGiB", "resources.hardFreeMemoryGiB"}:
+            min_descriptor = descriptor_for("resources.minFreeMemoryGiB")
+            hard_descriptor = descriptor_for("resources.hardFreeMemoryGiB")
+            if min_descriptor is None or hard_descriptor is None:  # pragma: no cover - registry invariant
+                raise RuntimeError("Resource memory settings are not registered.")
+            stored_minimum = repo.get_value("resources.minFreeMemoryGiB", "general", None)
+            stored_hard = repo.get_value("resources.hardFreeMemoryGiB", "general", None)
+            effective_minimum = min_descriptor.default if stored_minimum is UNSET else float(stored_minimum)
+            effective_hard = hard_descriptor.default if stored_hard is UNSET else float(stored_hard)
+            if key == "resources.minFreeMemoryGiB":
+                effective_minimum = float(coerced)
+            else:
+                effective_hard = float(coerced)
+            if effective_hard > effective_minimum:
+                raise HTTPException(
+                    status_code=422,
+                    detail="resources.hardFreeMemoryGiB cannot exceed resources.minFreeMemoryGiB.",
+                )
         repo.set_value(key, body.scope, effective_scope_id, coerced)
         return Response(status_code=204)
 

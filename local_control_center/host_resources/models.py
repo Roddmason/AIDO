@@ -109,6 +109,7 @@ class ResourceAdmissionRequest(_AliasedModel):
     workload_class: WorkloadClass = Field(alias="workloadClass")
     owner_id: str = Field(alias="ownerId", min_length=1)
     job_id: str | None = Field(default=None, alias="jobId")
+    parent_execution_id: str | None = Field(default=None, alias="parentExecutionId")
     lease_seconds: int = Field(default=300, alias="leaseSeconds", ge=1, le=86_400)
 
 

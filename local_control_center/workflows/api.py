@@ -16,6 +16,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+
 from ..agents.model_router import ModelRouter, RoutingRequest
 from ..agents.product_owner_agent import ProductOwnerAgentRunner
 from ..agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
@@ -200,7 +202,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     ``platform`` supplies the shared SQLite connection and working dir for the repositories and
     runners; ``require_write`` is invoked on every mutating route to enforce write authorization.
     """
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> WorkflowsRepository:
         return WorkflowsRepository(platform.connection)
@@ -616,6 +621,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"workflow": workflow}
 
     @router.post("/api/v1/workflows/issue-to-patch", status_code=202, response_model=IssueToPatchResponse)
+    @queued_operation("workflows.run_issue_to_patch", workload_class="agent_cli")
     async def run_issue_to_patch(body: IssueToPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         payload = validate_issue_to_patch_body(body)
@@ -642,6 +648,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=IssueToPatchResponse,
     )
+    @queued_operation("workflows.approve_issue_to_patch", workload_class="agent_cli")
     async def approve_issue_to_patch(
         run_id: str, body: WorkflowStatusChangeRequest, request: Request
     ) -> dict[str, Any]:
@@ -675,6 +682,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=IssueToPatchResponse,
     )
+    @queued_operation("workflows.promote_patch_to_branch", workload_class="agent_cli")
     async def promote_patch_to_branch(
         run_id: str, body: PromotePatchToBranchRequest, request: Request
     ) -> dict[str, Any]:
@@ -710,6 +718,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=IssueToPatchResponse,
     )
+    @queued_operation("workflows.create_pull_request_from_promoted_branch", workload_class="agent_cli")
     async def create_pull_request_from_promoted_branch(
         run_id: str,
         body: PullRequestCreateRequest,
@@ -744,6 +753,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.post("/api/v1/workflows/issue-to-pr", status_code=202, response_model=IssueToPrResponse)
+    @queued_operation("workflows.run_issue_to_pr", workload_class="agent_cli")
     async def run_issue_to_pr(body: IssueToPrRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         payload = validate_issue_to_pr_body(body)
@@ -769,6 +779,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workflows/issue-to-pr/{run_id}/approve", status_code=202, response_model=IssueToPrResponse
     )
+    @queued_operation("workflows.approve_issue_to_pr", workload_class="agent_cli")
     async def approve_issue_to_pr(
         run_id: str, body: WorkflowStatusChangeRequest, request: Request
     ) -> dict[str, Any]:
@@ -800,6 +811,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workflows/issue-to-pr/{run_id}/promote", status_code=202, response_model=IssueToPrResponse
     )
+    @queued_operation("workflows.promote_issue_to_pr_branch", workload_class="agent_cli")
     async def promote_issue_to_pr_branch(
         run_id: str, body: PromotePatchToBranchRequest, request: Request
     ) -> dict[str, Any]:
@@ -835,6 +847,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=IssueToPrResponse,
     )
+    @queued_operation("workflows.create_pull_request_from_issue_to_pr", workload_class="agent_cli")
     async def create_pull_request_from_issue_to_pr(
         run_id: str,
         body: PullRequestCreateRequest,
@@ -1014,6 +1027,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workflows/{workflow_id}/start", status_code=202, response_model=WorkflowStartResponse
     )
+    @queued_operation("workflows.start_workflow", workload_class="agent_cli")
     async def start_workflow(
         workflow_id: str, body: WorkflowStatusChangeRequest, request: Request
     ) -> dict[str, Any]:
@@ -1037,6 +1051,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=WorkflowGateAdvanceResponse,
     )
+    @queued_operation("workflows.advance_workflow_gate", workload_class="agent_cli")
     async def advance_workflow_gate(
         workflow_id: str,
         step_id: str,

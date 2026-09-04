@@ -26,6 +26,7 @@ class ProcessExecutionContext:
     connection: sqlite3.Connection | None = None
     worker_id: str | None = None
     fencing_token: int | None = None
+    in_job_runner: bool = False
 
 
 CURRENT_EXECUTION: ContextVar[ProcessExecutionContext | None] = ContextVar("aido_execution", default=None)

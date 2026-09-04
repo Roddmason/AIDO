@@ -749,8 +749,6 @@ class ModelRouter:
             # "auto_best_available" de las migraciones): sin ellos el preferred del rol no
             # aporta rank alguno.
             *(preferred_rank.get((provider["providerId"], wildcard), 999) for wildcard in MODEL_WILDCARDS),
-            # Alias legacy: datos antiguos pineados a este id concreto; no propagar al set compartido.
-            preferred_rank.get((provider["providerId"], "gpt-5.5"), 999),
         )
         role_fit_score = max(0.0, 1.0 - (rank * 0.12)) if rank != 999 else 0.45
         reliability_score = 1.0 if provider["healthStatus"] == "healthy" else 0.65

@@ -49,6 +49,10 @@ class ControlPlaneFixture:
     def close(self) -> None:
         self.runtime.close()
 
+    def operation_connection(self):
+        """Comparte el scope de conexión real con runners de contratos de dominio."""
+        return self.runtime.operation_connection()
+
     def get_handshake(self) -> dict[str, Any]:
         return self.runtime.get_handshake()
 

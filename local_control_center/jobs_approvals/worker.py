@@ -291,6 +291,8 @@ class ConcurrentWorker:
 def _workload_class_for_job(job: dict[str, Any]) -> WorkloadClass:
     """Clasifica conservadoramente jobs productivos antes de reservar capacidad."""
     kind = str(job.get("kind") or "")
+    if kind == "operation.execute":
+        return job["payload"]["workloadClass"]
     if kind == THREAD_RESEARCH_JOB_KIND or kind in {"prompt.optimize", "chat.route"}:
         return "remote_llm_light"
     if kind.startswith("pipeline."):
@@ -314,6 +316,34 @@ def execute_job(
             `unsupported_job_kind` para el resto.
     """
     kind = job["kind"]
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+    context = CURRENT_EXECUTION.get()
+    contained_legacy = (
+        kind in {THREAD_RESEARCH_JOB_KIND, THREAD_PRODUCT_LOOP_JOB_KIND}
+        and context is not None
+        and context.fencing_token is not None
+        and not context.in_job_runner
+    )
+    if contained_legacy:
+        from local_control_center.executions.repository import ExecutionRepository
+
+        ExecutionRepository(connection).attach_claimed_job(
+            job,
+            workload_class=_workload_class_for_job(job),
+            cwd=str(Path(db_path).parent),
+            owner_id=context.worker_id,
+            fencing_token=context.fencing_token,
+        )
+    if kind == "operation.execute" or contained_legacy:
+        from local_control_center.executions.dispatcher import dispatch_execution
+
+        result = dispatch_execution(job, connection=connection, db_path=db_path)
+        if result["metadata"]["status"] != "completed":
+            raise JobExecutionUnavailable(
+                status=result["metadata"]["status"], summary=result["summary"], metadata=result["metadata"]
+            )
+        return result
     if kind == THREAD_RESEARCH_JOB_KIND:
         if connection is not None:
             return _execute_thread_research_job(job, connection=connection, worker_id=worker_id)

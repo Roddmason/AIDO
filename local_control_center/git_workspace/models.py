@@ -58,6 +58,8 @@ class GitStatusResponse(BaseModel):
     """Snapshot Git completo para la barra de estado y paneles."""
 
     status: GitWorkspaceStatus
+    snapshot_at: str | None = Field(default=None, alias="snapshotAt")
+    refresh_required: bool = Field(default=True, alias="refreshRequired")
     reason: str
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")
@@ -79,6 +81,8 @@ class GitBranchesResponse(BaseModel):
     """Ramas locales/remotas y branch actual."""
 
     status: GitWorkspaceStatus
+    snapshot_at: str | None = Field(default=None, alias="snapshotAt")
+    refresh_required: bool = Field(default=True, alias="refreshRequired")
     reason: str
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")
@@ -240,6 +244,8 @@ class GitDiffResponse(BaseModel):
     """Diff Git real contra HEAD."""
 
     status: GitWorkspaceStatus
+    snapshot_at: str | None = Field(default=None, alias="snapshotAt")
+    refresh_required: bool = Field(default=True, alias="refreshRequired")
     reason: str
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")

@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.process_supervision.context import assert_external_boundary
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -655,6 +656,7 @@ def default_http_post(
         method="POST",
     )
     try:
+        assert_external_boundary()
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             body = response.read().decode("utf-8")
             return {"statusCode": response.status, "body": parse_json_object(body)}

@@ -11,7 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest, RuntimeResult
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
@@ -45,6 +44,7 @@ from local_control_center.shared.migrations import _execute_atomic_statements, i
 from local_control_center.shared.redaction import redact_secrets
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -95,6 +95,10 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
             status="available" if health_status == "healthy" else health_status,
             payload={"healthStatus": health_status, "message": health_message},
         )
+        if provider_id in {"codex_cli", "claude_code_cli"}:
+            models = ProviderAccountStore(connection)
+            for model in models.list_models(provider_id=provider_id):
+                models.patch_model(model["id"], {"enabled": True})
 
 
 def register_workspace(connection, workspace_id: str, path: Path) -> None:
@@ -2139,6 +2143,12 @@ def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
     )
     assert response.status_code == 200
 
+    # El modelo debe ser explícito: los seeds CLI ya no son candidatos ejecutables.
+    connection = client.app.state.runtime.connection
+    connection.execute(
+        "UPDATE model_catalog SET enabled=1, source='operator_override' WHERE provider_id='codex_cli'"
+    )
+
     preview = client.post(
         "/api/v1/model-gateway/route/preview",
         headers=headers,
@@ -3202,6 +3212,8 @@ def test_codex_cli_builds_current_non_interactive_command_contract(tmp_path: Pat
             workspace_path=str(tmp_path),
             prompt="Return JSON only",
             profile="codex_gpt55_developer",
+            model="test-operator-coding-model",
+            effort="high",
         )
     )
 
@@ -3223,6 +3235,7 @@ def test_claude_cli_separates_variadic_add_dir_from_prompt(tmp_path: Path) -> No
             workspace_path=str(tmp_path),
             prompt="Return JSON only",
             profile="claude_sonnet_developer",
+            model="test-operator-coding-model",
         )
     )
 
@@ -3235,7 +3248,13 @@ def test_claude_cli_separates_variadic_add_dir_from_prompt(tmp_path: Path) -> No
     assert command.index("--") > command.index("--add-dir")
 
 
-def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(tmp_path: Path) -> None:
+def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.codex_compatibility.CodexCompatibilityService.status",
+        lambda *args, **kwargs: {"status": "compatible"},
+    )
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
@@ -3303,7 +3322,7 @@ def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Pa
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
 
-        with pytest.raises(RuntimeCommandUnavailableError, match="version is not approved"):
+        with pytest.raises(RuntimeCommandUnavailableError, match="capability validation and matching smoke"):
             build_product_owner_agent_argv(
                 runtime={
                     "id": "codex_cli",
@@ -3325,7 +3344,7 @@ def test_product_owner_codex_command_rejects_stale_persisted_version(tmp_path: P
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
 
-        with pytest.raises(RuntimeCommandUnavailableError, match="current runtime probe"):
+        with pytest.raises(RuntimeCommandUnavailableError, match="capability validation and matching smoke"):
             build_product_owner_agent_argv(
                 runtime={
                     "id": "codex_cli",
@@ -3659,6 +3678,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
                 workspacePath=str(tmp_path),
                 prompt="edit code",
                 profile="codex_gpt55_developer",
+                model="test-operator-model",
                 envPolicy={"permissionProfile": "plan"},
             )
         )

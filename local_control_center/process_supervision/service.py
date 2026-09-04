@@ -55,15 +55,8 @@ class ResourceWaitError(OSError):
 
 
 def command_fingerprint(argv: list[str]) -> str:
-    """Genera identidad estable sin guardar prompts, paths ni valores posicionales."""
-    executable = Path(argv[0]).name.lower() if argv else ""
-    shape = [executable]
-    for argument in argv[1:]:
-        if argument.startswith("-") and "=" not in argument and len(argument) <= 64:
-            shape.append(argument)
-        else:
-            shape.append(f"value:{len(argument)}")
-    payload = json.dumps(shape, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    """Vincula evidencia al argv exacto mediante SHA-256, sin persistir su contenido."""
+    payload = json.dumps(argv, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -71,12 +64,9 @@ def safe_command_summary(argv: list[str]) -> list[str]:
     """Devuelve un resumen apto para auditoría sin contenido libre del operador."""
     if not argv:
         return []
-    summary = [Path(argv[0]).name]
-    summary.extend(
-        argument if argument.startswith("-") and "=" not in argument else "[argument]"
-        for argument in argv[1:]
-    )
-    return summary
+    # Un valor libre puede parecer un flag (incluso después de --prompt).
+    # La autorización conserva un hash exacto separado; el display nunca necesita sus valores.
+    return [Path(argv[0]).name, *(["[argument]"] * (len(argv) - 1))]
 
 
 def classify_workload(argv: list[str]) -> WorkloadClass:
@@ -89,7 +79,7 @@ def classify_workload(argv: list[str]) -> WorkloadClass:
         elif wrapper != "corepack":
             return "agent_cli"
     executable = tokens[0] if tokens else ""
-    if executable in {"pytest", "ruff", "semgrep", "git"}:
+    if executable in {"pytest", "ruff", "semgrep", "git", "gitleaks"}:
         return "qa_light"
     if executable in {"node", "pnpm", "npm", "npx", "yarn"}:
         if "playwright" in tokens:
@@ -174,6 +164,10 @@ class ProcessSupervisorService:
             ):
                 raise PermissionError("El contenedor de cleanup no pertenece al registro durable AIDO.")
             reason = ManagedProcessRepository(connection).cancellation_reason(execution_id)
+            if self.context and self.context.execution_id:
+                reason = reason or ManagedProcessRepository(connection).cancellation_reason(
+                    self.context.execution_id
+                )
             if reason and not self.cleanup_only:
                 raise ExecutionCancelled(reason)
             if not self.cleanup_only:
@@ -391,6 +385,8 @@ class ProcessSupervisorService:
                     ) or repository.cancellation_reason(managed.managed_process_id)
                     if self.cleanup_only:
                         reason = None
+                    elif self.context and self.context.execution_id:
+                        reason = reason or repository.cancellation_reason(self.context.execution_id)
                     if managed.capture_failure.is_set():
                         reason = "output_capture_limit"
                     try:

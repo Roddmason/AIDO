@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is required for git workspace tests")
 
@@ -23,6 +23,12 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 def create_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+    from local_control_center.host_resources.models import ResourceSnapshot
+
+    monkeypatch.setattr(
+        "local_control_center.host_resources.probes.HostResourceProbe.sample",
+        lambda *args, **kwargs: ResourceSnapshot.test_snapshot(),
+    )
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
@@ -203,6 +209,7 @@ def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected
     assert body["suggestedBranchName"] == "codex/bugfix-fix-git-init-for-new-projects"
     assert body["targetBranch"] == "codex/bugfix-fix-git-init-for-new-projects"
     assert body["created"] is True
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=headers).status_code == 200
     branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
     assert "codex/bugfix-fix-git-init-for-new-projects" in branches["localBranches"]
 
@@ -272,6 +279,8 @@ def test_git_status_detects_current_branch_and_records_broker_evidence(
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
 
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
+
     response = client.get(f"/api/v1/projects/{project['id']}/git/status")
 
     assert response.status_code == 200
@@ -301,6 +310,8 @@ def test_git_status_detects_branch_dirty_state_and_sanitizes_existing_remotes(
     (project_path / "README.md").write_text("# AIDO git workspace\nchanged\n", encoding="utf-8")
     secret_remote = "https://oauth2:glpat-abcdefghijklmnop@gitlab.com/aido/repo.git"
     assert run_git(["remote", "add", "origin", secret_remote], cwd=project_path).returncode == 0
+
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
 
     response = client.get(f"/api/v1/projects/{project['id']}/git/status")
 
@@ -338,6 +349,8 @@ def test_git_status_rejects_project_nested_inside_another_repo(
     nested.mkdir(parents=True, exist_ok=True)
     project = store.create_project(name="nested", path=nested, template_id="other")
 
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
+
     status = client.get(f"/api/v1/projects/{project['id']}/git/status").json()
     branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
 
@@ -360,6 +373,8 @@ def test_git_status_categorizes_changed_untracked_and_staged_files(
     (project_path / "staged.txt").write_text("staged\n", encoding="utf-8")
     assert run_git(["add", "staged.txt"], cwd=project_path).returncode == 0
 
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
+
     response = client.get(f"/api/v1/projects/{project['id']}/git/status")
 
     assert response.status_code == 200
@@ -373,30 +388,27 @@ def test_git_status_categorizes_changed_untracked_and_staged_files(
 def test_git_branches_reuse_status_snapshot_without_extra_git_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The branches endpoint must reuse the status() snapshot, not re-shell `git branch` again.
-
-    Perf regression guard: `status()` already brokers `git branch --format` and
-    `git branch --remotes`, so `branches()` reformats that result. Hitting /git/branches must
-    broker exactly the same set of git commands as a single /git/status call — no duplicates —
-    while every command stays audited (broker traces + policy decisions travel in the response).
-    """
+    """Sólo POST refresh ejecuta Git; ambos GET reutilizan su evidencia durable."""
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
     assert run_git(["branch", "feature/reuse"], cwd=Path(project["path"])).returncode == 0
 
     base = len(store.agents.list_agent_tool_calls())
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
+    after_refresh = len(store.agents.list_agent_tool_calls())
     status = client.get(f"/api/v1/projects/{project['id']}/git/status").json()
     after_status = len(store.agents.list_agent_tool_calls())
     branches = client.get(f"/api/v1/projects/{project['id']}/git/branches").json()
     after_branches = len(store.agents.list_agent_tool_calls())
 
-    status_commands = after_status - base
+    status_commands = after_status - after_refresh
     branch_commands = after_branches - after_status
 
     assert status["status"] == "completed"
     assert branches["status"] == "completed"
-    assert status_commands > 0
-    assert branch_commands == status_commands
+    assert after_refresh > base
+    assert status_commands == 0
+    assert branch_commands == 0
     assert set(branches["localBranches"]) == {"main", "feature/reuse"}
     assert branches["currentBranch"] == "main"
     assert branches["toolCalls"]
@@ -414,6 +426,7 @@ def test_git_branch_can_be_created_from_current_branch(
         headers=headers,
         json={"name": "feature/git-workspace"},
     )
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=headers).status_code == 200
     branches = client.get(f"/api/v1/projects/{project['id']}/git/branches")
 
     assert created.status_code == 201
@@ -452,6 +465,8 @@ def test_git_diff_returns_real_diff_and_changed_files(
     project = create_git_project(store, tmp_path)
     project_path = Path(project["path"])
     (project_path / "README.md").write_text("# AIDO git workspace\nnew line\n", encoding="utf-8")
+
+    assert client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers).status_code == 200
 
     response = client.get(f"/api/v1/projects/{project['id']}/git/diff")
 

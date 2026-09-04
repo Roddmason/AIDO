@@ -18,6 +18,8 @@ from local_control_center.agents.ai_execution_models import AIExecutionPlan
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.base import ModelResponse, UsageRecord
 from local_control_center.app import create_app
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
@@ -119,7 +121,7 @@ def _configure_chat_endpoint(
             "adapterProfile": "nvidia_openai_chat",
             "termsMode": "accepted",
             "pricingMode": "free" if free_tier else "configured",
-            "baseUrl": f"http://127.0.0.1:{8100 + len(provider_id)}/v1",
+            "baseUrl": f"http://192.0.2.1:{8100 + len(provider_id)}/v1",
             "credentialRef": "",
             "enabled": True,
         }
@@ -145,6 +147,7 @@ def _execution_context(tmp_path: Path, endpoint_models: dict[str, tuple[str, ...
     database = tmp_path / "platform.sqlite"
     connection = open_sqlite_connection(database)
     initialize_platform_schema(connection)
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
     project = ProjectsRepository(connection).create_project(
         name="parallel-chat",
         path=tmp_path / "project",
@@ -246,6 +249,7 @@ def test_parallel_compare_overlaps_calls_and_persists_no_request_or_raw_provider
         result = AIExecutionService(
             connection,
             provider_resolver=lambda provider_id: adapters[provider_id],
+            resource_snapshot_source=ResourceSnapshot.test_snapshot,
         ).execute(
             _plan(
                 project["id"],
@@ -690,6 +694,17 @@ def test_ai_execution_http_contract_is_typed_and_audit_contains_no_messages(
             "minSuccessful": 1,
         },
     )
+    assert response.status_code == 202
+    execution_id = response.json()["executionId"]
+    from local_control_center.jobs_approvals.worker import ConcurrentWorker
+    from local_control_center.workers.leadership import WorkerLeadershipRepository
+
+    leader = WorkerLeadershipRepository(fixture.connection).acquire(owner_id="http-test", lease_seconds=60)
+    ConcurrentWorker(db_path=database, resource_snapshot=ResourceSnapshot.test_snapshot()).run_once(
+        worker_id="http-test", fencing_token=leader.fencing_token
+    )
+    state = client.get(f"/api/v1/executions/{execution_id}").json()
+    assert state["status"] == "completed", state
     audit_row = fixture.connection.execute(
         """
         SELECT payload FROM audit_events
@@ -699,8 +714,7 @@ def test_ai_execution_http_contract_is_typed_and_audit_contains_no_messages(
     ).fetchone()
     fixture.close()
 
-    assert response.status_code == 200, response.text
-    execution = response.json()["execution"]
+    execution = state["result"]["execution"]
     assert execution["status"] == "blocked"
     assert execution["branches"][0]["errorCode"] == "model_api_family_mismatch"
     assert "HTTP-PROMPT-MUST-NOT-PERSIST" not in audit_row["payload"]

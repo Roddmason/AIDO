@@ -332,7 +332,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         }
 
     @router.post("", status_code=201, response_model=CredentialResponse)
-    async def create_credential(body: CredentialCreateRequest, request: Request) -> dict[str, Any]:
+    def create_credential(body: CredentialCreateRequest, request: Request) -> dict[str, Any]:
         """Crea una credencial escribiendo el valor solo en el backend configurado."""
         require_write(request)
         try:
@@ -356,9 +356,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"audit": _repository(platform).list_audit(credential_id=credential_id)}
 
     @router.post("/migrate", response_model=CredentialMigrationResponse)
-    async def migrate_credentials(
-        request: Request, body: CredentialMigrateRequest | None = None
-    ) -> dict[str, Any]:
+    def migrate_credentials(request: Request, body: CredentialMigrateRequest | None = None) -> dict[str, Any]:
         """Migra configuración heredada de entorno hacia referencias y metadata seguras."""
         require_write(request)
         report = migrate_environment_config(
@@ -369,7 +367,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"report": report}
 
     @router.post("/{credential_id}/validate", response_model=CredentialValidationResponse)
-    async def validate_credential(credential_id: str, request: Request) -> dict[str, Any]:
+    def validate_credential(credential_id: str, request: Request) -> dict[str, Any]:
         """Valida una credencial por fingerprint sin devolver el secreto."""
         require_write(request)
         record = _credential_by_id(_repository(platform), credential_id)
@@ -380,7 +378,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"validation": validation}
 
     @router.post("/{credential_id}/rotate", response_model=CredentialResponse)
-    async def rotate_credential(
+    def rotate_credential(
         credential_id: str, body: CredentialRotateRequest, request: Request
     ) -> dict[str, Any]:
         """Rota una credencial escribiendo el nuevo valor solo en el backend."""
@@ -393,7 +391,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"credential": _with_provider_usages(platform, credential)}
 
     @router.delete("/{credential_id}", response_model=CredentialDeleteResponse)
-    async def delete_credential(credential_id: str, request: Request) -> dict[str, Any]:
+    def delete_credential(credential_id: str, request: Request) -> dict[str, Any]:
         """Borra una credencial del backend y elimina su referencia, conservando auditoría."""
         require_write(request)
         record = _credential_by_id(_repository(platform), credential_id)

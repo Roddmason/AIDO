@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import sqlite3
 
+from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 63
+CURRENT_SCHEMA_VERSION = 66
 
 
 def _execute_atomic_statements(
@@ -121,6 +122,10 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase61_schema(connection)
     init_phase62_schema(connection)
     init_phase63_schema(connection)
+    init_phase64_schema(connection)
+    init_phase65_schema(connection)
+    init_phase66_schema(connection)
+    init_phase67_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6237,6 +6242,97 @@ def init_phase63_schema(connection: sqlite3.Connection) -> None:
         connection.execute("ROLLBACK TO SAVEPOINT aido_phase63_schema")
         connection.execute("RELEASE SAVEPOINT aido_phase63_schema")
         raise
+
+
+def init_phase64_schema(connection: sqlite3.Connection) -> None:
+    """Agrega ejecuciones operacionales sin reemplazar jobs ni ai_executions existentes."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 64").fetchone():
+        return
+    connection.execute("SAVEPOINT aido_phase64_schema")
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS operational_executions (
+            id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE, project_id TEXT,
+            operation TEXT NOT NULL, workload_class TEXT NOT NULL, arguments_json TEXT NOT NULL,
+            cwd TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT,
+            finished_at TEXT, cancel_requested_at TEXT, reason TEXT NOT NULL DEFAULT '',
+            result_json TEXT, result_status_code INTEGER, owner_id TEXT, fencing_token INTEGER
+        )""")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_operational_execution_status ON operational_executions(status, created_at)"
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (64, ?)", (utc_now(),))
+        connection.execute("RELEASE SAVEPOINT aido_phase64_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase64_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase64_schema")
+        raise
+
+
+def init_phase65_schema(connection: sqlite3.Connection) -> None:
+    """Agrega evidencia de capacidades y smoke Codex sin aprobar instalaciones previas."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 65").fetchone():
+        return
+    with immediate_transaction(connection):
+        connection.execute("""CREATE TABLE IF NOT EXISTS codex_capability_probes (
+            executable TEXT PRIMARY KEY, binary_fingerprint TEXT NOT NULL,
+            file_size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, version TEXT NOT NULL,
+            flags TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS codex_smoke_receipts (
+            managed_process_id TEXT PRIMARY KEY REFERENCES managed_processes(managed_process_id),
+            binary_fingerprint TEXT NOT NULL, contract_fingerprint TEXT NOT NULL,
+            receipt_json TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (65, ?)", (utc_now(),))
+
+
+def init_phase66_schema(connection: sqlite3.Connection) -> None:
+    """Vincula reservas de ramas al proceso padre para no liberar capacidad durante un crash."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 66").fetchone():
+        return
+    with immediate_transaction(connection):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
+        if "parent_execution_id" not in columns:
+            connection.execute("ALTER TABLE resource_leases ADD COLUMN parent_execution_id TEXT")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (66, ?)", (utc_now(),))
+
+
+def init_phase67_schema(connection: sqlite3.Connection) -> None:
+    """Desactiva seeds CLI no verificados y migra aliases sin reemplazar modelos del operador."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 67").fetchone():
+        return
+    from local_control_center.agents.model_aliases import LEGACY_PROFILE_ALIASES
+
+    def normalize_profiles(value):
+        if isinstance(value, str):
+            return LEGACY_PROFILE_ALIASES.get(value, value)
+        if isinstance(value, dict):
+            return {key: normalize_profiles(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize_profiles(item) for item in value]
+        return value
+
+    with immediate_transaction(connection):
+        connection.execute("""UPDATE model_catalog SET enabled=0
+            WHERE provider_id IN ('codex_cli', 'claude_code_cli') AND source='manual_seed'""")
+        for row in connection.execute("SELECT id, default_profiles FROM runtime_preferences").fetchall():
+            original = json_loads(row["default_profiles"], {})
+            normalized = normalize_profiles(original)
+            if original != normalized:
+                connection.execute(
+                    "UPDATE runtime_preferences SET default_profiles=? WHERE id=?",
+                    (json_dumps(normalized), row["id"]),
+                )
+        # Una versión de desarrollo anterior apuntaba a una columna inexistente. La reparación
+        # conserva filas y no convierte receipts fallidos en validados; toda FK debe seguir válida.
+        foreign_keys = connection.execute("PRAGMA foreign_key_list(codex_smoke_receipts)").fetchall()
+        if any(row[4] != "managed_process_id" for row in foreign_keys):
+            connection.execute("ALTER TABLE codex_smoke_receipts RENAME TO codex_smoke_receipts_legacy")
+            connection.execute("""CREATE TABLE codex_smoke_receipts (
+                managed_process_id TEXT PRIMARY KEY REFERENCES managed_processes(managed_process_id),
+                binary_fingerprint TEXT NOT NULL, contract_fingerprint TEXT NOT NULL,
+                receipt_json TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+            connection.execute("INSERT INTO codex_smoke_receipts SELECT * FROM codex_smoke_receipts_legacy")
+            connection.execute("DROP TABLE codex_smoke_receipts_legacy")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (67, ?)", (utc_now(),))
 
 
 def _legacy_thread_id(record_id: str) -> str:

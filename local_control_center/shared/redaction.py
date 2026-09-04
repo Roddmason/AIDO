@@ -19,7 +19,7 @@ from urllib.parse import urlparse, urlunparse
 SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
 SECRET_VALUE_PATTERN = re.compile(
     r"("
-    r"sk-[A-Za-z0-9_-]{8,}|"
+    r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{8,}|"
     r"Bearer\s+[A-Za-z0-9._-]+|"
     r"ghp_[A-Za-z0-9_]{12,}|"
     r"github_pat_[A-Za-z0-9_]{20,}|"

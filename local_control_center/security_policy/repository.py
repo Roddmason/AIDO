@@ -13,11 +13,17 @@ en condiciones de carrera; un grant inexistente hace que los getters lancen ``Ke
 
 from __future__ import annotations
 
+import hmac
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any
 
+from local_control_center.shared.command_privacy import (
+    BINDING_KEY,
+    execution_binding,
+    private_command_evidence,
+)
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_policy_decision
@@ -297,6 +303,10 @@ class SecurityPolicyRepository:
         clean_command = str(redact_secrets(command or "")) if command is not None else None
         clean_reason = str(redact_secrets(reason))
         clean_payload = redact_secrets(payload)
+        raw_argv = payload.get("commandArgv") or payload.get("argv") or []
+        clean_command, _, clean_payload = private_command_evidence(command or "", raw_argv, clean_payload)
+        clean_command = str(redact_secrets(clean_command))
+        clean_payload = redact_secrets(clean_payload)
         self.connection.execute(
             """
             INSERT INTO permission_decisions
@@ -612,11 +622,20 @@ class SecurityPolicyRepository:
             return {"valid": False, "reason": "Permission grant agent mismatch.", "grant": grant}
         if grant["tool"] != tool:
             return {"valid": False, "reason": "Permission grant tool mismatch.", "grant": grant}
-        if grant["command"] != command:
-            return {"valid": False, "reason": "Permission grant command mismatch.", "grant": grant}
         requested_argv = _normalized_argv(command_argv)
-        if grant.get("commandArgv") != requested_argv:
-            return {"valid": False, "reason": "Permission grant argv mismatch.", "grant": grant}
+        binding = (grant.get("payload") or {}).get(BINDING_KEY)
+        if binding:
+            if not hmac.compare_digest(str(binding), execution_binding(command, requested_argv)):
+                return {
+                    "valid": False,
+                    "reason": "Permission grant exact execution binding mismatch.",
+                    "grant": grant,
+                }
+        else:
+            if grant["command"] != command:
+                return {"valid": False, "reason": "Permission grant command mismatch.", "grant": grant}
+            if grant.get("commandArgv") != requested_argv:
+                return {"valid": False, "reason": "Permission grant argv mismatch.", "grant": grant}
         if grant.get("workspaceId") and grant.get("workspaceId") != workspace_id:
             return {"valid": False, "reason": "Permission grant workspace mismatch.", "grant": grant}
         if grant.get("runtimeId") and grant.get("runtimeId") != runtime_id:

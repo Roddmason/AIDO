@@ -3,14 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.threads.repository import ThreadsRepository
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 EMPTY_LOOP_STATE = {
     "loops": [],

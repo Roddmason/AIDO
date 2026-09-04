@@ -15,6 +15,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+
 from ..agents.openhands_adapter import openhands_status
 from ..agents.swe_agent_adapter import swe_agent_status
 from ..projects.repository import ProjectsRepository
@@ -93,7 +95,10 @@ def validate_mcp_registration(body: dict[str, Any]) -> dict[str, Any]:
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el ``APIRouter`` del slice ligado a la conexión del ``platform`` y al guard de escritura."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> IntegrationsRepository:
         """Repositorio de integraciones sobre la conexión activa del platform."""
@@ -212,6 +217,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"target": target}
 
     @router.post("/api/v1/integrations/n8n/test", response_model=N8nEventDeliveryResponse)
+    @queued_operation("integrations.test_n8n_target", workload_class="remote_llm_light")
     async def test_n8n_target(body: N8nEventTestRequest, request: Request) -> dict[str, Any]:
         """Envía un evento de prueba por el mismo corredor outbound real hacia n8n."""
         require_write(request)
@@ -231,6 +237,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"delivery": delivery}
 
     @router.post("/api/v1/integrations/n8n/emit", response_model=N8nEventDeliveryResponse)
+    @queued_operation("integrations.emit_n8n", workload_class="remote_llm_light")
     async def emit_n8n(body: N8nEventEmitRequest, request: Request) -> dict[str, Any]:
         """Emit an allowlisted n8n event through the canonical contract route."""
         require_write(request)
@@ -251,6 +258,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"delivery": delivery}
 
     @router.post("/api/v1/integrations/n8n/emit-event", response_model=N8nEventDeliveryResponse)
+    @queued_operation("integrations.emit_n8n_event", workload_class="remote_llm_light")
     async def emit_n8n_event(body: N8nEventEmitRequest, request: Request) -> dict[str, Any]:
         """Emitir un evento soportado hacia n8n si el target del proyecto lo permite."""
         require_write(request)

@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.ollama import OllamaProvider
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -336,7 +337,9 @@ def _model_payload(provider_id: str, model: str) -> dict[str, Any]:
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Construye el router `/api/v1/ollama/endpoints`."""
-    router = APIRouter(prefix="/api/v1/ollama", tags=["ollama"])
+    router = ExecutionRouter(
+        platform=platform, require_write=require_write, prefix="/api/v1/ollama", tags=["ollama"]
+    )
 
     def providers() -> ProviderAccountStore:
         return ProviderAccountStore(platform.connection)
@@ -411,6 +414,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"endpoints": endpoints}
 
     @router.post("/endpoints/{endpoint_id}/health", response_model=OllamaEndpointHealthResponse)
+    @queued_operation("ollama.health_endpoint", workload_class="remote_llm_light")
     async def health_endpoint(endpoint_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta `/api/tags` contra un endpoint Ollama, con Bearer opcional."""
         require_write(request)
@@ -449,6 +453,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"health": health}
 
     @router.post("/endpoints/{endpoint_id}/sync-models", response_model=OllamaSyncModelsResponse)
+    @queued_operation("ollama.sync_models", workload_class="remote_llm_light")
     async def sync_models(endpoint_id: str, request: Request) -> dict[str, Any]:
         """Sincroniza `model_catalog` desde `/api/tags` para un endpoint Ollama."""
         require_write(request)

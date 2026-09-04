@@ -16,20 +16,22 @@ import time
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.model_aliases import (
+    LEGACY_PROFILE_ALIASES,
+    MODEL_ALIASES,
+    resolve_model_alias,
+)
+
 from .base import CliRuntime, RuntimeAuthStatus, RuntimeRequest
 
-CLAUDE_PROFILES = {
-    "claude_sonnet_developer": {"model": "sonnet", "effort": "medium"},
-    "claude_sonnet_qa": {"model": "sonnet", "effort": "medium"},
-    "claude_opus_planner": {"model": "opus", "effort": "high"},
-    "claude_opus_xhigh_architect": {"model": "opus", "effort": "xhigh"},
-    "claude_opus_max_requires_approval": {"model": "opus", "effort": "max"},
-    "claude_opusplan_if_supported": {"model": "opus", "effort": "high"},
-}
+CLAUDE_PROFILES = {alias: {"alias": alias} for alias in MODEL_ALIASES}
+CLAUDE_PROFILES.update(
+    {key: {"alias": value} for key, value in LEGACY_PROFILE_ALIASES.items() if key.startswith("claude_")}
+)
 
 
 class ClaudeCodeCliRuntime(CliRuntime):
-    """Runtime CLI para Claude Code, con perfiles que fijan modelo y esfuerzo por rol."""
+    """Runtime Claude Code con intención semántica resuelta contra el catálogo habilitado."""
 
     runtime_id = "claude_code_cli"
     display_name = "Claude Code CLI"
@@ -117,8 +119,14 @@ class ClaudeCodeCliRuntime(CliRuntime):
         """
         workspace = self._validate_workspace(request)
         self._validate_safe_args(request)
-        profile = CLAUDE_PROFILES.get(request.profile or "", {})
-        model = request.model or profile.get("model")
+        profile_name = request.profile or "fast_coding"
+        if profile_name not in CLAUDE_PROFILES:
+            raise ValueError("Unknown Claude profile.")
+        model = request.model or resolve_model_alias(
+            self.connection, provider_id=self.runtime_id, alias=CLAUDE_PROFILES[profile_name]["alias"]
+        )
+        if not model or model.startswith("-") or any(character.isspace() for character in model):
+            raise ValueError("Invalid catalog model identifier.")
         plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
         permission_mode = "plan" if plan_only else "acceptEdits"
         command = [

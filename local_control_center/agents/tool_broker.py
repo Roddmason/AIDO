@@ -920,8 +920,11 @@ class ToolBroker:
                 execution_result=execution_result,
             )
 
+        from local_control_center.shared.command_privacy import private_command_evidence
+
+        display_command, _, _ = private_command_evidence(command, command_argv, {})
         payload = {
-            "command": command,
+            "command": display_command,
             "path": path,
             "execution": execution,
             "operation": operation,

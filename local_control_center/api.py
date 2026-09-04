@@ -35,6 +35,7 @@ from .control_plane.overview import build_overview_from_connection
 from .control_plane.runtime import ControlCenterRuntime
 from .credentials.api import create_router as create_credentials_router
 from .evidence.api import create_router as create_evidence_router
+from .executions.api import create_router as create_executions_router
 from .git_workspace.api import create_router as create_git_workspace_router
 from .governance.api import create_router as create_governance_router
 from .host_resources.api import create_router as create_host_resources_router
@@ -57,7 +58,6 @@ from .self_improvement.api import create_router as create_self_improvement_route
 from .sessions_chats.api import create_router as create_sessions_chats_router
 from .settings.api import create_router as create_settings_router
 from .shared.db import open_sqlite_connection, passive_wal_checkpoint, sqlite_database_diagnostics
-from .shared.migrations import initialize_platform_schema
 from .shared.schemas import (
     HandshakeResponse,
     HealthResponse,
@@ -261,6 +261,7 @@ def create_app(
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
     app.include_router(create_host_resources_router(platform=platform, require_write=require_write))
     app.include_router(create_process_supervision_router(platform=platform, require_write=require_write))
+    app.include_router(create_executions_router(platform=platform, require_write=require_write))
     app.include_router(create_sessions_chats_router(platform=platform, require_write=require_write))
     app.include_router(create_pipelines_router(platform=platform, require_write=require_write))
     app.include_router(create_plugins_router(platform=platform, require_write=require_write))
@@ -282,7 +283,6 @@ def create_app(
     def snapshot_overview() -> dict[str, Any]:
         connection = open_sqlite_connection(platform.db_path)
         try:
-            initialize_platform_schema(connection)
             return build_overview_from_connection(connection=connection, cwd=platform.cwd)
         finally:
             connection.close()
@@ -340,4 +340,7 @@ def create_app(
                 return FileResponse(candidate)
             return FileResponse(resolved_static_dir / "index.html")
 
+    from local_control_center.executions.openapi import install_execution_openapi
+
+    install_execution_openapi(app)
     return app

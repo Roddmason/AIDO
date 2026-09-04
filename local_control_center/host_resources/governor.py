@@ -75,6 +75,26 @@ class HostResourceGovernor:
             self.repository.record_admission(request, decision)
             return decision
 
+    def preview(
+        self, request: ResourceAdmissionRequest, *, snapshot: ResourceSnapshot
+    ) -> ResourceAdmissionDecision:
+        """Evalúa capacidad sin crear leases ni escribir admisiones desde una lectura HTTP."""
+        active = [
+            lease for lease in self.repository.active_leases() if lease.execution_id != request.execution_id
+        ]
+        decision = self._decide(
+            request=request,
+            snapshot=snapshot,
+            active=active,
+            policy=resolve_resource_policy(self.connection, snapshot=snapshot),
+        )
+        return decision or ResourceAdmissionDecision(
+            status="admitted",
+            reason_code="capacity_available",
+            reason="Host capacity is available; execution still requires atomic admission.",
+            snapshot=snapshot,
+        )
+
     def _decide(
         self,
         *,

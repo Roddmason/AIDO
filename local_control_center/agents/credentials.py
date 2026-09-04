@@ -20,6 +20,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 
+from local_control_center.process_supervision.context import assert_external_boundary
+
 ENV_REF_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEGACY_ENV_REF_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+_(API_KEY|TOKEN|SECRET|CREDENTIAL|PASSWORD)$")
 LOOPBACK_VAULT_HOSTS = {"127.0.0.1", "::1", "localhost"}
@@ -543,6 +545,7 @@ class CredentialResolver:
 
         request = urllib.request.Request(url, headers=headers, method="GET")
         opener = urllib.request.build_opener(NoRedirectHandler)
+        assert_external_boundary()
         with opener.open(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return payload if isinstance(payload, dict) else {}
@@ -565,6 +568,7 @@ class CredentialResolver:
             method="POST",
         )
         opener = urllib.request.build_opener(NoRedirectHandler)
+        assert_external_boundary()
         with opener.open(request, timeout=timeout) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
         return response_payload if isinstance(response_payload, dict) else {}

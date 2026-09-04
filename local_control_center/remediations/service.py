@@ -35,6 +35,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import SIMILARITY_ACTIONS
+from local_control_center.workers.leadership import WorkerControlRepository
 
 # Remediation actions that can discard or overwrite local work; execute() refuses them until the
 # caller explicitly confirms, and their persisted records are flagged ``confirmationRequired``.
@@ -518,31 +519,7 @@ class BlockerRemediationService:
                         "reason": "Default runtime preference updated to an executable runtime.",
                     }
         elif action_type == "run_worker_once":
-            worker = getattr(platform, "local_worker_runtime", None)
-            if worker is None:
-                execution = {
-                    "status": "blocked",
-                    "action": action_type,
-                    "reason": "Local worker runtime is unavailable.",
-                }
-            else:
-                job_retry = self._retry_failed_worker_job_if_needed(payload=execution_payload)
-                if job_retry["status"] == "blocked":
-                    execution = job_retry
-                elif job_retry["status"] == "completed":
-                    execution = {
-                        "status": "completed",
-                        "action": action_type,
-                        "reason": "Referenced worker job is already completed.",
-                        "jobRetry": job_retry,
-                    }
-                else:
-                    execution = {
-                        **redact_secrets(worker.run_once()),
-                        "action": action_type,
-                    }
-                    if job_retry["status"] != "not_applicable":
-                        execution["jobRetry"] = job_retry
+            execution = self._request_worker_batch(execution_payload)
         elif action_type == "check_network_access":
             execution = self._check_network_access()
         elif action_type in {
@@ -698,6 +675,24 @@ class BlockerRemediationService:
             ):
                 return True
         return False
+
+    def _request_worker_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Solicita un batch durable al worker separado sin ejecutarlo desde la API."""
+        retry = self._retry_failed_worker_job_if_needed(payload=payload)
+        if retry["status"] == "blocked":
+            return retry
+        if retry["status"] == "completed":
+            return {"status": "completed", "action": "run_worker_once", "jobRetry": retry}
+        control = WorkerControlRepository(self.connection).request_run_once(
+            reason="Worker batch requested from remediation.", requested_by="operator"
+        )
+        return {
+            "status": "queued",
+            "action": "run_worker_once",
+            "control": control,
+            "jobRetry": retry,
+            "reason": "Waiting for the separate worker to claim a bounded batch.",
+        }
 
     def _should_resolve(self, *, action_type: str, execution: dict[str, Any]) -> bool:
         if execution.get("status") not in {"completed", "queued", "awaiting_approval"}:

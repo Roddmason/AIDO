@@ -14,7 +14,6 @@ from local_control_center.agents.runtime_provider_config import (
     runtime_provider_configuration,
 )
 from local_control_center.agents.runtime_registry import RuntimeRegistry
-from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.config import (
     is_cli_runtime,
     resolve_default_runtime,
@@ -24,6 +23,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService as RuntimeStatusService
 
 CONFIG_TABLES = {
     "runtime_installations",
@@ -212,9 +212,10 @@ def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
             SET enabled = 1,
                 base_url = '',
                 health_status = 'healthy',
-                last_health_check_at = '2026-07-14T12:00:00Z'
+                last_health_check_at = ?
             WHERE provider_id = 'litellm'
-            """
+            """,
+            (utc_now(),),
         )
         connection.execute("UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'litellm'")
         account = next(
@@ -452,7 +453,7 @@ def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(tmp_path: 
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
 
         status = RuntimeStatusService(connection).runtime_provider_status(project_id="project-a")
@@ -763,7 +764,7 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
 
         codex = next(
@@ -808,7 +809,7 @@ def test_chat_only_cli_with_mismatched_executable_fails_prompt_execution_closed(
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-07-13T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
         connection.execute(
             "UPDATE runtime_capabilities SET enabled = 0 WHERE runtime = 'codex_cli' AND capability = 'code_edit'"
@@ -856,7 +857,7 @@ def test_stale_persisted_codex_version_cannot_authorize_product_owner(tmp_path: 
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-07-13T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
 
         codex = next(
@@ -870,7 +871,7 @@ def test_stale_persisted_codex_version_cannot_authorize_product_owner(tmp_path: 
     assert codex["canRunVersionCheck"] is False
     assert codex["versionVerified"] is False
     assert codex["productOwnerExecutable"] is False
-    assert any("fresh" in warning for warning in codex["configurationWarnings"])
+    assert "capability_probe_required" in codex["compatibility"]["blockingReasons"]
 
 
 def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, monkeypatch) -> None:
@@ -1136,7 +1137,7 @@ def test_cli_version_probe_hiccup_falls_back_to_persisted_version(tmp_path: Path
         account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
-            {"healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+            {"healthStatus": "healthy", "lastValidationAt": utc_now()},
         )
 
         claude = next(

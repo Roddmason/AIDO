@@ -8,9 +8,10 @@ from fastapi.testclient import TestClient
 
 from local_control_center.agents.cli_session_events import CliSessionEventStore
 from local_control_center.shared.time import utc_now
+from tests_py.execution_client import CompletedExecutionClient
 
 
-def _client(tmp_path: Path):
+def _client(tmp_path: Path, *, complete_execution: bool = False):
     sys.modules["faiss"] = None
 
     from local_control_center.app import create_app
@@ -18,7 +19,7 @@ def _client(tmp_path: Path):
 
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     app = create_app(runtime=runtime, static_dir=None)
-    return runtime, TestClient(app)
+    return runtime, (CompletedExecutionClient if complete_execution else TestClient)(app)
 
 
 def test_start_session_is_write_guarded_and_validates_inputs(tmp_path: Path) -> None:
@@ -78,7 +79,7 @@ def test_events_endpoint_returns_incremental_pages(tmp_path: Path) -> None:
 
 
 def test_start_session_passes_execution_boundary_options(tmp_path: Path, monkeypatch) -> None:
-    runtime, client = _client(tmp_path)
+    runtime, client = _client(tmp_path, complete_execution=True)
     captured: dict[str, Any] = {}
     try:
         now = utc_now()

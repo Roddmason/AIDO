@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Query, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
 
@@ -41,7 +42,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     El índice se persiste bajo db_path.parent / "faiss-index"; las rutas de
     creación, borrado y reindex exigen require_write antes de mutar.
     """
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def memory_repository() -> MemoryRepository:
         return MemoryRepository(platform.connection)
@@ -88,6 +92,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.retrieval_status(retrieval_index(), project_id=project_id)
 
     @router.post("/api/v1/retrieval/reindex", status_code=202, response_model=RetrievalReindexResponse)
+    @queued_operation("retrieval.retrieval_reindex", workload_class="qa_light")
     async def retrieval_reindex(request: Request, body: RetrievalReindexRequest) -> RetrievalReindexResponse:
         require_write(request)
         payload = commands.retrieval_reindex(retrieval_index(), body.model_dump(by_alias=True))

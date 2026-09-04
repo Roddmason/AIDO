@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
@@ -313,7 +314,9 @@ def _validate_sync_credentials(account: dict[str, Any]) -> None:
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Build the provider catalog API router under `/api/v1`."""
-    router = APIRouter(prefix="/api/v1", tags=["provider-catalog"])
+    router = ExecutionRouter(
+        platform=platform, require_write=require_write, prefix="/api/v1", tags=["provider-catalog"]
+    )
 
     def providers() -> ProviderAccountStore:
         return ProviderAccountStore(platform.connection)
@@ -394,6 +397,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         "/provider-accounts/{account_id}/sync-models",
         response_model=DiscoverModelsResponse,
     )
+    @queued_operation("catalog.sync_provider_account_models", workload_class="remote_llm_light")
     async def sync_provider_account_models(account_id: str, request: Request) -> dict[str, Any]:
         """Synchronize model_catalog for one provider account through its configured adapter."""
         require_write(request)

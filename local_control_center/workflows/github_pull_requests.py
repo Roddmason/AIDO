@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from local_control_center.process_supervision.context import assert_external_boundary
 from local_control_center.shared.redaction import redact_secrets
 
 GITHUB_API_VERSION = "2026-03-10"
@@ -209,6 +210,7 @@ def _github_api_call(
         method=method,
     )
     try:
+        assert_external_boundary()
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             response_body = _decode_json_response(response.read())
             http_status = int(response.status)
@@ -378,6 +380,7 @@ def create_github_pull_request(
         method="POST",
     )
     try:
+        assert_external_boundary()
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             response_body = _decode_json_response(response.read())
             http_status = int(response.status)

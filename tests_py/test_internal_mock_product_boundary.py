@@ -78,7 +78,8 @@ def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 422
-    assert "internal_mock" in response.json()["detail"]
+    assert "not in the product catalog" in str(response.json()["detail"])
+    assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
 
 
 def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path) -> None:
@@ -100,7 +101,8 @@ def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 422
-    assert "internal_mock" in response.json()["detail"]
+    assert "not in the product catalog" in str(response.json()["detail"])
+    assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
 
 
 def test_product_seeds_do_not_create_internal_mock_runtime_records(tmp_path: Path) -> None:

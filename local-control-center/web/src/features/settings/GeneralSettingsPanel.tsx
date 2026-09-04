@@ -9,6 +9,7 @@
 import { SegmentedControl } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PreferenceChip, PreferenceRow } from './AppearanceSettingsPanel';
+import { OperationsPanel } from './OperationsPanel';
 import type { SectionContext } from './sections';
 import { WorkerSettingsPanel } from './WorkerSettingsPanel';
 
@@ -24,6 +25,7 @@ export function GeneralSettingsPanel({ ctx }: { ctx: SectionContext }) {
 
 	return (
 		<div className="stack">
+			<OperationsPanel ctx={ctx} />
 			<div className="settings-list">
 				<PreferenceRow
 					title={t('ui.static.interface.language.9407e9ca', 'Interface language')}

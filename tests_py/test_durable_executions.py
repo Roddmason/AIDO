@@ -22,6 +22,43 @@ class ValidatedResult(BaseModel):
     count: int
 
 
+def test_execution_list_is_bounded_and_exposes_backend_cancel_permission(tmp_path):
+    from local_control_center.executions.repository import ExecutionRepository
+    from local_control_center.shared.db import open_sqlite_connection
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    try:
+        with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
+            with open_sqlite_connection(runtime.db_path) as connection:
+                repository = ExecutionRepository(connection)
+                first = repository.enqueue(
+                    operation="test.list",
+                    workload_class="qa_light",
+                    arguments={},
+                    project_id=None,
+                    cwd=str(tmp_path),
+                    result_status_code=200,
+                )
+                repository.request_cancel(first["executionId"], reason="operator test")
+                second = repository.enqueue(
+                    operation="test.list",
+                    workload_class="qa_light",
+                    arguments={},
+                    project_id=None,
+                    cwd=str(tmp_path),
+                    result_status_code=200,
+                )
+            response = client.get("/api/v1/executions?limit=1")
+            assert response.status_code == 200
+            assert len(response.json()["executions"]) == 1
+            assert response.json()["executions"][0]["executionId"] == second["executionId"]
+            assert response.json()["executions"][0]["canCancel"] is True
+            assert client.get(f"/api/v1/executions/{first['executionId']}").json()["canCancel"] is False
+            assert client.get("/api/v1/executions?limit=10000").status_code == 422
+    finally:
+        runtime.close()
+
+
 def test_openapi_retains_terminal_contract_separately_from_202(tmp_path):
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
     try:
@@ -36,6 +73,14 @@ def test_openapi_retains_terminal_contract_separately_from_202(tmp_path):
         assert contract["resultSchema"] == {"$ref": "#/components/schemas/RouteExecuteResponse"}
         assert "RouteExecuteResponse" in schema["components"]["schemas"]
         assert app.openapi() == schema
+        import runpy
+
+        generator = runpy.run_path("local-control-center/scripts/generate_openapi_client.py")
+        client = generator["render_client"](schema)
+        assert "export type OperationResultBodies" in client
+        assert "export const EXECUTION_OPERATIONS" in client
+        assert '"route_execute_api_v1_model_gateway_route_execute_post": ExecutionAccepted' in client
+        assert '"route_execute_api_v1_model_gateway_route_execute_post": RouteExecuteResponse' in client
     finally:
         runtime.close()
 

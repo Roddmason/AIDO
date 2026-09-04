@@ -390,6 +390,11 @@ class CliRuntime(ABC):
                     "remainingDescendantCount",
                     "stdoutCaptureTruncated",
                     "stderrCaptureTruncated",
+                    "stdoutSha256",
+                    "stderrSha256",
+                    "startedAt",
+                    "finishedAt",
+                    "returnCode",
                 )
             },
         )
@@ -461,6 +466,7 @@ class CliRuntime(ABC):
             stderr=result.stderr,
             error=result.error,
             usage=result.usage,
+            process_evidence=result.process_evidence,
         )
 
     def parse_usage(self, result: RuntimeResult) -> UsageRecord | None:

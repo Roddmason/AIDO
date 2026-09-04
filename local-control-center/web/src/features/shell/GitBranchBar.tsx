@@ -25,7 +25,6 @@ import {
 	ShieldCheck,
 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-
 import {
 	addProjectGitRemote,
 	checkoutProjectGitBranch,
@@ -41,6 +40,7 @@ import {
 	scanProjectGitleaks,
 	testProjectGitRemote,
 } from '../../api/client';
+import { requestCompletedOperation } from '../../api/execution-client';
 import type { Project } from '../../api/types';
 import {
 	Button,
@@ -134,6 +134,16 @@ export function GitBranchBar({
 				return;
 			}
 			try {
+				// Mount only observes persisted state. Explicit refresh/mutation completion queues Git.
+				if (!signal && token) {
+					await requestCompletedOperation(
+						'refresh_git_api_v1_projects__project_id__git_refresh_post',
+						{
+							token,
+							pathParams: { project_id: projectId },
+						},
+					);
+				}
 				const [nextStatus, nextBranches] = await Promise.all([
 					getProjectGitStatus(projectId, signal),
 					getProjectGitBranches(projectId, signal),
@@ -147,7 +157,7 @@ export function GitBranchBar({
 				setGitError(error instanceof Error ? error.message : 'Git status unavailable.');
 			}
 		},
-		[projectId],
+		[projectId, token],
 	);
 
 	useEffect(() => {
@@ -188,13 +198,15 @@ export function GitBranchBar({
 		? 'error'
 		: !gitStatus
 			? 'loading'
-			: gitStatus.status === 'configuration_required'
-				? 'no_git'
-				: gitStatus.status === 'blocked'
-					? 'blocked'
-					: gitStatus.status === 'completed' && gitBranches?.status === 'completed'
-						? 'ready'
-						: 'error';
+			: gitStatus.refreshRequired && !gitStatus.snapshotAt
+				? 'error'
+				: gitStatus.status === 'configuration_required'
+					? 'no_git'
+					: gitStatus.status === 'blocked'
+						? 'blocked'
+						: gitStatus.status === 'completed' && gitBranches?.status === 'completed'
+							? 'ready'
+							: 'error';
 	const ready = gitPhase === 'ready';
 
 	// A stale gitleaks verdict must not outlive the repo state it was scanned against: if the repo

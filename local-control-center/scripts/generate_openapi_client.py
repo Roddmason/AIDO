@@ -85,6 +85,8 @@ def _ts_type_from_schema(schema: dict[str, Any] | None) -> str:
         properties = schema.get("properties") or {}
         required = set(schema.get("required") or [])
         if not properties:
+            if isinstance(schema.get("additionalProperties"), dict):
+                return f"Record<string, {_ts_type_from_schema(schema['additionalProperties'])}>"
             return "JsonObject"
         fields = []
         for name, value in sorted(properties.items()):
@@ -127,6 +129,19 @@ def _operation_schema_maps(openapi: dict[str, Any]) -> tuple[dict[str, str], dic
 def render_client(openapi: dict[str, Any]) -> str:
     endpoints = _endpoint_rows(openapi)
     request_bodies, response_bodies = _operation_schema_maps(openapi)
+    result_bodies = dict(response_bodies)
+    execution_operations = {}
+    for methods in openapi.get("paths", {}).values():
+        for spec in methods.values():
+            if not isinstance(spec, dict) or not spec.get("x-aido-execution"):
+                continue
+            operation_id = spec["operationId"]
+            contract = spec["x-aido-execution"]
+            result_bodies[operation_id] = _ts_type_from_schema(contract["resultSchema"])
+            execution_operations[operation_id] = contract["statusPath"]
+    result_body_lines = ",\n".join(
+        f"\t{_literal(operation_id)}: {body}" for operation_id, body in sorted(result_bodies.items())
+    )
     component_type_lines = _component_type_lines(openapi)
     endpoint_lines = ",\n".join(f"\t{_literal(endpoint)}" for endpoint in endpoints)
     operation_lines = ",\n".join(
@@ -174,6 +189,13 @@ export type OperationResponseBodies = {{
 
 export type OperationRequestBody<T extends ApiOperationId> = OperationRequestBodies[T];
 export type OperationResponse<T extends ApiOperationId> = OperationResponseBodies[T];
+
+// Terminal domain results are distinct from the actual HTTP 202 acknowledgement.
+export type OperationResultBodies = {{
+{result_body_lines}
+}};
+export type OperationResult<T extends ApiOperationId> = OperationResultBodies[T];
+export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {_literal(execution_operations)};
 
 export const OPERATIONS_BY_ID = {{
 {operation_lines}

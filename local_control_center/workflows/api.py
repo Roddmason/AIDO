@@ -620,8 +620,23 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return {"workflow": workflow}
 
+    def validate_queued_issue(arguments: dict[str, Any]) -> None:
+        """Valida input y catálogo con lecturas cortas antes de aceptar trabajo durable."""
+        payload = validate_issue_to_patch_body(IssueToPatchRequest.model_validate(arguments["body"]))
+        runtime = str(payload.get("preferredRuntime") or "").strip()
+        if (
+            runtime
+            and platform.connection.execute(
+                "SELECT 1 FROM provider_accounts WHERE provider_id=?", (runtime,)
+            ).fetchone()
+            is None
+        ):
+            raise HTTPException(422, "Runtime provider is not in the product catalog.")
+
     @router.post("/api/v1/workflows/issue-to-patch", status_code=202, response_model=IssueToPatchResponse)
-    @queued_operation("workflows.run_issue_to_patch", workload_class="agent_cli")
+    @queued_operation(
+        "workflows.run_issue_to_patch", workload_class="agent_cli", validate=validate_queued_issue
+    )
     async def run_issue_to_patch(body: IssueToPatchRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         payload = validate_issue_to_patch_body(body)
@@ -753,7 +768,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.post("/api/v1/workflows/issue-to-pr", status_code=202, response_model=IssueToPrResponse)
-    @queued_operation("workflows.run_issue_to_pr", workload_class="agent_cli")
+    @queued_operation("workflows.run_issue_to_pr", workload_class="agent_cli", validate=validate_queued_issue)
     async def run_issue_to_pr(body: IssueToPrRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         payload = validate_issue_to_pr_body(body)

@@ -169,7 +169,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"provenance": "operator_reported" | "automated_run" | "release_validation"' in outcome_record_line
     assert '"objectiveTasksAttempted": number' in benchmark_record_line
     assert '"operatorReportedTasks": number' in benchmark_record_line
-    assert '"provenanceCounts": JsonObject' in benchmark_record_line
+    assert '"provenanceCounts": Record<string, number>' in benchmark_record_line
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
@@ -260,7 +260,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         '"approvals": Array<JsonObject>',
         '"artifacts": Array<JsonObject>',
         '"diffSummary": JsonObject',
-        '"hashes": JsonObject',
+        '"hashes": Record<string, string>',
         '"createdAt": string',
     ):
         assert required_field in evidence_line
@@ -693,5 +693,6 @@ def test_playwright_uses_isolated_state_for_mutating_e2e() -> None:
     assert "waitForDashboardHealth" in runner_content
     assert "PLAYWRIGHT_EXTERNAL_SERVER: '1'" in runner_content
     assert "dashboard server exited before healthcheck" in runner_content
-    assert "projectCleanupStatus" in runner_content
+    assert "cleanup-playwright-webserver" not in runner_content
+    assert "await stopDashboardServer(dashboardProcess)" in runner_content
     assert "Wait-Process" in cleanup_content

@@ -25,7 +25,7 @@ from local_control_center.shared.time import utc_now
 
 from .ai_execution import AIExecutionProjectNotFoundError, AIExecutionService
 from .ai_execution_models import AIExecutionPlan, AIExecutionResponse
-from .codex_compatibility import CodexCompatibilityService
+from .codex_compatibility import CodexCompatibilityResponse, CodexCompatibilityService
 from .codex_smoke import CodexSmokeRequest, run_codex_smoke
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
@@ -1251,13 +1251,13 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
         return {"health": health}
 
-    @router.get("/cli-runtimes/codex_cli/compatibility")
+    @router.get("/cli-runtimes/codex_cli/compatibility", response_model=CodexCompatibilityResponse)
     async def codex_compatibility() -> dict[str, Any]:
         return CodexCompatibilityService(platform.connection).status(
             cli_runtime_command("codex_cli") or "codex"
         )
 
-    @router.post("/cli-runtimes/codex_cli/capabilities/probe")
+    @router.post("/cli-runtimes/codex_cli/capabilities/probe", response_model=CodexCompatibilityResponse)
     @queued_operation("models.codex_capabilities", workload_class="qa_light")
     async def codex_capabilities(request: Request) -> dict[str, Any]:
         require_write(request)

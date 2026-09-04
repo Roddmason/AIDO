@@ -8,13 +8,14 @@
  * @author Rodrigo Mason
  */
 
+import { requestCompletedOperation as requestGeneratedOperation } from './execution-client';
 import type {
 	ApiOperationId,
 	JsonObject,
 	OperationRequestBody,
-	OperationResponse,
+	OperationResult as OperationResponse,
 } from './generated/openapi';
-import { extractErrorDetail, requestGeneratedOperation } from './generated/openapi';
+import { extractErrorDetail } from './generated/openapi';
 import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
@@ -687,7 +688,11 @@ export interface ProjectGitRemote {
 	direction: 'fetch' | 'push';
 }
 
-export interface ProjectGitStatusResponse {
+export interface ProjectGitStatusResponse
+	extends Pick<
+		OperationResponse<'git_status_api_v1_projects__project_id__git_status_get'>,
+		'snapshotAt' | 'refreshRequired'
+	> {
 	status: GitWorkspaceStatus;
 	reason: string;
 	projectId: string;
@@ -832,10 +837,14 @@ export function initProjectGitRepository(
 	projectId: string,
 	body: ProjectGitInitRequest = {},
 ) {
-	return apiRequest<ProjectGitInitResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/init`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'init_git_repository_api_v1_projects__project_id__git_init_post',
+		ProjectGitInitResponse
+	>('init_git_repository_api_v1_projects__project_id__git_init_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
 }
 
 export function addProjectGitRemote(
@@ -843,10 +852,14 @@ export function addProjectGitRemote(
 	projectId: string,
 	body: ProjectGitRemoteAddRequest,
 ) {
-	return apiRequest<ProjectGitRemoteMutationResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/remotes`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'add_git_remote_api_v1_projects__project_id__git_remotes_post',
+		ProjectGitRemoteMutationResponse
+	>('add_git_remote_api_v1_projects__project_id__git_remotes_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
 }
 
 export function testProjectGitRemote(
@@ -855,10 +868,14 @@ export function testProjectGitRemote(
 	name: string,
 	body: ProjectGitRemoteTestRequest = {},
 ) {
-	return apiRequest<ProjectGitRemoteTestResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/remotes/${encodeURIComponent(name)}/test`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post',
+		ProjectGitRemoteTestResponse
+	>('test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post', {
+		pathParams: { project_id: projectId, name },
+		token,
+		body,
+	});
 }
 
 export function createProjectGitBranch(
@@ -866,10 +883,14 @@ export function createProjectGitBranch(
 	projectId: string,
 	body: ProjectGitBranchCreateRequest,
 ) {
-	return apiRequest<ProjectGitBranchMutationResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branches`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'create_git_branch_api_v1_projects__project_id__git_branches_post',
+		ProjectGitBranchMutationResponse
+	>('create_git_branch_api_v1_projects__project_id__git_branches_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
 }
 
 export function applyProjectGitBranchPolicy(
@@ -877,10 +898,14 @@ export function applyProjectGitBranchPolicy(
 	projectId: string,
 	body: ProjectGitBranchPolicyApplyRequest,
 ) {
-	return apiRequest<ProjectGitBranchPolicyApplyResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branch-policy/apply`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post',
+		ProjectGitBranchPolicyApplyResponse
+	>('apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
 }
 
 export function checkoutProjectGitBranch(
@@ -888,17 +913,24 @@ export function checkoutProjectGitBranch(
 	projectId: string,
 	body: ProjectGitCheckoutRequest,
 ) {
-	return apiRequest<ProjectGitCheckoutResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/checkout`,
-		{ method: 'POST', token, body },
-	);
+	return requestGeneratedOperation<
+		'checkout_git_branch_api_v1_projects__project_id__git_checkout_post',
+		ProjectGitCheckoutResponse
+	>('checkout_git_branch_api_v1_projects__project_id__git_checkout_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
 }
 
 export function scanProjectGitleaks(token: string, projectId: string) {
-	return apiRequest<ProjectGitGitleaksScanResponse>(
-		`/api/v1/projects/${encodeURIComponent(projectId)}/git/gitleaks/scan`,
-		{ method: 'POST', token },
-	);
+	return requestGeneratedOperation<
+		'git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post',
+		ProjectGitGitleaksScanResponse
+	>('git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post', {
+		pathParams: { project_id: projectId },
+		token,
+	});
 }
 
 export function getProjectGitDiff(projectId: string, signal?: AbortSignal) {

@@ -12,13 +12,17 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from local_control_center.process_supervision.api import StopReasonRequest
 
-from .models import ExecutionEventsResponse, ExecutionResponse
+from .models import ExecutionEventsResponse, ExecutionResponse, ExecutionsResponse
 from .repository import ExecutionRepository
 
 
 def create_router(*, platform: Any, require_write: Callable) -> APIRouter:
     """Expone estado y eventos incrementales con cancelación autenticada e idempotente."""
     router = APIRouter(prefix="/api/v1/executions")
+
+    @router.get("", response_model=ExecutionsResponse)
+    async def list_executions(limit: int = Query(100, ge=1, le=500)):
+        return {"executions": ExecutionRepository(platform.connection).list_recent(limit=limit)}
 
     @router.get("/{execution_id}", response_model=ExecutionResponse)
     async def execution(execution_id: str):

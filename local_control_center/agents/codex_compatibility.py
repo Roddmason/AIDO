@@ -13,7 +13,9 @@ import re
 import shutil
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from local_control_center.process_supervision.service import run_probe_command
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -34,6 +36,19 @@ REQUIRED_FLAGS = frozenset(
         "--json",
     }
 )
+
+
+class CodexCompatibilityResponse(BaseModel):
+    """Contrato observable de compatibilidad; campos sin evidencia permanecen ausentes."""
+
+    status: Literal["incompatible", "validation_required", "compatible"]
+    blocking_reasons: list[str] = Field(alias="blockingReasons")
+    version: str | None = None
+    binary_fingerprint: str | None = Field(default=None, alias="binaryFingerprint")
+    contract_fingerprint: str | None = Field(default=None, alias="contractFingerprint")
+    required_flags: list[str] = Field(default_factory=list, alias="requiredFlags")
+    missing_flags: list[str] = Field(default_factory=list, alias="missingFlags")
+    last_checked_at: str | None = Field(default=None, alias="lastCheckedAt")
 
 
 def parse_codex_version(version: str) -> tuple[int, int, int] | None:

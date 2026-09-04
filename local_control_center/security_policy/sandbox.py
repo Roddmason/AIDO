@@ -582,6 +582,7 @@ class DockerSandbox:
         return {
             "executed": True,
             "blocked": False,
+            **completed,
             "timedOut": completed["timedOut"],
             "returnCode": completed["returnCode"],
             "durationMs": int((time.perf_counter() - started) * 1000),

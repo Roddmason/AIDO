@@ -125,3 +125,39 @@ def test_worker_leadership_migration_is_reentrant(tmp_path: Path) -> None:
 
     assert versions["total"] == 1
     assert {"worker_leader_leases", "worker_control_state", "worker_heartbeats"} <= tables
+
+
+def test_worker_status_does_not_treat_expired_heartbeat_as_connected(tmp_path: Path) -> None:
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    try:
+        with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
+            with open_sqlite_connection(runtime.db_path) as connection:
+                WorkerLeadershipRepository(connection).acquire(
+                    owner_id="dead-worker", now="2000-01-01T00:00:00.000Z"
+                )
+            status = client.get("/api/v1/workers/status").json()
+        assert status["connected"] is False
+        assert status["role"] == "offline"
+        assert status["standbyCount"] == 0
+    finally:
+        runtime.close()
+
+
+def test_worker_status_counts_durable_runs(tmp_path: Path) -> None:
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    try:
+        with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
+            with open_sqlite_connection(runtime.db_path) as connection:
+                jobs = JobsRepository(connection)
+                job = jobs.create_job(project_id="local-operations", kind="prompt.optimize")["job"]
+                claimed = jobs.claim_next_job(worker_id="worker-stats")
+                active = client.get("/api/v1/workers/status").json()
+                jobs.complete_job_run(job_id=job["id"], run_id=claimed["run"]["id"], status="completed")
+            status = client.get("/api/v1/workers/status").json()
+        assert active["inFlightJobs"] == 1
+        assert status["inFlightJobs"] == 0
+        assert status["claimedJobs"] == 1
+        assert status["completedRuns"] == 1
+        assert status["lastRunAt"] is not None
+    finally:
+        runtime.close()

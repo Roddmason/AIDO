@@ -48,6 +48,7 @@ class CliSessionStore:
         stderr: str = "",
         error: str | None = None,
         usage: Any = None,
+        process_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Graba la sesión CLI completa (artefactos + uso, todo redactado) y devuelve la fila persistida.
 
@@ -68,6 +69,7 @@ class CliSessionStore:
             stdout=stdout,
             stderr=stderr,
             error=error,
+            process_evidence=process_evidence or {},
         )
         self.connection.execute(
             """
@@ -88,8 +90,8 @@ class CliSessionStore:
                 json_dumps(redact_secrets(command)),
                 json_dumps(redact_secrets(env_policy)),
                 status,
-                now,
-                now,
+                (process_evidence or {}).get("startedAt") or now,
+                (process_evidence or {}).get("finishedAt") or now,
                 artifact_ids.get("stdout"),
                 artifact_ids.get("stderr"),
                 artifact_ids.get("logs"),
@@ -130,10 +132,13 @@ class CliSessionStore:
         stdout: str,
         stderr: str,
         error: str | None,
+        process_evidence: dict[str, Any],
     ) -> dict[str, str | None]:
         project_id, root = self._artifact_context(workspace_id)
         artifacts: dict[str, str | None] = {"stdout": None, "stderr": None, "logs": None}
-        if stdout:
+        if process_evidence.get("stdoutArtifactId"):
+            artifacts["stdout"] = process_evidence["stdoutArtifactId"]
+        elif stdout:
             artifacts["stdout"] = self._create_text_artifact(
                 project_id=project_id,
                 root=root,
@@ -149,7 +154,9 @@ class CliSessionStore:
                     "workspaceId": workspace_id,
                 },
             )
-        if stderr:
+        if process_evidence.get("stderrArtifactId"):
+            artifacts["stderr"] = process_evidence["stderrArtifactId"]
+        elif stderr:
             artifacts["stderr"] = self._create_text_artifact(
                 project_id=project_id,
                 root=root,
@@ -176,6 +183,11 @@ class CliSessionStore:
             "error": error,
             "stdoutBytes": len(stdout.encode("utf-8")),
             "stderrBytes": len(stderr.encode("utf-8")),
+            "processEvidence": {
+                key: value
+                for key, value in process_evidence.items()
+                if key not in {"stdout", "stderr", "command"}
+            },
         }
         artifacts["logs"] = self._create_text_artifact(
             project_id=project_id,

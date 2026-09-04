@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.redaction import redact_secrets
@@ -36,7 +38,7 @@ from .runtime_provider_config import (
     RuntimeProviderConfiguration,
     runtime_provider_configuration,
 )
-from .runtime_registry import PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS, RuntimeRegistry
+from .runtime_registry import RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
@@ -433,7 +435,7 @@ def _cli_provider_status(
         account_enabled
         and runtime_account
         and runtime_account.get("healthStatus") == "healthy"
-        and runtime_account.get("lastValidationAt")
+        and _native_auth_validation_is_fresh(runtime_account.get("lastValidationAt"))
     )
     can_run_version_check = bool(detected and fresh_version)
     command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection)
@@ -510,7 +512,7 @@ def _cli_provider_status(
         version=version,
         detected_command=detection.get("executable") if detected else None,
         health_status="healthy" if authenticated else ("degraded" if available else "offline"),
-        health_checked_at=utc_now(),
+        health_checked_at=(runtime_account or {}).get("lastValidationAt"),
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
         required_configuration=["command", "authentication"],
@@ -526,18 +528,8 @@ def _cli_provider_status(
         payload["issueToPatchArgv"] = issue_to_patch_argv
     if issue_to_patch_argv_error:
         payload["lastError"] = issue_to_patch_argv_error
-    payload["versionVerified"] = bool(fresh_version)
-    payload["productOwnerExecutable"] = bool(
-        can_run_prompt
-        and (
-            str(account["providerId"]) != "codex_cli"
-            or fresh_version in PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS
-        )
-    )
-    if str(account["providerId"]) == "codex_cli" and can_run_prompt and not payload["productOwnerExecutable"]:
-        payload["configurationWarnings"].append(
-            "ProductOwnerAgent requires a fresh, explicitly reviewed Codex CLI version probe."
-        )
+    payload["versionVerified"] = bool(fresh_version and not detection.get("persisted"))
+    payload["productOwnerExecutable"] = bool(can_run_prompt and str(account["providerId"]) != "codex_cli")
     return payload
 
 
@@ -547,6 +539,8 @@ def _ollama_provider_status(
     capabilities: list[str],
     policy_decision: dict[str, Any],
     configuration: RuntimeProviderConfiguration | None = None,
+    *,
+    allow_probes: bool = True,
 ) -> dict[str, Any]:
     enabled = bool(account.get("enabled"))
     installation_enabled = _runtime_installation_enabled(runtime_installation)
@@ -562,12 +556,16 @@ def _ollama_provider_status(
     credential_ref = str(account.get("credentialRef") or "").strip() or None
     status = (
         cached_ollama_status(base_url=base_url, credential_ref=credential_ref)
-        if base_url
+        if base_url and allow_probes
         else {
             "provider": str(account.get("providerId") or "ollama"),
-            "available": False,
+            "available": bool(
+                base_url
+                and account.get("healthStatus") == "healthy"
+                and _native_auth_validation_is_fresh(account.get("lastHealthCheckAt"))
+            ),
             "models": [],
-            "reason": "Ollama base URL is not configured.",
+            "reason": "Explicit Ollama health check required for fresh evidence.",
         }
     )
     daemon_available = bool(status.get("available"))
@@ -615,7 +613,7 @@ def _ollama_provider_status(
         version=None,
         detected_command=None,
         health_status="healthy" if daemon_available else "offline",
-        health_checked_at=utc_now(),
+        health_checked_at=utc_now() if allow_probes and base_url else account.get("lastHealthCheckAt"),
         last_error="" if daemon_available else reason,
         capabilities=capabilities or ["chat"],
         required_configuration=["baseUrl"],
@@ -672,10 +670,18 @@ def _native_auth_validation_is_fresh(last_validation_at: Any) -> bool:
 class RuntimeStatusService:
     """Derives per-provider runtime status from accounts, detections, and configuration."""
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        allow_probes: bool = False,
+        probe_runtime_ids: set[str] | None = None,
+    ):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
+        self.allow_probes = allow_probes or CURRENT_EXECUTION.get() is not None
+        self.probe_runtime_ids = probe_runtime_ids
 
     @staticmethod
     def _persist_fresh_cli_version(
@@ -767,6 +773,19 @@ class RuntimeStatusService:
             resolved_executable = resolve_executable(installation)
             executable_sources[runtime_id] = str(resolved_executable.get("source") or "unset")
             command = resolved_executable.get("path")
+            if not self.allow_probes or (
+                self.probe_runtime_ids is not None and runtime_id not in self.probe_runtime_ids
+            ):
+                present = bool(command and shutil.which(command))
+                detections[runtime_id] = {
+                    "runtime": runtime_id,
+                    "status": "installed" if present else "not_configured",
+                    "executable": command if present else None,
+                    "version": installation.get("detectedVersion") if present else None,
+                    "message": "Explicit runtime health check required for fresh evidence.",
+                    "persisted": True,
+                }
+                continue
             detections[runtime_id] = (
                 self.registry.detect(runtime_id, executable=command)
                 if command
@@ -822,6 +841,7 @@ class RuntimeStatusService:
                         provider_capabilities,
                         policy_decision,
                         configurations.get(provider_id),
+                        allow_probes=self.allow_probes and self.probe_runtime_ids is None,
                     )
                 )
             elif provider_id == "manual":
@@ -871,7 +891,37 @@ class RuntimeStatusService:
                         requires_approval=True,
                     )
                 )
-        return self._demote_exhausted_providers(statuses)
+        from .codex_compatibility import CodexCompatibilityService
+
+        for status in statuses:
+            if status["id"] == "codex_cli":
+                compatibility = CodexCompatibilityService(self.connection).status(
+                    status.get("detectedCommand") or "codex"
+                )
+                status["compatibility"] = compatibility
+                status["productOwnerExecutable"] = bool(
+                    status["canRunPrompt"] and compatibility["status"] == "compatible"
+                )
+                if compatibility["status"] != "compatible":
+                    status["configurationWarnings"].append(
+                        "ProductOwnerAgent: " + ", ".join(compatibility["blockingReasons"])
+                    )
+        from .runtime_readiness import apply_effective_readiness
+
+        accounts_by_id = {
+            account["providerId"]: account for account in self.accounts.list_provider_accounts()
+        }
+        for status in self._demote_exhausted_providers(statuses):
+            account = accounts_by_id[status["id"]]
+            policy = runtime_repo.runtime_policy_decision(
+                provider_id=status["id"],
+                kind=account["providerType"],
+                provider_family=account.get("providerFamily"),
+                project_id=project_id,
+                account=account,
+            )
+            apply_effective_readiness(self.connection, status, account, policy)
+        return statuses
 
     def _demote_exhausted_providers(self, statuses: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Marca como no ejecutable todo provider en cooldown de cuota.

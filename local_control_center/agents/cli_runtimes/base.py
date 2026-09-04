@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.providers.base import UsageRecord
 from local_control_center.process_supervision.context import connection_execution_scope
+from local_control_center.process_supervision.service import safe_command_summary
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy import sandbox as subprocess_sandbox
 from local_control_center.security_policy.policy_engine import evaluate_action
@@ -114,6 +115,7 @@ class RuntimeResult(BaseModel):
     return_code: int | None = Field(default=None, alias="returnCode")
     error: str | None = None
     usage: UsageRecord | None = None
+    process_evidence: dict[str, Any] = Field(default_factory=dict, alias="processEvidence")
 
 
 class CliRuntime(ABC):
@@ -270,7 +272,9 @@ class CliRuntime(ABC):
         raise NotImplementedError
 
     @connection_execution_scope
-    def run(self, request: RuntimeRequest) -> RuntimeResult:
+    def run(
+        self, request: RuntimeRequest, *, trusted_subprocess_environment: dict[str, str] | None = None
+    ) -> RuntimeResult:
         """Ejecuta el CLI bajo el sandbox tras pasar validación, política runtime y security policy.
 
         Invariante: solo se invoca el sandbox si la configuración SQLite habilita este runtime
@@ -280,6 +284,24 @@ class CliRuntime(ABC):
         """
         try:
             command = self.build_command(request)
+            if self.runtime_id == "codex_cli" and request.role == "product_owner":
+                from local_control_center.agents.runtime_registry import (
+                    validate_product_owner_codex_environment,
+                    validate_product_owner_runtime_argv,
+                )
+
+                isolation_error = validate_product_owner_runtime_argv(
+                    runtime_id=self.runtime_id, argv=command, workspace_path=request.workspace_path
+                )
+                isolation_error = isolation_error or validate_product_owner_codex_environment(
+                    trusted_subprocess_environment, workspace_path=request.workspace_path
+                )
+                if isolation_error:
+                    raise ValueError(isolation_error)
+            elif trusted_subprocess_environment is not None:
+                raise ValueError(
+                    "Trusted environments are reserved for the isolated ProductOwner Codex contract."
+                )
         except ValueError as error:
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
@@ -306,7 +328,7 @@ class CliRuntime(ABC):
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
                 status="blocked",
-                command=command,
+                command=safe_command_summary(command),
                 error=str(runtime_policy.get("reason") or "CLI runtime is disabled by runtime policy"),
             )
             gated_request = request.model_copy(
@@ -330,7 +352,7 @@ class CliRuntime(ABC):
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
                 status="blocked",
-                command=command,
+                command=safe_command_summary(command),
                 error=str(policy.get("reason") or "CLI runtime blocked by security policy"),
             )
             self._record_result(policy_request, blocked)
@@ -340,27 +362,43 @@ class CliRuntime(ABC):
             cwd=str(workspace),
             workspace_path=str(workspace),
             timeout_seconds=900,
+            environment=trusted_subprocess_environment,
         )
         status = "completed" if result.get("returnCode") == 0 else "failed"
         runtime_result = RuntimeResult(
             runtime=self.runtime_id,
             status=status,
-            command=command,
+            command=safe_command_summary(command),
             stdout=str(result.get("stdout") or ""),
             stderr=str(result.get("stderr") or ""),
             returnCode=result.get("returnCode"),
             error=result.get("reason"),
+            processEvidence={
+                key: result.get(key)
+                for key in (
+                    "managedProcessId",
+                    "resourceLeaseId",
+                    "workloadClass",
+                    "durationMs",
+                    "timedOut",
+                    "cancelled",
+                    "peakMemoryBytes",
+                    "cpuTimeSeconds",
+                    "stdoutArtifactId",
+                    "stderrArtifactId",
+                    "terminationReason",
+                    "remainingDescendantCount",
+                    "stdoutCaptureTruncated",
+                    "stderrCaptureTruncated",
+                )
+            },
         )
         completed = runtime_result.model_copy(update={"usage": self.parse_usage(runtime_result)})
         self._record_result(policy_request, completed)
         return completed
 
     def _blocked_command(self, request: RuntimeRequest) -> list[str]:
-        command = [self.executable, "<blocked>"]
-        command.extend(str(arg) for arg in request.extra_args)
-        if request.prompt:
-            command.append("<prompt>")
-        return command
+        return safe_command_summary([self.executable, "<blocked>", *request.extra_args, request.prompt])
 
     def _evaluate_policy(
         self,

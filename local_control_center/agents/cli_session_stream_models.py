@@ -9,7 +9,7 @@ frontend vía alias de campo y reflejan las claves del mapeador ``row_to_cli_ses
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -18,11 +18,11 @@ class CliSessionStartRequest(BaseModel):
     """Cuerpo para arrancar una sesión CLI en streaming dentro de un workspace."""
 
     workspace_id: str = Field(alias="workspaceId")
-    argv: list[str]
+    argv: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1)
     runtime: str | None = None
     agent_id: str | None = Field(default=None, alias="agentId")
     env_policy: dict[str, Any] | None = Field(default=None, alias="envPolicy")
-    timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds")
+    timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds", ge=1, le=900)
     branch_name: str | None = Field(default=None, alias="branchName")
     worktree_id: str | None = Field(default=None, alias="worktreeId")
 

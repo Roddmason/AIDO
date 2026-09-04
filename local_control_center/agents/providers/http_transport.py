@@ -9,6 +9,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from local_control_center.process_supervision.context import assert_external_boundary
+
 UrlopenCallable = Callable[..., Any]
 _STANDARD_URLOPEN = urllib.request.urlopen
 
@@ -38,6 +40,7 @@ def urlopen_fail_closed(
     urlopen_override: UrlopenCallable | None = None,
 ):
     """Open one request without redirects, retaining explicit test injection seams."""
+    assert_external_boundary()
     if urlopen_override is not None and urlopen_override is not _STANDARD_URLOPEN:
         return urlopen_override(request, timeout=timeout)
     return _FAIL_CLOSED_OPENER.open(request, timeout=timeout)

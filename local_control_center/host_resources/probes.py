@@ -163,7 +163,9 @@ class HostResourceProbe:
     def _disk_free_by_volume(self) -> dict[str, int]:
         volumes: dict[str, int] = {}
         for path in self.relevant_paths:
-            probe_path = path if path.exists() else path.parent
+            probe_path = path if path.is_dir() else path.parent
+            while not probe_path.is_dir() and probe_path != probe_path.parent:
+                probe_path = probe_path.parent
             volume = path.anchor or str(probe_path)
             if volume in volumes:
                 continue

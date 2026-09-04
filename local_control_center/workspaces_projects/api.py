@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.evidence.artifacts import promote_large_git_patches
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.event_bus import EventBus
 
 from .cleanup import capture_workspace_snapshot
@@ -40,7 +41,10 @@ from .repository import WorkspaceConflictError, WorkspaceIsolationError, Workspa
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el ``APIRouter`` de workspaces enlazado a la conexión y guard de la plataforma."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> WorkspacesRepository:
         return WorkspacesRepository(platform.connection, root=platform.cwd)
@@ -53,6 +57,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"workspaces": repository().list_workspaces()}
 
     @router.post("/api/v1/workspaces", status_code=201, response_model=WorkspaceResponse)
+    @queued_operation("workspaces.allocate_workspace", workload_class="qa_light")
     async def allocate_workspace(body: WorkspaceAllocateRequest, request: Request) -> WorkspaceResponse:
         require_write(request)
         try:
@@ -86,6 +91,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse
     )
+    @queued_operation("workspaces.archive_workspace", workload_class="qa_light")
     async def archive_workspace(
         workspace_id: str, body: WorkspaceArchiveRequest, request: Request
     ) -> WorkspaceArchiveResponse:
@@ -163,6 +169,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/workspaces/cleanup",
         response_model=WorkspaceCleanupApplyResponse,
     )
+    @queued_operation("workspaces.workspace_cleanup_apply", workload_class="qa_light")
     async def workspace_cleanup_apply(
         project_id: str, body: WorkspaceCleanupApplyRequest, request: Request
     ) -> dict[str, Any]:

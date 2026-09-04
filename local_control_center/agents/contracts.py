@@ -408,6 +408,15 @@ class RuntimeProviderStatus(BaseModel):
     authenticated: bool = False
     available: bool
     executable: bool
+    globally_enabled: bool = Field(default=False, alias="globallyEnabled")
+    project_enabled: bool = Field(default=False, alias="projectEnabled")
+    policy_allowed: bool = Field(default=False, alias="policyAllowed")
+    resource_admissible: bool = Field(default=False, alias="resourceAdmissible")
+    healthy: bool = False
+    effective_status: str = Field(default="configuration_required", alias="effectiveStatus")
+    blocking_reasons: list[str] = Field(default_factory=list, alias="blockingReasons")
+    last_checked_at: str | None = Field(default=None, alias="lastCheckedAt")
+    compatibility: dict[str, Any] | None = None
     #: Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations:
     #: ``runtime_auth_missing`` / ``runtime_not_executable``); ``None`` si está sano o no configurado.
     #: Deja que la UI muestre el mismo chip accionable que un bloqueo de loop sin duplicar la causa.

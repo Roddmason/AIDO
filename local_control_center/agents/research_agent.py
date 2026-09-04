@@ -29,6 +29,7 @@ from local_control_center.evidence.artifacts import (
 )
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.process_supervision.context import assert_external_boundary
 from local_control_center.research.repository import ResearchRepository
 from local_control_center.research.source_log import persist_source
 from local_control_center.research.source_policy import (
@@ -141,6 +142,7 @@ def _duckduckgo_web_search_provider(query: str, max_sources: int) -> list[dict[s
         },
     )
     try:
+        assert_external_boundary()
         with urlopen(request, timeout=WEB_SEARCH_TIMEOUT_SECONDS) as response:
             content = response.read(MAX_WEB_SEARCH_BYTES + 1)
             if len(content) > MAX_WEB_SEARCH_BYTES:
@@ -189,6 +191,7 @@ def _fetch_url_text(url: str) -> str:
         raise ResearchAgentValidationError("ResearchAgent source URL must not target loopback hosts.")
     request = Request(url, headers={"User-Agent": "AIDO-ResearchAgent/1.0"})
     try:
+        assert_external_boundary()
         with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
             content = response.read(MAX_SOURCE_BYTES + 1)
             if len(content) > MAX_SOURCE_BYTES:

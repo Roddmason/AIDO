@@ -30,7 +30,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     def status_snapshot() -> dict[str, Any]:
         with closing(open_sqlite_connection(platform.db_path)) as connection:
-            initialize_platform_schema(connection)
             leadership = WorkerLeadershipRepository(connection)
             control = WorkerControlRepository(connection).get()
             lease = leadership.current()

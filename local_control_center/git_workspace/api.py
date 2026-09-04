@@ -1,9 +1,8 @@
 """Router HTTP del slice Git Workspace.
 
 Expone estado Git, ramas, checkout, diff y gitleaks por proyecto. Las mutaciones exigen el
-token local y la ejecucion real se delega a ``GitWorkspaceService``. Los GET de snapshot
-(status/branches) usan conexión por request y single-flight por proyecto para no apilar
-subprocess concurrentes.
+token local y la ejecucion real se delega a ``GitWorkspaceService`` en el worker. Los GET
+sólo leen el último snapshot durable y explicitan cuándo requiere renovación.
 
 @author Rodrigo Mason
 """
@@ -11,16 +10,15 @@ subprocess concurrentes.
 from __future__ import annotations
 
 import re
-import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import anyio
 from fastapi import APIRouter, HTTPException, Request
 
-from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.shared.serialization import json_loads
 
 from .models import (
     GitBranchCreateRequest,
@@ -40,13 +38,10 @@ from .models import (
     GitRemoteTestResponse,
     GitStatusResponse,
 )
-from .service import GIT_TIMEOUT_SECONDS, GitWorkspaceService, branches_view_from_status
+from .service import GitWorkspaceService, branches_view_from_status
 
 GIT_SNAPSHOT_PATH_PATTERN = re.compile(r"^/api/v1/projects/[^/]+/git/(?:status|branches)$")
-# Espera máxima de un request que comparte un snapshot en vuelo: sobre el peor caso de los
-# 7 comandos git (7 x GIT_TIMEOUT_SECONDS) para que el fallback a snapshot propio solo
-# dispare si el dueño del vuelo murió sin publicar resultado.
-GIT_SNAPSHOT_WAIT_SECONDS = GIT_TIMEOUT_SECONDS * 8
+GIT_SNAPSHOT_TTL_SECONDS = 30
 
 
 def is_git_snapshot_request(method: str, path: str) -> bool:
@@ -54,84 +49,80 @@ def is_git_snapshot_request(method: str, path: str) -> bool:
     return method.upper() == "GET" and GIT_SNAPSHOT_PATH_PATTERN.match(path) is not None
 
 
-@dataclass
-class _SnapshotFlight:
-    """Snapshot en vuelo, compartido por los requests concurrentes del mismo proyecto."""
-
-    done: threading.Event = field(default_factory=threading.Event)
-    result: dict[str, Any] | None = None
-    error: BaseException | None = None
-
-
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
-    """Arma el router Git por proyecto.
-
-    Cada request ya posee su conexión SQLite. Los snapshots conservan single-flight por proyecto
-    para no duplicar subprocess, sin serializar el resto de la API.
-    """
-    router = APIRouter()
-    in_flight_snapshots: dict[str, _SnapshotFlight] = {}
-    in_flight_guard = threading.Lock()
+    """Arma lecturas durables y mutaciones encoladas por proyecto, sin Git en el proceso API."""
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def service() -> GitWorkspaceService:
         return GitWorkspaceService(platform.connection, root=Path(platform.cwd))
 
-    def execute_status_snapshot(project_id: str) -> dict[str, Any]:
-        """Corre un snapshot completo sobre la conexión de request y una conexión colectora."""
-        early, prepared = service().prepare_status(project_id)
-        if early is not None or prepared is None:
-            return early or {}
-        connection = open_sqlite_connection(platform.db_path)
-        try:
-            collector = GitWorkspaceService(connection, root=Path(platform.cwd))
-            return collector.collect_status(prepared)
-        finally:
-            connection.close()
+    def cached_snapshot(project_id: str, key: str) -> dict[str, Any]:
+        project = platform.connection.execute(
+            "SELECT path FROM projects WHERE id=?", (project_id,)
+        ).fetchone()
+        if project is None:
+            raise HTTPException(404, "Project not found.")
+        row = platform.connection.execute(
+            """SELECT result_json, finished_at FROM operational_executions
+            WHERE project_id=? AND operation='git.refresh' AND status='completed'
+            ORDER BY finished_at DESC LIMIT 1""",
+            (project_id,),
+        ).fetchone()
+        if row:
+            result = json_loads(row["result_json"], {}).get(key)
+            if isinstance(result, dict):
+                age = (
+                    datetime.now(UTC) - datetime.fromisoformat(row["finished_at"].replace("Z", "+00:00"))
+                ).total_seconds()
+                changed = platform.connection.execute(
+                    """SELECT 1 FROM operational_executions WHERE project_id=?
+                    AND operation LIKE 'git.%' AND operation!='git.refresh'
+                    AND created_at>=? LIMIT 1""",
+                    (project_id, row["finished_at"]),
+                ).fetchone()
+                return {
+                    **result,
+                    "snapshotAt": row["finished_at"],
+                    "refreshRequired": age < 0 or age > GIT_SNAPSHOT_TTL_SECONDS or changed is not None,
+                }
+        return {
+            "status": "configuration_required",
+            "reason": "Git snapshot requires POST /git/refresh.",
+            "projectId": project_id,
+            "workspaceId": "",
+            "root": project["path"],
+            "diff": "",
+            "snapshotAt": None,
+            "refreshRequired": True,
+        }
 
-    def run_status_snapshot(project_id: str) -> dict[str, Any]:
-        """Single-flight por proyecto: requests solapados comparten una sola ejecución brokered."""
-        with in_flight_guard:
-            flight = in_flight_snapshots.get(project_id)
-            owns_flight = flight is None
-            if flight is None:
-                flight = _SnapshotFlight()
-                in_flight_snapshots[project_id] = flight
-        if not owns_flight:
-            if flight.done.wait(timeout=GIT_SNAPSHOT_WAIT_SECONDS):
-                if flight.error is not None:
-                    raise flight.error
-                if flight.result is not None:
-                    return flight.result
-            # El dueño del vuelo no publicó (proceso colgado): degradar a snapshot propio.
-            return execute_status_snapshot(project_id)
+    @router.post("/api/v1/projects/{project_id}/git/refresh")
+    @queued_operation("git.refresh", workload_class="qa_light")
+    async def refresh_git(project_id: str, request: Request) -> dict[str, Any]:
+        require_write(request)
         try:
-            result = execute_status_snapshot(project_id)
-            flight.result = result
-            return result
-        except BaseException as error:
-            flight.error = error
-            raise
-        finally:
-            flight.done.set()
-            with in_flight_guard:
-                in_flight_snapshots.pop(project_id, None)
+            return {"snapshot": service().status(project_id), "diff": service().diff(project_id)}
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
 
     @router.get("/api/v1/projects/{project_id}/git/status", response_model=GitStatusResponse)
     async def git_status(project_id: str) -> dict[str, Any]:
-        try:
-            return await anyio.to_thread.run_sync(run_status_snapshot, project_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
+        return cached_snapshot(project_id, "snapshot")
 
     @router.get("/api/v1/projects/{project_id}/git/branches", response_model=GitBranchesResponse)
     async def git_branches(project_id: str) -> dict[str, Any]:
-        try:
-            snapshot = await anyio.to_thread.run_sync(run_status_snapshot, project_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-        return branches_view_from_status(snapshot, project_id=project_id)
+        snapshot = cached_snapshot(project_id, "snapshot")
+        return {
+            **branches_view_from_status(snapshot, project_id=project_id),
+            "snapshotAt": snapshot["snapshotAt"],
+            "refreshRequired": snapshot["refreshRequired"],
+        }
 
     @router.post("/api/v1/projects/{project_id}/git/init", response_model=GitInitResponse)
+    @queued_operation("git.init_git_repository", workload_class="qa_light")
     async def init_git_repository(project_id: str, body: GitInitRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -140,6 +131,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/remotes", response_model=GitRemoteMutationResponse)
+    @queued_operation("git.add_git_remote", workload_class="qa_light")
     async def add_git_remote(project_id: str, body: GitRemoteAddRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -151,6 +143,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/remotes/{name}/test",
         response_model=GitRemoteTestResponse,
     )
+    @queued_operation("git.test_git_remote", workload_class="qa_light")
     async def test_git_remote(
         project_id: str, name: str, body: GitRemoteTestRequest, request: Request
     ) -> dict[str, Any]:
@@ -165,6 +158,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=GitBranchMutationResponse,
     )
+    @queued_operation("git.create_git_branch", workload_class="qa_light")
     async def create_git_branch(
         project_id: str, body: GitBranchCreateRequest, request: Request
     ) -> dict[str, Any]:
@@ -178,6 +172,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-policy/apply",
         response_model=GitBranchPolicyApplyResponse,
     )
+    @queued_operation("git.apply_git_branch_policy", workload_class="qa_light")
     async def apply_git_branch_policy(
         project_id: str, body: GitBranchPolicyApplyRequest, request: Request
     ) -> dict[str, Any]:
@@ -195,6 +190,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/checkout", response_model=GitCheckoutResponse)
+    @queued_operation("git.checkout_git_branch", workload_class="qa_light")
     async def checkout_git_branch(
         project_id: str, body: GitCheckoutRequest, request: Request
     ) -> dict[str, Any]:
@@ -206,15 +202,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
     @router.get("/api/v1/projects/{project_id}/git/diff", response_model=GitDiffResponse)
     async def git_diff(project_id: str) -> dict[str, Any]:
-        try:
-            return service().diff(project_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
+        return cached_snapshot(project_id, "diff")
 
     @router.post(
         "/api/v1/projects/{project_id}/git/gitleaks/scan",
         response_model=GitGitleaksScanResponse,
     )
+    @queued_operation("git.git_gitleaks_scan", workload_class="qa_light")
     async def git_gitleaks_scan(project_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:

@@ -30,6 +30,7 @@ from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.process_supervision.service import (
     command_fingerprint,
     complete_managed_process,
@@ -164,6 +165,10 @@ def start_cli_session(
         name=f"cli-session-{session_id}",
         daemon=True,
     )
+    if CURRENT_EXECUTION.get() is not None:
+        thread.run()
+        status = connection.execute("SELECT status FROM cli_sessions WHERE id=?", (session_id,)).fetchone()[0]
+        return {"id": session_id, "status": status, "startedAt": now}
     thread.start()
     return {"id": session_id, "status": CLI_SESSION_RUNNING_STATUS, "startedAt": now}
 

@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.process_supervision.repository import ManagedProcessRepository
 
 from .cli_session_events import CliSessionEventStore
@@ -22,7 +23,6 @@ from .cli_session_stream import (
     DEFAULT_SESSION_TIMEOUT_SECONDS,
     MAX_SESSION_TIMEOUT_SECONDS,
     cancel_cli_session,
-    is_running,
     start_cli_session,
 )
 from .cli_session_stream_models import (
@@ -35,9 +35,13 @@ from .cli_session_stream_models import (
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de streaming de sesiones CLI: arrancar (token), leer eventos incrementales y cancelar (token)."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     @router.post("/api/v1/cli-sessions", status_code=202, response_model=CliSessionStartResponse)
+    @queued_operation("cli.start_session", workload_class="agent_cli")
     async def start_session(body: CliSessionStartRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         argv = list(body.argv)
@@ -73,10 +77,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.get("/api/v1/cli-sessions/{session_id}/events", response_model=CliSessionEventsResponse)
     async def session_events(session_id: str, afterSeq: int = 0) -> dict[str, Any]:
         store = CliSessionEventStore(platform.connection)
+        session = platform.connection.execute(
+            "SELECT status FROM cli_sessions WHERE id=?", (session_id,)
+        ).fetchone()
         return {
             "events": store.list_events(session_id, after_seq=afterSeq),
             "latestSeq": store.latest_seq(session_id),
-            "running": is_running(session_id),
+            "running": bool(session and session["status"] == "running"),
         }
 
     @router.post("/api/v1/cli-sessions/{session_id}/cancel", response_model=CliSessionCancelResponse)

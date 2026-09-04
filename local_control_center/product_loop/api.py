@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.agents.product_owner_agent import persist_product_owner_backlog
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.time import utc_now
@@ -47,7 +48,10 @@ from .repository import ProductLoopRepository
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router del product loop: una lectura agregada y dos mutaciones protegidas por token."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def coordinator() -> ProductLoopCoordinator:
         return ProductLoopCoordinator(platform.connection)
@@ -139,6 +143,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=ProductLoopResumeResponse,
     )
+    @queued_operation("product_loop.start_product_loop", workload_class="agent_cli")
     async def start_product_loop(
         project_id: str, body: ProductLoopStartRequest, request: Request
     ) -> dict[str, Any]:
@@ -184,6 +189,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop/{loop_id}/aido-decide",
         response_model=ProductLoopStateResponse,
     )
+    @queued_operation("product_loop.aido_decide_product_loop", workload_class="agent_cli")
     async def aido_decide_product_loop(
         project_id: str, loop_id: str, body: ProductLoopAidoDecideRequest, request: Request
     ) -> dict[str, Any]:
@@ -264,6 +270,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop/brief/{brief_id}/approve",
         response_model=ProductLoopStateResponse,
     )
+    @queued_operation("product_loop.approve_product_brief", workload_class="agent_cli")
     async def approve_product_brief(
         project_id: str, brief_id: str, body: ProductLoopApprovalRequest, request: Request
     ) -> dict[str, Any]:
@@ -351,6 +358,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop/{loop_id}/backlog/approve",
         response_model=ProductLoopStateResponse,
     )
+    @queued_operation("product_loop.approve_product_loop_backlog", workload_class="agent_cli")
     async def approve_product_loop_backlog(
         project_id: str, loop_id: str, body: ProductLoopApprovalRequest, request: Request
     ) -> dict[str, Any]:
@@ -405,6 +413,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback",
         response_model=ProductLoopFeedbackApplyResponse,
     )
+    @queued_operation("product_loop.apply_product_loop_feedback", workload_class="agent_cli")
     async def apply_product_loop_feedback(
         project_id: str, loop_id: str, body: ProductLoopFeedbackRequest, request: Request
     ) -> dict[str, Any]:

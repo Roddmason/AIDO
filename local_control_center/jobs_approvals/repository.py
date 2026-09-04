@@ -306,6 +306,17 @@ class JobsRepository:
                 else _command_argv(clean_command)
             )
         expires_at = expires_at or add_millis(ACTION_REQUEST_TTL_MS)
+        from local_control_center.shared.command_privacy import private_command_evidence
+
+        raw_argv = (
+            command_argv
+            or (payload or {}).get("commandArgv")
+            or (payload or {}).get("argv")
+            or clean_payload["commandArgv"]
+        )
+        clean_command, _, clean_payload = private_command_evidence(command, raw_argv, clean_payload)
+        clean_command = str(redact_secrets(clean_command))
+        clean_payload = redact_secrets(clean_payload)
         self.connection.execute(
             """
             INSERT INTO action_requests
@@ -589,6 +600,13 @@ class JobsRepository:
         ):
             raise ValueError("La ejecución anterior todavía no ha liberado sus procesos y leases.")
         self.connection.execute("DELETE FROM process_execution_controls WHERE execution_id = ?", (job_id,))
+        if job["kind"] in {"operation.execute", "thread.product_loop.run", "thread.research.run"}:
+            self.connection.execute(
+                """UPDATE operational_executions SET status='queued', started_at=NULL,
+                finished_at=NULL, cancel_requested_at=NULL, reason='', result_json=NULL,
+                owner_id=NULL, fencing_token=NULL WHERE id=?""",
+                (job_id,),
+            )
         status = "approval_required" if self._pending_actions(job_id) else "queued"
         self.connection.execute(
             "UPDATE jobs SET status = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -751,6 +769,46 @@ class JobsRepository:
         )
         recovered: list[dict[str, Any]] = []
         for row in rows:
+            if row["kind"] in {"operation.execute", "thread.product_loop.run", "thread.research.run"}:
+                execution = self.connection.execute(
+                    "SELECT status FROM operational_executions WHERE id=?", (row["id"],)
+                ).fetchone()
+                if execution and execution["status"] != "queued":
+                    terminal_status = (
+                        execution["status"] if execution["status"] in {"completed", "cancelled"} else "failed"
+                    )
+                    if execution["status"] not in {
+                        "completed",
+                        "failed",
+                        "blocked",
+                        "cancelled",
+                        "interrupted",
+                    }:
+                        self.connection.execute(
+                            """UPDATE operational_executions SET status='interrupted',
+                            finished_at=?, reason='Worker lost: external effects require review before retry.' WHERE id=?""",
+                            (utc_now(), row["id"]),
+                        )
+                    self.connection.execute(
+                        "UPDATE jobs SET status=?, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE id=?",
+                        (
+                            terminal_status,
+                            utc_now(),
+                            row["id"],
+                        ),
+                    )
+                    self.connection.execute(
+                        "UPDATE job_runs SET status=?, completed_at=?, summary='Recovered durable execution outcome after worker lease expiry.' WHERE job_id=? AND status='running'",
+                        (terminal_status, utc_now(), row["id"]),
+                    )
+                    self.record_event(
+                        project_id=row["project_id"],
+                        job_id=row["id"],
+                        event_type="job.recovered",
+                        payload={"status": terminal_status, "reason": "lease_expired_no_replay"},
+                    )
+                    recovered.append(self.get_job(row["id"]))
+                    continue
             self.connection.execute(
                 """
                 UPDATE jobs
@@ -843,7 +901,7 @@ class JobsRepository:
         metadata: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Cierra un run dentro de la transacción ya validada por ``complete_job_run``."""
-        job_status = "completed" if status == "completed" else "failed"
+        job_status = status if status in {"completed", "cancelled"} else "failed"
         # A cancel the operator already issued is the truth: keep it, or the audit trail would claim the
         # stopped job finished and `_thread_job_was_cancelled` would stop seeing the cancellation.
         if self.get_job(job_id)["status"] == "cancelled":

@@ -12,18 +12,22 @@ from __future__ import annotations
 import os
 import sqlite3
 
+from local_control_center.agents.model_aliases import (
+    LEGACY_PROFILE_ALIASES,
+    MODEL_ALIASES,
+    resolve_model_alias,
+)
+
 from .base import CliRuntime, RuntimeRequest
 
-CODEX_PROFILES = {
-    "codex_gpt55_developer": {"model": "gpt-5.5", "effort": "high"},
-    "codex_gpt55_reviewer": {"model": "gpt-5.5", "effort": "high"},
-    "codex_gpt55_xhigh_architect": {"model": "gpt-5.5", "effort": "xhigh"},
-    "codex_mini_analyst": {"model": "mini", "effort": "medium"},
-}
+CODEX_PROFILES = {alias: {"alias": alias} for alias in MODEL_ALIASES}
+CODEX_PROFILES.update(
+    {key: {"alias": value} for key, value in LEGACY_PROFILE_ALIASES.items() if key.startswith("codex_")}
+)
 
 
 class CodexCliRuntime(CliRuntime):
-    """Runtime CLI para Codex, con perfiles que fijan modelo y esfuerzo de razonamiento por rol."""
+    """Runtime CLI para Codex con intención semántica resuelta desde el catálogo real."""
 
     runtime_id = "codex_cli"
     display_name = "Codex CLI"
@@ -51,9 +55,15 @@ class CodexCliRuntime(CliRuntime):
         """
         workspace = self._validate_workspace(request)
         self._validate_safe_args(request)
-        profile = CODEX_PROFILES.get(request.profile or "", {})
-        model = request.model or profile.get("model")
-        effort = request.effort or profile.get("effort")
+        profile_name = request.profile or "fast_coding"
+        if profile_name not in CODEX_PROFILES:
+            raise ValueError("Unknown Codex profile.")
+        model = request.model or resolve_model_alias(
+            self.connection, provider_id=self.runtime_id, alias=CODEX_PROFILES[profile_name]["alias"]
+        )
+        if not model or model.startswith("-") or any(character.isspace() for character in model):
+            raise ValueError("Invalid catalog model identifier.")
+        effort = request.effort
         plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
         sandbox_mode = "read-only" if plan_only else "workspace-write"
         command = [

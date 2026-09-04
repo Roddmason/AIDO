@@ -16,9 +16,10 @@ from pathlib import Path
 import pytest
 
 from local_control_center.agents.quota_manager import QuotaManager
-from local_control_center.agents.runtime_status import RuntimeStatusService, _runtime_blocker_type
+from local_control_center.agents.runtime_status import _runtime_blocker_type
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService as RuntimeStatusService
 
 
 def test_executable_provider_has_no_blocker() -> None:

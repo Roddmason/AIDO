@@ -17,9 +17,13 @@ import os
 import sqlite3
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import quote, urlparse
+
+from local_control_center.process_supervision.context import assert_external_boundary
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 HTTP_TIMEOUT_SECONDS = 15
@@ -162,6 +166,7 @@ class VaultBackend:
         if data is not None:
             request.add_header("Content-Type", "application/json")
         try:
+            assert_external_boundary()
             with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:
@@ -207,8 +212,10 @@ class DpapiSqliteBackend:
                 "CREATE TABLE IF NOT EXISTS credential_blobs (locator TEXT PRIMARY KEY, ciphertext BLOB NOT NULL)"
             )
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._db_path, timeout=30)
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        with closing(sqlite3.connect(self._db_path, timeout=30)) as connection, connection:
+            yield connection
 
     @staticmethod
     def _crypt() -> Any:

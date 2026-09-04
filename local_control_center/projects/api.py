@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
@@ -39,7 +40,10 @@ from .repository import ProjectsRepository
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de proyectos; ``require_write`` protege las rutas mutadoras."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> ProjectsRepository:
         return ProjectsRepository(platform.connection)
@@ -56,11 +60,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.list_projects(repository())
 
     @router.post("/api/v1/projects/discover", response_model=ProjectDiscoveryResponse)
+    @queued_operation("projects.discover_project", workload_class="qa_light")
     async def discover_project(body: ProjectDiscoveryRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         return commands.discover_project(path=body.path)
 
     @router.post("/api/v1/projects", status_code=201, response_model=ProjectResponse)
+    @queued_operation("projects.create_project", workload_class="qa_light")
     async def create_project(body: ProjectCreateRequest, request: Request) -> ProjectResponse:
         require_write(request)
         payload = commands.create_project(
@@ -93,6 +99,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=ProjectAssessmentRunResponse,
     )
+    @queued_operation("projects.run_assessment", workload_class="agent_cli")
     async def run_assessment(project_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         from local_control_center.agents.assessment_runner import ProjectAssessmentRunner

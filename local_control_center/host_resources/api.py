@@ -34,7 +34,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         }
 
     @router.post("/api/v1/operations/resources/sample", response_model=ResourceSampleResponse)
-    async def sample_resources(request: Request) -> dict[str, Any]:
+    def sample_resources(request: Request) -> dict[str, Any]:
         require_write(request)
         repository = ResourceRepository(platform.connection)
         probe = HostResourceProbe(

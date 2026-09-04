@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -24,6 +25,8 @@ from local_control_center.shared.time import utc_now
 
 from .ai_execution import AIExecutionProjectNotFoundError, AIExecutionService
 from .ai_execution_models import AIExecutionPlan, AIExecutionResponse
+from .codex_compatibility import CodexCompatibilityService
+from .codex_smoke import CodexSmokeRequest, run_codex_smoke
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
 from .model_gateway import ModelGateway, _provider_usage_reported, provider_instance
@@ -107,6 +110,7 @@ from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
+from .runtime_status import RuntimeStatusService
 from .usage_ledger import UsageLedger
 
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
@@ -319,7 +323,9 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Construye el APIRouter del Model Gateway, cableado a la conexión y al guard de escritura."""
-    router = APIRouter(prefix="/api/v1/model-gateway", tags=["model-gateway"])
+    router = ExecutionRouter(
+        platform=platform, require_write=require_write, prefix="/api/v1/model-gateway", tags=["model-gateway"]
+    )
 
     def providers() -> ProviderAccountStore:
         return ProviderAccountStore(platform.connection)
@@ -447,7 +453,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "kind": "cli",
                 "executablePath": detected_executable or current.get("executablePath"),
                 "detectedVersion": version or current.get("detectedVersion"),
-                "enabled": installed,
+                "enabled": bool(current.get("enabled", False)),
                 "healthStatus": health_status,
                 "lastValidationAt": timestamp
                 if installed and version_checked
@@ -551,6 +557,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"provider": provider}
 
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
+    @queued_operation("models.provider_health_check", workload_class="remote_llm_light")
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check del proveedor, registra el resultado y activa cooldown si hubo 429."""
         require_write(request)
@@ -573,6 +580,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"health": health}
 
     @router.post("/providers/{provider_id}/discover-models", response_model=DiscoverModelsResponse)
+    @queued_operation("models.discover_models", workload_class="remote_llm_light")
     async def discover_models(provider_id: str, request: Request) -> dict[str, Any]:
         """Descubre y cataloga los modelos del proveedor; exige habilitación, flag de llamadas y credencial."""
         require_write(request)
@@ -634,6 +642,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         "/providers/{provider_id}/embeddings",
         response_model=ProviderEmbeddingResponse,
     )
+    @queued_operation("models.execute_provider_embedding", workload_class="remote_llm_light")
     async def execute_provider_embedding(
         provider_id: str,
         body: ProviderEmbeddingRequest,
@@ -665,6 +674,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         "/providers/{provider_id}/rerank",
         response_model=ProviderRerankResponse,
     )
+    @queued_operation("models.execute_provider_rerank", workload_class="remote_llm_light")
     async def execute_provider_rerank(
         provider_id: str,
         body: ProviderRerankRequest,
@@ -696,6 +706,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         "/providers/{provider_id}/images/generations",
         response_model=ProviderImageGenerationResponse,
     )
+    @queued_operation("models.execute_provider_image_generation", workload_class="remote_llm_light")
     async def execute_provider_image_generation(
         provider_id: str,
         body: ProviderImageGenerationRequest,
@@ -730,6 +741,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         "/providers/{provider_id}/images/edits",
         response_model=ProviderImageEditingResponse,
     )
+    @queued_operation("models.execute_provider_image_editing", workload_class="remote_llm_light")
     async def execute_provider_image_editing(
         provider_id: str,
         body: ProviderImageEditingRequest,
@@ -761,6 +773,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"imageEditing": result}
 
     @router.post("/ai-executions", response_model=AIExecutionResponse)
+    @queued_operation("models.execute_ai_execution", workload_class="remote_llm_light")
     def execute_ai_execution(
         body: AIExecutionPlan,
         request: Request,
@@ -785,6 +798,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"execution": result}
 
     @router.post("/providers/{provider_id}/test-prompt", response_model=TestPromptResponse)
+    @queued_operation("models.test_prompt", workload_class="remote_llm_light")
     async def test_prompt(provider_id: str, body: TestPromptRequest, request: Request) -> dict[str, Any]:
         """Prueba el proveedor con una completion corta y controlada; falla cerrado como discover-models.
 
@@ -969,6 +983,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return result
 
     @router.post("/route/execute", response_model=RouteExecuteResponse)
+    @queued_operation("models.route_execute", workload_class="remote_llm_light")
     async def route_execute(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
         """Rutea y ejecuta la llamada de modelo; abre solicitud de aprobación o bloquea cuando corresponde.
 
@@ -1182,10 +1197,25 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/cli-runtimes", response_model=CliRuntimesListResponse)
     async def list_cli_runtimes() -> dict[str, Any]:
-        """Lista los runtimes CLI conocidos por el registry."""
-        return {"cliRuntimes": RuntimeRegistry().list_runtimes()}
+        """Lee detecciones durables; una consulta nunca inicia el ejecutable del proveedor."""
+        return {
+            "cliRuntimes": [
+                {
+                    "id": row["runtimeId"],
+                    "runtime": row["runtimeId"],
+                    "status": row["healthStatus"],
+                    "executable": row["executablePath"],
+                    "version": row["detectedVersion"],
+                    "message": row["lastError"]
+                    or "Use explicit health check to refresh detection and authentication.",
+                }
+                for row in runtimes().list_installations()
+                if row["kind"] == "cli"
+            ]
+        }
 
     @router.post("/cli-runtimes/{runtime_id}/detect", response_model=RuntimeDetectionResponse)
+    @queued_operation("models.detect_cli_runtime", workload_class="qa_light")
     async def detect_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Detecta el ejecutable y versión de un runtime CLI."""
         require_write(request)
@@ -1199,6 +1229,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"detection": detection}
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
+    @queued_operation("models.health_cli_runtime", workload_class="qa_light")
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""
         require_write(request)
@@ -1214,8 +1245,31 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             payload={**detection, **health},
             executable_hint=command,
         )
+        RuntimeStatusService(
+            platform.connection, allow_probes=True, probe_runtime_ids={runtime_id}
+        ).list_provider_statuses()
         audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
         return {"health": health}
+
+    @router.get("/cli-runtimes/codex_cli/compatibility")
+    async def codex_compatibility() -> dict[str, Any]:
+        return CodexCompatibilityService(platform.connection).status(
+            cli_runtime_command("codex_cli") or "codex"
+        )
+
+    @router.post("/cli-runtimes/codex_cli/capabilities/probe")
+    @queued_operation("models.codex_capabilities", workload_class="qa_light")
+    async def codex_capabilities(request: Request) -> dict[str, Any]:
+        require_write(request)
+        return CodexCompatibilityService(platform.connection).probe(
+            cli_runtime_command("codex_cli") or "codex"
+        )
+
+    @router.post("/cli-runtimes/codex_cli/compatibility/smoke")
+    @queued_operation("models.codex_smoke", workload_class="agent_cli")
+    async def codex_smoke(body: CodexSmokeRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        return run_codex_smoke(platform.connection, body)
 
     @router.get("/cli-sessions", response_model=CliSessionsListResponse)
     async def list_cli_sessions() -> dict[str, Any]:

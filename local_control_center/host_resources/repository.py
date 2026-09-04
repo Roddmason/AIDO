@@ -80,6 +80,13 @@ class ResourceRepository:
                     "SELECT resource_lease_id FROM managed_processes WHERE finished_at IS NULL AND resource_lease_id IS NOT NULL"
                 )
             )
+            held.update(
+                row[0]
+                for row in self.connection.execute(
+                    """SELECT l.id FROM resource_leases l JOIN managed_processes p
+                ON p.execution_id=l.parent_execution_id WHERE p.finished_at IS NULL AND l.released_at IS NULL"""
+                )
+            )
         if "managed_containers" in tables:
             held.update(
                 row[0]
@@ -119,8 +126,8 @@ class ResourceRepository:
             INSERT INTO resource_leases
                 (id, execution_id, workload_class, owner_id, cpu_limit_percent,
                  memory_limit_bytes, process_limit, gpu_required, acquired_at,
-                 heartbeat_at, expires_at, released_at, release_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '')
+                 heartbeat_at, expires_at, released_at, release_reason, parent_execution_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?)
             """,
             (
                 lease_id,
@@ -134,6 +141,7 @@ class ResourceRepository:
                 now_iso,
                 now_iso,
                 expires_at,
+                request.parent_execution_id,
             ),
         )
         return self.get_lease(lease_id)
@@ -191,6 +199,14 @@ class ResourceRepository:
             (now_value, reason, lease_id),
         )
         return self.get_lease(lease_id)
+
+    def finish_remote_branch(self, lease_id: str, *, owner_id: str) -> ResourceLease:
+        """Retira el vínculo padre sólo después de retornar la llamada remota en su hilo dueño."""
+        self.connection.execute(
+            "UPDATE resource_leases SET parent_execution_id=NULL WHERE id=? AND owner_id=? AND released_at IS NULL",
+            (lease_id, owner_id),
+        )
+        return self.release(lease_id, reason="provider_branch_finished")
 
     def recover_expired(self, *, now_iso: str | None = None) -> list[ResourceLease]:
         """Marca leases expiradas como recuperadas y devuelve las filas afectadas."""

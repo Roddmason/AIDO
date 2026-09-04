@@ -36,7 +36,6 @@ CLI_EXECUTABLE_TOKENS = {
     "swe_agent": ("swe", "agent"),
 }
 
-PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS = frozenset({"codex-cli 0.142.2"})
 PRODUCT_OWNER_CODEX_EXTRA_ARGS = [
     "--ephemeral",
     "--ignore-user-config",
@@ -555,6 +554,8 @@ def validate_product_owner_runtime_argv(
     if remaining[: len(required_extra_args)] != required_extra_args:
         return error
     remaining = remaining[len(required_extra_args) :]
+    if runtime_id == "codex_cli" and remaining[:1] == ["--json"]:
+        remaining = remaining[1:]
     if len(remaining) != 2 or remaining[0] != "--" or not remaining[1]:
         return error
     return None
@@ -575,8 +576,7 @@ def build_product_owner_agent_argv(
     Rejects runtime-specific argv overrides, validates the detected executable, and delegates to the
     runtime's command builder with the supplied analysis prompt. The resulting argv is validated again
     against the canonical read-only/tool-isolated contract before it can reach ToolBroker. Codex is
-    pinned to versions whose feature surface has been reviewed because its CLI has no global tools
-    allowlist; an unknown version fails closed instead of silently inheriting new built-in tools.
+    validado por capacidades, fingerprint y smoke del contrato; un binario nuevo falla cerrado.
 
     Raises:
         RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
@@ -591,17 +591,15 @@ def build_product_owner_agent_argv(
             "Runtime provider does not expose a ProductOwnerAgent CLI executor."
         )
     if runtime_id == "codex_cli":
-        version = str(runtime.get("version") or "").strip()
-        if runtime.get("versionVerified") is not True:
+        from .codex_compatibility import CodexCompatibilityService
+
+        compatibility = CodexCompatibilityService(connection).status(
+            str(runtime.get("detectedCommand") or "codex"), verify_hash=True
+        )
+        if compatibility["status"] != "compatible":
             raise RuntimeCommandUnavailableError(
-                "Codex CLI version was not verified by the current runtime probe; "
-                "ProductOwnerAgent execution fails closed."
-            )
-        if version not in PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS:
-            supported = ", ".join(sorted(PRODUCT_OWNER_SUPPORTED_CODEX_VERSIONS))
-            raise RuntimeCommandUnavailableError(
-                "Codex CLI version is not approved for ProductOwnerAgent's tool-isolated contract "
-                f"(detected: {version or 'unknown'}; supported: {supported})."
+                "Codex ProductOwner contract requires capability validation and matching smoke: "
+                + ", ".join(compatibility["blockingReasons"])
             )
     executable = str(runtime.get("detectedCommand") or "").strip()
     if not executable:

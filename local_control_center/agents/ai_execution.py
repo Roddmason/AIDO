@@ -18,8 +18,14 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from local_control_center.host_resources.branch_admission import BranchAdmission
+from local_control_center.process_supervision.context import (
+    assert_external_boundary,
+    connection_execution_scope,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
@@ -41,6 +47,7 @@ from .providers.factory import (
     provider_account_requires_credential,
 )
 from .quota_manager import QuotaAdmissionDenied, QuotaLease, QuotaManager, QuotaRequest
+from .runtime_readiness import provider_workload_class
 from .usage_ledger import UsageLedger
 
 ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,95}$")
@@ -72,6 +79,7 @@ class _PreparedBranch:
     reserved_tokens: int
     estimated_cost_usd: float | None
     pricing_source: str
+    workload_class: str = "remote_llm_light"
     lease: QuotaLease | None = None
 
 
@@ -116,6 +124,7 @@ class AIExecutionService:
         *,
         provider_resolver: Callable[[str], Any] | None = None,
         credential_resolver: CredentialResolver | None = None,
+        resource_snapshot_source: Callable | None = None,
     ) -> None:
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
@@ -127,7 +136,9 @@ class AIExecutionService:
             lambda provider_id: ProviderAdapterFactory(connection).resolve_for_execution(provider_id)
         )
         self.credential_resolver = credential_resolver or CredentialResolver()
+        self.resource_snapshot_source = resource_snapshot_source
 
+    @connection_execution_scope
     def execute(self, plan: AIExecutionPlan) -> AIExecutionResult:
         """Execute a typed plan without persisting its messages or raw provider material."""
         self._require_project(plan.project_id)
@@ -219,9 +230,14 @@ class AIExecutionService:
             "UPDATE ai_executions SET status = 'running', started_at = ?, updated_at = ? WHERE id = ?",
             (utc_now(), utc_now(), execution_id),
         )
+        assert_external_boundary()
+        db_path = self.connection.execute("PRAGMA database_list").fetchone()[2]
+        if not db_path:
+            raise RuntimeError("Durable resource admission requires a file-backed database.")
+        admission = BranchAdmission(Path(db_path), snapshot_source=self.resource_snapshot_source)
         future_branches: dict[Future[tuple[ModelResponse, int]], _PreparedBranch] = {}
         with ThreadPoolExecutor(
-            max_workers=min(plan.max_parallelism, len(prepared)),
+            max_workers=min(2, plan.max_parallelism, len(prepared)),
             thread_name_prefix="aido-ai-branch",
         ) as executor:
             for branch in prepared:
@@ -230,7 +246,7 @@ class AIExecutionService:
                 with immediate_transaction(self.connection):
                     self.quota.mark_dispatched(branch.lease.id)
                     self._update_branch(branch.id, status="running")
-                future = executor.submit(self._invoke, branch, plan)
+                future = executor.submit(self._invoke_admitted, branch, plan, admission)
                 future_branches[future] = branch
             for future in as_completed(future_branches):
                 branch = future_branches[future]
@@ -424,7 +440,13 @@ class AIExecutionService:
             reserved_tokens=reserved_tokens,
             estimated_cost_usd=pricing["estimatedCostUsd"],
             pricing_source=str(pricing["source"]),
+            workload_class=provider_workload_class(account),
         )
+
+    @staticmethod
+    def _invoke_admitted(branch, plan, admission):
+        with admission.reserve(branch.id, branch.workload_class):
+            return AIExecutionService._invoke(branch, plan)
 
     @staticmethod
     def _invoke(branch: _PreparedBranch, plan: AIExecutionPlan) -> tuple[ModelResponse, int]:

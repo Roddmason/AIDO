@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.event_bus import EventBus
 
 from .architect_agent import ArchitectAgentRunner
@@ -767,7 +768,10 @@ def validate_product_owner_agent_run_body(
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el APIRouter de agentes, cableado a la conexión/cwd del platform y al guard de escritura."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> AgentsRepository:
         return AgentsRepository(platform.connection)
@@ -788,6 +792,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"devopsAgent": DevOpsAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/devops/runs", status_code=202, response_model=DevOpsAgentRunResponse)
+    @queued_operation("agents.run_devops_agent", workload_class="agent_cli")
     async def run_devops_agent(body: DevOpsAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DevOpsAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
@@ -816,6 +821,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"securityAgent": SecurityAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/security/runs", status_code=202, response_model=SecurityAgentRunResponse)
+    @queued_operation("agents.run_security_agent", workload_class="agent_cli")
     async def run_security_agent(body: SecurityAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el SecurityAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
@@ -844,6 +850,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"researchAgent": ResearchAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/research/runs", status_code=202, response_model=ResearchAgentRunResponse)
+    @queued_operation("agents.run_research_agent", workload_class="agent_cli")
     async def run_research_agent(body: ResearchAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ResearchAgent y emite un evento con el resultado de política de fuentes."""
         require_write(request)
@@ -869,6 +876,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.post("/api/v1/agents/qa/runs", status_code=202, response_model=QAAgentRunResponse)
+    @queued_operation("agents.run_qa_agent", workload_class="agent_cli")
     async def run_qa_agent(body: QAAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el QAAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
@@ -896,6 +904,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"developerAgent": DeveloperAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/developer/runs", status_code=202, response_model=DeveloperAgentRunResponse)
+    @queued_operation("agents.run_developer_agent", workload_class="agent_cli")
     async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DeveloperAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
@@ -924,6 +933,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"architectAgent": ArchitectAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/architect/runs", status_code=202, response_model=ArchitectAgentRunResponse)
+    @queued_operation("agents.run_architect_agent", workload_class="agent_cli")
     async def run_architect_agent(body: ArchitectAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ArchitectAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
@@ -958,6 +968,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=202,
         response_model=ProductOwnerAgentRunResponse,
     )
+    @queued_operation("agents.run_product_owner_agent", workload_class="agent_cli")
     async def run_product_owner_agent(body: ProductOwnerAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ProductOwnerAgent sobre una idea o assessment y emite el evento del estado resultante."""
         require_write(request)
@@ -1036,6 +1047,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"agentRuns": repository().list_agent_runs()}
 
     @router.post("/api/v1/agent-runs", status_code=202, response_model=AgentRunResponse)
+    @queued_operation("agents.create_agent_run", workload_class="agent_cli")
     async def create_agent_run(body: AgentRunCreateRequest, request: Request) -> AgentRunResponse:
         """Crea un agent run genérico, brokerea sus tool calls y deriva estado/veredicto y evidencia.
 
@@ -1241,6 +1253,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"skills": skill_registry().list_skills()}
 
     @router.post("/api/v1/skills/sync", status_code=202, response_model=SkillsSyncResponse)
+    @queued_operation("agents.sync_skills", workload_class="qa_light")
     async def sync_skills(body: SkillsSyncRequest, request: Request) -> SkillsSyncResponse:
         """Sincroniza el catálogo de skills desde el path indicado y emite el evento de sincronización."""
         require_write(request)

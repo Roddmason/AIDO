@@ -4,6 +4,15 @@ import time
 
 from local_control_center.shared.redaction import redact_secrets
 
+
+def test_task_identifier_is_not_mistaken_for_an_embedded_api_key():
+    from local_control_center.shared.redaction import redact_secrets
+
+    identifier = "task-12345678-1234-1234-1234-123456789abc"
+    assert redact_secrets(identifier) == identifier
+    assert redact_secrets("value=sk-testsecret123456") == "value=[redacted]"
+
+
 REDACTED = "[redacted]"
 
 

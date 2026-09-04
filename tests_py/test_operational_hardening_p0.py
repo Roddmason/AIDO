@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import anyio
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest
@@ -156,18 +157,17 @@ def test_host_capacity_can_defer_a_heavy_workload_without_failing_it(tmp_path: P
 
 
 def test_codex_profile_does_not_pin_an_obsolete_model(tmp_path: Path) -> None:
-    command = CodexCliRuntime(executable="codex").build_command(
-        RuntimeRequest(
-            runtime="codex_cli",
-            workspaceId="workspace-one",
-            workspacePath=str(tmp_path),
-            prompt="Inspect the repository without editing.",
-            profile="codex_gpt55_developer",
-            envPolicy={"permissionProfile": "plan"},
+    with pytest.raises(ValueError, match="model_configuration_required"):
+        CodexCliRuntime(executable="codex").build_command(
+            RuntimeRequest(
+                runtime="codex_cli",
+                workspaceId="workspace-one",
+                workspacePath=str(tmp_path),
+                prompt="Inspect the repository without editing.",
+                profile="codex_gpt55_developer",
+                envPolicy={"permissionProfile": "plan"},
+            )
         )
-    )
-
-    assert "gpt-5.5" not in command
 
 
 def test_productive_sandbox_execution_returns_managed_process_evidence(tmp_path: Path) -> None:

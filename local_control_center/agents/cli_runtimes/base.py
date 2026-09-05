@@ -443,7 +443,12 @@ class CliRuntime(ABC):
                 "secretsRequired": bool(
                     request.env_policy.get("secrets") or request.env_policy.get("secretRefs")
                 ),
-            }
+            },
+            **(
+                {"trusted_smoke_approval": smoke_context.get("smokeApproved") is True}
+                if smoke_context
+                else {}
+            ),
         )
 
     def _runtime_policy_decision(self, request: RuntimeRequest) -> dict[str, Any]:

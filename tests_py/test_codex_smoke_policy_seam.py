@@ -164,4 +164,24 @@ def test_smoke_policy_fails_closed_on_mismatched_context(field, value):
         "workspacePath": ".",
         "path": ".",
     }
-    assert evaluate_action({**payload, field: value})["decision"] == "deny"
+    assert evaluate_action({**payload, field: value}, trusted_smoke_approval=True)["decision"] == "deny"
+
+
+def test_policy_request_cannot_self_assign_smoke_approval():
+    from local_control_center.security_policy.policy_engine import evaluate_action
+
+    assert (
+        evaluate_action(
+            {
+                "operation": "codex_compatibility_smoke",
+                "smokeApproved": True,
+                "tool": "shell",
+                "runtimeId": "codex_cli",
+                "permissionProfile": "plan",
+                "workspaceId": "fixture",
+                "workspacePath": ".",
+                "path": ".",
+            }
+        )["decision"]
+        == "deny"
+    )

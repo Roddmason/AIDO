@@ -701,7 +701,7 @@ def evaluate_git_workspace_command(
     }
 
 
-def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
+def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bool = False) -> dict[str, Any]:
     """Evalua una accion y devuelve ``{decision, riskLevel, reason, categories}``.
 
     Aplica las puertas de seguridad en orden de severidad: confinamiento al workspace, deploy a
@@ -751,7 +751,8 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "codex_compatibility_smoke":
         allowed = (
-            input_payload.get("smokeApproved") is True
+            trusted_smoke_approval is True
+            and input_payload.get("smokeApproved") is True
             and tool == "shell"
             and input_payload.get("runtimeId") == "codex_cli"
             and permission_profile == "plan"

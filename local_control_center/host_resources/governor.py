@@ -171,6 +171,22 @@ class HostResourceGovernor:
                 "light_workload_capacity",
                 "The configured light-workload concurrency limit is already reserved.",
             )
+        reserved_cpu = sum(lease.cpu_limit_percent for lease in non_control_active)
+        if reserved_cpu + profile.cpu_limit_percent > policy.max_cpu_percent:
+            return wait(
+                "aggregate_cpu_budget",
+                "Combined workload CPU limits exceed the configured aggregate CPU budget.",
+            )
+        # Conservador: la muestra no atribuye consumo actual a cada reserva viva.
+        reserved_memory = sum(lease.memory_limit_bytes for lease in non_control_active)
+        if (
+            reserved_memory + profile.memory_limit_bytes
+            > snapshot.available_memory_bytes - policy.min_free_memory_bytes
+        ):
+            return wait(
+                "aggregate_memory_budget",
+                "Combined workload memory limits would consume the reserved free-memory headroom.",
+            )
         return None
 
     def _set_job_status(

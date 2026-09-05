@@ -112,6 +112,38 @@ def test_two_remote_llm_workloads_coexist_but_third_waits(tmp_path: Path) -> Non
     assert decisions[-1].reason_code == "light_workload_capacity"
 
 
+def test_aggregate_cpu_budget_blocks_light_work_beside_full_budget_build(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        build = governor.admit(_request("build", "build_heavy"), snapshot=_healthy_snapshot())
+        light = governor.admit(_request("qa", "qa_light"), snapshot=_healthy_snapshot())
+        assert build.status == "admitted"
+        assert (light.status, light.reason_code) == ("resource_wait", "aggregate_cpu_budget")
+        governor.release(build.lease.id, reason="test_completed")
+        assert governor.admit(_request("qa", "qa_light"), snapshot=_healthy_snapshot()).status == "admitted"
+
+
+def test_aggregate_memory_reservations_preserve_control_plane_headroom(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=26 * GIB)
+        assert governor.admit(_request("cli", "agent_cli"), snapshot=snapshot).status == "admitted"
+        second = governor.admit(_request("qa", "qa_light"), snapshot=snapshot)
+        assert (second.status, second.reason_code) == ("resource_wait", "aggregate_memory_budget")
+
+
+def test_aggregate_budget_allows_cli_and_one_qa_with_sufficient_headroom(tmp_path: Path) -> None:
+    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        assert governor.admit(_request("cli", "agent_cli"), snapshot=_healthy_snapshot()).status == "admitted"
+        assert governor.admit(_request("qa", "qa_light"), snapshot=_healthy_snapshot()).status == "admitted"
+        third = governor.admit(_request("remote", "remote_llm_light"), snapshot=_healthy_snapshot())
+        assert third.status == "resource_wait"
+
+
 def test_unreal_and_heavy_conflicts_have_specific_reasons(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

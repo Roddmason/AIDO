@@ -12,12 +12,12 @@ import pytest
 
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
-from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
 from local_control_center.workflows.issue_to_patch_runner import _execution_result_from_tool_call
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService as RuntimeStatusService
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_claude_code_cli.py"
@@ -175,6 +175,7 @@ def test_claude_code_runtime_uses_supported_workspace_edit_syntax(tmp_path: Path
             workspaceId="workspace-test",
             workspacePath=str(tmp_path),
             prompt="Create a patch",
+            model="test-explicit-model",
         )
     )
 

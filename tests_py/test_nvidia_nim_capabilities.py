@@ -9,7 +9,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
@@ -17,6 +16,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import init_phase53_schema, initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

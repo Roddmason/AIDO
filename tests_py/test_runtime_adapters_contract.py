@@ -207,7 +207,7 @@ def test_restricted_subprocess_rejects_cwd_outside_workspace(tmp_path: Path) -> 
     assert "outside the allocated workspace" in (result.reason or "").lower()
 
 
-def test_restricted_subprocess_records_real_timeout(tmp_path: Path) -> None:
+def test_restricted_subprocess_records_real_timeout(tmp_path: Path, controlled_domain_host) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     script = workspace / "sleep.py"
@@ -228,7 +228,9 @@ def test_restricted_subprocess_records_real_timeout(tmp_path: Path) -> None:
     assert "timed out" in (result.reason or "").lower()
 
 
-def test_restricted_subprocess_promotes_large_stdout_and_stderr_to_artifacts(tmp_path: Path) -> None:
+def test_restricted_subprocess_promotes_large_stdout_and_stderr_to_artifacts(
+    tmp_path: Path, controlled_domain_host
+) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     script = workspace / "large_output.py"
@@ -272,6 +274,7 @@ def test_restricted_subprocess_requires_registered_workspace_when_connected(tmp_
         assert "registered workspace" in (result.reason or "").lower()
 
 
+@pytest.mark.usefixtures("controlled_domain_host")
 def test_restricted_subprocess_never_uses_shell_true(tmp_path: Path, monkeypatch) -> None:
     calls: list[dict[str, object]] = []
     real_popen = subprocess.Popen
@@ -285,7 +288,7 @@ def test_restricted_subprocess_never_uses_shell_true(tmp_path: Path, monkeypatch
 
     result = RestrictedSubprocessAdapter().execute(request)
 
-    assert result.status == "completed"
+    assert result.status == "completed", result.reason
     assert calls
     assert calls[0]["shell"] is False
 

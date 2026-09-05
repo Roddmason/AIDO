@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -31,6 +32,100 @@ def _client(tmp_path: Path):
 
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     return runtime, TestClient(_app(runtime))
+
+
+def test_external_worker_preserves_thread_runtime_preflight(monkeypatch, tmp_path):
+    from local_control_center.workers.runtime import WorkerPreflight
+
+    runtime, client = _client(tmp_path)
+    worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)
+    calls = []
+    try:
+        project = _project(runtime, tmp_path)
+        thread = _thread(client, runtime, project["id"])
+        job_id = _queue_thread_job(client, runtime, thread["id"])
+        client.post("/api/v1/workers/run-once", headers=_headers(runtime))
+        monkeypatch.setattr(worker, "_govern_resources_if_due", lambda: True)
+        monkeypatch.setattr(worker, "_ensure_leadership_watcher", lambda: None)
+
+        def deny():
+            calls.append("preflight")
+            worker._stop_event.set()
+            return WorkerPreflight(
+                False,
+                "No executable runtime is available for local worker execution.",
+                [],
+                None,
+                "runtime",
+                {"executable": False, "status": "configuration_required"},
+            )
+
+        def forbidden_batch():
+            calls.append("batch")
+            worker._stop_event.set()
+
+        monkeypatch.setattr(worker, "preflight", deny)
+        monkeypatch.setattr(worker, "_run_batch_once", forbidden_batch)
+        worker.run_forever()
+        assert calls == ["preflight"]
+        assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
+        assert ("runtime_not_executable", "run_worker_once") in _pending_remediation_actions(
+            runtime.connection, thread["id"]
+        )
+    finally:
+        worker.stop(reason="isolated external worker preflight test")
+        runtime.close()
+
+
+def test_control_operation_can_repair_an_older_queued_conversation(tmp_path):
+    runtime, client = _client(tmp_path)
+    try:
+        project = _project(runtime, tmp_path)
+        thread = _thread(client, runtime, project["id"])
+        thread_job_id = _queue_thread_job(client, runtime, thread["id"])
+        response = client.post(
+            "/api/v1/projects",
+            headers=_headers(runtime),
+            json={
+                "name": "Repair project",
+                "path": str(tmp_path / "repair"),
+                "templateId": "other",
+                "createDirectory": True,
+            },
+        )
+        assert response.status_code == 202
+        jobs = JobsRepository(runtime.connection)
+        assert jobs.peek_next_job()["id"] == response.json()["executionId"]
+        assert jobs.get_job(thread_job_id)["status"] == "queued"
+    finally:
+        runtime.close()
+
+
+def test_external_worker_never_downgrades_a_lost_fence_to_unfenced_claim(monkeypatch, tmp_path):
+    runtime, client = _client(tmp_path)
+    worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)
+    seen = []
+    try:
+        client.post("/api/v1/workers/run-once", headers=_headers(runtime))
+        monkeypatch.setattr(worker, "_govern_resources_if_due", lambda: True)
+        monkeypatch.setattr(worker, "_ensure_leadership_watcher", lambda: None)
+
+        def lose_fence_during_preflight():
+            worker._fencing_token = None
+            worker._stop_event.set()
+            return True
+
+        def capture_batch(_worker, **kwargs):
+            seen.append(kwargs["fencing_token"])
+            return []
+
+        monkeypatch.setattr(worker, "_queued_job_preflight", lose_fence_during_preflight)
+        monkeypatch.setattr("local_control_center.workers.runtime.ConcurrentWorker.run_batch", capture_batch)
+        worker.run_forever()
+        assert len(seen) == 1 and isinstance(seen[0], int), seen
+    finally:
+        worker.stop(reason="isolated fencing race regression")
+        runtime.close()
 
 
 def _app(runtime):
@@ -145,6 +240,7 @@ def test_worker_settings_default_autostart_is_disabled(tmp_path: Path) -> None:
         runtime.close()
 
 
+@pytest.mark.usefixtures("controlled_domain_host")
 def test_worker_run_once_executes_queued_thread_job(monkeypatch, tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -199,6 +295,7 @@ def test_worker_run_once_executes_queued_thread_job(monkeypatch, tmp_path: Path)
         runtime.close()
 
 
+@pytest.mark.usefixtures("controlled_domain_host")
 def test_worker_run_once_preserves_product_loop_job_run_metadata(monkeypatch, tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -388,6 +485,7 @@ def test_worker_run_once_requires_gitleaks(monkeypatch, tmp_path: Path) -> None:
         runtime.close()
 
 
+@pytest.mark.usefixtures("controlled_domain_host")
 def test_worker_product_loop_exception_creates_worker_retry_remediation(
     monkeypatch,
     tmp_path: Path,
@@ -465,10 +563,15 @@ def test_worker_product_loop_exception_creates_worker_retry_remediation(
             platform=runtime,
         )
 
-        assert execution["execution"]["status"] == "completed"
+        assert execution["execution"]["status"] == "queued"
         assert execution["execution"]["jobRetry"]["job"]["id"] == job_id
         assert execution["execution"]["jobRetry"]["job"]["status"] == "queued"
         assert execution["remediation"]["status"] == "resolved"
+        # Remediation requests one durable worker cycle; it must not run the worker in the API.
+        assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "queued"
+        assert calls["total"] == 1
+        retried = worker.run_once()
+        assert retried["status"] == "completed", retried
         assert JobsRepository(runtime.connection).get_job(job_id)["status"] == "completed"
         assert ThreadsRepository(runtime.connection).get_thread(thread["id"])["status"] == "awaiting_approval"
         assert calls["total"] == 2

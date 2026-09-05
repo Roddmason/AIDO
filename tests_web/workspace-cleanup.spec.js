@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/operations.js';
 
 /**
  * Workspaces → Workspace cleanup: the confirmed drain of orphan runtime worktrees.

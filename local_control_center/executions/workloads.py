@@ -23,6 +23,14 @@ INFERENCE_OPERATIONS = frozenset(
 
 def operation_workload(connection, spec, payload):
     """Reserva el perfil más restrictivo posible sin confiar en flags de recursos del cliente."""
+    if spec.name == "remediations.execute":
+        action = connection.execute(
+            "SELECT action_type FROM remediation_actions WHERE id=?", (payload.get("remediation_id"),)
+        ).fetchone()
+        # Revalidation reads persisted readiness; it must precede the conversation it repairs.
+        # All other actions retain the conservative profile, regardless of client payload claims.
+        if action and action["action_type"] == "validate_runtime":
+            return "qa_light"
     if spec.name not in INFERENCE_OPERATIONS:
         return spec.workload_class
     ids = set()

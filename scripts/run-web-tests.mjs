@@ -17,7 +17,12 @@ const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
 const artifactRoot = process.env.PLAYWRIGHT_ARTIFACT_ROOT || `.tmp/playwright-artifacts-${process.pid}`;
-const selectedTestFiles = process.argv.slice(2);
+const argumentsList = process.argv.slice(2);
+const grepIndex = argumentsList.indexOf('--grep');
+const selectedGrep = grepIndex < 0 ? null : argumentsList.splice(grepIndex, 2)[1];
+if (grepIndex >= 0 && !selectedGrep) throw new Error('--grep requires a test title pattern');
+const selectedTestFiles = argumentsList;
+const privateServerTests = new Set();
 for (const file of selectedTestFiles) {
 	const relative = path.relative(path.resolve('tests_web'), path.resolve(file));
 	if (relative.startsWith('..') || path.isAbsolute(relative) || !existsSync(file) || !file.endsWith('.spec.js')) {
@@ -72,9 +77,18 @@ function escapeRegExp(value) {
 function chunkTests(tests) {
 	const chunkSize = Number.isFinite(testsPerChunk) && testsPerChunk > 0 ? testsPerChunk : 1;
 	const chunks = [];
-	for (let index = 0; index < tests.length; index += chunkSize) {
-		chunks.push(tests.slice(index, index + chunkSize));
+	let pending = [];
+	for (const title of tests) {
+		if (privateServerTests.has(title)) {
+			if (pending.length) chunks.push(pending);
+			pending = [];
+			chunks.push([title]);
+		} else {
+			pending.push(title);
+			if (pending.length === chunkSize) { chunks.push(pending); pending = []; }
+		}
 	}
+	if (pending.length) chunks.push(pending);
 	return chunks;
 }
 
@@ -107,17 +121,25 @@ async function waitForExit(childProcess, timeoutMs) {
 
 async function stopDashboardServer(childProcess) {
 	if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
-		return;
+		throw new Error('Dashboard root exited before owned-tree cleanup; outer supervisor cleanup is required.');
 	}
-	childProcess.kill();
-	if (await waitForExit(childProcess, 5000)) {
-		return;
+	if (!Number.isFinite(childProcess.aidoCreatedAt)) {
+		throw new Error('Dashboard identity is unverified; outer supervisor cleanup is required.');
 	}
-	// Use only the ChildProcess handle we own, never discover/kill another run by port.
-	childProcess.kill('SIGKILL');
-	if (!(await waitForExit(childProcess, 5000))) {
-		throw new Error('Owned dashboard process did not exit; supervisor cleanup is required.');
+	// The Windows venv PID is a redirector: snapshot and stop its descendants before losing it.
+	const result = processTreeCommand('stop', childProcess.pid, childProcess.aidoCreatedAt);
+	if (result.remainingCount !== 0 || !(await waitForExit(childProcess, 5000))) {
+		throw new Error('Owned dashboard tree did not exit; supervisor cleanup is required.');
 	}
+}
+
+function processTreeCommand(action, pid, createdAt) {
+	const python = process.platform === 'win32' ? windowsPython : posixPython;
+	const args = ['-m', 'local_control_center.quality.owned_tree', action, '--pid', String(pid), '--parent-pid', String(process.pid)];
+	if (createdAt !== undefined) args.push('--created-at', String(createdAt));
+	const result = spawnSync(python, args, { encoding: 'utf8', timeout: 20000 });
+	if (result.status !== 0) throw new Error(`Owned-tree ${action} failed: ${result.stderr || result.error || result.status}`);
+	return JSON.parse(result.stdout);
 }
 
 async function waitForDashboardHealth(port, childProcess) {
@@ -143,7 +165,7 @@ async function waitForDashboardHealth(port, childProcess) {
 }
 
 function listProjectTests(project, env) {
-	const result = runNodeCaptured([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--list'], {
+	const result = runNodeCaptured([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--list', ...(selectedGrep ? ['--grep', selectedGrep] : [])], {
 		env: { ...env, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
 	});
 	if ((result.status ?? 1) !== 0) {
@@ -157,12 +179,19 @@ function listProjectTests(project, env) {
 	for (const line of output.split(/\r?\n/)) {
 		if (!line.includes(marker)) continue;
 		const title = line.split(' › ').pop()?.trim();
-		if (title) tests.push(title);
+		if (title) {
+			tests.push(title);
+			if (line.includes('thread-lifecycle-e2e.spec.js:')) privateServerTests.add(title);
+		}
 	}
 	return Array.from(new Set(tests));
 }
 
 async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
+	if (chunk.length === 1 && privateServerTests.has(chunk[0])) {
+		// This journey owns a separate API and worker. Do not allocate an unused second API.
+		return executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
+	}
 	const dashboard = dashboardServerCommand(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, chunkEnv.PLAYWRIGHT_DB_PATH);
 	const dashboardProcess = spawn(dashboard.command, dashboard.args, {
 		env: chunkEnv,
@@ -173,11 +202,9 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 		dashboardExitedEarly = true;
 	});
 	try {
+		dashboardProcess.aidoCreatedAt = processTreeCommand('identify', dashboardProcess.pid).createdAt;
 		await waitForDashboardHealth(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, dashboardProcess);
-		const grep = `(?:${chunk.map(escapeRegExp).join('|')})`;
-		const result = runNode([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
-			env: { ...chunkEnv, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
-		}).status ?? 1;
+		const result = executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
 		if (result === 0 && dashboardExitedEarly) {
 			console.error('Dashboard server exited before Playwright chunk cleanup.');
 			return 1;
@@ -189,6 +216,13 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 	} finally {
 		await stopDashboardServer(dashboardProcess);
 	}
+}
+
+function executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
+	const grep = `(?:${chunk.map(escapeRegExp).join('|')})`;
+	return runNode([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
+		env: { ...chunkEnv, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
+	}).status ?? 1;
 }
 
 let status = 0;

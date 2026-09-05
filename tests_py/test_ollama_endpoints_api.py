@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 class OllamaTagsHandler(BaseHTTPRequestHandler):
@@ -127,6 +127,39 @@ def test_ollama_endpoints_create_local_health_and_catalog_sync(
     assert [(row["runtime_id"], row["account_label"], row["credential_ref"]) for row in runtime_rows] == [
         ("ollama-local", "ollama-local", None)
     ]
+
+
+def test_readonly_ollama_readiness_uses_synced_models_without_network(tmp_path, monkeypatch):
+    from local_control_center.agents.runtime_status import RuntimeStatusService
+
+    base_url, handler, server = run_ollama_tags_server(models=["controlled-readiness-model"])
+    client = store = None
+    try:
+        client, headers, store = client_with_store(tmp_path, monkeypatch)
+        client.post(
+            "/api/v1/ollama/endpoints",
+            headers=headers,
+            json=endpoint_payload("ollama-readiness", base_url, kind="local"),
+        )
+        synced = client.post("/api/v1/ollama/endpoints/ollama-readiness/sync-models", headers=headers)
+        assert synced.status_code == 200
+        requests_before_read = len(handler.seen_requests)
+        statuses = RuntimeStatusService(store.connection).list_provider_statuses()
+        status = next(item for item in statuses if item["id"] == "ollama-readiness")
+        assert status["models"] == ["controlled-readiness-model"]
+        readiness = client.get("/api/v1/agents/developer/status").json()["developerAgent"]
+        assert readiness["executable"] is True
+        assert readiness["selectedRuntimeId"] == "ollama-readiness"
+        store.connection.execute("UPDATE model_catalog SET enabled=0 WHERE provider_id='ollama-readiness'")
+        assert client.get("/api/v1/agents/developer/status").json()["developerAgent"]["executable"] is False
+        assert len(handler.seen_requests) == requests_before_read
+    finally:
+        if client is not None:
+            client.close()
+        if store is not None:
+            store.close()
+        server.shutdown()
+        server.server_close()
 
 
 def test_ollama_endpoint_accepts_remote_lan_http_without_auth(

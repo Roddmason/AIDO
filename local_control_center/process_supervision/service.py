@@ -710,7 +710,8 @@ def _drain_prefix(stream: Any, max_bytes: int, state: dict[str, Any]) -> None:
     prefix = bytearray()
     total = 0
     try:
-        while chunk := stream.read(65536):
+        read_chunk = getattr(stream, "read1", stream.read)
+        while chunk := read_chunk(65536):
             if isinstance(chunk, str):
                 chunk = chunk.encode("utf-8", errors="replace")
             total += len(chunk)

@@ -903,8 +903,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         """Devuelve el readiness del DeveloperAgent."""
         return {"developerAgent": DeveloperAgentRunner(platform.connection, root=platform.cwd).status()}
 
+    def validate_queued_developer(arguments: dict[str, Any]) -> None:
+        """Rechaza payload/runtime inválido antes de sellar inputs o aceptar una ejecución."""
+        validate_developer_agent_run_body(
+            DeveloperAgentRunRequest.model_validate(arguments["body"]), connection=platform.connection
+        )
+
     @router.post("/api/v1/agents/developer/runs", status_code=202, response_model=DeveloperAgentRunResponse)
-    @queued_operation("agents.run_developer_agent", workload_class="agent_cli")
+    @queued_operation(
+        "agents.run_developer_agent", workload_class="agent_cli", validate=validate_queued_developer
+    )
     async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DeveloperAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)

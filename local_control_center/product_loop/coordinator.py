@@ -5021,7 +5021,15 @@ class ProductLoopCoordinator:
                 actor=actor,
             )
             loop = self._record_delivery_approval_decision(loop, approval_effect)
-            loop, landing_effect = self._land_delivered_work(loop)
+            # Persist the delivery intent with approval; Git/network effects run only after commit.
+            durable = self._durable_run_context(loop)
+            landing_effect = None
+            if durable.get("workspaceId"):
+                durable["landing"] = {"status": "pending", "feedbackId": feedback_id}
+                loop = self.repository.update_loop_context(
+                    loop["id"], context={**loop["context"], "durableRun": durable}
+                )
+                landing_effect = {"type": "delivery_landing", "status": "pending"}
             thread_effect = self._sync_delivery_feedback_thread_state(
                 loop=loop,
                 decision=action,
@@ -5452,6 +5460,13 @@ class ProductLoopCoordinator:
             raise ProductLoopTransitionError(
                 f"Concurrent product loop feedback application detected for product loop {loop_id}."
             ) from error
+        if action_key == "accept" and any(effect["type"] == "delivery_landing" for effect in effects):
+            updated_loop, landing_effect = self._land_delivered_work(updated_loop)
+            if landing_effect:
+                effects = [effect for effect in effects if effect["type"] != "delivery_landing"]
+                feedback_record = self.repository.update_feedback_effects(
+                    feedback_record["id"], effects=[*effects, landing_effect], status="applied"
+                )
         return {
             "loop": updated_loop,
             "feedback": feedback_record,

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.architect_agent import ArchitectAgentRunner
 from local_control_center.agents.architect_agent_contract import architect_agent_readiness
@@ -35,12 +34,15 @@ from local_control_center.agents.security_agent import SecurityAgentRunner
 from local_control_center.agents.security_agent_contract import security_agent_status
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.app import create_app
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def _upsert_nvidia_endpoint(connection, provider_id: str) -> dict[str, object]:
@@ -594,6 +596,7 @@ def test_runtime_status_surfaces_endpoint_identity_and_family_without_generation
         repository.set_runtime_setting("runtime.remote.enabled", True)
         repository.set_runtime_setting("runtime.nvidia.enabled", True)
         repository.upsert_installation({"runtimeId": "nvidia-status-team-a", "kind": "api", "enabled": True})
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
 
         status = next(
             item

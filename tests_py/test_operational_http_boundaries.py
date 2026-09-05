@@ -107,3 +107,53 @@ def test_heavy_remediation_is_queued_and_does_not_execute_git_in_http(tmp_path, 
             assert execution["projectId"] == project["id"]
     finally:
         runtime.close()
+
+
+def test_runtime_revalidation_is_light_and_precedes_the_conversation_it_repairs(tmp_path):
+    from local_control_center.jobs_approvals.repository import JobsRepository
+    from local_control_center.remediations.service import BlockerRemediationService
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    try:
+        app = create_app(runtime=runtime, static_dir=None)
+        project, thread = _project_and_thread(runtime.connection, tmp_path, "runtime-repair")
+        jobs = JobsRepository(runtime.connection)
+        conversation = jobs.create_job(
+            project_id=project["id"], kind="thread.product_loop.run", payload={"threadId": thread["id"]}
+        )["job"]
+        service = BlockerRemediationService(runtime.connection, root=tmp_path)
+        actions = {}
+        for kind in ("validate_runtime", "git_init"):
+            actions[kind] = service.repository.create_action(
+                project_id=project["id"],
+                thread_id=thread["id"],
+                loop_id="",
+                stage="runtime",
+                blocker_type="runtime_not_executable",
+                title=kind,
+                description=kind,
+                action_type=kind,
+                technical_reason="missing",
+                primary=True,
+                destructive=False,
+                confirmation_required=False,
+                payload={"projectId": project["id"]},
+            )
+        with TestClient(app) as client:
+            for kind, action in actions.items():
+                response = client.post(
+                    f"/api/v1/remediations/{action['id']}/execute",
+                    headers={"X-Local-Control-Token": runtime.get_handshake()["token"]},
+                    # Client claims must not downgrade the persisted action's resource class.
+                    json={"payload": {"actionType": "validate_runtime", "workloadClass": "qa_light"}},
+                )
+                assert response.status_code == 202
+                execution = client.get(f"/api/v1/executions/{response.json()['executionId']}").json()
+                assert execution["workloadClass"] == (
+                    "qa_light" if kind == "validate_runtime" else "agent_cli"
+                )
+                if kind == "validate_runtime":
+                    assert jobs.peek_next_job()["id"] == execution["executionId"]
+        assert jobs.get_job(conversation["id"])["status"] == "queued"
+    finally:
+        runtime.close()

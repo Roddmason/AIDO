@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -22,6 +21,9 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def _client(tmp_path: Path):

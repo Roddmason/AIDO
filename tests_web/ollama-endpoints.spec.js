@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/operations.js';
 
 /**
  * Settings → Providers & CLI → Ollama endpoints, against the REAL control plane: every endpoint is a

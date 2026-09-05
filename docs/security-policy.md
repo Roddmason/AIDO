@@ -1,5 +1,12 @@
 # Security Policy
 
+P0 productive execution is additionally governed by durable worker ownership, host admission and
+native process containment. These controls do not replace ToolBroker policy, approvals, workspace
+boundaries or native credential storage. Queued inputs are sealed; command displays/logs are redacted
+and execution evidence retains exact command fingerprints. Job Objects are not a privilege sandbox.
+See [P0 architecture](operational-hardening/p0-architecture.md) and
+[recovery/backup limitations](operational-hardening/p0-recovery.md).
+
 The policy system is deterministic first. OPA or external policy engines can be
 added later, but the local MVP must be auditable without network services.
 

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/operations.js';
 
 const REAL_QA_HASH = 'a'.repeat(64);
 

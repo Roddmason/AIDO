@@ -121,7 +121,10 @@ class HostResourceProbe:
 
     def sample(self, *, cpu_interval_seconds: float = 1.0) -> ResourceSnapshot:
         """Toma una muestra; la ventana bloqueante de CPU queda limitada a un segundo."""
-        interval = max(0.0, min(float(cpu_interval_seconds), 1.0))
+        # A fresh probe/thread has no psutil baseline: interval=0 can report meaningless 0%.
+        # Admission always needs a measured window, even for callers requesting a quick sample.
+        # https://psutil.io/api/#psutil.cpu_percent
+        interval = max(0.1, min(float(cpu_interval_seconds), 1.0)) if cpu_interval_seconds > 0 else 1.0
         cpu_1s = float(psutil.cpu_percent(interval=interval))
         now_monotonic = time.monotonic()
         self._cpu_samples.append((now_monotonic, cpu_1s))

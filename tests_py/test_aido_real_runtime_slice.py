@@ -9,18 +9,28 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
 from local_control_center.agents.providers.base import ProviderHealth
 from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
+from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.app import create_app
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture(autouse=True)
+def controlled_domain_host(monkeypatch):
+    # Functional workflows use real Git/processes but deterministic capacity.
+    # The outer quality runner and native governor suites still measure the actual host.
+    monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -952,15 +962,26 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.cached_ollama_status",
-        lambda **_kwargs: {
-            "provider": "ollama",
-            "available": False,
-            "models": [],
-            "reason": "Connection refused",
-        },
+        OllamaProvider,
+        "health_check",
+        lambda self: ProviderHealth(
+            providerId=self.provider_id,
+            status="offline",
+            healthStatus="offline",
+            message="Connection refused",
+        ),
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
+    assert (
+        client.patch(
+            "/api/v1/model-gateway/providers/ollama", headers=_headers, json={"enabled": True}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post("/api/v1/model-gateway/providers/ollama/health-check", headers=_headers).status_code
+        == 200
+    )
 
     response = client.get("/api/v1/runtime/providers")
 
@@ -982,24 +1003,15 @@ def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runti
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
 
-    def fake_ollama_status(**kwargs: Any) -> dict[str, Any]:
-        if kwargs.get("base_url") == "http://remote.ollama.test":
-            return {
-                "provider": "ollama_remote",
-                "available": True,
-                "models": ["llama-remote:latest"],
-                "reason": "Remote Ollama responded.",
-            }
-        return {
-            "provider": "ollama",
-            "available": False,
-            "models": [],
-            "reason": "Local Ollama is down.",
-        }
-
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.cached_ollama_status",
-        fake_ollama_status,
+        OllamaProvider,
+        "health_check",
+        lambda self: ProviderHealth(
+            providerId=self.provider_id,
+            status="healthy",
+            healthStatus="healthy",
+            message="Remote Ollama responded.",
+        ),
     )
     store, client, _headers = create_client(tmp_path, monkeypatch)
     store.connection.execute("UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'ollama'")
@@ -1016,6 +1028,12 @@ def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runti
         """,
         ("http://remote.ollama.test",),
     )
+    assert (
+        client.post(
+            "/api/v1/model-gateway/providers/ollama_remote/health-check", headers=_headers
+        ).status_code
+        == 200
+    )
 
     response = client.get("/api/v1/runtime/providers")
 
@@ -1026,7 +1044,8 @@ def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runti
     assert remote["executable"] is True
     assert body["ollama"]["provider"] == "ollama_remote"
     assert body["ollama"]["available"] is True
-    assert body["ollama"]["models"] == ["llama-remote:latest"]
+    # Health proves reachability, not a fresh model inventory. GET must not call /api/tags.
+    assert body["ollama"]["models"] == []
 
 
 def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck(
@@ -1193,7 +1212,7 @@ def test_issue_to_patch_removed_simulation_runtime_is_rejected(
     )
 
     assert response.status_code == 422
-    assert "internal_mock" in response.json()["detail"]
+    assert "not in the product catalog" in response.json()["detail"]
 
 
 def test_issue_to_patch_completed_requires_diff_evidence_and_passed_qa(

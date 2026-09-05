@@ -19,7 +19,12 @@ CLI runtimes are coding/runtime adapters, not model providers. The gateway separ
   bootstrap/CI overrides only.
 - `AIDO_ENABLE_CLI_RUNTIMES=false`
 
-Execution is disabled by default. Detection and health checks are safe.
+Execution is disabled by default. Read-only status consumes persisted/cached evidence; explicit
+detection and health checks are queued operations and may run bounded probes outside HTTP.
+Codex additionally requires capability and approved smoke evidence tied to the actual executable
+fingerprint. An untested future version is not automatically compatible. See the
+[P0 smoke procedure](operational-hardening/p0-runbook.md#explicit-real-codex-smoke-not-executed-by-p0-verification).
+Readiness separates configuration, authentication, global/project policy, health and host capacity.
 Blocked, failed and real runtime attempts persist `cli_sessions` rows with
 redacted command/env policy, linked `usage_ledger` records and evidence
 artifacts when stdout, stderr or structured logs exist.

@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi.testclient import TestClient
-
 from local_control_center.app import create_app
 from local_control_center.threads.repository import ThreadsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 N8N_TOKEN = "sk-aaaaaaaa"
 EXPECTED_N8N_OUTBOUND_EVENTS = [
@@ -273,8 +272,7 @@ def test_n8n_emit_event_delivers_mocked_outbound_event_and_redacts_secrets(
             "subjectId": "thread-1",
             "payload": {
                 "title": "Created from AIDO",
-                "apiKey": N8N_TOKEN,
-                "message": f"do not leak {N8N_TOKEN}",
+                "message": "Safe event metadata",
             },
         },
     )
@@ -286,8 +284,25 @@ def test_n8n_emit_event_delivers_mocked_outbound_event_and_redacts_secrets(
     assert sent[0]["url"] == "https://n8n.example.invalid/webhook/aido"
     assert sent[0]["headers"]["Authorization"] == f"Bearer {N8N_TOKEN}"
     assert sent[0]["payload"]["eventType"] == "thread.created"
-    assert sent[0]["payload"]["payload"]["apiKey"] == "[redacted]"
+    assert "apiKey" not in sent[0]["payload"]["payload"]
     assert N8N_TOKEN not in response.text
+    executions_before = store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0]
+    rejected = client.post(
+        "/api/v1/integrations/n8n/emit-event",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "targetId": target["id"],
+            "eventType": "thread.created",
+            "payload": {"apiKey": N8N_TOKEN},
+        },
+    )
+    assert rejected.status_code == 422
+    assert len(sent) == 1
+    assert (
+        store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0]
+        == executions_before
+    )
     sqlite_dump = "\n".join(store.connection.iterdump())
     assert N8N_TOKEN not in sqlite_dump
     assert "[redacted]" in sqlite_dump

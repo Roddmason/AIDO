@@ -7,15 +7,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.app import create_app
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService
 
 pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is required for real AIDO E2E")
 
@@ -33,6 +36,10 @@ def _controlled_ollama_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     provider está ejecutable de verdad; sin este mock el test dependía de un daemon vivo en
     la máquina y el ProductOwner rechazaba el recurso sembrado con runtime_not_executable.
     """
+    monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
+    monkeypatch.setattr(
+        "local_control_center.agents.ai_resource_manager.RuntimeStatusService", ProbedRuntimeStatusService
+    )
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda *, base_url=None, credential_ref=None: {

@@ -81,11 +81,12 @@ migrations, event bus, telemetry, redaction, settings, serialization, time).
   `--worker`, `--no-worker`, `--worker-interval-ms`, `--worker-count`,
   `--workspace`, `--db-path`, `--static-dir`), applies the Windows selector
   event loop policy, initializes `ControlCenterRuntime`, and starts uvicorn
-  and/or the `ConcurrentWorker` loop.
+  or the separate worker loop. It refuses to host productive worker execution inside the API.
 - `pnpm run start` runs
   `local-control-center/scripts/start_control_center.py` through `uv`. The
   script builds the dashboard bundle into `local-control-center/dist/web` when
-  it is missing and then launches the backend on `127.0.0.1:4310`.
+  it is missing through the process supervisor, then starts separate API and worker children.
+  The API listens on `127.0.0.1:4310`; the worker starts paused by default and P0 permits one job.
 
 The canonical SQLite database lives at
 `~/.claude/local-control-center/platform.sqlite`, resolved by
@@ -94,9 +95,11 @@ overrides it per process.
 
 `local_control_center/worker.py` is a stable import facade that re-exports
 `ConcurrentWorker` and `execute_job` from `jobs_approvals.worker`. The
-`workers/` slice adds `LocalWorkerRuntime`, a non-blocking local loop that
-drains queued jobs under the existing safety gates and is controlled through
-`/api/v1/workers/*` (status, pause, resume, run-once).
+`workers/` slice adds `LocalWorkerRuntime`, hosted in its own OS process. SQLite leadership,
+fencing and host admission guard claims; `/api/v1/workers/*` provides status, pause, resume,
+run-once, drain and emergency-stop controls. See [P0 architecture](operational-hardening/p0-architecture.md)
+and [runbook](operational-hardening/p0-runbook.md) for asynchronous 202 contracts, connection ownership,
+native process containment, schema 59–67 and the required patched SQLite runtime.
 
 ## Runtime Boundary
 

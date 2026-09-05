@@ -173,6 +173,8 @@ def test_quality_scripts_include_web_typecheck() -> None:
 
 
 def test_quality_local_runs_direct_commands_for_long_gates() -> None:
+    import sys
+
     quality_local = read("scripts/quality-local.ps1")
     from local_control_center.quality.plans import build_plan
 
@@ -188,14 +190,19 @@ def test_quality_local_runs_direct_commands_for_long_gates() -> None:
         "check",
         ".",
     )
-    assert next(step for step in steps if step.name == "semgrep").argv[:6] == (
+    scanner_prefix = (
         "uv",
         "run",
         "--extra",
         "dev",
         "semgrep",
+        *(("--legacy",) if sys.platform == "win32" else ()),
         "scan",
     )
+    scanner = next(step for step in steps if step.name == "semgrep")
+    assert scanner.argv[: len(scanner_prefix)] == scanner_prefix
+    assert "--error" in scanner.argv
+    assert scanner.argv[scanner.argv.index("--jobs") + 1] == "1"
     assert "run_supervised_capture" in read("local_control_center/quality/__main__.py")
     assert "& corepack pnpm@10.24.0 run $Script" not in quality_local
 

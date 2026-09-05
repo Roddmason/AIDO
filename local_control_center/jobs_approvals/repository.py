@@ -739,12 +739,15 @@ class JobsRepository:
         return {"job": job, "run": run}
 
     def peek_next_job(self) -> dict[str, Any] | None:
-        """Devuelve el próximo job queued sin reclamarlo para ejecutar admisión previa."""
+        """Prioriza operaciones ligeras de reparación; conserva FIFO para el resto de jobs."""
         row = self.connection.execute(
             """
-            SELECT * FROM jobs
-            WHERE status = 'queued'
-            ORDER BY created_at ASC
+            SELECT j.* FROM jobs j
+            LEFT JOIN operational_executions e ON e.id = j.id
+            WHERE j.status = 'queued'
+            ORDER BY CASE WHEN j.kind = 'operation.execute'
+                AND e.workload_class IN ('control_plane', 'qa_light', 'remote_llm_light')
+                THEN 0 ELSE 1 END, j.created_at ASC, j.rowid ASC
             LIMIT 1
             """
         ).fetchone()

@@ -347,7 +347,7 @@ def test_hard_memory_floor_cancels_active_process_and_prevents_next_stage(tmp_pa
         service.complete(child, exit_code=child.process.poll())
 
 
-def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path) -> None:
+def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_domain_host) -> None:
     count = 1_200_000
     result = RestrictedSubprocessSandbox().execute(
         argv=[sys.executable, "-c", f"import sys;sys.stdout.write('x'*{count})"],
@@ -452,7 +452,9 @@ def test_emergency_api_requires_token_and_reason_and_records_durable_requests(tm
 def test_service_persists_fingerprint_without_command_or_secret(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
     backend = FakeSupervisor()
-    service = ProcessSupervisorService(db_path=db_path, backend=backend)
+    service = ProcessSupervisorService(
+        db_path=db_path, backend=backend, resource_snapshot=ResourceSnapshot.test_snapshot()
+    )
 
     managed = service.start(
         argv=[sys.executable, "-c", "print('secret-value')"],
@@ -480,7 +482,11 @@ def test_service_persists_fingerprint_without_command_or_secret(tmp_path: Path) 
 
 def test_cancel_is_durable_terminates_tree_and_is_idempotent(tmp_path: Path) -> None:
     backend = FakeSupervisor()
-    service = ProcessSupervisorService(db_path=tmp_path / "platform.sqlite", backend=backend)
+    service = ProcessSupervisorService(
+        db_path=tmp_path / "platform.sqlite",
+        backend=backend,
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
     managed = service.start(
         argv=[sys.executable, "--version"],
         cwd=tmp_path,
@@ -504,7 +510,11 @@ def test_cancel_is_durable_terminates_tree_and_is_idempotent(tmp_path: Path) -> 
 
 def test_emergency_stop_only_targets_active_aido_managed_processes(tmp_path: Path) -> None:
     backend = FakeSupervisor()
-    service = ProcessSupervisorService(db_path=tmp_path / "platform.sqlite", backend=backend)
+    service = ProcessSupervisorService(
+        db_path=tmp_path / "platform.sqlite",
+        backend=backend,
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
     first = service.start(
         argv=[sys.executable, "--version"],
         cwd=tmp_path,
@@ -526,7 +536,9 @@ def test_emergency_stop_only_targets_active_aido_managed_processes(tmp_path: Pat
     assert backend.terminated == [first.managed_process_id]
 
 
-def test_restricted_sandbox_exposes_managed_process_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_restricted_sandbox_exposes_managed_process_evidence(
+    tmp_path: Path, monkeypatch, controlled_domain_host
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     result = RestrictedSubprocessSandbox().execute(
         argv=[sys.executable, "-c", "print('managed')"],
@@ -589,7 +601,9 @@ def test_productive_process_creation_is_architecturally_centralized() -> None:
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Object integration")
-def test_windows_creates_separate_group_before_any_control_signal(tmp_path: Path, monkeypatch) -> None:
+def test_windows_creates_separate_group_before_any_control_signal(
+    tmp_path: Path, monkeypatch, controlled_domain_host
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     original = subprocess.Popen
 
@@ -610,7 +624,9 @@ def test_windows_creates_separate_group_before_any_control_signal(tmp_path: Path
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Object integration")
-def test_windows_timeout_kills_the_contained_descendant_tree(tmp_path: Path, monkeypatch) -> None:
+def test_windows_timeout_kills_the_contained_descendant_tree(
+    tmp_path: Path, monkeypatch, controlled_domain_host
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     result = RestrictedSubprocessSandbox().execute(
         argv=[

@@ -16,6 +16,8 @@ from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals import commands as jobs_approvals_commands
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
@@ -40,6 +42,7 @@ from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import ThreadMemoryService
 
 LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 # The canonical happy path: goal_received → … → delivered (delivery only via awaiting_approval).
 # quality_review runs after security_running (spec-driven slice 0); executing can no longer
 # reach it directly, so the walk passes through the QA and Security gates.
@@ -552,7 +555,10 @@ def _seed_ai_resource(
     model: str = "qwen2.5-coder",
     capabilities: list[str] | None = None,
 ) -> dict[str, Any]:
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
     if provider_id == "ollama":
+        # Domain expectations name this explicit test model, not the bootstrapped wildcard.
+        connection.execute("UPDATE model_catalog SET enabled = 0 WHERE provider_id = 'ollama'")
         connection.execute(
             """
             UPDATE provider_accounts
@@ -585,6 +591,29 @@ def _seed_ai_resource(
     )
 
 
+def _seed_controlled_cli_catalog(connection) -> None:
+    """A catalogued model is explicit test configuration, not availability inferred from seeds."""
+    connection.execute("UPDATE model_catalog SET enabled = 0")
+    for provider in ("codex_cli", "claude_code_cli"):
+        ProviderAccountStore(connection).upsert_model(
+            {
+                "providerId": provider,
+                "model": "test-configured-coding-model",
+                "displayName": "Controlled coding model",
+                "enabled": True,
+                "source": "manual",
+                "contextWindow": 128000,
+                "maxOutputTokens": 4096,
+                "supportsTools": True,
+                "supportsJson": True,
+                "supportsReasoning": True,
+                "inputPricePerMtok": 0.0,
+                "outputPricePerMtok": 0.0,
+                "freeTier": True,
+            }
+        )
+
+
 def _seed_remote_api_resource(
     connection,
     *,
@@ -594,6 +623,7 @@ def _seed_remote_api_resource(
     input_price_per_mtok: float | None = None,
     output_price_per_mtok: float | None = None,
 ) -> dict[str, Any]:
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
     return AIResourceManager(connection).upsert_model_performance(
         {
             "providerId": provider_id,
@@ -4152,8 +4182,8 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
                 "configured": True,
                 "available": True,
                 "executable": True,
-                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
                 "reason": "Controlled executable CLI runtime.",
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review", "json", "reasoning"],
             },
             {
                 "id": "claude_code_cli",
@@ -4161,8 +4191,8 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
                 "configured": True,
                 "available": True,
                 "executable": True,
-                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
                 "reason": "Controlled executable CLI runtime.",
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review", "json", "reasoning"],
             },
         ]
 
@@ -4175,6 +4205,8 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "catalogued-ai-resource")
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+        _seed_controlled_cli_catalog(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         coordinator.routing_profiles.patch_role_policy(
             "product_owner",
@@ -4280,8 +4312,8 @@ def test_run_user_message_blocks_when_catalogued_runtime_is_not_executable(
                 "configured": False,
                 "available": False,
                 "executable": False,
-                "capabilities": ["chat", "code_edit", "issue_to_patch", "review"],
                 "reason": "Controlled unavailable CLI runtime.",
+                "capabilities": ["chat", "code_edit", "issue_to_patch", "review", "json", "reasoning"],
             }
         ]
 
@@ -4294,6 +4326,8 @@ def test_run_user_message_blocks_when_catalogued_runtime_is_not_executable(
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "unavailable-catalogued-ai-resource")
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+        _seed_controlled_cli_catalog(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
         result = coordinator.run_user_message(

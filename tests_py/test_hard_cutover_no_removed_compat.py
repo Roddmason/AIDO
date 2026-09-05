@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
-from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.migrations import init_phase41_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,12 +44,28 @@ def test_removed_backend_and_frontend_contracts_are_absent() -> None:
             *Path(ROOT / "tests_py").rglob("*.py"),
             *Path(ROOT / "tests_web").rglob("*.*"),
         ]
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     )
     assert removed_state_route not in active_sources
     assert removed_workspace_key not in active_sources
     assert removed_package not in active_sources
     assert removed_workspace_file not in active_sources
+
+
+def test_contract_inventory_ignores_bytecode_but_still_inspects_web_python(tmp_path, monkeypatch):
+    import sys
+
+    fixtures = tmp_path / "tests_web" / "fixtures"
+    cache = fixtures / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "operation.cpython-313.pyc").write_bytes(b"\xff\x00binary cache")
+    source = fixtures / "operation.py"
+    source.write_text("# Real web fixture source\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    test_removed_backend_and_frontend_contracts_are_absent()
+    source.write_text('route = "/api/' + 'state"\n', encoding="utf-8")
+    with pytest.raises(AssertionError):
+        test_removed_backend_and_frontend_contracts_are_absent()
 
 
 def test_frontend_is_vite_typescript_and_dependency_surface_is_pruned() -> None:
@@ -101,7 +118,9 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
         chat_id=chat["id"],
         title="Cutover pipeline",
     )
-    initialize_platform_schema(store.connection)
+    # These fixtures intentionally insert pre-cutover rows after normal bootstrap.
+    # Run their specific reentrant migration, not the version-gated startup path.
+    init_phase41_schema(store.connection)
 
     assert (
         client.post(
@@ -210,7 +229,7 @@ def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
     non_cutover_legacy = {
         path
         for path in mounted_paths
-        if ("legacy" in path.lower() or "compat" in path.lower())
+        if any(segment in {"legacy", "compat", "legacy-compat"} for segment in path.lower().split("/"))
         and path not in {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"}
     }
     assert non_cutover_legacy == set()

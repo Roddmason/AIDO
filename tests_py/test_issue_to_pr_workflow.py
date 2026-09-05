@@ -55,6 +55,7 @@ def controlled_developer_runtime_status() -> list[dict[str, Any]]:
     ]
 
 
+@pytest.mark.usefixtures("controlled_domain_host")
 def test_issue_to_pr_executes_real_agents_and_blocks_without_architect_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

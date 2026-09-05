@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/operations.js';
 
 /**
  * Add-provider wizard: the operator is asked only for what the chosen provider actually needs.

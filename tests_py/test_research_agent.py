@@ -6,12 +6,12 @@ from typing import Any
 from urllib.error import URLError
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents import research_agent as research_agent_module
 from local_control_center.app import create_app
 from local_control_center.research.source_log import list_research_sources
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

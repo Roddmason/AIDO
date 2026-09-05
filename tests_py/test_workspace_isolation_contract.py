@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
@@ -15,6 +14,9 @@ from local_control_center.workspaces_projects.repository import (
     WorkspacesRepository,
 )
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

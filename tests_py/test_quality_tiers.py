@@ -64,6 +64,19 @@ def test_iteration_only_replaces_full_gate_aliases_and_preserves_custom_checks()
     assert iteration_scripts(["quality:release"], tier="fast") == ["quality:fast"]
 
 
+def test_release_respects_the_host_script_execution_policy():
+    import json
+
+    steps = build_plan(ROOT, "release")
+    verifier = next(step for step in steps if step.name == "operational-verification")
+    assert "scripts/verify-operational-hardening.ps1" in verifier.argv
+    assert "-ExecutionPolicy" not in verifier.argv
+    assert "Bypass" not in verifier.argv
+    scripts = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
+    for tier in ("fast", "story", "pr", "release"):
+        assert "-ExecutionPolicy" not in scripts[f"quality:{tier}"]
+
+
 def test_focused_tests_must_stay_inside_test_directories():
     with pytest.raises(ValueError):
         build_plan(ROOT, "fast", python_tests=["../private.py"])
@@ -90,3 +103,79 @@ def test_quality_output_cannot_abort_gate_on_windows_console_encoding(tmp_path, 
     )
     assert result["returnCode"] == 0
     assert result["stdout"].startswith("○")
+
+
+def test_full_python_suite_has_capacity_for_native_git_security_hook_tree(tmp_path):
+    from local_control_center.quality.plans import build_plan
+
+    python = next(step for step in build_plan(tmp_path, "pr") if step.name == "python")
+    assert python.workload_class == "build_heavy"
+
+
+def test_semgrep_is_serial_offline_and_findings_fail_the_gate(tmp_path):
+    import sys
+
+    scanner = next(step for step in build_plan(tmp_path, "pr") if step.name == "semgrep")
+    assert scanner.argv[scanner.argv.index("--jobs") + 1] == "1"
+    assert "--error" in scanner.argv
+    assert scanner.argv[scanner.argv.index("--metrics") + 1] == "off"
+    assert "--disable-version-check" in scanner.argv
+    assert ("--legacy" in scanner.argv) is (sys.platform == "win32")
+
+
+def test_quality_waits_for_admission_but_never_retries_an_executed_gate(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from local_control_center.quality import __main__ as runner
+    from local_control_center.quality.plans import QualityStep
+
+    elapsed = [0]
+    attempts = []
+    monkeypatch.setattr(
+        runner,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: elapsed[0], sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(runner.shutil, "which", lambda name: name)
+
+    def capture(*args, **kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise runner.ResourceWaitError("resource_wait: host_cpu_saturated")
+        return {"returnCode": 1, "stdout": "gate failed", "stderr": ""}
+
+    monkeypatch.setattr(runner, "run_supervised_capture", capture)
+    result = runner._run(QualityStep("check", ("check",)), root=tmp_path, db_path=tmp_path / "unused.sqlite")
+    assert result["returnCode"] == 1
+    assert len(attempts) == 2
+    assert elapsed[0] == 5
+    assert attempts[0] == attempts[1]
+
+
+def test_quality_admission_wait_is_bounded_and_still_fails_closed(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from local_control_center.quality import __main__ as runner
+    from local_control_center.quality.plans import QualityStep
+
+    elapsed = [0]
+    monkeypatch.setattr(
+        runner,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: elapsed[0], sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(runner.shutil, "which", lambda name: name)
+
+    def refuse(*args, **kwargs):
+        raise runner.ResourceWaitError("resource_wait: host_cpu_saturated")
+
+    monkeypatch.setattr(runner, "run_supervised_capture", refuse)
+    with pytest.raises(runner.ResourceWaitError):
+        runner._run(QualityStep("check", ("check",)), root=tmp_path, db_path=tmp_path / "unused.sqlite")
+    assert elapsed[0] == 120

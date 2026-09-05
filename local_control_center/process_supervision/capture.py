@@ -122,6 +122,14 @@ class CapturedReader:
             self.capture.write(result)
         return result
 
+    def read1(self, size: int = -1):
+        """Drena bytes disponibles sin esperar llenar el buffer, conservando la redacción."""
+        read = getattr(self.source, "read1", self.source.read)
+        result = read(size)
+        if result:
+            self.capture.write(result)
+        return result
+
     def __iter__(self):
         return self
 

@@ -11,7 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.api import _create_execution_evidence
@@ -38,6 +37,9 @@ from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -1055,6 +1057,7 @@ def test_generic_agent_run_cannot_use_product_owner_profile_model_adapters(tmp_p
     assert adapter_calls == []
 
 
+@pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_runtime_must_match_persisted_resource_decision(
     tmp_path: Path,
     monkeypatch,
@@ -1354,6 +1357,7 @@ def test_product_owner_runtime_must_match_persisted_resource_decision(
     assert len(execution_calls) == 2
 
 
+@pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
     tmp_path: Path,
     monkeypatch,

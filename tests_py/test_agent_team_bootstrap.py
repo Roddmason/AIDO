@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.app import create_app
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.team_scheduler.scheduler import schedule_team
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 BASE_TEAM_ROLES = {
     "aido_lead",

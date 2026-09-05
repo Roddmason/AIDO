@@ -1,7 +1,6 @@
-"""Concurrencia del snapshot Git con conexión SQLite por request.
+"""Concurrencia de refresh Git durable y lecturas del snapshot sin subprocess.
 
-La fase subprocess (7 comandos git brokered) usa una conexión colectora dedicada y los requests
-concurrentes del mismo proyecto comparten una sola ejecución brokered (single-flight).
+El refresh corre fuera del request; los GET concurrentes comparten la evidencia persistida.
 
 @author Rodrigo Mason
 """
@@ -98,7 +97,7 @@ def test_is_git_snapshot_request_matches_only_get_snapshot_paths() -> None:
 def test_git_status_subprocess_phase_does_not_block_other_api_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mientras el snapshot corre sus subprocess, otro request /api/ debe responder sin esperarlo.
+    """Mientras el refresh aceptado corre fuera de HTTP, otra lectura responde sin esperarlo.
 
     Regresión del freeze del dashboard: con el lock global retenido durante los 5-7s de git,
     el poller de 5s y cualquier escritura quedaban bloqueados hasta terminar el snapshot.
@@ -112,7 +111,7 @@ def test_git_status_subprocess_phase_does_not_block_other_api_requests(
 
     def fetch_status() -> None:
         request_sent.set()
-        response = client.get(f"/api/v1/projects/{project['id']}/git/status")
+        response = client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers)
         status_result["status_code"] = response.status_code
         status_result["body"] = response.json()
 
@@ -130,15 +129,16 @@ def test_git_status_subprocess_phase_does_not_block_other_api_requests(
     # Con el lock retenido durante el snapshot este request esperaría ~6s (el sleep del fake git).
     assert elapsed_seconds < 4.0, f"handshake blocked for {elapsed_seconds:.2f}s behind the git snapshot"
     assert status_result["status_code"] == 200
-    assert status_result["body"]["status"] == "completed"
-    assert status_result["body"]["toolCalls"]
-    assert status_result["body"]["policyDecisionIds"]
+    snapshot = status_result["body"]["snapshot"]
+    assert snapshot["status"] == "completed"
+    assert snapshot["toolCalls"]
+    assert snapshot["policyDecisionIds"]
 
 
 def test_concurrent_snapshot_requests_share_one_brokered_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Dos GET solapados del mismo proyecto coalescen en un solo snapshot brokered (single-flight).
+    """Dos GET solapados reutilizan el refresh persistido sin ejecutar Git otra vez.
 
     Sin coalescing, el poller de 5s apila ejecuciones de 7 comandos git cada vez que el snapshot
     tarda más que el intervalo, duplicando subprocess y trazas por la misma información.
@@ -147,6 +147,12 @@ def test_concurrent_snapshot_requests_share_one_brokered_execution(
     project = create_git_project(store, tmp_path)
     install_fake_git(tmp_path / "fake-bin", monkeypatch, sleep_seconds=4.0)
     base_tool_calls = len(store.agents.list_agent_tool_calls())
+    refresh = client.post(f"/api/v1/projects/{project['id']}/git/refresh", headers=_headers)
+    assert refresh.status_code == 200, refresh.text
+    refresh_tool_calls = len(store.agents.list_agent_tool_calls())
+    assert refresh_tool_calls > base_tool_calls
+    assert refresh.json()["snapshot"]["toolCalls"]
+    assert refresh.json()["diff"]["toolCalls"]
 
     results: dict[str, tuple[int, dict[str, Any]]] = {}
 
@@ -164,8 +170,8 @@ def test_concurrent_snapshot_requests_share_one_brokered_execution(
 
     assert not status_thread.is_alive()
     assert not branches_thread.is_alive()
-    executed_tool_calls = len(store.agents.list_agent_tool_calls()) - base_tool_calls
-    assert executed_tool_calls == 7, f"expected one shared snapshot (7 commands), got {executed_tool_calls}"
+    executed_tool_calls = len(store.agents.list_agent_tool_calls()) - refresh_tool_calls
+    assert executed_tool_calls == 0, f"snapshot GET executed {executed_tool_calls} new Git commands"
     status_code, status_body = results["status"]
     branches_code, branches_body = results["branches"]
     assert status_code == 200

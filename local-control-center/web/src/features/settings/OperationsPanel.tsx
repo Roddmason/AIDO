@@ -196,7 +196,7 @@ export function OperationsPanel({ ctx }: { ctx: SectionContext }) {
 									</dd>
 								</div>
 								<div>
-									<dt>GPU / VRAM</dt>
+									<dt>{t('app.operations.gpu', 'GPU / VRAM')}</dt>
 									<dd>
 										{sample.gpuUtilizationPercent == null
 											? '—'
@@ -205,7 +205,7 @@ export function OperationsPanel({ ctx }: { ctx: SectionContext }) {
 									</dd>
 								</div>
 								<div>
-									<dt>UnrealEditor</dt>
+									<dt>{t('app.operations.unreal', 'UnrealEditor')}</dt>
 									<dd>{String(sample.unrealEditorRunning)}</dd>
 								</div>
 							</dl>

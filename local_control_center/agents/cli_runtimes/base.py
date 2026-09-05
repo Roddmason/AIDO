@@ -273,7 +273,11 @@ class CliRuntime(ABC):
 
     @connection_execution_scope
     def run(
-        self, request: RuntimeRequest, *, trusted_subprocess_environment: dict[str, str] | None = None
+        self,
+        request: RuntimeRequest,
+        *,
+        trusted_subprocess_environment: dict[str, str] | None = None,
+        trusted_smoke_audit_id: str | None = None,
     ) -> RuntimeResult:
         """Ejecuta el CLI bajo el sandbox tras pasar validación, política runtime y security policy.
 
@@ -344,7 +348,9 @@ class CliRuntime(ABC):
             )
             self._record_result(gated_request, blocked)
             return blocked
-        policy = self._evaluate_policy(request, command, workspace)
+        policy = self._evaluate_policy(
+            request, command, workspace, trusted_smoke_audit_id=trusted_smoke_audit_id
+        )
         policy_request = request.model_copy(
             update={"env_policy": {**request.env_policy, "policyResult": policy}}
         )
@@ -410,9 +416,23 @@ class CliRuntime(ABC):
         request: RuntimeRequest,
         command: list[str],
         workspace: Path,
+        *,
+        trusted_smoke_audit_id: str | None = None,
     ) -> dict[str, Any]:
+        smoke_context = {}
+        if trusted_smoke_audit_id is not None:
+            from local_control_center.agents.codex_smoke import claim_smoke_approval
+
+            smoke_context = {
+                "operation": "codex_compatibility_smoke",
+                "runtimeId": self.runtime_id,
+                "workspaceId": request.workspace_id,
+                "smokeApproved": self.runtime_id == "codex_cli"
+                and claim_smoke_approval(self.connection, trusted_smoke_audit_id, request, command),
+            }
         return evaluate_action(
             {
+                **smoke_context,
                 "tool": "shell",
                 "command": " ".join(command),
                 "path": str(workspace),

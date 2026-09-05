@@ -17,10 +17,96 @@ import time
 from contextlib import ExitStack, closing
 from pathlib import Path
 
-from local_control_center.shared.db import require_safe_sqlite_runtime
+from local_control_center.shared.db import (
+    immediate_transaction,
+    open_sqlite_connection,
+    require_safe_sqlite_runtime,
+)
+from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
 BUNDLE_FILES = {"platform.sqlite", ".tmp/operation-inputs.sqlite"}
+P0_OBSERVATION_ID = "provider-limit-observation-abbee835-9c68-4645-a4ec-6adbfe37c21a"
+P0_REPAIR_ACTION = "data.p0.observation_reconciled"
+
+
+def reconcile_p0_observation_copy(copy: Path, *, original: Path, expected_row: dict, evidence: str) -> dict:
+    """Reconcile only the owner-authorized orphan; retain unresolved policy provenance atomically.
+
+    Caller must retain a consistent backup and the full expected row before invoking this.
+    This never enables providers, restores a historical policy, or adopts the repaired copy.
+    """
+    copy = copy.resolve(strict=True)
+    original = original.resolve(strict=True)
+    operational = default_db_path().resolve()
+    if (
+        copy.samefile(original)
+        or copy == operational
+        or (operational.exists() and copy.samefile(operational))
+    ):
+        raise ValueError("Refusing repair on the original operational database.")
+    if (
+        expected_row.get("id") != P0_OBSERVATION_ID
+        or expected_row.get("limit_id") != "codex_cli:*"
+        or expected_row.get("provider_id") != "codex_cli"
+        or expected_row.get("model") != "*"
+        or not evidence.strip()
+    ):
+        raise ValueError("Expected content or authorization evidence does not match the scoped repair.")
+    before_hash = hashlib.sha256(json.dumps(expected_row, sort_keys=True).encode()).hexdigest()
+    with closing(open_sqlite_connection(copy)) as connection, immediate_transaction(connection):
+        require_quiescent(connection)
+        columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(provider_limit_observations)")
+        }
+        foreign_keys = connection.execute("PRAGMA foreign_key_list(provider_limit_observations)").fetchall()
+        if columns["limit_id"]["notnull"] or not any(
+            row["from"] == "limit_id"
+            and row["table"] == "provider_limits"
+            and row["to"] == "id"
+            and row["on_delete"] == "SET NULL"
+            for row in foreign_keys
+        ):
+            raise ValueError("Schema does not permit the authorized nullable historical association.")
+        found = connection.execute(
+            "SELECT * FROM provider_limit_observations WHERE id=?", (P0_OBSERVATION_ID,)
+        ).fetchone()
+        if found is None:
+            raise ValueError("Expected observation content is absent.")
+        row = dict(found)
+        audits = connection.execute(
+            "SELECT id, payload FROM audit_events WHERE action=? AND target=?",
+            (P0_REPAIR_ACTION, P0_OBSERVATION_ID),
+        ).fetchall()
+        if row == {**expected_row, "limit_id": None}:
+            if len(audits) == 1 and json.loads(audits[0]["payload"]).get("beforeSha256") == before_hash:
+                return {"applied": False, "auditId": audits[0]["id"], "beforeSha256": before_hash}
+            raise ValueError("Null association lacks the matching repair audit.")
+        if row != expected_row or audits:
+            raise ValueError("Observation content changed or already has a conflicting audit.")
+        if connection.execute("SELECT 1 FROM provider_limits WHERE id=?", ("codex_cli:*",)).fetchone():
+            raise ValueError("Referenced parent is present; orphan repair is not applicable.")
+        connection.execute(
+            "UPDATE provider_limit_observations SET limit_id=NULL WHERE id=? AND limit_id=?",
+            (P0_OBSERVATION_ID, "codex_cli:*"),
+        )
+        audit = EventBus(connection).record_audit(
+            action=P0_REPAIR_ACTION,
+            actor="codex:delegated-by-owner",
+            target=P0_OBSERVATION_ID,
+            payload={
+                "reason": "Owner-authorized nullable historical association; copy only",
+                "authorizationEvidence": evidence,
+                "originalLimitId": "codex_cli:*",
+                "historicalPolicyStatus": "unresolved",
+                "currentQuotaPolicyChanged": False,
+                "before": expected_row,
+                "beforeSha256": before_hash,
+                "afterLimitId": None,
+            },
+        )
+        return {"applied": True, "auditId": audit["id"], "beforeSha256": before_hash}
 
 
 def _connect(path: Path, mode: str = "ro") -> sqlite3.Connection:

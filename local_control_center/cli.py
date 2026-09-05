@@ -16,7 +16,6 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import create_app
 from .control_plane.runtime import ControlCenterRuntime
 from .shared.settings import default_db_path
 from .workers.runtime import LocalWorkerRuntime, resolve_worker_settings
@@ -66,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--no-worker", action="store_true")
     parser.add_argument("--worker-interval-ms", type=int, default=5000)
-    parser.add_argument("--worker-count", type=int, default=2)
+    parser.add_argument("--worker-count", type=int, choices=(1,), default=1)
     parser.add_argument("--workspace", default=os.getcwd())
     parser.add_argument("--db-path", default=str(default_db_path()))
     parser.add_argument("--static-dir", default=str(Path("local-control-center") / "dist" / "web"))
@@ -97,6 +96,9 @@ def main() -> None:
         except KeyboardInterrupt:
             worker.stop(reason="Worker interrumpido por el operador.")
     else:
+        # El worker no necesita routers HTTP ni cargar NumPy/FAISS al arrancar.
+        from .app import create_app
+
         if args.worker and not args.no_worker:
             raise SystemExit(
                 "La API no puede alojar el worker. Usa `pnpm run start` para iniciar ambos procesos."

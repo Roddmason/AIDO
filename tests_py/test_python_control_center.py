@@ -5,8 +5,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.app import create_app
 from local_control_center.control_plane.overview import (
@@ -30,6 +28,7 @@ from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
@@ -782,7 +781,9 @@ def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
     assert any(dependency.startswith("faiss-cpu") for dependency in optional_dependencies["faiss"])
 
 
-def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Path) -> None:
+def test_worker_records_runs_events_and_rejects_unapproved_actions(
+    tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
     with open_sqlite_connection(db_path) as connection:
         initialize_platform_schema(connection)
@@ -816,7 +817,9 @@ def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Pat
         assert any(event["type"] == "job.failed" for event in EventBus(connection).list_events())
 
 
-def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: Path) -> None:
+def test_worker_fails_unknown_job_kind_instead_of_simulating_success(
+    tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
     with open_sqlite_connection(db_path) as connection:
         initialize_platform_schema(connection)
@@ -842,7 +845,9 @@ def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: P
     assert "Unsupported job kind" in run["summary"]
 
 
-def test_worker_executes_thread_product_loop_job_and_updates_thread(monkeypatch, tmp_path: Path) -> None:
+def test_worker_executes_thread_product_loop_job_and_updates_thread(
+    monkeypatch, tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
     captured: dict[str, str] = {}
 
@@ -903,7 +908,9 @@ def test_worker_executes_thread_product_loop_job_and_updates_thread(monkeypatch,
     assert messages[-1]["kind"] == "aido_lead"
 
 
-def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(monkeypatch, tmp_path: Path) -> None:
+def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(
+    monkeypatch, tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
     captured: dict[str, object] = {}
 

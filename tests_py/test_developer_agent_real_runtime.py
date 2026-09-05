@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.developer_agent_contract import developer_agent_readiness
 from local_control_center.agents.provider_accounts import ProviderAccountStore
@@ -16,6 +15,9 @@ from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -375,6 +377,7 @@ def test_developer_agent_rejects_a_provider_account_that_does_not_exist(
 
     assert response.status_code == 422
     assert "runtime is not allowed" in str(response.json()["detail"])
+    assert client.get("/api/v1/executions").json()["executions"] == []
 
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")

@@ -9,6 +9,8 @@ from local_control_center.agents.model_router import ModelRouter, RoutingRequest
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -18,6 +20,8 @@ from local_control_center.shared.time import utc_now
 def open_initialized_connection(tmp_path: Path):
     connection = open_sqlite_connection(tmp_path / "platform.sqlite")
     initialize_platform_schema(connection)
+    # Routing tests assume available host capacity; native admission is tested separately.
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
     connection.execute("UPDATE model_catalog SET enabled = 0")
     return connection
 

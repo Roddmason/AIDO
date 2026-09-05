@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import tempfile
@@ -288,12 +289,21 @@ def main() -> None:
     from local_control_center.app import create_app
     from local_control_center.control_plane.runtime import ControlCenterRuntime
 
+    parser = argparse.ArgumentParser(description="Generate or verify the OpenAPI TypeScript contract.")
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="aido-openapi-", ignore_cleanup_errors=True) as tmp:
         runtime = ControlCenterRuntime(cwd=ROOT, db_path=Path(tmp) / "platform.sqlite")
         app = create_app(runtime=runtime, static_dir=None)
         try:
-            OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-            OUTPUT.write_text(render_client(app.openapi()), encoding="utf-8", newline="\n")
+            rendered = render_client(app.openapi())
+            if args.check:
+                if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf-8") != rendered:
+                    raise SystemExit("OpenAPI drift: regenerate the client and review its diff.")
+                print("OpenAPI client matches the current backend contract.")
+            else:
+                OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+                OUTPUT.write_text(rendered, encoding="utf-8", newline="\n")
         finally:
             runtime.close()
 

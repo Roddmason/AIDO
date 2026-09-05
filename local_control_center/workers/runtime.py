@@ -270,10 +270,32 @@ class LocalWorkerRuntime:
                         if not WorkerControlRepository(consume_connection).consume_run_once(str(run_once_at)):
                             self._stop_event.wait(0.1)
                             continue
-                self._run_batch_once()
+                if self._queued_job_preflight():
+                    self._run_batch_once(fencing_token=decision.fencing_token)
             else:
                 self._renew_leadership(status=desired_state)
             self._stop_event.wait(self.settings.poll_interval_seconds)
+
+    def _queued_job_preflight(self) -> bool:
+        """Preserva el gate de conversación sin impedir operaciones para reparar el runtime."""
+        from local_control_center.jobs_approvals.worker import (
+            THREAD_PRODUCT_LOOP_JOB_KIND,
+            THREAD_RESEARCH_JOB_KIND,
+        )
+
+        with closing(open_sqlite_connection(self.db_path)) as connection:
+            job = JobsRepository(connection).peek_next_job()
+        if not job or job["kind"] not in {THREAD_PRODUCT_LOOP_JOB_KIND, THREAD_RESEARCH_JOB_KIND}:
+            return True
+        preflight = self.preflight()
+        if preflight.ok:
+            return True
+        self._status = "blocked"
+        self._reason = self._last_error = preflight.reason
+        payload = self._preflight_failure_payload(preflight)
+        self._record_worker_event("worker_failed", payload)
+        self._record_queued_thread_event("worker_failed", payload)
+        return False
 
     def _renew_leadership(self, *, status: str) -> bool:
         if self._fencing_token is None:
@@ -451,7 +473,10 @@ class LocalWorkerRuntime:
                 self._record_worker_event("worker_failed", {"reason": reason})
                 self._record_queued_thread_event("worker_failed", {"reason": reason})
 
-    def _run_batch_once(self) -> dict[str, Any]:
+    def _run_batch_once(self, *, fencing_token: int | None = None) -> dict[str, Any]:
+        # A heartbeat may clear the mutable field mid-preflight. The OS loop must retain its
+        # acquired token so claim validation rejects a lost lease instead of accepting no fence.
+        batch_fence = self._fencing_token if fencing_token is None else fencing_token
         if not self._batch_lock.acquire(blocking=False):
             self._status = "running"
             self._reason = "Worker is already processing a batch."
@@ -466,7 +491,7 @@ class LocalWorkerRuntime:
                 worker_count=self.settings.max_concurrent_jobs,
                 max_jobs=self.settings.max_concurrent_jobs,
                 worker_id=self.worker_id,
-                fencing_token=self._fencing_token,
+                fencing_token=batch_fence,
             )
             now = utc_now()
             self._last_run_at = now

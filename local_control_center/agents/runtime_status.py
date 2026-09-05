@@ -541,6 +541,7 @@ def _ollama_provider_status(
     configuration: RuntimeProviderConfiguration | None = None,
     *,
     allow_probes: bool = True,
+    persisted_models: list[str] | None = None,
 ) -> dict[str, Any]:
     enabled = bool(account.get("enabled"))
     installation_enabled = _runtime_installation_enabled(runtime_installation)
@@ -564,8 +565,10 @@ def _ollama_provider_status(
                 and account.get("healthStatus") == "healthy"
                 and _native_auth_validation_is_fresh(account.get("lastHealthCheckAt"))
             ),
-            "models": [],
-            "reason": "Explicit Ollama health check required for fresh evidence.",
+            "models": list(persisted_models or []),
+            "reason": str(
+                account.get("lastError") or "Explicit Ollama health check required for fresh evidence."
+            ),
         }
     )
     daemon_available = bool(status.get("available"))
@@ -842,6 +845,13 @@ class RuntimeStatusService:
                         policy_decision,
                         configurations.get(provider_id),
                         allow_probes=self.allow_probes and self.probe_runtime_ids is None,
+                        persisted_models=[
+                            row["model"]
+                            for row in self.connection.execute(
+                                "SELECT model FROM model_catalog WHERE provider_id=? AND enabled=1 ORDER BY model",
+                                (provider_id,),
+                            )
+                        ],
                     )
                 )
             elif provider_id == "manual":

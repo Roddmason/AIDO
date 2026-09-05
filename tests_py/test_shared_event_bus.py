@@ -60,4 +60,6 @@ def test_shared_event_bus_owns_events_and_audit_sql() -> None:
     assert "INSERT INTO events" not in jobs_repository_source
     assert "INSERT INTO audit_events" not in jobs_repository_source
     assert "EventBus(connection)" in overview_source
-    assert "EventBus(self.connection)" in runtime_source
+    assert "with self.operation_connection() as connection:" in runtime_source
+    assert "EventBus(connection)" in runtime_source
+    assert "EventBus(self.connection)" not in runtime_source

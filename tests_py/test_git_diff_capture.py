@@ -25,7 +25,10 @@ from local_control_center.workspaces_projects.git_worktrees import capture_git_d
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.test_workspace_isolation_contract import create_git_repo, make_app
 
-pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+pytestmark = [
+    pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
+    pytest.mark.usefixtures("controlled_domain_host"),
+]
 
 
 def _workspace_with_repo(store: Any, tmp_path: Path, *, name: str) -> tuple[dict[str, Any], dict[str, Any]]:

@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 import uuid
 from contextlib import closing
 from pathlib import Path
@@ -26,6 +27,9 @@ from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
 from .plans import QualityStep, build_plan
+
+ADMISSION_WAIT_SECONDS = 120
+ADMISSION_RETRY_SECONDS = 5
 
 
 def _inherited_context(db_path: Path) -> ProcessExecutionContext:
@@ -80,13 +84,25 @@ def _run(step: QualityStep, *, root: Path, db_path: Path, display_output: bool =
     if not executable:
         raise RuntimeError(f"configuration_required: missing executable {step.argv[0]}")
     _emit(f"[{utc_now()}] {step.name} ({step.workload_class})")
-    result = run_supervised_capture(
-        [executable, *step.argv[1:]],
-        cwd=root,
-        db_path=db_path,
-        workload_class=step.workload_class,
-        timeout_seconds=step.timeout_seconds,
-    )
+    deadline = time.monotonic() + ADMISSION_WAIT_SECONDS
+    while True:
+        try:
+            result = run_supervised_capture(
+                [executable, *step.argv[1:]],
+                cwd=root,
+                db_path=db_path,
+                workload_class=step.workload_class,
+                timeout_seconds=step.timeout_seconds,
+                environment={**os.environ, "AIDO_QUALITY_DB_PATH": str(db_path.resolve())},
+            )
+            break
+        except ResourceWaitError as error:
+            # Admission failed before spawn. Never retry a command that actually executed.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            _emit(f"[{utc_now()}] {step.name}: {redact_secrets(str(error))}")
+            time.sleep(min(ADMISSION_RETRY_SECONDS, remaining))
     for stream in ("stdout", "stderr"):
         if display_output and result.get(stream):
             _emit(redact_secrets(result[stream]))

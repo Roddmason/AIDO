@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 66
+CURRENT_SCHEMA_VERSION = 67
 
 
 def _execute_atomic_statements(

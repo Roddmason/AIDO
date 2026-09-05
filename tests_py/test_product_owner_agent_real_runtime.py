@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.product_owner_agent import _execution_result_from_tool_call
@@ -25,6 +24,7 @@ from local_control_center.product_discovery.repository import ProductDiscoveryRe
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -599,6 +599,7 @@ def test_product_owner_readiness_prefers_cli_runtime() -> None:
         ("claude_code_cli", "sonnet", "claude"),
     ],
 )
+@pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_instructions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -809,6 +810,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
     assert len(sandbox_requests) == 1
 
 
+@pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_cli_runtime_without_resource_decision_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

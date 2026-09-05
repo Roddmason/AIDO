@@ -619,7 +619,11 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     web_test_runner_source = read(web_test_runner)
     assert "cleanup-playwright-webserver.mjs" not in web_test_runner_source
     assert "await stopDashboardServer(dashboardProcess)" in web_test_runner_source
-    assert "childProcess.kill('SIGKILL')" in web_test_runner_source
+    assert (
+        "processTreeCommand('stop', childProcess.pid, childProcess.aidoCreatedAt)" in web_test_runner_source
+    )
+    assert "local_control_center.quality.owned_tree" in web_test_runner_source
+    assert "childProcess.kill(" not in web_test_runner_source
     assert "Stop-Process -Id" not in web_test_runner_source
     assert "...selectedTestFiles" in web_test_runner_source
     assert "../node_modules/vite/bin/vite.js" in web_test_runner_source

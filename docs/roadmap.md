@@ -1,5 +1,13 @@
 # Roadmap
 
+## Operational hardening gate
+
+P0 implementation separates the API/worker, introduces durable fencing, host resource admission,
+native process supervision, asynchronous execution and explicit readiness. Release acceptance is
+tracked in [P0 verification](operational-hardening/p0-verification-report.md), not inferred from this
+roadmap. [P1/P2](operational-hardening/p1-p2-backlog.md) remain blocked until P0 gates pass and the
+operator authorizes further scope. No push or merge is part of the current hardening task.
+
 ## Completed Foundation
 
 - Audit and MIT open-source license baseline.

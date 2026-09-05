@@ -8,7 +8,6 @@ import zlib
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
@@ -17,6 +16,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def _png(width: int = 1, height: int = 1) -> bytes:

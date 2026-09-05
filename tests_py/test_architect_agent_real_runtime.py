@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.architect_agent_contract import architect_agent_readiness
 from local_control_center.agents.provider_accounts import ProviderAccountStore
@@ -16,6 +15,7 @@ from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

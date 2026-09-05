@@ -42,6 +42,14 @@ pretend unavailable providers or skipped QA are successful automation.
 
 ## Current Maturity
 
+Operational P0 now separates API and worker processes and queues productive HTTP work. See the
+[architecture](docs/operational-hardening/p0-architecture.md),
+[operator runbook](docs/operational-hardening/p0-runbook.md),
+[recovery procedure](docs/operational-hardening/p0-recovery.md) and
+[verification status](docs/operational-hardening/p0-verification-report.md).
+The project pins Python 3.13.15; startup requires a patched SQLite WAL runtime. A source-supported
+platform is not the same as a platform with freshly verified native containment.
+
 | Area | Status |
 | --- | --- |
 | Backend | Python/FastAPI with SQLite as the canonical local store. |

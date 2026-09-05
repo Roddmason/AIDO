@@ -19,6 +19,7 @@ from typing import Any
 
 def open_sqlite_connection(db_path: str | Path) -> sqlite3.Connection:
     """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit."""
+    require_safe_sqlite_runtime()
     resolved = Path(db_path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(
@@ -32,6 +33,25 @@ def open_sqlite_connection(db_path: str | Path) -> sqlite3.Connection:
     connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA busy_timeout = 30000")
     return connection
+
+
+def require_safe_sqlite_runtime() -> None:
+    """Rechaza runtimes afectados por WAL-reset y la versión 3.52 retirada por SQLite.
+
+    Fuente: https://www.sqlite.org/wal.html#walresetbug y https://www.sqlite.org/news.html.
+    La verificación ocurre antes de crear la base: actualizar Python/SQLite, no desactivar WAL.
+    """
+    version = sqlite3.sqlite_version_info
+    supported = (
+        (version >= (3, 51, 3) and version[:2] != (3, 52))
+        or (version[:2] == (3, 50) and version >= (3, 50, 7))
+        or (version[:2] == (3, 44) and version >= (3, 44, 6))
+    )
+    if not supported:
+        raise RuntimeError(
+            "SQLite runtime requires the WAL-reset fix: use 3.51.3+ (excluding withdrawn 3.52), "
+            "or patched 3.50.7/3.44.6. Upgrade the project Python runtime before starting AIDO."
+        )
 
 
 @contextmanager

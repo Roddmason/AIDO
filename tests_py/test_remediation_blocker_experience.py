@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.contracts import BLOCKER_TYPES, REMEDIATION_ACTION_TYPES
@@ -22,6 +24,8 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def _pending_action_types(connection, thread_id: str) -> set[tuple[str, str]]:

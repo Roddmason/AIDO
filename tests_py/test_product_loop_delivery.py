@@ -22,7 +22,10 @@ from local_control_center.workspaces_projects.git_worktrees import commit_worksp
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.test_workspace_isolation_contract import create_git_repo, make_app
 
-pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+pytestmark = [
+    pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
+    pytest.mark.usefixtures("controlled_domain_host"),
+]
 
 
 def _configure_git(connection: Any, project_id: str, **values: Any) -> None:
@@ -348,6 +351,16 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
             },
         )
 
+        real_land = ProductLoopDeliveryService.land
+
+        def land_after_commit(service, **kwargs):
+            assert not service.connection.in_transaction
+            pending = coordinator.get(loop["id"])["context"]["durableRun"]["landing"]
+            assert pending["status"] == "pending"
+            assert pending["feedbackId"]
+            return real_land(service, **kwargs)
+
+        monkeypatch.setattr(ProductLoopDeliveryService, "land", land_after_commit)
         accepted = coordinator.apply_feedback(
             loop["id"],
             action="accept",
@@ -356,6 +369,8 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
         )
 
         assert accepted["loop"]["state"] == "delivered"
+        landing_evidence = (accepted["loop"]["context"].get("durableRun") or {}).get("landing") or {}
+        assert landing_evidence.get("status") == "landed", landing_evidence
         # El trabajo de la HU quedó en la base y la rama de trabajo se recicló.
         show = run_git(["show", "devbase:landing.py"], cwd=repo)
         assert show.returncode == 0 and "x = 1" in show.stdout

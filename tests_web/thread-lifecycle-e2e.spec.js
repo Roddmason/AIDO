@@ -3,9 +3,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
-	readdirSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
@@ -42,31 +40,9 @@ let projectRepoDir = '';
 let mockServer = null;
 let mockBaseUrl = '';
 let dashboardProcess = null;
+let workerProcess = null;
 const dashboardLog = [];
 const mockCalls = { productOwner: 0, developer: 0, unknown: 0 };
-
-/** Windows can hold worktree handles past afterAll; sweep leftovers from earlier runs instead. */
-function sweepStaleScratchDirs() {
-	const tempRoot = os.tmpdir();
-	const staleBefore = Date.now() - 6 * 60 * 60 * 1000;
-	let entries = [];
-	try {
-		entries = readdirSync(tempRoot);
-	} catch {
-		return;
-	}
-	for (const entry of entries) {
-		if (!entry.startsWith('aido-lifecycle-')) continue;
-		const stalePath = path.join(tempRoot, entry);
-		try {
-			if (statSync(stalePath).mtimeMs < staleBefore) {
-				rmSync(stalePath, { recursive: true, force: true });
-			}
-		} catch {
-			// A concurrent run or a lingering handle owns it; the next sweep retries.
-		}
-	}
-}
 
 function runGit(args, cwd) {
 	const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -298,33 +274,43 @@ async function waitForDashboardHealth() {
 }
 
 async function stopDashboard() {
-	if (!dashboardProcess || dashboardProcess.exitCode !== null) return;
-	dashboardProcess.kill();
-	const exited = await new Promise((resolveExit) => {
-		const timeout = setTimeout(() => resolveExit(false), 5000);
-		dashboardProcess.once('exit', () => {
-			clearTimeout(timeout);
-			resolveExit(true);
-		});
-	});
-	if (!exited && process.platform === 'win32' && dashboardProcess.pid) {
-		spawnSync('powershell', [
-			'-NoProfile',
-			'-Command',
-			`Stop-Process -Id ${dashboardProcess.pid} -Force -ErrorAction SilentlyContinue`,
-		]);
+	const failures = [];
+	for (const child of [workerProcess, dashboardProcess]) {
+		if (!child) continue;
+		try {
+			ownedTreeCommand('stop', child);
+			if (child.exitCode === null) await new Promise((resolveExit) => child.once('exit', resolveExit));
+		} catch (error) { failures.push(error); }
 	}
+	if (failures.length) throw failures[0];
+}
+
+function ownedTreeCommand(action, child) {
+	const python = pythonCommandForScript('');
+	const args = [...python.args.slice(0, -2), '-m', 'local_control_center.quality.owned_tree', action,
+		'--pid', String(child.pid), '--parent-pid', String(process.pid)];
+	if (action === 'stop') args.push('--created-at', String(child.aidoCreatedAt));
+	const result = spawnSync(python.command, args, { cwd: repoRoot, encoding: 'utf8', timeout: 20_000 });
+	if (result.status !== 0) throw new Error(`Lifecycle owned-tree ${action} failed: ${result.stderr}`);
+	return JSON.parse(result.stdout);
 }
 
 /** Proves the operator-configured Ollama account is now executable; never mutates setup state. */
 async function expectControlledRuntimeReady() {
 	const context = await playwrightRequest.newContext();
 	try {
-		const status = await context.get(`${baseUrl}/api/v1/agents/developer/status`);
-		const body = await status.json();
-		const readiness = body.developerAgent ?? body;
-		if (readiness.executable !== true || readiness.selectedRuntimeId !== 'ollama_remote') {
-			throw new Error(`controlled runtime is not executable: ${JSON.stringify(readiness)}`);
+		try {
+			await expect.poll(async () => {
+				const body = await (await context.get(`${baseUrl}/api/v1/agents/developer/status`)).json();
+				const readiness = body.developerAgent ?? body;
+				return readiness.executable === true && readiness.selectedRuntimeId === 'ollama_remote';
+			}, { timeout: 30_000 }).toBe(true);
+		} catch (error) {
+			const body = await (await context.get(`${baseUrl}/api/v1/runtime/providers`)).json();
+			const provider = body.providers.find((item) => item.id === 'ollama_remote') ?? {};
+			const fields = ['id', 'configured', 'authenticated', 'globallyEnabled', 'projectEnabled',
+				'healthy', 'resourceAdmissible', 'blockingReasons', 'reason', 'healthStatus', 'healthCheckedAt'];
+			throw new Error(`Controlled runtime readiness: ${JSON.stringify(Object.fromEntries(fields.map((key) => [key, provider[key]])))}`, { cause: error });
 		}
 	} finally {
 		await context.dispose();
@@ -356,7 +342,6 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 	);
 
 	test.beforeAll(async () => {
-		sweepStaleScratchDirs();
 		scratchDir = mkdtempSync(path.join(os.tmpdir(), 'aido-lifecycle-'));
 		projectRepoDir = path.join(scratchDir, 'lifecycle-sample-project');
 		mkdirSync(path.join(projectRepoDir, 'src'), { recursive: true });
@@ -396,11 +381,22 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		delete env.AIDO_ENABLE_CLI_RUNTIMES;
 		const dashboard = dashboardCommand();
 		dashboardProcess = spawn(dashboard.command, dashboard.args, { cwd: repoRoot, env });
+		dashboardProcess.aidoCreatedAt = ownedTreeCommand('identify', dashboardProcess).createdAt;
 		dashboardProcess.stdout.on('data', (chunk) => dashboardLog.push(String(chunk)));
 		dashboardProcess.stderr.on('data', (chunk) => dashboardLog.push(String(chunk)));
 		try {
 			await waitForDashboardHealth();
 			seedControlledAIResource();
+			const workerArgs = [...(dashboard.command === 'uv' ? ['run', 'python'] : []), '-m', 'local_control_center', '--worker', '--no-dashboard',
+				'--db-path', path.join(scratchDir, 'platform.sqlite'), '--workspace', scratchDir];
+			workerProcess = spawn(dashboard.command, workerArgs, { cwd: repoRoot, env });
+			workerProcess.aidoCreatedAt = ownedTreeCommand('identify', workerProcess).createdAt;
+			workerProcess.stdout.on('data', (chunk) => dashboardLog.push(String(chunk)));
+			workerProcess.stderr.on('data', (chunk) => dashboardLog.push(String(chunk)));
+			await expect.poll(async () => {
+				const response = await fetch(`${baseUrl}/api/v1/workers/status`);
+				return (await response.json()).connected;
+			}, { timeout: 30_000 }).toBe(true);
 		} catch (error) {
 			// afterAll never runs when beforeAll throws; stop the spawned server here so a failed
 			// boot cannot leak an orphan python process holding the port.
@@ -413,18 +409,29 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		await stopDashboard();
 		if (mockServer) mockServer.close();
 		if (scratchDir) {
+			const target = path.resolve(scratchDir);
+			if (path.dirname(target) !== path.resolve(os.tmpdir()) || !path.basename(target).startsWith('aido-lifecycle-')) {
+				throw new Error('Refusing cleanup outside this test-owned temporary directory');
+			}
 			try {
-				rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
+				rmSync(target, { recursive: true, force: true, maxRetries: 5 });
 			} catch {
 				// Windows can keep worktree handles briefly; the OS temp dir cleans up leftovers.
 			}
 		}
 	});
 
-	test.afterEach(({}, testInfo) => {
+	test.afterEach(async ({}, testInfo) => {
 		if (testInfo.status !== testInfo.expectedStatus) {
 			console.log(`[lifecycle] mock calls: ${JSON.stringify(mockCalls)}`);
 			console.log(`[lifecycle] dashboard log tail:\n${dashboardLog.slice(-40).join('')}`);
+			try {
+				const response = await fetch(`${baseUrl}/api/v1/executions`, { signal: AbortSignal.timeout(5000) });
+				const body = await response.json();
+				console.log(`[lifecycle] operation states: ${JSON.stringify((body.executions ?? []).map(
+					({ operation, status, workloadClass, reason }) => ({ operation, status, workloadClass, reason }),
+				))}`);
+			} catch (error) { console.log(`[lifecycle] operation diagnostics unavailable: ${error.name}`); }
 		}
 	});
 
@@ -436,6 +443,15 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		const handshake = await page.request.get(`${baseUrl}/api/v1/security/handshake`);
 		const { token } = await handshake.json();
 		const apiHeaders = { 'X-Local-Control-Token': token, Origin: baseUrl };
+		// The real external worker stays paused. Each accepted setup operation explicitly requests
+		// one batch; thread execution is still driven by the Run now controls asserted below.
+		page.on('response', async (response) => {
+			if (response.status() !== 202) return;
+			const body = await response.json();
+			if (!body.operation || !body.executionId) return;
+			const control = await page.request.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders });
+			expect(control.status()).toBe(202);
+		});
 		let project;
 		let threadId = '';
 		let productLoopId = '';
@@ -635,7 +651,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				.click();
 			await expect(
 				page.getByLabel('Notifications').getByText(/Repair action ran|Acción de reparación ejecutada/),
-			).toBeVisible();
+			).toBeVisible({ timeout: 30_000 });
 
 			const runNow = page
 				.getByRole('region', { name: /Waiting for worker|Esperando worker/ })

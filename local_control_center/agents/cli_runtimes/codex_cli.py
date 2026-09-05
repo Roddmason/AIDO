@@ -10,6 +10,7 @@ La ejecución bajo el sandbox de subprocesos y el registro del resultado los her
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 
 from local_control_center.agents.model_aliases import (
@@ -64,6 +65,8 @@ class CodexCliRuntime(CliRuntime):
         if not model or model.startswith("-") or any(character.isspace() for character in model):
             raise ValueError("Invalid catalog model identifier.")
         effort = request.effort
+        if effort and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", effort) is None:
+            raise ValueError("Invalid reasoning effort identifier.")
         plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
         sandbox_mode = "read-only" if plan_only else "workspace-write"
         command = [

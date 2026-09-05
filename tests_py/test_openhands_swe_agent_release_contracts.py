@@ -18,10 +18,11 @@ from local_control_center.agents.runtime_registry import (
     RuntimeCommandUnavailableError,
     build_issue_to_patch_argv,
 )
-from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import utc_now
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService as RuntimeStatusService
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_optional_cli_runtime.py"
@@ -286,7 +287,7 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
             account = next(item for item in repo.list_runtime_accounts(runtime_id) if item["isDefault"])
             repo.update_runtime_account(
                 account["id"],
-                {"enabled": True, "healthStatus": "healthy", "lastValidationAt": "2026-06-27T12:00:00Z"},
+                {"enabled": True, "healthStatus": "healthy", "lastValidationAt": utc_now()},
             )
             connection.execute(
                 """

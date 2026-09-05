@@ -32,6 +32,14 @@ See Microsoft's [Job Object limit contract](https://learn.microsoft.com/en-us/wi
 - `resources.unrealReserveMemoryGiB=20`; `resources.blockLocalGpuWhenUnreal=true`.
 - `resources.sampleIntervalSeconds=2`; resource samples retained for seven days.
 
+Operational acceptance correction: non-control leases now also sum their CPU caps against
+`resources.maxCpuPercent`, and their memory caps must fit available RAM minus the configured
+free-memory reserve. This is conservative: live lease usage is not subtracted without trustworthy
+per-lease attribution. A 16 GiB build therefore needs at least 32 GiB available at default settings;
+do not reduce the reserve to force a gate to run. The admission threshold is not a whole-host throttle.
+One lease cannot fund independent sibling process roots. A durable pre-spawn reservation serializes
+them; only verified native descendants may inherit the already contained parent's budget.
+
 `interactive_unreal` reserves at least 20 GiB of available RAM and blocks local GPU inference by
 default. `idle_validation` is an explicit profile label, **not** permission to raise concurrency or
 disable safeguards. P0 retains the validated limits. A stale/missing resource sample is not evidence

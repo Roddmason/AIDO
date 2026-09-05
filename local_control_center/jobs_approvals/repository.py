@@ -766,6 +766,10 @@ class JobsRepository:
             """
             SELECT * FROM jobs
             WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM managed_processes p
+                  WHERE p.execution_id = jobs.id AND (p.finished_at IS NULL OR p.released_at IS NULL)
+              )
             ORDER BY updated_at ASC
             """,
             (now_value,),

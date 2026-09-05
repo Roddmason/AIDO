@@ -1,3 +1,8 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { expect, test } from './fixtures/operations.js';
 
 const REAL_QA_HASH = 'a'.repeat(64);
@@ -1128,25 +1133,72 @@ test('Workbench intake creates a thread and posts the first message', async ({ p
 		.toBe(true);
 });
 
-test('Workbench shows the Git branch detected by the policy-gated Git status endpoint', async ({ page }) => {
-	const project = await getActiveProject(page);
-	const gitResponse = await page.request.get(`/api/v1/projects/${project.id}/git/status`);
-	const gitStatus = await gitResponse.json();
-	test.skip(!gitStatus.currentBranch, 'Git status endpoint did not detect a branch for this workspace fixture.');
+test('Workbench shows the Git branch detected by the policy-gated Git status endpoint', async ({ page }, testInfo) => {
+	const scratch = mkdtempSync(path.join(os.tmpdir(), 'aido-git-acceptance-'));
+	let load;
+	try {
+		for (const args of [
+			['init', '--initial-branch', 'aido-acceptance'],
+			['-c', 'user.name=AIDO Test', '-c', 'user.email=aido-test@example.invalid',
+				'commit', '--allow-empty', '-m', 'Test (Git): deterministic acceptance fixture'],
+		]) {
+			const result = spawnSync('git', args, { cwd: scratch, encoding: 'utf8' });
+			expect(result.status, result.stderr || result.stdout).toBe(0);
+		}
+		const project = await createWebProject(page, { path: scratch, createDirectory: false });
+		const token = await getWriteToken(page);
+		const refresh = await page.request.post(`/api/v1/projects/${project.id}/git/refresh`, {
+			headers: { 'X-Local-Control-Token': token },
+		});
+		expect(refresh.status()).toBe(200);
+		const gitResponse = await page.request.get(`/api/v1/projects/${project.id}/git/status`);
+		const gitStatus = await gitResponse.json();
+		expect(gitStatus.currentBranch).toBe('aido-acceptance');
+		expect(gitStatus.snapshotAt).toBeTruthy();
+		await page.addInitScript((id) => localStorage.setItem('aido:selectedProjectId', id), project.id);
 
-	await page.goto('/#workbench');
-	const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
-	await expect(explorer).toBeVisible();
-	const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
-	// The branch <select> now renders immediately in a loading state (GitBranchBar gitPhase) and
-	// fills in when the policy-gated git endpoints resolve — ~14 brokered git subprocesses (7 per
-	// endpoint) over a single sqlite connection, several seconds and more under full-suite load.
-	// With the control always present, the slow signal is the VALUE, not visibility: wait for the
-	// real branch value so the check tracks the fetch, not the default 10s window. The assertion is
-	// unchanged: exact current branch and no "not detected" placeholder.
-	const gitBranch = gitWorkspace.getByLabel('Git branch');
-	await expect(gitBranch).toHaveValue(gitStatus.currentBranch, { timeout: 30_000 });
-	await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
+		// One small host load: 2 ms busy / 50 ms, never a saturation benchmark.
+		// The thread shares the browser runner's native Job Object and is always terminated.
+		load = new Worker(`
+			const { parentPort } = require('node:worker_threads');
+			setInterval(() => {
+				const start = performance.now();
+				while (performance.now() - start < 2) {}
+				parentPort.postMessage('tick');
+			}, 50);
+		`, { eval: true });
+		let loadTicks = 0;
+		load.on('message', () => { loadTicks += 1; });
+		await new Promise((resolve, reject) => {
+			load.once('message', resolve);
+			load.once('error', reject);
+		});
+		const started = performance.now();
+		await page.goto('/#workbench');
+		const explorer = page.getByRole('complementary', { name: 'Workspace explorer' });
+		await expect(explorer).toBeVisible();
+		const gitWorkspace = page.getByRole('group', { name: 'Git workspace' });
+		// The fixture completes the real queued refresh; GET and UI consume the durable snapshot.
+		const gitBranch = gitWorkspace.getByLabel('Git branch');
+		await expect(gitBranch).toHaveValue(gitStatus.currentBranch, { timeout: 30_000 });
+		await expect(gitWorkspace.getByRole('option', { name: 'not detected' })).toHaveCount(0);
+		await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+		const latency = {
+			viewport: testInfo.project.name,
+			visiblePanelMs: performance.now() - started,
+			loadTicks,
+			load: 'one host thread, 2ms busy / 50ms interval',
+			measuredAt: new Date().toISOString(),
+		};
+		console.log(`AIDO_PANEL_LATENCY ${JSON.stringify(latency)}`);
+		await testInfo.attach('panel-latency', { body: JSON.stringify(latency), contentType: 'application/json' });
+		expect(loadTicks).toBeGreaterThan(1);
+		expect(latency.visiblePanelMs).toBeLessThan(5000);
+	} finally {
+		if (load) await load.terminate();
+		// Exact test-owned mkdtemp path; never the user's project or broad temporary root.
+		rmSync(scratch, { recursive: true, force: true });
+	}
 });
 
 // Deterministic Git state fixtures: mocking status + branches makes the policy-gated endpoints

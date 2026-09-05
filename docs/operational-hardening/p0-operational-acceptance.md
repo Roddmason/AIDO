@@ -1,10 +1,38 @@
 # Aceptación operacional P0 — 2026-09-05
 
 **Resultado global: BLOCKED.** Las regresiones locales indicadas pasan; no se certificó el ciclo
-con Codex y Claude reales. La integridad relacional de la copia operativa tiene un FAIL preexistente.
+con Codex y Claude reales. La nueva copia reparada pasa integridad relacional, pero el smoke
+operacional falló y la política histórica sigue sin resolver. La base original no fue reparada.
 Este informe no declara «AIDO completamente funcional» ni autoriza adopción, merge o publicación.
 
-## Estado vigente del cierre — 2026-09-05, 15:32Z
+## Estado vigente del cierre autorizado — 2026-09-05, 17:20Z
+
+Continuación desde `d464c571b51fbecb175706923707b2efa12d0a44`, encontrado exactamente como HEAD,
+con árbol limpio. Código final: `df49ea6fc743bb363860d17f2cb0a2d02a473589`; cuatro commits locales
+propios. La autorización ampliada comprende como máximo un CLI Codex por smoke, planificación e
+implementación, y un CLI Claude para revisión; **no limita las peticiones internas del CLI**.
+Las secciones 1–13 se conservan como historia. Evidencia nueva y límites: sección 14.
+
+| Pista | Estado | Evidencia y motivo vigente |
+| --- | --- | --- |
+| Candidato preservado | PASS | Cuatro commits locales, manifiestos de fuentes/configuración/lockfiles y regresión del contenido final. No equivale a aceptación integral. |
+| Smoke Codex | FAIL | La aprobación normal fue registrada y reclamada; el watchdog detuvo la API con `control_watch_failed`. Registro nativo incompleto, sin recibo validado. No se repite el CLI. |
+| Planificación | BLOCKED | Codex conserva `validated_smoke_missing`. Ningún CLI de planificación iniciado. |
+| Implementación | NOT_RUN | No existe plan completado ni su aprobación correspondiente. |
+| QA del ciclo real | NOT_RUN | No existe implementación real que probar. Las regresiones de AIDO no sustituyen esta etapa. |
+| Revisión Claude | NOT_RUN | No existe diff real del ciclo. La sesión nativa ahora está autenticada, pero no se ejecutó una revisión. |
+| Integridad de la copia | PASS | Una asociación cambiada a NULL y un audit adicional; integridad/FK completas, idempotencia y rollback verificados. |
+| Procedencia histórica | BLOCKED | ID y fila originales preservados; `historicalPolicyStatus=unresolved`. No se reconstruyó la política perdida. |
+| PR completo | BLOCKED | 30,609 GiB disponibles frente a 32 GiB requeridos; déficit 1,391 GiB, cero reservas activas. Comando NOT_RUN. |
+| Release | BLOCKED | PR no completado y misma condición de admisión. Comando NOT_RUN. |
+| Coexistencia Unreal | NOT_RUN | Unreal no estaba abierto manualmente. No es prerrequisito de las otras pistas. |
+| Adopción original | NOT_RUN | No autorizada; original sin cambios, sin cutover, push, merge ni publicación. |
+
+Pendiente de limpieza: una copia **temporal** de autenticación creada por el aislamiento de AIDO
+quedó después de la caída; la política de herramientas rechazó retirarla. Ruta exacta y acción
+manual limitada en §14.5. No se leyó ni publicó su contenido.
+
+## Cierre anterior conservado — 2026-09-05, 15:32Z
 
 Esta continuación tiene autorización acotada para commits locales, copias y hasta dos llamadas
 Codex (plan e implementación) más una revisión Claude. Sustituye el bloqueo histórico genérico
@@ -676,3 +704,247 @@ exit 1 antes de corregir la ruta; no fueron fallos de tests ni se usaron como ev
 No se añadió código para ocultar warnings, reparar datos sin procedencia o eludir readiness.
 El proceso de ejecución por pistas y verificación antes del cierre mantuvo separados resultados
 diagnósticos, gates ejecutados y precondiciones pendientes. **Aceptación integral: BLOCKED**.
+
+## 14. Continuación desde el candidato de entrega y autorización ampliada
+
+Este apartado sustituye los estados vigentes anteriores, no sus recibos históricos. No se
+repitió la auditoría general, el soak de 30 ciclos ni los escenarios históricos Windows/Git.
+No se añadieron agentes, integraciones, P1/P2 ni capas operacionales.
+
+Rutas de esta continuación:
+
+- `N/` = `.tmp/operational-hardening-p0/authorized-close/` (evidencia privada, fuera de Git).
+- `T/` = `C:\Users\Rodd\AppData\Local\Temp\aido-p0-authorized-c12ffc376b2d4e379c045821afa0a9fa/`.
+- `F/` = `.tmp/operational-hardening-p0/` (recibos del runner público).
+- DB de calidad: `.tmp/operational-hardening-p0/closure/quality.sqlite`.
+- DB original: `C:\Users\Rodd\.claude\local-control-center\platform.sqlite`.
+
+### 14.1. Candidato y trazabilidad del contenido final
+
+El HEAD inicial fue exactamente `d464c571b51fbecb175706923707b2efa12d0a44`; no fue necesario
+retroceder ni aislar cambios ajenos. Rama conservada: `codex/aido-operational-hardening-p0`.
+
+| Commit local | Cambio propio y justificación |
+| --- | --- |
+| `5ba0cb41daab327863b2253b0aa7eaa34cad0ad2` | Reconciliación copy-only de la observación autorizada, auditoría atómica y cinco pruebas. |
+| `27fea3ee1794f74c0d6d637807d1ce8f3254ac1a` | Conecta el smoke aprobado a la política interna acotada; no habilita shell genérico de `plan`. Prueba real del seam con transporte sustituido sólo en tests. |
+| `ef0a817b91a7380f5068ace18208354b18e40b18` | Impide autoasignar la aprobación desde un payload HTTP; sólo el contexto interno puede presentar la aprobación verificada. |
+| `df49ea6fc743bb363860d17f2cb0a2d02a473589` | Conserva el error original de un BEGIN fallido y no revierte una transacción del llamador; dos reproducciones deterministas. |
+
+No se incorporaron bases, backups, `.tmp`, recibos privados ni credenciales. Los commits usaron
+rutas explícitas, `git diff --cached --check` y hooks de Ruff/formato/gitleaks, todos exit 0.
+El commit documental de cierre no cambia código productivo. El HEAD de entrega completo queda
+en `N/final-traceability.json`; el HEAD de código probado es el indicado arriba.
+
+`N/source-start.json`, `N/source-final-code.json`, `N/validation-source-before.json` y el manifiesto
+final contienen hashes de fuentes, configuración y lockfiles, Python **3.13.15**, SQLite **3.53.1**
+y versiones de dependencias. Hash productivo final:
+`bcb2b2434c8004c80cff54568267b8a33f845565d0df889907c1da631cb38ce8`.
+La regresión final se inició con el candidato ya en commits; se comparan sus fuentes antes/después
+y los hashes de stdout/stderr contra los recibos. Los recibos históricos no certifican este HEAD.
+
+### 14.2. Reparación auditada de una referencia, exclusivamente en copia
+
+Se generó otro backup consistente con SQLite backup y se restauró en `N/repair-copy/platform.sqlite`.
+La reparación rechaza la ruta original, la ruta operativa predeterminada y sus alias hardlink.
+Se revalidaron esquema 67, `table_info`, `foreign_key_list` y `foreign_key_check` completo:
+
+- Observación estable: `provider-limit-observation-abbee835-9c68-4645-a4ec-6adbfe37c21a`.
+- `limit_id=codex_cli:*`, padre ausente; columna nullable y `ON DELETE SET NULL`.
+- Provider/model: `codex_cli` / `*`. Metadata histórica `demo_verification`, 429, 600 segundos,
+  conservada exactamente, incluido el texto original; no se usó rowid como identificación única.
+- Una sola violación previa: tabla `provider_limit_observations`, rowid 1, parent `provider_limits`,
+  fkid 0. fkid 0 identifica la restricción, **no una fila padre**.
+
+La función `quality.maintenance.reconcile_p0_observation_copy` exige la fila íntegra esperada,
+ausencia del padre, esquema compatible, copia quiescente y evidencia de autorización. En una
+transacción sólo cambia `limit_id` a NULL y registra `data.p0.observation_reconciled` mediante
+EventBus. Audit `audit-d0b89194-e09e-4d32-aaac-186ae9b5fcc8`, actor `codex:delegated-by-owner`,
+fecha UTC, motivo, evidencia, fila completa, `originalLimitId=codex_cli:*`,
+`historicalPolicyStatus=unresolved`, `currentQuotaPolicyChanged=false` y hash de la fila:
+`4802621edde5967634cc1b6562bb9f1bf19758ab9da05c5db4f04dd043049b72`.
+La metadata histórica no fue sobrescrita.
+
+| Comprobación | Estado | Evidencia |
+| --- | --- | --- |
+| Integridad física y relacional | PASS | `integrity_check=['ok']`; `foreign_key_check=[]` completo, también bajo el código final. |
+| Historia y conteos | PASS | Consulta por provider/model conserva la observación con NULL. Todas las tablas conservan hashes salvo observaciones y audit; sólo aumenta audit en una fila. |
+| Idempotencia | PASS | Segunda aplicación devuelve `applied=false`, mismo audit, ningún cambio adicional; repetida sobre el código final. NULL sin audit coincidente es rechazo, no PASS. |
+| Atomicidad | PASS | Trigger de prueba que impide insertar auditoría revierte también el cambio de asociación. |
+| Rollback de la copia | PASS | Nueva restauración del backup, paridad lógica de todas las tablas y de la FK histórica; no sobrescribe la copia reparada. |
+| Original sin cambios | PASS | SHA antes/después `aadfc254b34e9f13309cd9d4f48a1530ce6e36e9cc28524a0cd4493f634f1dc2`. |
+
+Backup intacto y restauración: SHA
+`0569dc8358a21851c90af317c72f258c8936f367798ba9e9f4bc8a07dcaded00`.
+Evidencia: `N/repair-row-before.json`, `repair-before.json`, `repair-result.json`,
+`repair-final-code-verification.json`, `repair-backup/`, `repair-copy/`, `repair-rollback/`.
+
+**Cuotas actuales: sin cambio, no certificadas como política suficiente.** `QuotaManager.status`
+da lo mismo antes/después: `no_limit`, `guarded=false`. Eso significa ausencia de límite local,
+no cuota nativa ilimitada. No se habilitó ejecución en la copia reparada; sigue faltando una
+política actual explícita para cualquier futura adopción. La procedencia de la política histórica
+continúa BLOCKED/unresolved. Las conexiones productivas conservan `foreign_keys=ON`; no se atribuye
+la corrupción histórica a un PRAGMA pasado que no está demostrado.
+
+### 14.3. Runtimes, aprobación real del smoke y fallo operacional
+
+Se confirmó que los ciclos anteriores constaban NOT_RUN: cero receipts smoke operativos y cero
+ejecuciones de inferencia en el cierre anterior. No se trasladó esa cuenta cero al segundo intento
+de esta continuación cuando apareció incertidumbre sobre el arranque nativo.
+
+Codex **0.149.0**, binario
+`C:\Users\Rodd\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE`:
+`login status` exit 0, sesión ChatGPT; probes de capacidades sin flags faltantes. Se comprobó además
+login en el entorno mínimo generado por el aislador productivo, con CODEX_HOME distinto y sin
+API key. No se extrajeron ni copiaron tokens manualmente: el manager existente aisló la sesión.
+No se modificó el entorno global del usuario. Binario y contrato conservan respectivamente los
+SHA `14b7e6b2356e82d1d9275579eaa588757b4e0a501b65dcc19fccdf77bd83dc00` y
+`fefa6ddf5a9b7750db0a1592bd2309670763f6e503ad849b81bad5a98cf8b53d`.
+
+Claude **2.1.218**, binario `C:\Users\Rodd\.local\bin\claude.EXE`: ahora `auth status --json`
+termina exit **0**, `loggedIn=true`, `authMethod=claude.ai`, `apiProvider=firstParty`,
+`subscriptionType=max`. Help exit 0, flags de contrato read-only presentes. **No requiere login
+humano ahora.** No se ejecutó revisión ni se comprobó su entorno efectivo de inferencia. Cuota
+incluida restante: desconocida. Autenticación no demuestra saldo suficiente ni revisión aprobada.
+
+Se utilizó `N/cycle.sqlite`, nueva e independiente de la FK histórica, y un repositorio desechable
+con commit inicial real `b25145a20f076b57efa0f1953d0588dced3c90ac`, sin remotos, secretos ni juego.
+Proyecto `project-ddc93024-abbf-46df-b3ec-79ebee8d5678`; worktree real
+`workspace-959a2130-2779-4cd5-ba38-f6d1620153c5`. Registro delegado de la autorización del propietario:
+`audit-2b2e430c-c339-4180-a718-aaca5b1019a9`; no se afirmó una identidad humana inventada.
+
+Las solicitudes de smoke pasaron por HTTP autenticado de AIDO y su worker separado:
+`POST /api/v1/model-gateway/cli-runtimes/codex_cli/compatibility/smoke`, workspace explícito,
+`approved=true`, motivo exacto **«Validación operacional P0 autorizada por el propietario»**.
+El worker permaneció pausado y recibió un único `POST /api/v1/workers/run-once` por intento.
+No se lanzaron CLI de IA directamente desde el controlador de aceptación.
+
+1. Job/ejecución `job-d367e005-2328-4c96-9005-380f9de96ae6`: HTTP 202, resultado interno failed,
+   CLI session blocked con `Plan profile cannot execute shell commands.`. `managedProcessId=null`.
+   Se verificó que el único proceso `agent_cli` era el wrapper Python del dispatcher por el hash
+   de su argv exacto: no una ejecución Codex. Este bloqueo previo al lanzamiento no consumió un CLI.
+2. Tras reproducir y corregir ese seam, job/ejecución
+   `job-30cdf7fd-f5e7-49b2-8ce4-cd35cdca46b1`: HTTP 202 y run-once 202. Aprobación durable
+   `audit-5cae9df5-d9da-4ce6-b28f-f76a156083ee`, reclamada por
+   `audit-fafa80e0-4014-4301-85d2-dfbd9f9c84db`, ligada a workspace, binario y comando.
+   A `16:56:24Z` el supervisor de la API registró `OperationalError`, SQLite code 1,
+   `control_watch_failed`, y terminó su árbol. El cliente obtuvo conexión rechazada; script exit 1.
+   El registro reservado para el CLI `managed-process-c1187c20-5ef7-41da-a719-0c8ef7a73b9c`
+   quedó con root PID/create time cero. **Eso no prueba que ningún CLI alcanzara a arrancar.**
+
+Resultado conservador: **smoke FAIL**, cero receipts validados, hasta **un arranque posible**,
+ningún reintento CLI permitido por el controlador. Modelo solicitado `gpt-5.6-terra`, obtenido del
+catálogo nativo; **modelo efectivamente atendido, thread ID nativo, inferencia y consumo desconocidos**.
+No hay marker completado ni salida nativa verificable. El workspace conserva sus hashes antes/después.
+Codex sigue `validation_required / validated_smoke_missing`, sin edición manual de healthy.
+
+La corrección del seam conserva flags read-only/tool isolation, entorno mínimo, política de runtime,
+admisión y supervisor. La aprobación se reclama una sola vez en SQLite. Un payload no puede
+autoasignarla; el ToolBroker genérico rechaza la operación de smoke, y `plan` genérico continúa
+sin shell. Los tests reemplazan sólo el transporte nativo y **no se presentan como un smoke real**.
+
+Solicitud funcional desde el panel, planificación, aprobación del plan, implementación, QA de ese
+diff y revisión Claude: no completados/no ejecutados. El worktree preparatorio y el HTTP smoke no
+certifican ese recorrido. No hubo nuevas API keys, compras, extra usage, gateways, fallback ni
+rework automático. No se convierte la sesión nativa de suscripción en prueba de cuota ilimitada.
+Evidencia: `N/preflight.json`, `cycle-setup.json`, `smoke-http.json`, `smoke-diagnosis.json`,
+`smoke-fixed-http.json`, `smoke-failure-final.json`, `claude-final-readiness.json`,
+`disposable-no-remotes.json` y artefactos del dispatcher.
+
+### 14.4. Regresiones y diagnóstico SQLite sin ocultar FAIL
+
+Dos tests deterministas reprodujeron un defecto del helper transaccional: si `BEGIN IMMEDIATE`
+falla por SQLITE_BUSY, el ROLLBACK incondicional sustituye el error por
+`cannot rollback - no transaction is active` (code 1). Un BEGIN anidado también revertía trabajo
+del llamador. Se corrigió el helper, no el watchdog ni sus controles. **El logger del incidente
+no conservó el error causal completo: esta reproducción es compatible con el síntoma, no prueba
+que SQLITE_BUSY haya sido la causa única del incidente real.** No se afirma que el ciclo quedó
+reparado ni se relanzó para probarlo fuera del permiso.
+
+| Runner público / recibo en F/ | Exit exterior | Resultado |
+| --- | ---: | --- |
+| `quality-fast-a39fc2e51d164a7eb820042ca58754d9.json` | 1 | Rojo inicial de reparación: cinco tests sin implementación. |
+| `quality-fast-e08ff9e37c6048ec95a5b67a9c66ab12.json` | 0 | Cinco pruebas de reparación aprobadas. |
+| `quality-fast-932f0ef47d374f5293164710174940a3.json` | 1 | Reproducción del seam: un fallo, un PASS; CLI autorizado no alcanzaba transporte. |
+| `quality-fast-a815aab085c0410e8fbc8f0016869309.json` | 0 | 159 pruebas focalizadas, incluidos broker, ProductOwner y gateway. |
+| `quality-fast-4845eec33a4b4efca0c160f9229d24dd.json` | 1 | Un fallo adicional: aprobación autoasignada al evaluador. |
+| `quality-fast-f705db85a7df4b8285bec656c21e8139.json` | 1 | Dos dobles de prueba rechazaron el keyword nuevo; se preservó el contrato de llamada genérico. |
+| `quality-fast-250f2a8304fb4ad4859aa97ee0911461.json` | 0 | 131 pruebas tras la corrección de la frontera interna. |
+| `quality-fast-941185b390804aff9237692dec45a9d8.json` | 1 | Dos reproducciones del manejo incorrecto de BEGIN. |
+| `quality-fast-650599812dfc402cb86f4d5f73f9e5b8.json` | 0 | 81 pruebas afectadas tras corregir el helper transaccional. |
+| `quality-fast-8abe93fec60f4888a1188a95bcb3b15b.json` | 0 | Revalidación del candidato ya en commits: 81 PASS en 42,96 s, sin skips; todos los pasos del plan exit 0 y sin descendientes pendientes. |
+
+Comando de esa última revalidación:
+
+```powershell
+uv run python -m local_control_center.quality --tier fast --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_transaction_begin_failure.py --python-test tests_py/test_p0_copy_reconciliation.py --python-test tests_py/test_host_resource_governor.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_codex_smoke_policy_seam.py --python-test tests_py/test_codex_capability_contract.py
+```
+
+Se conservan tres warnings SWIG de deprecación: `SwigPyPacked`, `SwigPyObject`, `swigvarlink`
+sin `__module__`. No se silenciaron; no equivalen a fallo funcional ni desaparecieron. Los cinco
+skips históricos de viewport no se reetiquetaron y no se volvió a ejecutar el soak opt-in.
+
+Los scripts `uv run python T/repair_copy.py`, `smoke_failure.py`, `final_snapshot.py` terminaron
+exit 0 al emitir/verificar sus evidencias; **ese exit no convierte el smoke fallido, la política
+histórica pendiente ni el gate denegado en PASS**. Los scripts de smoke terminaron exit 1: el
+primero tuvo además un error de serialización de cleanup, corregido en el controlador siguiente;
+el segundo perdió la API. Los errores de preparación (ruta/import, comparación textual de JSON,
+serialización y selección `archivo::test` no admitida por el runner) se corrigieron sin relanzar
+inferencia y no se cuentan como tests exitosos ni se borran de la sesión.
+
+### 14.5. Recuperación del intento y limpieza pendiente
+
+Se verificaron identidades OS de owners y raíces conocidas como inexistentes antes de recuperar
+sus registros mediante `recover_managed_processes`, sólo en `N/cycle.sqlite`. Se solicitó
+cancelación normal del job para impedir cualquier recuperación con reintento: job `cancelled`,
+operación `cancel_requested`, sin fabricar un resultado completado. Cero procesos administrados
+pendientes, cero reservas activas y ningún proceso Codex/Claude creado desde el inicio del intento
+seguía presente. Los procesos del usuario, anteriores al intento, no se tocaron.
+
+La recuperación conserva la incertidumbre del registro root PID 0; no demuestra una finalización
+normal del CLI ni un consumo cero. Evidencia: `N/owned-harness-recovery.json`,
+`smoke-fixed-service-cleanup.json`, `smoke-failure-final.json`.
+
+El aislador de AIDO dejó una carpeta privada creada a `16:56:19Z`, dentro del intervalo de este
+intento, con sólo su copia de `auth.json`. Se inspeccionaron nombre/tamaño/fecha, **no el contenido**:
+
+```text
+C:\Users\Rodd\AppData\Local\AIDO\product-owner-codex-homes\89d4c072-1f4d-451b-97f7-062ce80412a5
+```
+
+La herramienta rechazó la limpieza de esta ruta exacta por política; no hubo exit code de shell
+ni se intentó evadir el rechazo mediante otra herramienta. **Limpieza BLOCKED**. Intervención
+manual exacta: retirar únicamente esa carpeta temporal de este intento. No eliminar ni alterar
+`C:\Users\Rodd\.codex\auth.json`, que es la credencial original. No se requiere nuevo login para
+Claude ni se solicita de nuevo el consentimiento del smoke.
+
+### 14.6. PR, release y Unreal independientes
+
+Snapshot `2026-09-05T17:07:58Z`, `N/gate-final-snapshot.json`:
+
+- RAM disponible **32.884.985.856 bytes / 30,626530 GiB**.
+- Reserva `build_heavy` **16 GiB** más mínimo libre **16 GiB**: **32 GiB** requeridos.
+- Déficit **1.474.752.512 bytes / 1,373470 GiB**; cero reservas activas.
+- Preview `resource_wait`, `aggregate_memory_budget`; es una condición de admisión, no RAM
+  medida del build. No se buscaron indefinidamente leases ni se cerraron aplicaciones ajenas.
+- Unreal ausente: **NOT_RUN**. No se abrió, controló ni modificó el editor o el juego.
+
+PR y release completos conservan todos sus pasos, argv y deadlines en el recibo del snapshot.
+No se invocaron por falta de capacidad: **exit exterior null, pasos NOT_RUN**, no un falso exit 0.
+Secuencia autorizada pendiente, sólo si se admite y PR termina correctamente:
+
+```powershell
+uv run python -m local_control_center.quality --tier pr --db-path .tmp/operational-hardening-p0/closure/quality.sqlite
+uv run python -m local_control_center.quality --tier release --db-path .tmp/operational-hardening-p0/closure/quality.sqlite
+```
+
+No se bajaron reservas, CPU, memoria, seguridad ni cuotas; no se ejecutaron gates fuera del
+supervisor. No se usaron gates históricos como aprobación del código nuevo. La aceptación
+integral continúa **BLOCKED**, con smoke **FAIL**, aun cuando la reparación de la copia y las
+regresiones focalizadas son **PASS**. No hubo adopción original, push, merge ni publicación.
+
+Comprobación de entrega posterior a las pruebas, `2026-09-05T17:20:16.271Z`, conservada aparte
+en `N/gate-delivery-snapshot.json`: disponibles **32.866.168.832 bytes / 30,609 GiB**,
+requeridos **34.359.738.368 bytes / 32 GiB**, déficit **1.493.569.536 bytes / 1,391 GiB**.
+Cero reservas activas; misma denegación `aggregate_memory_budget`; Unreal ausente. No se dejó
+ningún bucle de espera ni se ejecutó PR/release contra esa denegación.

@@ -286,6 +286,54 @@ def test_child_completion_preserves_the_parent_job_resource_lease(tmp_path: Path
         assert ResourceRepository(connection).get_lease(lease.id).released_at is None
 
 
+def test_inherited_lease_reserves_root_before_native_spawn_finishes(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from local_control_center.process_supervision.service import ResourceWaitError
+
+    db = tmp_path / "platform.sqlite"
+    with open_sqlite_connection(db) as connection:
+        initialize_platform_schema(connection)
+        lease = (
+            HostResourceGovernor(connection)
+            .admit(
+                ResourceAdmissionRequest(
+                    execution_id="parent", owner_id="worker", workload_class="agent_cli"
+                ),
+                snapshot=ResourceSnapshot.test_snapshot(),
+            )
+            .lease
+        )
+    entered, proceed = threading.Event(), threading.Event()
+    backend = FakeSupervisor()
+    original = backend.start
+
+    def paused_start(*args, **kwargs):
+        entered.set()
+        assert proceed.wait(5)
+        return original(*args, **kwargs)
+
+    backend.start = paused_start
+    with execution_scope(
+        ProcessExecutionContext(db_path=db, execution_id="parent", resource_lease_id=lease.id)
+    ):
+        first = ProcessSupervisorService(backend=backend)
+        second = ProcessSupervisorService(backend=FakeSupervisor())
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(first.start, argv=[sys.executable, "--version"], cwd=tmp_path)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(ResourceWaitError, match="native_root_capacity"):
+                other = second.start(argv=[sys.executable, "--version"], cwd=tmp_path)
+                second.complete(other, exit_code=0)
+        finally:
+            proceed.set()
+            child = future.result(timeout=5)
+            child.process.returncode = 0
+            first.complete(child, exit_code=0)
+
+
 def test_durable_cancel_is_seen_by_running_process_and_blocks_next_stage(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
     service = ProcessSupervisorService(db_path=db_path, resource_snapshot=ResourceSnapshot.test_snapshot())

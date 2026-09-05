@@ -31,7 +31,7 @@ from local_control_center.host_resources.models import (
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.profiles import workload_profile
 from local_control_center.host_resources.repository import ResourceRepository
-from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.db import immediate_transaction, open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.settings import default_db_path
@@ -41,7 +41,7 @@ from .capture import ArtifactCapture, CapturedReader
 from .context import CURRENT_EXECUTION, assert_external_boundary
 from .models import ManagedProcessRecord, ProcessLaunchSpec, ProcessStats, SupervisedProcess
 from .posix import PosixProcessGroupSupervisor
-from .repository import ManagedProcessRepository
+from .repository import ManagedProcessRepository, process_create_time
 
 _REGISTRY_LOCK = threading.RLock()
 _ACTIVE: dict[str, tuple[ProcessSupervisorService, SupervisedProcess]] = {}
@@ -216,7 +216,10 @@ class ProcessSupervisorService:
             below_normal_priority=profile.heavy,
         )
         managed = None
+        reserved = False
         try:
+            self._reserve_native_root(spec, lease.id)
+            reserved = True
             if set(argv).intersection(
                 {"quality", "quality:fast", "quality:story", "quality:pr", "quality:release"}
             ) and Path(argv[0]).stem.lower() in {"node", "corepack", "pnpm", "npm"}:
@@ -229,8 +232,9 @@ class ProcessSupervisorService:
             managed.owns_resource_lease = inherited_id is None
             with closing(open_sqlite_connection(self.db_path)) as connection:
                 initialize_platform_schema(connection)
-                ManagedProcessRepository(connection).start(
-                    spec, root_pid=int(managed.process.pid), resource_lease_id=lease.id
+                connection.execute(
+                    "UPDATE managed_processes SET root_pid=?, root_create_time=? WHERE managed_process_id=?",
+                    (int(managed.process.pid), process_create_time(managed.process.pid), managed_process_id),
                 )
             for stream_name in ("stdout", "stderr"):
                 stream = getattr(managed.process, stream_name, None)
@@ -240,6 +244,11 @@ class ProcessSupervisorService:
                     setattr(managed.process, stream_name, CapturedReader(stream, capture))
             self._register_captures(managed)
         except Exception:
+            if reserved and managed is None:
+                with closing(open_sqlite_connection(self.db_path)) as connection:
+                    ManagedProcessRepository(connection).finish(
+                        managed_process_id, stats=ProcessStats(termination_reason="launch_failed")
+                    )
             if managed is not None:
                 try:
                     stats = self.backend.terminate_tree(
@@ -326,6 +335,29 @@ class ProcessSupervisorService:
                 for capture in managed.captures.values():
                     with suppress(OSError):
                         capture.finish()
+
+    def _reserve_native_root(self, spec: ProcessLaunchSpec, lease_id: str) -> None:
+        """Reserva antes del spawn; sólo un descendiente nativo puede compartir un presupuesto vivo."""
+        # Identidades OS fuera de la transacción. La creación de procesos también queda fuera.
+        ancestors = {p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]}
+        with (
+            closing(open_sqlite_connection(self.db_path)) as connection,
+            immediate_transaction(connection),
+        ):
+            rows = connection.execute(
+                """SELECT root_pid, root_create_time FROM managed_processes
+                WHERE resource_lease_id=? AND (finished_at IS NULL OR released_at IS NULL)""",
+                (lease_id,),
+            ).fetchall()
+            if any(
+                row["root_pid"] not in ancestors
+                or abs(ancestors[row["root_pid"]] - row["root_create_time"]) >= 0.01
+                for row in rows
+            ):
+                raise ResourceWaitError(
+                    "resource_wait: native_root_capacity: lease already owns a separate root"
+                )
+            ManagedProcessRepository(connection).start(spec, root_pid=0, resource_lease_id=lease_id)
 
     def _assert_fence(self, connection: Any) -> None:
         if self.context and self.context.fencing_token is not None:

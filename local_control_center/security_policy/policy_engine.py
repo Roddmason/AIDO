@@ -749,6 +749,24 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             input_payload, permission_profile=permission_profile, categories=categories
         )
 
+    if operation == "codex_compatibility_smoke":
+        allowed = (
+            input_payload.get("smokeApproved") is True
+            and tool == "shell"
+            and input_payload.get("runtimeId") == "codex_cli"
+            and permission_profile == "plan"
+            and bool(input_payload.get("workspaceId"))
+            and bool(input_payload.get("workspacePath"))
+            and not input_payload.get("networkRequired")
+            and not input_payload.get("secretsRequired")
+        )
+        return {
+            "decision": "allow" if allowed else "deny",
+            "riskLevel": "medium",
+            "reason": "Codex compatibility smoke requires a claimed, command-bound explicit approval.",
+            "categories": [*categories, "codex_compatibility_smoke"],
+        }
+
     if operation == "qa_agent_command":
         if input_payload.get("agentId") != "qa_agent":
             categories.append("qa_agent_command_agent_denied")

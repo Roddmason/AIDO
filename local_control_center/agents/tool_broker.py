@@ -106,6 +106,13 @@ def _product_owner_internal_boundary(
     workspace_path: str | None,
     trusted_subprocess_environment: dict[str, str] | None,
 ) -> dict[str, Any] | None:
+    if operation == "codex_compatibility_smoke":
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Compatibility smoke is reserved for the explicit approval service, not agent tools.",
+            "categories": ["codex_smoke_generic_tool_denied"],
+        }
     if (
         agent_profile_id == PRODUCT_OWNER_AGENT_PROFILE_ID
         and operation not in PRODUCT_OWNER_INTERNAL_OPERATIONS

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from local_control_center.process_supervision.service import command_fingerprint
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -33,6 +34,44 @@ from .runtime_registry import (
 )
 
 SMOKE_MARKER = "AIDO_READ_ONLY_SMOKE_OK"
+SMOKE_PROMPT = f"Respond with exactly {SMOKE_MARKER}. Do not call tools or modify files."
+
+
+def claim_smoke_approval(connection, audit_id: str, request: RuntimeRequest, command: list[str]) -> bool:
+    """Consume a command-bound approval once; never trust permission fields in a CLI request."""
+    if (
+        connection is None
+        or request.runtime != "codex_cli"
+        or request.role != "product_owner"
+        or request.prompt != SMOKE_PROMPT
+        or request.env_policy != {"permissionProfile": "plan", "network": False, "secrets": False}
+    ):
+        return False
+    with immediate_transaction(connection):
+        row = connection.execute(
+            "SELECT target, payload FROM audit_events WHERE id=? AND action='runtime.codex.smoke_approved'",
+            (audit_id,),
+        ).fetchone()
+        if not row or row["target"] != request.workspace_id:
+            return False
+        approval = json.loads(row["payload"])
+        if (
+            not approval.get("reason")
+            or approval.get("commandFingerprint") != command_fingerprint(command)
+            or approval.get("binaryFingerprint") != binary_fingerprint(Path(command[0]))
+            or connection.execute(
+                "SELECT 1 FROM audit_events WHERE action='runtime.codex.smoke_claimed' AND target=?",
+                (audit_id,),
+            ).fetchone()
+        ):
+            return False
+        EventBus(connection).record_audit(
+            action="runtime.codex.smoke_claimed",
+            actor="codex_smoke_service",
+            target=audit_id,
+            payload={"workspaceId": request.workspace_id},
+        )
+    return True
 
 
 class CodexSmokeRequest(BaseModel):
@@ -112,7 +151,7 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         runtime="codex_cli",
         workspaceId=body.workspace_id,
         workspacePath=workspace["path"],
-        prompt=f"Respond with exactly {SMOKE_MARKER}. Do not call tools or modify files.",
+        prompt=SMOKE_PROMPT,
         model=model,
         role="product_owner",
         envPolicy={"permissionProfile": "plan", "network": False, "secrets": False},
@@ -125,8 +164,21 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
     if validation:
         raise ValueError(validation)
     started_at = utc_now()
+    approval = EventBus(connection).record_audit(
+        action="runtime.codex.smoke_approved",
+        actor="codex_smoke_service",
+        target=body.workspace_id,
+        payload={
+            "reason": body.reason,
+            "source": "explicit_authenticated_request",
+            "commandFingerprint": command_fingerprint(command),
+            "binaryFingerprint": probe["binaryFingerprint"],
+        },
+    )
     with isolated_product_owner_codex_environment() as environment:
-        result = cli.run(request, trusted_subprocess_environment=environment)
+        result = cli.run(
+            request, trusted_subprocess_environment=environment, trusted_smoke_audit_id=approval["id"]
+        )
     evidence = result.process_evidence
     managed_id = evidence.get("managedProcessId")
     process = connection.execute(
@@ -153,6 +205,8 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         "binaryFingerprint": probe["binaryFingerprint"],
         "contractFingerprint": contract_fingerprint(),
         "managedProcessId": managed_id,
+        "approvalAuditId": approval["id"],
+        "reason": result.error if not valid else None,
         "model": model,
         "lastCheckedAt": utc_now(),
     }

@@ -17,21 +17,21 @@ from pathlib import Path
 from typing import Any
 
 
-def open_sqlite_connection(db_path: str | Path) -> sqlite3.Connection:
+def open_sqlite_connection(db_path: str | Path, *, busy_timeout_ms: int = 30000) -> sqlite3.Connection:
     """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit."""
     require_safe_sqlite_runtime()
     resolved = Path(db_path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(
         resolved,
-        timeout=30,
+        timeout=busy_timeout_ms / 1000,
         isolation_level=None,
         check_same_thread=False,
     )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute("PRAGMA busy_timeout = 30000")
+    connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
     return connection
 
 

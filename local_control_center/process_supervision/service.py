@@ -47,6 +47,7 @@ _REGISTRY_LOCK = threading.RLock()
 _ACTIVE: dict[str, tuple[ProcessSupervisorService, SupervisedProcess]] = {}
 _PROCESS_IDS: dict[int, str] = {}
 _LOGGER = logging.getLogger(__name__)
+_CONTROL_BUSY_WINDOW_SECONDS = 2.0
 
 
 class ExecutionCancelled(RuntimeError):
@@ -217,6 +218,7 @@ class ProcessSupervisorService:
         )
         managed = None
         reserved = False
+        phase = "native_root_reserve"
         try:
             self._reserve_native_root(spec, lease.id)
             reserved = True
@@ -227,15 +229,18 @@ class ProcessSupervisorService:
                 environment = dict(popen_kwargs.get("env") or os.environ)
                 environment["AIDO_QUALITY_DB_PATH"] = str(self.db_path.resolve())
                 popen_kwargs["env"] = environment
+            phase = "native_start"
             managed = self.backend.start(spec, popen_factory=self.popen_factory, **popen_kwargs)
             managed.resource_lease_id = lease.id
             managed.owns_resource_lease = inherited_id is None
+            phase = "identity_persist"
             with closing(open_sqlite_connection(self.db_path)) as connection:
                 initialize_platform_schema(connection)
                 connection.execute(
                     "UPDATE managed_processes SET root_pid=?, root_create_time=? WHERE managed_process_id=?",
                     (int(managed.process.pid), process_create_time(managed.process.pid), managed_process_id),
                 )
+            phase = "capture_register"
             for stream_name in ("stdout", "stderr"):
                 stream = getattr(managed.process, stream_name, None)
                 if stream is not None:
@@ -243,7 +248,9 @@ class ProcessSupervisorService:
                     managed.captures[stream_name] = capture
                     setattr(managed.process, stream_name, CapturedReader(stream, capture))
             self._register_captures(managed)
-        except Exception:
+        except Exception as error:
+            if managed is not None:
+                self._log_control_error(managed, error, phase, "stop_launch")
             if reserved and managed is None:
                 with closing(open_sqlite_connection(self.db_path)) as connection:
                     ManagedProcessRepository(connection).finish(
@@ -417,10 +424,12 @@ class ProcessSupervisorService:
     def _watch_controls(self, managed: SupervisedProcess) -> None:
         next_heartbeat = time.monotonic() + 5
         next_memory_check = 0.0
+        busy_since = None
         while not managed.stop_watcher.wait(0.2):
+            phase = "connection_open"
             try:
-                with closing(open_sqlite_connection(self.db_path)) as connection:
-                    connection.execute("PRAGMA busy_timeout = 250")
+                with closing(open_sqlite_connection(self.db_path, busy_timeout_ms=250)) as connection:
+                    phase = "authority_read"
                     repository = ManagedProcessRepository(connection)
                     reason = repository.cancellation_reason(
                         managed.execution_id
@@ -436,7 +445,20 @@ class ProcessSupervisorService:
                             self._assert_fence(connection)
                     except ExecutionCancelled as error:
                         reason = str(error)
+                    from local_control_center.shared.time import utc_now
+
+                    lease = ResourceRepository(connection).get_lease(managed.resource_lease_id)
+                    if lease.released_at or lease.expires_at <= utc_now():
+                        reason = reason or "resource_lease_lost"
+                    if reason:
+                        self._stop_for_control(managed, reason)
+                        # Cancellation persistence must never delay containment or mask its cause.
+                        phase = "cancel_persist"
+                        connection.execute("PRAGMA busy_timeout = 0")
+                        repository.request_execution_cancel(managed.execution_id, reason=reason)
+                        return
                     if not self.cleanup_only and time.monotonic() >= next_memory_check:
+                        phase = "resource_check"
                         from local_control_center.host_resources.profiles import GIB, _setting
                         from local_control_center.settings.repository import SettingsRepository
 
@@ -446,13 +468,13 @@ class ProcessSupervisorService:
                         )
                         if psutil.virtual_memory().available < floor:
                             reason = "hard_memory_floor"
-                            repository.request_execution_cancel(managed.execution_id, reason=reason)
                         next_memory_check = time.monotonic() + 1
                         with managed.lock:
                             if not managed.released:
                                 stats = self.backend.stats(managed)
                                 self._record_live_metrics(connection, managed, stats)
-                    if managed.owns_resource_lease and time.monotonic() >= next_heartbeat:
+                    if not reason and managed.owns_resource_lease and time.monotonic() >= next_heartbeat:
+                        phase = "lease_heartbeat"
                         renewed = HostResourceGovernor(connection).heartbeat(
                             managed.resource_lease_id, owner_id=managed.managed_process_id
                         )
@@ -460,29 +482,56 @@ class ProcessSupervisorService:
                             reason = "resource_lease_lost"
                         next_heartbeat = time.monotonic() + 5
                     if reason:
+                        self._stop_for_control(managed, reason)
+                        phase = "cancel_persist"
+                        connection.execute("PRAGMA busy_timeout = 0")
                         repository.request_execution_cancel(managed.execution_id, reason=reason)
-                if reason:
-                    with managed.lock:
-                        if not managed.released and managed.terminal_stats is None:
-                            managed.terminal_stats = self.backend.terminate_tree(
-                                managed, grace_seconds=2, reason=reason
-                            )
-                            managed.terminal_stats.cancelled = True
-                    return
+                        return
+                busy_since = None
             except Exception as error:
-                _LOGGER.error(
-                    "process_control_watch_failed error_type=%s sqlite_error_code=%s managed_process_id=%s",
-                    type(error).__name__,
-                    getattr(error, "sqlite_errorcode", None),
-                    managed.managed_process_id,
+                recoverable = (
+                    phase == "lease_heartbeat"
+                    and isinstance(error, sqlite3.OperationalError)
+                    and (getattr(error, "sqlite_errorcode", 0) & 255) == sqlite3.SQLITE_BUSY
                 )
-                with managed.lock:
-                    if not managed.released and managed.terminal_stats is None:
-                        managed.terminal_stats = self.backend.terminate_tree(
-                            managed, grace_seconds=0, reason="control_watch_failed"
-                        )
-                        managed.terminal_stats.cancelled = True
-                    return
+                if recoverable:
+                    busy_since = busy_since if busy_since is not None else time.monotonic()
+                    if time.monotonic() - busy_since < _CONTROL_BUSY_WINDOW_SECONDS:
+                        self._log_control_error(managed, error, phase, "retry_heartbeat")
+                        # Retry only the rolled-back lease transaction. Re-read fence, cancellation
+                        # and lease expiry on every iteration; never replay the external command.
+                        continue
+                self._log_control_error(managed, error, phase, "stop")
+                self._stop_for_control(
+                    managed, "control_watch_deadline_exceeded" if recoverable else "control_watch_failed"
+                )
+                return
+
+    def _stop_for_control(self, managed: SupervisedProcess, reason: str) -> None:
+        with managed.lock:
+            if not managed.released and managed.terminal_stats is None:
+                managed.terminal_stats = self.backend.terminate_tree(managed, grace_seconds=0, reason=reason)
+                managed.terminal_stats.cancelled = True
+
+    def _log_control_error(self, managed, error, phase, action) -> None:
+        from local_control_center.shared.redaction import redact_secrets
+
+        _LOGGER.warning(
+            "process_control_watch_error phase=%s action=%s error_type=%s error=%s "
+            "sqlite_error_code=%s sqlite_error_name=%s managed_process_id=%s execution_id=%s "
+            "resource_lease_id=%s worker_id=%s fencing_token=%s",
+            phase,
+            action,
+            type(error).__name__,
+            redact_secrets(str(error))[:500],
+            getattr(error, "sqlite_errorcode", None),
+            getattr(error, "sqlite_errorname", None),
+            managed.managed_process_id,
+            managed.execution_id,
+            managed.resource_lease_id,
+            self.context.worker_id if self.context else None,
+            self.context.fencing_token if self.context else None,
+        )
 
     @staticmethod
     def _record_live_metrics(connection: Any, managed: SupervisedProcess, stats: ProcessStats) -> None:

@@ -7,6 +7,20 @@ from local_control_center.quality.plans import build_plan, iteration_scripts
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_native_http_pipeline_has_capacity_without_escalating_small_regressions():
+    from local_control_center.host_resources.profiles import workload_profile
+
+    pipeline = "tests_py/test_watchdog_http_pipeline.py"
+    light = "tests_py/test_transaction_begin_failure.py"
+    plan = build_plan(ROOT, "fast", python_tests=[pipeline, light])
+    heavy_step = next(step for step in plan if pipeline in step.argv)
+    light_step = next(step for step in plan if light in step.argv)
+    # Reproduction peaked at 4,429,447,168 bytes under a 4 GiB job and raised MemoryError.
+    assert workload_profile(heavy_step.workload_class).memory_limit_bytes > 4429447168
+    assert light_step.workload_class == "qa_light"
+    assert light not in heavy_step.argv
+
+
 def test_fast_never_selects_full_suites_and_checks_modified_python():
     steps = build_plan(
         ROOT,

@@ -203,8 +203,16 @@ def build_plan(
         steps.append(
             QualityStep("ruff-changed", ("uv", "run", "--extra", "dev", "ruff", "check", "--", *python_files))
         )
-    if tests:
-        steps.append(QualityStep("python-focused", (py, "-m", "pytest", "-q", *tests)))
+    # The native HTTP/worker/dispatcher fixture exceeded qa_light's 4 GiB container.
+    # Keep small regressions light; give this multiprocess slice its own existing 8 GiB profile.
+    native_pipeline = [path for path in tests if path == "tests_py/test_watchdog_http_pipeline.py"]
+    light_tests = [path for path in tests if path not in native_pipeline]
+    if light_tests:
+        steps.append(QualityStep("python-focused", (py, "-m", "pytest", "-q", *light_tests)))
+    if native_pipeline:
+        steps.append(
+            QualityStep("python-native-pipeline", (py, "-m", "pytest", "-q", *native_pipeline), "agent_cli")
+        )
     if ui_changed:
         steps.append(typecheck)
     if tier == "story":

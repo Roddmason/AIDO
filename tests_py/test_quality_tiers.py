@@ -15,8 +15,11 @@ def test_native_http_pipeline_has_capacity_without_escalating_small_regressions(
     plan = build_plan(ROOT, "fast", python_tests=[pipeline, light])
     heavy_step = next(step for step in plan if pipeline in step.argv)
     light_step = next(step for step in plan if light in step.argv)
-    # Reproduction peaked at 4,429,447,168 bytes under a 4 GiB job and raised MemoryError.
-    assert workload_profile(heavy_step.workload_class).memory_limit_bytes > 4429447168
+    # API + native worker + dispatcher + pytest reached 8,724,848,640 bytes and
+    # raised MemoryError under the old 8 GiB aggregate Job (receipt 1803dac5).
+    profile = workload_profile(heavy_step.workload_class)
+    assert profile.memory_limit_bytes > 8724848640
+    assert profile.heavy and profile.process_limit > 0 and profile.cpu_limit_percent < 100
     assert light_step.workload_class == "qa_light"
     assert light not in heavy_step.argv
 

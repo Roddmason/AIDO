@@ -254,6 +254,41 @@ class ProcessSupervisorService:
             },
         )
         try:
+            options = {}
+            if os.name == "nt":
+                from local_control_center.shared.diagnostics import attempt_options, diagnostic_root
+
+                from .native_diagnostics import NativeCapture, file_sha256
+
+                candidate_options = attempt_options(diagnostic_root(), execution_id)
+                if (
+                    candidate_options.get("enabled")
+                    and candidate_options.get("nativeCollector")
+                    and Path(argv[0]).is_file()
+                    and file_sha256(Path(argv[0])) == candidate_options.get("executableSha256")
+                ):
+                    options = candidate_options
+            phase = "resource_scope_preflight"
+            if os.name == "nt" and hasattr(self.backend, "check_resource_scope"):
+                native_ancestors = {
+                    p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]
+                }
+                with closing(open_sqlite_connection(self.db_path)) as connection:
+                    rows = connection.execute(
+                        "SELECT * FROM managed_processes WHERE finished_at IS NULL AND released_at IS NULL ORDER BY started_at"
+                    ).fetchall()
+                ancestors = [
+                    dict(row)
+                    for row in rows
+                    if row["root_pid"] in native_ancestors
+                    and abs(native_ancestors[row["root_pid"]] - row["root_create_time"]) < 0.01
+                ]
+                popen_kwargs["resource_scope"] = self.backend.check_resource_scope(spec, ancestors, lease.id)
+                if options and popen_kwargs["resource_scope"]["ancestors"]:
+                    raise ResourceWaitError(
+                        "resource_wait: resource_scope_conflict: native collector requires an independent creator scope; target not spawned"
+                    )
+            phase = "native_root_reserve"
             self._reserve_native_root(spec, lease.id)
             reserved = True
             if set(argv).intersection(
@@ -264,29 +299,18 @@ class ProcessSupervisorService:
                 environment["AIDO_QUALITY_DB_PATH"] = str(self.db_path.resolve())
                 popen_kwargs["env"] = environment
             phase = "native_start"
-            if os.name == "nt":
-                from local_control_center.shared.diagnostics import attempt_options, diagnostic_root
+            if options:
 
-                from .native_diagnostics import NativeCapture, file_sha256
+                def prepare_capture(target):
+                    target.native_capture = NativeCapture(
+                        managed=target,
+                        options=options,
+                        db_path=self.db_path,
+                        context=self.context,
+                        root=diagnostic_root(),
+                    )
 
-                options = attempt_options(diagnostic_root(), execution_id)
-                if (
-                    options.get("enabled")
-                    and options.get("nativeCollector")
-                    and Path(argv[0]).is_file()
-                    and file_sha256(Path(argv[0])) == options.get("executableSha256")
-                ):
-
-                    def prepare_capture(target):
-                        target.native_capture = NativeCapture(
-                            managed=target,
-                            options=options,
-                            db_path=self.db_path,
-                            context=self.context,
-                            root=diagnostic_root(),
-                        )
-
-                    popen_kwargs["before_resume"] = prepare_capture
+                popen_kwargs["before_resume"] = prepare_capture
             managed = self.backend.start(spec, popen_factory=self.popen_factory, **popen_kwargs)
             diagnostic_event(
                 "process.created",

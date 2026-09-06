@@ -1107,3 +1107,104 @@ déficit **540.205.056 bytes / 0,503 GiB**, **cero reservas activas**, `aggregat
 Instalación congelada aislada/typecheck/build, PR completo y release no se lanzaron fuera de
 admisión ni se sustituyeron por herramientas activas. No se mantuvo espera indefinida ni se cerraron
 procesos ajenos. No se reconstruyeron node_modules/venv activos. Sin push, merge, publicación ni cutover.
+
+### 14.8 Comparación del crash nativo — 2026-09-06
+
+Base verificada: `439d0d624b54fe6cf8016b927ff35c0b4b33b7fb`, rama
+`codex/aido-cleanup-post-p0`, limpia. Corrección propia preservada en
+`f0a54a4a4cae08944324138c7e302aba25a740fc`; código probado y usado en el smoke,
+SHA agregado productivo `e3777445f2cecaed6d2174da5db6f061eab225a9caaf2c6e30013a90babc39a1`.
+El commit documental de esta sección no cambia ese contenido. Manifiestos, lockfiles,
+versiones y HEAD de entrega: `N/native-candidate-final-traceability.json`.
+
+| Pista | Estado | Evidencia / limitación |
+| --- | --- | --- |
+| 0.149.0 histórico | **FAIL** conservado | Mismo binario, argv reconstruido cuyo hash coincide con el registro nativo; WER confirma PID y creation time. Consumo UNKNOWN. |
+| Distribución 0.153.4 y probes | **PASS** | Paquete oficial completo x64; checksums coincidentes; versión, help y auth nativa/aislada exit 0. Esto no prueba compatibilidad operacional. |
+| Primer smoke 0.153.4 | **FAIL** | Exit nativo `3221225725 / 0xC00000FD`, mismo desbordamiento de pila. Recibo failed, no healthy manual. |
+| API y workspace | **PASS** acotado | HTTP 200 después del fallo; 53 consultas, máximo 203,52 ms. Manifiesto completo antes/después idéntico, sin ignorar `.tmp` ni `.git`. |
+| Causa interna / segunda ejecución | **BLOCKED / NOT_RUN** | Sin pila nativa ni depurador disponible en las rutas comprobadas; no se gastó otra ejecución sin captura discriminante. |
+| Regresión de evidencia y relacionadas | **PASS** | 80 pruebas, exit 0; tres deprecaciones SWIG conservadas. No equivalen a validar dependencias frontend. |
+| Instalación frontend nueva / typecheck / build / PR | **BLOCKED / NOT_RUN** | Preview vigente sin capacidad `build_heavy`; no se usó node_modules activo ni se lanzó por fuera del supervisor. |
+| Release | **NOT_RUN** | PR y validación de instalación pendientes. |
+| Limpieza propia de ejecución | **PASS** | Cero raíces propias vivas, registros activos, reservas y hogares auth temporales tras reconciliación normal. |
+| Selección operacional / datos originales | **PASS** preservación | 0.149.0 sin reemplazo; selección candidata sólo en DB nueva. Sin adopción, push, merge, cambios globales ni Unreal. |
+
+**Hechos e hipótesis.** `N/native-crash-history.json` vincula el stderr completo histórico,
+PID 65828/create-time `1788677589.9799292`, WER 1000 de `06:53:14.6859230Z`, excepción
+`c00000fd` y offset `0xd5bf3e7`. Ambos binarios son PE `0x8664`; Windows build 26200.
+El último observable es el mensaje de lectura de stdin seguido del stack overflow: stdout vacío
+no demuestra consumo cero. Stdin era DEVNULL/EOF; stdout/stderr, pipes binarios drenados
+concurrentemente; `shell=False`. Cwd, CODEX_HOME, argv y lease originales están en ese recibo.
+
+Se contrastaron las fuentes oficiales de [0.152.0](https://github.com/openai/codex/releases/tag/rust-v0.152.0),
+[#41840](https://github.com/openai/codex/pull/41840) y [#41853](https://github.com/openai/codex/pull/41853).
+La primera comparte la constante de 16 MiB y la aplica al hilo de revisión: **no aumenta** el presupuesto
+Tokio de 16 MiB que ya aparece en su diff. La segunda encapsula en BoxFuture el arranque diferido.
+Eran pistas, no una causa demostrada; el fallo de 0.153.4 refuta que esta actualización baste aquí.
+No se añadieron ajustes de pila/heap, variables Rust, bypass ni modificaciones del watchdog.
+
+**Distribución y contrato.** [Paquete oficial 0.153.4](https://github.com/openai/codex/releases/tag/rust-v0.153.4),
+`codex-package-x86_64-pc-windows-msvc.tar.gz`, SHA-256
+`a6ef3442cb12766a88b39311d79244289e4f9763e2c53ff4fbebc2cb653cc5f3`; extraído completo en
+`%LOCALAPPDATA%/AIDO/test-runtimes/codex-0.153.4-x86_64`, con code-mode host, rg y auxiliares
+de sandbox. CLI SHA `444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b`;
+contrato inalterado `fefa6ddf5a9b7750db0a1592bd2309670763f6e503ad849b81bad5a98cf8b53d`.
+Se verificaron help y esquema oficial: read-only, ignore-user-config/rules, strict-config,
+ephemeral, never, desactivaciones y entorno aislado permanecen. Modelo explícito `gpt-5.6-terra`;
+**effort no especificado** en el argv histórico ni en la comparación. El catálogo local anuncia
+medium por defecto, pero no prueba el esfuerzo realmente servido: permanece UNKNOWN.
+
+**Una ejecución de dos autorizadas.** DB `N/native-candidate-smoke.sqlite`, repositorio desechable
+sin remotos, workspace `workspace-f3d77c98-d529-48c5-a034-3c4cf2a68394`. Autorización delegada
+`audit-6a3f14a3-db13-49d0-95e9-0debdd506977`; aprobación normal ligada al comando/binario
+`audit-8a401d54-1f70-4fa7-bb2f-968237d00889`. HTTP smoke y worker run-once: 202, una vez cada uno.
+Ruta productiva HTTP/worker/dispatcher/política de smoke aprobada/sandbox restringido/supervisor;
+el seam de aprobación interno existente no se sustituyó por un CLI directo ni por mocks.
+
+- Job `job-89a56a86-1584-482e-a3c3-d6f0ac24f6de`; CLI
+  `managed-process-1e7d2e55-4002-491c-9e79-691309c5a3ed`, PID **46292**,
+  create-time `1788682787.5445359`. Se leyó argv de ese PID propio y coincidió su hash durable.
+- Inicio `08:19:47.518Z`, cierre `08:19:55.307Z`; exit **3221225725**. WER confirma identidad,
+  excepción y offset `0xd3eecc7`. Stderr completo: lectura de stdin y
+  `thread 'tokio-rt-worker' (22940) has overflowed its stack`; SHA
+  `485ea25b6ab5d09532dca774d3cbf90e08093a1ca362099d45eeae5b501dcc24`.
+- Lease `agent_cli`: **8 GiB / CPU 40% / 16 procesos**, compartida con dispatcher; supervisor
+  asigna raíz suspendida al Job Object antes de reanudar. Peak nativo del CLI **15.110.144 bytes**,
+  CPU **0,234375 s**, sin timeout/cancelación, cero descendientes. Límite CPU configurado;
+  su readback no fue persistido separadamente y el Job Object anónimo cerrado no es consultable.
+- La API siguió disponible; el único heartbeat BUSY observado se recuperó. `operation=completed`
+  significa respuesta del handler, **no PASS del smoke**. Al cerrar el controlador quedó pendiente
+  el registro del dispatcher: no se infiere exit 0. Owner y raíz ya muertos, con identidades conocidas,
+  permitieron recuperar sólo `managed-process-c4210e26-64ff-4559-bf11-4384ff0f48e3` mediante
+  `recover_managed_processes`; evidencia parcial conservada, sin replay ni procesos ajenos terminados.
+- Modelo servido, thread nativo, inferencia, consumo y cuota restante: **UNKNOWN**.
+  No API keys, extra usage, fallback ni reintentos. Sólo hubo este lanzamiento capaz de inferencia.
+
+WER retuvo `Report.wer`, no el dump temporal citado. No se encontraron cdb/WinDbg/ProcDump en
+PATH/rutas estándar comprobadas ni Microsoft.WinDbg AppX. No hubo adjuntos a procesos,
+cambios del registro ni dumps copiados/publicados. Único reporte local sanitizado para proveedor:
+`N/native-crash-provider-report.md`, **no publicado**. Causa interna aún desconocida, sin atribuirla
+a SQLite, al modelo, RAM o una función upstream sin pila nativa.
+
+**Corrección demostrada, no del crash.** `CliSessionStore` ahora dirige evidencia de
+`permissionProfile=plan` al almacén existente de la DB externa al workspace. Se preservan
+proyecto, stdout/stderr y runtime.json; no se borra ni se excluye evidencia para igualar hashes.
+Regresión previa: dos FAIL esperados, exit 1, `F/quality-fast-04680cc5066842129f3c8fb72b141b90.json`.
+Después: `F/quality-fast-f115c18acbf748bebd18b61bdce5ca4d.json`, **80 PASS**, exit 0:
+
+```powershell
+uv run python -m local_control_center.quality --tier fast --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_cli_read_only_artifacts.py --python-test tests_py/test_codex_capability_contract.py --python-test tests_py/test_codex_smoke_policy_seam.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_product_owner_agent_real_runtime.py
+```
+
+Controladores temporales `Tn/ = %TEMP%/aido-native-01534/`, hashes en la trazabilidad:
+`.venv/Scripts/python.exe Tn/preflight.py` y `Tn/history.py`: exit 0, diagnóstico sin inferencia;
+`Tn/smoke.py`: exit **1**; `Tn/closeout.py`: exit 0, reconciliación/diagnóstico, **no aprobación del smoke**.
+La evidencia histórica `watchdog-*` sigue intacta. No se reejecutó el hardening completo.
+
+Snapshot de cierre `08:22:02.131Z`: **33.752.612.864 bytes / 31,435 GiB** disponibles,
+requeridos **34.359.738.368 / 32 GiB** (job 16 + reserva host 16), déficit
+**607.125.504 bytes / 0,565 GiB**, cero reservas de calidad; `aggregate_memory_budget`.
+Es admisión, no memoria del crash. Preview exit 0 **no** es un gate ejecutado/exit 75 nuevo.
+Instalación frontend nueva, typecheck/build aislados y PR/release siguen sin validarse; no se
+bajaron umbrales, cerraron aplicaciones ajenas ni reconstruyeron entornos activos.

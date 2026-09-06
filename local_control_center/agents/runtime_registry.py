@@ -10,15 +10,18 @@ stays inside the allocated workspace and never commits, pushes, or touches secre
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -223,7 +226,21 @@ def isolated_product_owner_codex_environment() -> Iterator[dict[str, str]]:
         )
     runtime_home.mkdir(parents=True, exist_ok=False)
     native_auth_copied = False
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+    from local_control_center.process_supervision.repository import process_create_time
+
+    context = CURRENT_EXECUTION.get()
     try:
+        _audit_codex_home(
+            context,
+            runtime_home,
+            "created",
+            {
+                "ownerPid": os.getpid(),
+                "ownerCreateTime": process_create_time(os.getpid()),
+                "executionId": context.execution_id if context else None,
+            },
+        )
         source_auth = (_codex_source_home() / "auth.json").resolve(strict=False)
         if source_auth.exists() and source_auth.is_file():
             target_auth = runtime_home / "auth.json"
@@ -240,9 +257,89 @@ def isolated_product_owner_codex_environment() -> Iterator[dict[str, str]]:
             native_auth_copied=native_auth_copied,
         )
     finally:
-        resolved_home = runtime_home.resolve(strict=False)
-        if _strict_descendant(resolved_home, controlled_root) and resolved_home.exists():
-            shutil.rmtree(resolved_home)
+        unwinding = sys.exc_info()[0] is not None
+        try:
+            _remove_codex_home(runtime_home)
+            _audit_codex_home(context, runtime_home, "cleaned", {})
+        except OSError as error:
+            logging.getLogger(__name__).error(
+                "codex_home_cleanup_failed error_type=%s home_id=%s", type(error).__name__, runtime_home.name
+            )
+            try:
+                _audit_codex_home(
+                    context, runtime_home, "cleanup_failed", {"errorType": type(error).__name__}
+                )
+            except sqlite3.Error:
+                logging.getLogger(__name__).exception("codex_home_cleanup_audit_failed")
+            if not unwinding:
+                raise
+
+
+def _audit_codex_home(context, home: Path, suffix: str, payload: dict) -> None:
+    if context is None:
+        return
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.event_bus import EventBus
+
+    with closing(open_sqlite_connection(context.db_path)) as connection:
+        EventBus(connection).record_audit(
+            action=f"runtime.codex.home_{suffix}",
+            actor="codex_home_isolator",
+            target=str(home),
+            payload=payload,
+        )
+
+
+def _remove_codex_home(home: Path) -> None:
+    root = _product_owner_codex_home_root()
+    if (
+        home.parent != root
+        or str(uuid.UUID(home.name)) != home.name
+        or home.is_symlink()
+        or home.is_junction()
+        or home.resolve(strict=False) != home
+    ):
+        raise PermissionError("Codex temporary home ownership boundary could not be verified.")
+    if home.exists():
+        shutil.rmtree(home)
+
+
+def recover_codex_homes(connection) -> None:
+    """Recover owned homes through existing process recovery, after OS reconciliation."""
+    from local_control_center.process_supervision.recovery import identity_alive
+    from local_control_center.shared.event_bus import EventBus
+
+    rows = connection.execute("""SELECT target, payload FROM audit_events a
+        WHERE action='runtime.codex.home_created' AND NOT EXISTS
+        (SELECT 1 FROM audit_events b WHERE b.target=a.target AND b.action='runtime.codex.home_cleaned')""").fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        if identity_alive(payload["ownerPid"], payload["ownerCreateTime"]):
+            continue
+        if connection.execute(
+            "SELECT 1 FROM managed_processes WHERE execution_id=? AND (finished_at IS NULL OR released_at IS NULL)",
+            (payload.get("executionId"),),
+        ).fetchone():
+            continue
+        try:
+            _remove_codex_home(Path(row["target"]))
+        except (OSError, ValueError) as error:
+            EventBus(connection).record_audit(
+                action="runtime.codex.home_cleanup_failed",
+                actor="process_recovery",
+                target=row["target"],
+                payload={"errorType": type(error).__name__},
+            )
+            logging.getLogger(__name__).error(
+                "codex_home_recovery_blocked error_type=%s", type(error).__name__
+            )
+            continue
+        EventBus(connection).record_audit(
+            action="runtime.codex.home_cleaned",
+            actor="process_recovery",
+            target=row["target"],
+            payload={"reason": "owner_crashed; tree_reconciled"},
+        )
 
 
 def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:

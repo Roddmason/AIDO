@@ -9,6 +9,7 @@ persistencia, no las consultas OS ni el cleanup Docker.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import signal
 import time
@@ -55,6 +56,15 @@ def recover_managed_processes(db_path: Path) -> list[str]:
     for record in records:
         if identity_alive(record.owner_pid, record.owner_create_time):
             continue
+        if record.root_pid <= 0 or record.root_create_time <= 0:
+            # Native start resumes before the identity update. Zero is UNKNOWN, not absence.
+            # Keep the active record/lease so job recovery cannot replay uncertain external effects.
+            logging.getLogger(__name__).warning(
+                "process_recovery_unknown_identity managed_process_id=%s execution_id=%s",
+                record.managed_process_id,
+                record.execution_id,
+            )
+            continue
         if record.root_create_time > 0 and identity_alive(record.root_pid, record.root_create_time):
             if os.name != "nt":
                 # Sólo un grupo cuya raíz conserva la identidad registrada puede terminarse.
@@ -86,6 +96,10 @@ def recover_managed_processes(db_path: Path) -> list[str]:
             if record.resource_lease_id:
                 ResourceRepository(connection).release(record.resource_lease_id, reason="owner_crashed")
         recovered.append(record.managed_process_id)
+    from local_control_center.agents.runtime_registry import recover_codex_homes
+
+    with closing(open_sqlite_connection(db_path)) as connection:
+        recover_codex_homes(connection)
     return recovered
 
 

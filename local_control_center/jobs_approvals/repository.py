@@ -171,6 +171,13 @@ class JobsRepository:
             Dict con el job creado, los eventos emitidos y las action requests generadas.
         """
         payload = redact_secrets(payload or {})
+        from local_control_center.shared.diagnostics import context_fields
+
+        # Override untrusted payload correlation with the server's HTTP context.
+        payload = {
+            **payload,
+            "diagnosticContext": {k: v for k, v in context_fields().items() if k == "requestId"},
+        }
         timestamp = utc_now()
         job_id = f"job-{uuid.uuid4()}"
         needs_approval = kind in SENSITIVE_JOB_KINDS or payload.get("approvalRequired") is True

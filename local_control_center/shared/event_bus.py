@@ -14,6 +14,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from .diagnostics import diagnostic_event
 from .redaction import redact_secrets
 from .serialization import json_dumps, json_loads
 from .time import utc_now
@@ -63,6 +64,13 @@ class EventBus:
         """Inserta un evento con payload redactado y devuelve la fila persistida ya normalizada."""
         event_id = f"event-{uuid.uuid4()}"
         clean_payload = redact_secrets(payload or {})
+        diagnostic_event(
+            event_type,
+            component="event_bus",
+            executionId=job_id,
+            phase=clean_payload.get("phase"),
+            outcome=clean_payload.get("status"),
+        )
         self.connection.execute(
             """
             INSERT INTO events (id, job_id, project_id, type, payload, created_at)
@@ -123,6 +131,7 @@ class EventBus:
             (audit_id, project_id, action, actor, target, json_dumps(clean_payload), utc_now()),
         )
         row = self.connection.execute("SELECT * FROM audit_events WHERE id = ?", (audit_id,)).fetchone()
+        diagnostic_event("audit.persisted", component="audit", operation=action, evidenceRefs=[audit_id])
         return row_to_audit(row)
 
     def list_audit_events(

@@ -27,6 +27,9 @@ class ProcessExecutionContext:
     worker_id: str | None = None
     fencing_token: int | None = None
     in_job_runner: bool = False
+    request_id: str | None = None
+    attempt_id: str | None = None
+    diagnostics_expires_at: float = 0
 
 
 CURRENT_EXECUTION: ContextVar[ProcessExecutionContext | None] = ContextVar("aido_execution", default=None)

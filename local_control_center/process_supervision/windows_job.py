@@ -14,6 +14,8 @@ from typing import Any
 
 import psutil
 
+from local_control_center.shared.diagnostics import diagnostic_event
+
 from .models import ProcessLaunchSpec, ProcessStats, SupervisedProcess
 
 _CREATE_SUSPENDED = 0x00000004
@@ -37,10 +39,24 @@ class WindowsJobObjectProcessSupervisor:
         import win32job
 
         popen_factory = popen_kwargs.pop("popen_factory", subprocess.Popen)
+        before_resume = popen_kwargs.pop("before_resume", None)
         job = win32job.CreateJobObject(None, "")
         try:
-            _configure_job(job, spec)
-        except Exception:
+            applied = _configure_job(job, spec)
+        except Exception as error:
+            diagnostic_event(
+                "process.limits.error",
+                component="windows_job",
+                error=error,
+                executionId=spec.execution_id,
+                managedProcessId=spec.managed_process_id,
+                phase="configure_job",
+                requested={
+                    "memoryBytes": spec.memory_limit_bytes,
+                    "cpuPercent": spec.cpu_limit_percent,
+                    "processes": spec.process_limit,
+                },
+            )
             job.Close()
             raise
 
@@ -51,7 +67,7 @@ class WindowsJobObjectProcessSupervisor:
         )
         if spec.below_normal_priority:
             creationflags |= _BELOW_NORMAL_PRIORITY_CLASS
-        process = None
+        process = managed = None
         try:
             process = popen_factory(
                 spec.argv,
@@ -60,6 +76,15 @@ class WindowsJobObjectProcessSupervisor:
                 creationflags=creationflags,
                 **popen_kwargs,
             )
+            diagnostic_event(
+                "process.created.suspended",
+                component="windows_job",
+                executionId=spec.execution_id,
+                managedProcessId=spec.managed_process_id,
+                pid=process.pid,
+                processCreationTime=psutil.Process(process.pid).create_time(),
+                outcome="suspended",
+            )
             process_handle = win32api.OpenProcess(
                 win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE | win32con.PROCESS_QUERY_INFORMATION,
                 False,
@@ -67,11 +92,50 @@ class WindowsJobObjectProcessSupervisor:
             )
             try:
                 win32job.AssignProcessToJobObject(job, process_handle)
+                verified = _readback(job, process_handle)
             finally:
                 process_handle.Close()
+            managed = SupervisedProcess(spec.managed_process_id, spec.execution_id, process, job)
+            managed.containment_evidence = {
+                "requested": {
+                    "memoryBytes": spec.memory_limit_bytes,
+                    "processes": spec.process_limit,
+                    "cpuPercent": spec.cpu_limit_percent,
+                    "killOnClose": True,
+                },
+                "applied": applied,
+                "verified": verified,
+            }
+            diagnostic_event(
+                "process.contained",
+                component="windows_job",
+                executionId=spec.execution_id,
+                managedProcessId=spec.managed_process_id,
+                pid=process.pid,
+                processCreationTime=psutil.Process(process.pid).create_time(),
+                **managed.containment_evidence,
+            )
+            if before_resume is not None:
+                before_resume(managed)
             _resume_root_thread(process.pid)
-            return SupervisedProcess(spec.managed_process_id, spec.execution_id, process, job)
-        except Exception:
+            diagnostic_event(
+                "process.resumed",
+                component="windows_job",
+                executionId=spec.execution_id,
+                managedProcessId=spec.managed_process_id,
+                pid=process.pid,
+            )
+            return managed
+        except Exception as error:
+            diagnostic_event(
+                "process.native.error",
+                component="windows_job",
+                error=error,
+                executionId=spec.execution_id,
+                managedProcessId=spec.managed_process_id,
+                pid=process.pid if process is not None else None,
+                phase="containment_or_resume",
+            )
             if process is not None:
                 with suppress(Exception):
                     win32job.TerminateJobObject(job, 1)
@@ -80,6 +144,17 @@ class WindowsJobObjectProcessSupervisor:
                     process.kill()
                 with suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=5)
+            if managed is not None and managed.native_capture is not None:
+                try:
+                    managed.native_capture.finish()
+                except Exception as cleanup_error:
+                    diagnostic_event(
+                        "native.cleanup.error",
+                        component="windows_job",
+                        error=cleanup_error,
+                        executionId=spec.execution_id,
+                        managedProcessId=spec.managed_process_id,
+                    )
             job.Close()
             raise
 
@@ -138,7 +213,7 @@ class WindowsJobObjectProcessSupervisor:
         process.released = True
 
 
-def _configure_job(job: Any, spec: ProcessLaunchSpec) -> None:
+def _configure_job(job: Any, spec: ProcessLaunchSpec) -> dict:
     import win32job
 
     info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
@@ -151,7 +226,38 @@ def _configure_job(job: Any, spec: ProcessLaunchSpec) -> None:
     basic["ActiveProcessLimit"] = spec.process_limit
     info["JobMemoryLimit"] = spec.memory_limit_bytes
     win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
-    _apply_cpu_rate(job, spec.cpu_limit_percent)
+    cpu_applied = _apply_cpu_rate(job, spec.cpu_limit_percent)
+    return {
+        "memoryProcessKillOnClose": True,
+        "cpu": cpu_applied,
+        "cpuWin32Error": 0 if cpu_applied else ctypes.get_last_error(),
+    }
+
+
+def _readback(job: Any, process_handle: Any) -> dict:
+    import win32job
+
+    info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
+    basic = info["BasicLimitInformation"]
+    cpu = _CpuRateControlInformation()
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.QueryInformationJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    ]
+    ok = kernel.QueryInformationJobObject(int(job), 15, ctypes.byref(cpu), ctypes.sizeof(cpu), None)
+    return {
+        "member": bool(win32job.IsProcessInJob(process_handle, job)),
+        "memoryBytes": int(info["JobMemoryLimit"]),
+        "processes": int(basic["ActiveProcessLimit"]),
+        "killOnClose": bool(basic["LimitFlags"] & win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE),
+        "cpuPercent": cpu.CpuRate / 100 if ok else None,
+        "cpuControlFlags": cpu.ControlFlags if ok else None,
+        "cpuWin32Error": 0 if ok else ctypes.get_last_error(),
+    }
 
 
 def _resume_root_thread(pid: int) -> None:

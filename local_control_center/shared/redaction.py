@@ -19,6 +19,8 @@ from urllib.parse import urlparse, urlunparse
 SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
 SECRET_VALUE_PATTERN = re.compile(
     r"("
+    r"\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|prompt|auth\.json)"
+    r"[\"']?\s*[:=]\s*[^\r\n]{1,16384}|"
     r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{8,}|"
     r"Bearer\s+[A-Za-z0-9._-]+|"
     r"ghp_[A-Za-z0-9_]{12,}|"

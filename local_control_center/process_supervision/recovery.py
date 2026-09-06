@@ -21,6 +21,7 @@ import psutil
 from local_control_center.evidence.artifacts import evidence_artifact_root
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.diagnostics import diagnostic_event
 from local_control_center.shared.serialization import json_dumps
 
 from .models import ProcessStats
@@ -57,6 +58,14 @@ def recover_managed_processes(db_path: Path) -> list[str]:
         if identity_alive(record.owner_pid, record.owner_create_time):
             continue
         if record.root_pid <= 0 or record.root_create_time <= 0:
+            diagnostic_event(
+                "recovery.identity.unknown",
+                component="recovery",
+                executionId=record.execution_id,
+                managedProcessId=record.managed_process_id,
+                outcome="BLOCKED",
+                causeStatus="UNKNOWN",
+            )
             # Native start resumes before the identity update. Zero is UNKNOWN, not absence.
             # Keep the active record/lease so job recovery cannot replay uncertain external effects.
             logging.getLogger(__name__).warning(
@@ -96,6 +105,16 @@ def recover_managed_processes(db_path: Path) -> list[str]:
             if record.resource_lease_id:
                 ResourceRepository(connection).release(record.resource_lease_id, reason="owner_crashed")
         recovered.append(record.managed_process_id)
+        diagnostic_event(
+            "recovery.closed",
+            component="recovery",
+            executionId=record.execution_id,
+            managedProcessId=record.managed_process_id,
+            resourceLeaseId=record.resource_lease_id,
+            pid=record.root_pid,
+            processCreationTime=record.root_create_time,
+            outcome="partial_evidence",
+        )
     from local_control_center.agents.runtime_registry import recover_codex_homes
 
     with closing(open_sqlite_connection(db_path)) as connection:

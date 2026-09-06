@@ -58,6 +58,8 @@ class SupervisedProcess:
     owns_resource_lease: bool = False
     captures: dict[str, Any] = field(default_factory=dict, repr=False)
     capture_failure: threading.Event = field(default_factory=threading.Event, repr=False)
+    containment_evidence: dict[str, Any] = field(default_factory=dict)
+    native_capture: Any = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

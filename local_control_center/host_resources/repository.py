@@ -233,6 +233,20 @@ class ResourceRepository:
         decision: ResourceAdmissionDecision,
     ) -> None:
         """Registra cada decisión sin persistir material sensible del proceso."""
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "resources.admission",
+            component="governor",
+            executionId=request.execution_id,
+            outcome=decision.status,
+            reason=decision.reason_code,
+            resourceLeaseId=decision.lease.id if decision.lease else None,
+            sample={
+                "hostAvailableMemoryBytes": decision.snapshot.available_memory_bytes,
+                "hostCpuPercent1s": decision.snapshot.cpu_percent_1s,
+            },
+        )
         self.connection.execute(
             """
             INSERT INTO resource_admission_decisions
@@ -277,6 +291,17 @@ class ResourceRepository:
 
     def record_sample(self, snapshot: ResourceSnapshot) -> ResourceUsageSample:
         """Record one bounded host-capacity sample."""
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "host.sample",
+            component="governor",
+            sample={
+                "hostAvailableMemoryBytes": snapshot.available_memory_bytes,
+                "hostCpuPercent1s": snapshot.cpu_percent_1s,
+                "hostCpuPercent30s": snapshot.cpu_percent_30s,
+            },
+        )
         sample_id = f"resource-sample-{uuid.uuid4()}"
         self.connection.execute(
             "INSERT INTO resource_usage_samples (id, sampled_at, snapshot_json) VALUES (?, ?, ?)",

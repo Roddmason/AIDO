@@ -141,10 +141,17 @@ class ConcurrentWorker:
                             connection=connection,
                             worker_id=worker_id,
                             fencing_token=fencing_token,
+                            request_id=claimed["job"]["payload"]
+                            .get("diagnosticContext", {})
+                            .get("requestId"),
+                            attempt_id=claimed["run"]["id"],
                         )
                     ),
                 ):
                     try:
+                        from local_control_center.shared.diagnostics import diagnostic_event
+
+                        diagnostic_event("worker.claimed", component="worker")
                         execution = execute_job(
                             claimed["job"],
                             connection=connection,

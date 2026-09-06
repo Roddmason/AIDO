@@ -59,6 +59,7 @@ class TelemetryStatusResponse(BaseModel):
     """Respuesta de estado de telemetría: envuelve el estado del exportador externo."""
 
     external_exporter: ExternalTelemetryStatus = Field(alias="externalExporter")
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class SqliteDiagnosticsResponse(BaseModel):

@@ -1,5 +1,9 @@
 # Aceptación operacional P0 — 2026-09-05
 
+**Estado vigente: §14.9 — diagnóstico estructurado, 2026-09-06.** Instrumentación y captura
+sintética verificadas; smoke real y captura real FAIL. Causa del stack overflow histórico UNKNOWN.
+Las tablas anteriores se conservan como historia, no como aceptación del candidato actual.
+
 **Resultado global: BLOCKED.** Las regresiones locales indicadas pasan; no se certificó el ciclo
 con Codex y Claude reales. La nueva copia reparada pasa integridad relacional, pero el smoke
 operacional falló y la política histórica sigue sin resolver. La base original no fue reparada.
@@ -1208,3 +1212,162 @@ requeridos **34.359.738.368 / 32 GiB** (job 16 + reserva host 16), déficit
 Es admisión, no memoria del crash. Preview exit 0 **no** es un gate ejecutado/exit 75 nuevo.
 Instalación frontend nueva, typecheck/build aislados y PR/release siguen sin validarse; no se
 bajaron umbrales, cerraron aplicaciones ajenas ni reconstruyeron entornos activos.
+
+### 14.9 Diagnóstico estructurado y captura acotada — 2026-09-06
+
+Entrada exacta `464bca8508d1a9e6e7daa9158933b6bec05867c2`, misma rama
+`codex/aido-cleanup-post-p0`, sin cambios ajenos encontrados. Commits propios:
+`a294c901da0590126c7cb15f9f9545fd915d0c5c` (instrumentación, integración y pruebas) y
+`01a5f207a083bd9db2b019428f5a3a48a1b305c8` (clasificación del colector sin dump).
+`N/diagnostics-final-traceability.json` vincula HEAD final, contenido productivo, fuentes,
+configuración, lockfiles, versiones y hashes de evidencia. El smoke se ejecutó sobre `a294c901`;
+la corrección posterior tiene regresión sin inferencia, no otro smoke real.
+
+| Área | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Instrumentación común | PASS | JSONL v1, correlación HTTP/worker/dispatcher/supervisor, errores causales y exportación local probados en Windows. Alcance concreto debajo; no diagnóstico automático universal. |
+| Captura sintética Windows | PASS | ProcDump antes de resume, PID/creation time, un minidump válido, CDB exit 0 e identificación de `RaiseFailFastException`; sólo proceso sintético sin red/auth. |
+| Smoke Codex 0.153.4 | FAIL | `job-4815897c-2a27-42e4-b16b-eaf507681349`; exit nativo `3221226505 / 0xC0000409`; fallo de asignación de 4 MiB. No reproduce de forma demostrada el `0xC00000FD` histórico. |
+| Captura real | FAIL | Colector preparado y asociado; intentó el dump, falló con `0x800707D1`, cero dumps. Pila y coincidencia de símbolos reales NOT_RUN. |
+| Cierre de procesos/recursos/auth | PASS | API 200; workspace íntegro; cero identidades propias activas, cero reservas y ningún home temporal presente al cierre. |
+| PR completo | BLOCKED | Preview vigente: 30,688 GiB disponibles, 32 GiB requeridos, déficit 1,312 GiB / 1.409.163.264 bytes, cero reservas activas; `aggregate_memory_budget`. |
+| Release / instalación frontend nueva | NOT_RUN | PR no admitido. Typecheck activo no certifica instalación nueva ni retiro de dependencias. |
+| Linux / macOS | NOT_RUN | Imports nativos condicionales; tests ejecutados en Windows, no certificación POSIX por mocks. No backend cgroups/macOS nuevo. |
+| Unreal / adopción original | NOT_RUN | Escenarios separados, sin editor abierto/controlado ni datos operativos adoptados. |
+
+**Instrumentación realmente añadida.** Extensión del logging estándar y de telemetría/EventBus,
+no un logger por ejecución ni otra DB/daemon. Identificadores se transmiten por payload de job y se
+restauran explícitamente en worker, dispatcher OS y watchdog. Se registran fronteras de aprobación,
+admisión, liderazgo, eventos de etapas ya emitidos por Product Loop, proceso, salida, recuperación y
+smoke; no se ejecutaron planificación, implementación ni Claude. UI envía sólo señal fija y correlation
+ID, sin error/formulario. Las excepciones conservan cadena, tipo, mensaje redactado, frames sin
+locals y códigos SQLite/Win32; el canal de error no consulta la conexión fallida. Se conserva la
+auditoría durable con sus bloqueos; el JSONL no concede aprobación ni reemplaza esa auditoría.
+
+Límites: INFO normal, DEBUG por intento con expiración máxima 900 s, evento 8 KiB, cola
+1.024 eventos **y** 4 MiB, segmento 4 MiB, presupuesto agregado 256 MiB por directorio configurado
+(por defecto `%LOCALAPPDATA%/AIDO/diagnostics`, compartido por los procesos). Escritor por proceso,
+lock de presupuesto interproceso no bloqueante, cierre acotado; `diagnosticsDegraded`, `droppedEvents`
+y motivo consultables en `/api/v1/telemetry/status` para ese proceso y en el siguiente evento grabado.
+La rotación sólo retira segmentos diagnósticos cerrados sin protección `.keep`; nunca dumps,
+backups o evidencia P0. Segmentos activos/huérfanos no se eliminan automáticamente: pueden agotar
+el presupuesto y degradar el canal. Si disco y proceso fallan juntos, los contadores sólo en RAM
+pueden perderse; no se promete durabilidad de diagnósticos ni visibilidad global de otros procesos.
+Raíces de tests aisladas no comparten el presupuesto del directorio operacional.
+
+Redacción anterior a cola/escritura/exportación, incluida salida UTF-16 del colector. Regresión
+demostró y corrigió cabeceras Basic, prompts etiquetados y tokens JSON en stderr/excepciones.
+La exportación no sigue `evidenceRefs` ni copia stdout, stderr, auth, dumps o artefactos binarios.
+La redacción por patrones no demuestra que un minidump esté sanitizado. No se habilitó exportación
+remota. El pequeño test de coste (300 eventos, sin saturación) midió mediana **105,05 µs**, P95
+**317,6 µs**, máximo **441,1 µs**, 83.892 bytes y cero descartes; delta RSS -24.576 bytes,
+que no demuestra ahorro. `N/diagnostics-logging-cost.json`; no es un SLA ni coste total de AIDO.
+
+**Herramientas y contrato.** ProcDump 12.01 x64 oficial, firma Microsoft válida, SHA
+`d1fc99ae304bd1d2bf28abeb62531da959e2431916194981b88c958fd713a8e6`;
+licencia aceptada explícitamente por el propietario. CDB oficial portátil 10.0.29617.1000,
+firma Microsoft válida, SHA `5f54abafca3ae5638bbf807d402fabb350a64575c1dfa9fbfc7f5732df5bee67`.
+Se extrajo la distribución del [instalador oficial WinDbg](https://aka.ms/windbg/download),
+sin instalar el MSIX globalmente.
+Herramientas bajo `%LOCALAPPDATA%/AIDO/diagnostic-tools`, sin PATH, servicio, WER/AeDebug global
+ni cambios de pila/heap/sandbox. Sí se registró la aceptación normal de licencia de ProcDump.
+PDB oficial 0.153.4 preparado desde archivo SHA
+`4845abdc77a5486d7377e98b4e93c37fb1e1d98bb721de43cd05ff114c701929`; no hay dump real sobre el
+cual demostrar coincidencia de símbolos. [ProcDump oficial](https://learn.microsoft.com/en-us/sysinternals/downloads/procdump).
+
+Se verificó `RUST_LOG` en [el código oficial de exec 0.153.4](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/exec/src/lib.rs):
+`exec_stderr_env_filter` usa el filtro del entorno y el formatter escribe a stderr. Sólo el entorno
+aislado del intento recibe `error,codex_exec=info`; la variable no se pierde en el aislador.
+Esto no promete pila nativa. Probes de versión/help/auth exit 0, sesión ChatGPT nativa; modelo
+solicitado `gpt-5.6-terra`, sin override de esfuerzo como en la comparación anterior. Modelo servido,
+esfuerzo efectivo y consumo UNKNOWN. No API key, extra usage, fallback ni reintento.
+
+**Prueba real y hechos diferenciados.** Autorización delegada registrada por AIDO y aprobación
+normal `audit-0b476811-c9fd-4f87-9e25-4f3a76a5bcf0`. Se usó el segundo y último lanzamiento del
+permiso acumulado; **restantes: 0**. DB y repositorio nuevos, sin remotos/secretos, ruta HTTP →
+worker → dispatcher → ToolBroker/supervisor. CLI `managed-process-1dc9d157-ba45-4158-9721-b53f1ed5efd6`,
+PID **52916**, creation time **1788720256.789972**; binario SHA
+`444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b`, contrato SHA
+`841ca30b70c58365b8b9a78523422255577b5abbad1fa67f345e3e1b3ca0af7e`.
+Request ID `p0-native-capture-final`; IDs restantes, argv fingerprint, muestras y artefactos en
+`N/diagnostics-native-smoke.json` y `N/diagnostics-native-observation.json`.
+
+Hecho: stdout vacío; stderr **120 bytes**, SHA
+`63a3eb5ba6ead96e0c1486dc04d8ec858a75d87adb2deac699187b9b073bcd1d`, informa
+`memory allocation of 4194304 bytes failed`. No es consumo cero ni la misma evidencia de stack
+overflow de §14.8. Dispatcher exit 0 y operación completed/200, pero contrato smoke failed.
+La API sobrevivió; 72 consultas con mediana 14,195 ms y máximo 180,54 ms **con debugger**,
+sin certificación de rendimiento. Los BUSY transitorios registrados se recuperaron; no prueban
+la causa del fallo nativo. `N/diagnostics-native-smoke-intent.json` impide replay del intento incierto.
+
+Límites solicitados/aplicados/readback se conservaron antes de cerrar handles, con membresía y
+CPU flags=5, setters exitosos/Win32=0. Jerarquía AIDO observada:
+
+```text
+worker control_plane 2 GiB / CPU 20%
+└─ dispatcher agent_cli 8 GiB / CPU 40%
+   ├─ Codex agent_cli 8 GiB / CPU 40%
+   └─ ProcDump qa_light 4 GiB / CPU 25%
+```
+
+No se presenta 8 GiB/40% como límite efectivo independiente del CLI: los límites de commit se
+heredan y los porcentajes CPU anidados son relativos al padre. Para esta cadena AIDO, el producto
+de tasas del CLI es 3,2% respecto del nivel exterior; no es CPU medida ni descarta otros ancestros.
+[Semántica de Jobs anidados](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs),
+[CPU rate anidado](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information).
+Peak reportado del worker **2.281.967.616 bytes**, dispatcher **2.226.565.120**, CLI **10.706.944**;
+no se suman padres y descendientes. El peak del worker supera su readback 2 GiB: esa discrepancia
+de contabilidad y el rechazo de asignación quedan sin reconciliar. Hipótesis de presión por límites
+anidados, **no causa demostrada**, tampoco demostración de falta de RAM física del host.
+
+ProcDump estaba asociado antes de resume y detectó `0xC0000409`, pero reportó target ya terminado
+y error de escritura **0x800707D1** (Win32 2001); cero dumps, ninguna pila/frames reales inventados.
+El nombre [ERROR_BAD_DRIVER](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1700-3999-)
+no identifica por sí solo un driver culpable. Directorio privado `SENSITIVE_NATIVE`, ACL usuario
+efectivo/SYSTEM, espacio libre previo **83.773.829.120 bytes**; guard de 1 GiB, no reserva de disco
+exclusiva. El colector tiene lease propia qa_light; no se truncó un dump ni se publicó evidencia.
+El helper de análisis salió 1 por falta de dump antes de lanzar CDB: análisis real NOT_RUN.
+
+Defecto demostrado y corregido después: monitor intentado sin dump no debe registrarse NOT_RUN.
+`01a5f207` conserva exit/HRESULT y registra FAIL; receipt histórico con etiqueta incorrecta sigue
+intacto y se explica en `diagnostics-native-observation.json`. También se observó ProcDump exit 1
+con dump sintético íntegro: ni exit 0 solo ni exit 1 solo sustituyen validación del artefacto.
+La captura sintética/CDB PASS está separada de la real FAIL. Copia retenida del fixture fuera de
+la limpieza de pytest, SHA `a29656c88ca1d5590735df5e2d1a5d5b7afb140f71ad8783013b420907440bde`.
+
+**Regresiones y comandos.** `F/quality-fast-437d143038364ef983e33ea0966f341c.json`: 254+3 PASS,
+exit 0; conservó warning de teardown `StaleWorkerFenceError`. Se corrigió sólo sincronización
+del fixture, sin revocar liderazgo mientras el run cerraba; `F/quality-fast-93ee1f8bcf5d4c4cae7a151d2c2eb9a9.json`:
+16+3 PASS, exit 0, sin ese warning. Última regresión del código productivo final:
+`F/quality-fast-21cde9bcc0bf4d4e8f8c9ed0ab484ead.json`, **64+3 PASS**, exit 0, typecheck y
+gitleaks de cambios/rama aprobados. Quedan los tres DeprecationWarning SWIG preexistentes,
+sin ocultarlos. Formato/Biome procesaron los archivos seleccionados; OpenAPI check exit 0,
+`N/diagnostics-contract-checks.json`. UI navegador real NOT_RUN; endpoint probado con TestClient.
+
+```powershell
+uv run python -m local_control_center.quality --tier fast --base 464bca8508d1a9e6e7daa9158933b6bec05867c2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_native_diagnostics.py --python-test tests_py/test_structured_diagnostics.py --python-test tests_py/test_codex_smoke_policy_seam.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_watchdog_contention.py --python-test tests_py/test_watchdog_http_pipeline.py
+```
+
+Las pruebas nativas opt-in usaron `AIDO_TEST_PROCDUMP` y `AIDO_TEST_CDB` apuntando a las rutas
+portátiles indicadas; sin esas variables se conserva SKIP, nunca certificación del OS.
+CLI **implementado y ejecutado**, recibos en `N/diagnostics-cli-commands.json`, consulta/exportación
+exit 0. La activación siguiente es el comando histórico usado, no una invitación a repetir el smoke:
+
+```powershell
+uv run python -m local_control_center.diagnostics enable --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349 --ttl-seconds 900 --native-collector C:/Users/Rodd/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe --executable-sha256 444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b
+uv run python -m local_control_center.diagnostics incident --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349
+uv run python -m local_control_center.diagnostics export --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349 --output .tmp/operational-hardening-p0/authorized-close/diagnostics-sanitized.zip
+uv run python -m local_control_center.diagnostics capabilities
+```
+
+Activar sólo configura diagnóstico; no aprueba ni ejecuta trabajo. Activación y ZIP son exclusivos,
+por lo que repetir rutas existentes se rechaza. El paquete local contiene sólo eventos redactados
+y manifiesto, no dumps. No se envió al proveedor; se amplió el único reporte local existente.
+
+**Bloqueos precisos:** causa interna del stack overflow histórico UNKNOWN; captura real FAIL,
+sin contexto de excepción/pila para análisis; presupuesto de inferencia agotado. Un nuevo intento
+real requiere nueva autorización explícita, después de discriminar sin inferencia el rechazo de
+memoria y el fallo de escritura del colector. No hay login/licencia pendiente ni motivo para otra
+actualización global. PR sigue BLOCKED por admisión (preview exit 0, no un PR ejecutado/exit 75).
+Selección original consultada en modo read-only sigue apuntando a Codex 0.149.0; hash intacto.
+No se modificó/adoptó la DB original ni se hizo push, merge, publicación o control de Unreal.

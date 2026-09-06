@@ -462,7 +462,7 @@ export type TeamActivityEntry = { "agentId": string; "agentName": string; "block
 export type TeamActivityResponse = { "activeCount": number; "blockedCount": number; "entries"?: Array<TeamActivityEntry>; "generatedAt": string; "projectId": string; "totalCount": number; "truncated": boolean };
 export type TeamRecord = { "capabilities": Array<JsonValue>; "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "projectId": string; "updatedAt": string; "version": string };
 export type TeamsListResponse = { "teams": Array<TeamRecord> };
-export type TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus };
+export type TelemetryStatusResponse = { "diagnostics"?: JsonObject; "externalExporter": ExternalTelemetryStatus };
 export type TestPromptRecord = { "error"?: null | string; "latencyMs": number; "model": string; "ok": boolean; "providerId": string; "sample"?: string; "totalTokens"?: null | number; "usageSource"?: string };
 export type TestPromptRequest = { "model"?: null | string };
 export type TestPromptResponse = { "test": TestPromptRecord };
@@ -772,6 +772,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "sync_skills_api_v1_skills_sync_post", "path": "/api/v1/skills/sync", "summary": "Sync Skills"},
 	{"method": "GET", "operationId": "teams_api_v1_teams_get", "path": "/api/v1/teams", "summary": "Teams"},
 	{"method": "GET", "operationId": "telemetry_status_api_v1_telemetry_status_get", "path": "/api/v1/telemetry/status", "summary": "Telemetry Status"},
+	{"method": "POST", "operationId": "ui_error_api_v1_telemetry_ui_error_post", "path": "/api/v1/telemetry/ui-error", "summary": "Ui Error"},
 	{"method": "GET", "operationId": "list_threads_api_v1_threads_get", "path": "/api/v1/threads", "summary": "List Threads"},
 	{"method": "POST", "operationId": "create_thread_api_v1_threads_post", "path": "/api/v1/threads", "summary": "Create Thread"},
 	{"method": "GET", "operationId": "find_similar_threads_api_v1_threads_similar_get", "path": "/api/v1/threads/similar", "summary": "Find Similar Threads"},
@@ -1068,6 +1069,7 @@ export type OperationRequestBodies = {
 	"thread_events_api_v1_threads__thread_id__events_get": never,
 	"thread_memory_api_v1_threads__thread_id__memory_get": never,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopTransitionRequest,
+	"ui_error_api_v1_telemetry_ui_error_post": unknown,
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": ThreadArchiveRequest,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepUpdateRequest,
 	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
@@ -1330,6 +1332,7 @@ export type OperationResponseBodies = {
 	"thread_events_api_v1_threads__thread_id__events_get": ThreadEventsResponse,
 	"thread_memory_api_v1_threads__thread_id__memory_get": ThreadMemoryRecallResponse,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
+	"ui_error_api_v1_telemetry_ui_error_post": Record<string, string>,
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": ThreadArchiveResponse,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
@@ -1596,6 +1599,7 @@ export type OperationResultBodies = {
 	"thread_events_api_v1_threads__thread_id__events_get": ThreadEventsResponse,
 	"thread_memory_api_v1_threads__thread_id__memory_get": ThreadMemoryRecallResponse,
 	"transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post": ProductLoopResumeResponse,
+	"ui_error_api_v1_telemetry_ui_error_post": Record<string, string>,
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": ThreadArchiveResponse,
 	"update_next_step_api_v1_next_steps__step_id__patch": NextStepResponse,
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
@@ -1834,6 +1838,7 @@ export const OPERATIONS_BY_ID = {
 	"sync_skills_api_v1_skills_sync_post": {"method": "POST", "operationId": "sync_skills_api_v1_skills_sync_post", "path": "/api/v1/skills/sync", "summary": "Sync Skills"},
 	"teams_api_v1_teams_get": {"method": "GET", "operationId": "teams_api_v1_teams_get", "path": "/api/v1/teams", "summary": "Teams"},
 	"telemetry_status_api_v1_telemetry_status_get": {"method": "GET", "operationId": "telemetry_status_api_v1_telemetry_status_get", "path": "/api/v1/telemetry/status", "summary": "Telemetry Status"},
+	"ui_error_api_v1_telemetry_ui_error_post": {"method": "POST", "operationId": "ui_error_api_v1_telemetry_ui_error_post", "path": "/api/v1/telemetry/ui-error", "summary": "Ui Error"},
 	"list_threads_api_v1_threads_get": {"method": "GET", "operationId": "list_threads_api_v1_threads_get", "path": "/api/v1/threads", "summary": "List Threads"},
 	"create_thread_api_v1_threads_post": {"method": "POST", "operationId": "create_thread_api_v1_threads_post", "path": "/api/v1/threads", "summary": "Create Thread"},
 	"find_similar_threads_api_v1_threads_similar_get": {"method": "GET", "operationId": "find_similar_threads_api_v1_threads_similar_get", "path": "/api/v1/threads/similar", "summary": "Find Similar Threads"},

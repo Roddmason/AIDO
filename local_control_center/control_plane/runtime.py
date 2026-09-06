@@ -34,6 +34,18 @@ class ControlCenterRuntime:
     """
 
     def __init__(self, cwd: str | Path | None = None, db_path: str | Path | None = None):
+        from local_control_center.shared.diagnostics import diagnostic_event, ensure_diagnostics
+
+        ensure_diagnostics()
+        diagnostic_event(
+            "runtime.startup",
+            component="control_plane",
+            effectiveConfig={
+                "sqliteVersion": sqlite3.sqlite_version,
+                "diagnostics": "local_jsonl",
+                "remoteExportEnabledByDiagnostics": False,
+            },
+        )
         self.cwd = Path(cwd) if cwd is not None else default_cwd()
         self.db_path = Path(db_path) if db_path is not None else default_db_path()
         self._connection: sqlite3.Connection | None = None

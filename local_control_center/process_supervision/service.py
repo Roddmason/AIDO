@@ -32,13 +32,14 @@ from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.profiles import workload_profile
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.shared.db import immediate_transaction, open_sqlite_connection
+from local_control_center.shared.diagnostics import diagnostic_event, ensure_diagnostics
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.settings import default_db_path
 
 from .base import ProcessSupervisor
 from .capture import ArtifactCapture, CapturedReader
-from .context import CURRENT_EXECUTION, assert_external_boundary
+from .context import CURRENT_EXECUTION, ProcessExecutionContext, assert_external_boundary, execution_scope
 from .models import ManagedProcessRecord, ProcessLaunchSpec, ProcessStats, SupervisedProcess
 from .posix import PosixProcessGroupSupervisor
 from .repository import ManagedProcessRepository, process_create_time
@@ -48,6 +49,13 @@ _ACTIVE: dict[str, tuple[ProcessSupervisorService, SupervisedProcess]] = {}
 _PROCESS_IDS: dict[int, str] = {}
 _LOGGER = logging.getLogger(__name__)
 _CONTROL_BUSY_WINDOW_SECONDS = 2.0
+
+
+def _resolved_process_executable(pid: int) -> str | None:
+    try:
+        return psutil.Process(pid).exe()
+    except psutil.Error:
+        return None  # Missing identity remains UNKNOWN, never evidence of no spawn.
 
 
 class ExecutionCancelled(RuntimeError):
@@ -115,6 +123,7 @@ class ProcessSupervisorService:
         resource_snapshot: ResourceSnapshot | None = None,
         cleanup_only: bool = False,
     ) -> None:
+        ensure_diagnostics()
         self.context = CURRENT_EXECUTION.get()
         self.db_path = (
             Path(db_path)
@@ -140,6 +149,7 @@ class ProcessSupervisorService:
     ) -> SupervisedProcess:
         """Registra y lanza un árbol con límites derivados del perfil de carga."""
         assert_external_boundary()
+        capture_encoding = popen_kwargs.pop("capture_encoding", "utf-8")
         if self.cleanup_only:
             valid_cleanup = (
                 len(argv) == 4
@@ -219,6 +229,30 @@ class ProcessSupervisorService:
         managed = None
         reserved = False
         phase = "native_root_reserve"
+        diagnostic_event(
+            "process.requested",
+            component="supervisor",
+            context=self.context,
+            executionId=execution_id,
+            managedProcessId=managed_process_id,
+            resourceLeaseId=lease.id,
+            executableRequested=argv[0],
+            commandFingerprint=spec.command_fingerprint,
+            stdinMode="devnull"
+            if popen_kwargs.get("stdin") == subprocess.DEVNULL
+            else "pipe"
+            if popen_kwargs.get("stdin") == subprocess.PIPE
+            else "inherited",
+            stdinEof=True if popen_kwargs.get("stdin") == subprocess.DEVNULL else None,
+            stdoutMode="pipe" if popen_kwargs.get("stdout") == subprocess.PIPE else "other",
+            stderrMode="pipe" if popen_kwargs.get("stderr") == subprocess.PIPE else "other",
+            encoding=popen_kwargs.get("encoding") or "binary/utf-8-replace",
+            requested={
+                "memoryBytes": spec.memory_limit_bytes,
+                "cpuPercent": spec.cpu_limit_percent,
+                "processes": spec.process_limit,
+            },
+        )
         try:
             self._reserve_native_root(spec, lease.id)
             reserved = True
@@ -230,7 +264,41 @@ class ProcessSupervisorService:
                 environment["AIDO_QUALITY_DB_PATH"] = str(self.db_path.resolve())
                 popen_kwargs["env"] = environment
             phase = "native_start"
+            if os.name == "nt":
+                from local_control_center.shared.diagnostics import attempt_options, diagnostic_root
+
+                from .native_diagnostics import NativeCapture, file_sha256
+
+                options = attempt_options(diagnostic_root(), execution_id)
+                if (
+                    options.get("enabled")
+                    and options.get("nativeCollector")
+                    and Path(argv[0]).is_file()
+                    and file_sha256(Path(argv[0])) == options.get("executableSha256")
+                ):
+
+                    def prepare_capture(target):
+                        target.native_capture = NativeCapture(
+                            managed=target,
+                            options=options,
+                            db_path=self.db_path,
+                            context=self.context,
+                            root=diagnostic_root(),
+                        )
+
+                    popen_kwargs["before_resume"] = prepare_capture
             managed = self.backend.start(spec, popen_factory=self.popen_factory, **popen_kwargs)
+            diagnostic_event(
+                "process.created",
+                component="supervisor",
+                context=self.context,
+                executionId=execution_id,
+                managedProcessId=managed_process_id,
+                resourceLeaseId=lease.id,
+                pid=managed.process.pid,
+                processCreationTime=process_create_time(managed.process.pid),
+                executableResolved=_resolved_process_executable(managed.process.pid),
+            )
             managed.resource_lease_id = lease.id
             managed.owns_resource_lease = inherited_id is None
             phase = "identity_persist"
@@ -244,11 +312,22 @@ class ProcessSupervisorService:
             for stream_name in ("stdout", "stderr"):
                 stream = getattr(managed.process, stream_name, None)
                 if stream is not None:
-                    capture = ArtifactCapture(self.db_path.parent, stream_name, managed.capture_failure)
+                    capture = ArtifactCapture(
+                        self.db_path.parent, stream_name, managed.capture_failure, encoding=capture_encoding
+                    )
                     managed.captures[stream_name] = capture
                     setattr(managed.process, stream_name, CapturedReader(stream, capture))
             self._register_captures(managed)
         except Exception as error:
+            diagnostic_event(
+                "process.launch.error",
+                component="supervisor",
+                context=self.context,
+                executionId=execution_id,
+                managedProcessId=managed_process_id,
+                phase=phase,
+                error=error,
+            )
             if managed is not None:
                 self._log_control_error(managed, error, phase, "stop_launch")
             if reserved and managed is None:
@@ -266,6 +345,17 @@ class ProcessSupervisorService:
                         if repository.get(managed.managed_process_id):
                             repository.finish(managed.managed_process_id, stats=stats)
                 finally:
+                    if managed.native_capture is not None:
+                        try:
+                            managed.native_capture.finish()
+                        except Exception as cleanup_error:
+                            diagnostic_event(
+                                "native.cleanup.error",
+                                component="supervisor",
+                                error=cleanup_error,
+                                executionId=managed.execution_id,
+                                managedProcessId=managed.managed_process_id,
+                            )
                     self.backend.release(managed)
                     for capture in managed.captures.values():
                         with suppress(OSError):
@@ -318,6 +408,38 @@ class ProcessSupervisorService:
                 stats.termination_reason = stats.termination_reason or termination_reason
                 managed.terminal_stats = stats
                 artifact_ids = self._finish_captures(managed)
+                if managed.native_capture is not None:
+                    try:
+                        managed.native_capture.finish()
+                        if managed.native_capture.receipt.get("exceptionCode"):
+                            stats.termination_reason = "native_exception_captured"
+                    except Exception as capture_error:
+                        stats.termination_reason = "native_capture_failed"
+                        diagnostic_event(
+                            "native.capture.error",
+                            component="supervisor",
+                            error=capture_error,
+                            executionId=managed.execution_id,
+                            managedProcessId=managed.managed_process_id,
+                        )
+                diagnostic_event(
+                    "process.closed",
+                    component="supervisor",
+                    context=self.context,
+                    executionId=managed.execution_id,
+                    managedProcessId=managed.managed_process_id,
+                    resourceLeaseId=managed.resource_lease_id,
+                    pid=managed.process.pid,
+                    outcome="process_exit",
+                    errorCode=stats.exit_code,
+                    reason=stats.termination_reason,
+                    sample={
+                        "treePeakCommittedBytes": stats.peak_memory_bytes,
+                        "treeCpuSeconds": stats.cpu_time_seconds,
+                        "remainingDescendants": stats.remaining_descendant_count,
+                    },
+                    evidenceRefs=list(artifact_ids.values()),
+                )
                 with closing(open_sqlite_connection(self.db_path)) as connection:
                     record = ManagedProcessRepository(connection).finish(
                         managed.managed_process_id,
@@ -422,11 +544,22 @@ class ProcessSupervisorService:
         return stopped
 
     def _watch_controls(self, managed: SupervisedProcess) -> None:
+        # Thread targets do not inherit ContextVar. Restore the captured immutable identity explicitly.
+        with execution_scope(
+            self.context or ProcessExecutionContext(db_path=self.db_path, execution_id=managed.execution_id)
+        ):
+            self._watch_control_loop(managed)
+
+    def _watch_control_loop(self, managed: SupervisedProcess) -> None:
         next_heartbeat = time.monotonic() + 5
         next_memory_check = 0.0
         busy_since = None
+        attempt = 0
         while not managed.stop_watcher.wait(0.2):
             phase = "connection_open"
+            attempt += 1
+            started = time.monotonic()
+            connection = None
             try:
                 with closing(open_sqlite_connection(self.db_path, busy_timeout_ms=250)) as connection:
                     phase = "authority_read"
@@ -489,6 +622,22 @@ class ProcessSupervisorService:
                         return
                 busy_since = None
             except Exception as error:
+                diagnostic_event(
+                    "watchdog.operation.error",
+                    component="watchdog",
+                    error=error,
+                    executionId=managed.execution_id,
+                    managedProcessId=managed.managed_process_id,
+                    operation=phase,
+                    connectionId=f"conn-{id(connection):x}" if connection else None,
+                    attempt=attempt,
+                    durationMs=(time.monotonic() - started) * 1000,
+                    deadlineRemainingMs=max(
+                        0, (_CONTROL_BUSY_WINDOW_SECONDS - (time.monotonic() - busy_since)) * 1000
+                    )
+                    if busy_since is not None
+                    else None,
+                )
                 recoverable = (
                     phase == "lease_heartbeat"
                     and isinstance(error, sqlite3.OperationalError)
@@ -516,6 +665,19 @@ class ProcessSupervisorService:
     def _log_control_error(self, managed, error, phase, action) -> None:
         from local_control_center.shared.redaction import redact_secrets
 
+        diagnostic_event(
+            "watchdog.error",
+            component="watchdog",
+            context=self.context,
+            level="WARNING",
+            error=error,
+            phase=phase,
+            outcome=action,
+            executionId=managed.execution_id,
+            managedProcessId=managed.managed_process_id,
+            resourceLeaseId=managed.resource_lease_id,
+        )
+
         _LOGGER.warning(
             "process_control_watch_error phase=%s action=%s error_type=%s error=%s "
             "sqlite_error_code=%s sqlite_error_name=%s managed_process_id=%s execution_id=%s "
@@ -535,6 +697,18 @@ class ProcessSupervisorService:
 
     @staticmethod
     def _record_live_metrics(connection: Any, managed: SupervisedProcess, stats: ProcessStats) -> None:
+        diagnostic_event(
+            "process.sample",
+            component="supervisor",
+            executionId=managed.execution_id,
+            managedProcessId=managed.managed_process_id,
+            resourceLeaseId=managed.resource_lease_id,
+            sample={
+                "treePeakCommittedBytes": stats.peak_memory_bytes,
+                "treeCpuSeconds": stats.cpu_time_seconds,
+                "remainingDescendants": stats.remaining_descendant_count,
+            },
+        )
         # Telemetry is best-effort. Leadership/cancel/lease reads above remain fail-closed.
         connection.execute("PRAGMA busy_timeout = 0")
         try:
@@ -581,6 +755,18 @@ class ProcessSupervisorService:
         ids: dict[str, str] = {}
         for stream, capture in managed.captures.items():
             artifact = capture.finish()
+            diagnostic_event(
+                "process.output.closed",
+                component="supervisor",
+                context=self.context,
+                executionId=managed.execution_id,
+                managedProcessId=managed.managed_process_id,
+                stream=stream,
+                totalBytes=artifact["totalBytes"],
+                sizeBytes=artifact["sizeBytes"],
+                truncated=artifact["truncated"],
+                evidenceRefs=[artifact["artifactId"]],
+            )
             with closing(open_sqlite_connection(self.db_path)) as connection:
                 if not connection.execute("SELECT 1 FROM artifacts WHERE id = ?", (capture.id,)).fetchone():
                     EvidenceRepository(connection).create_artifact(

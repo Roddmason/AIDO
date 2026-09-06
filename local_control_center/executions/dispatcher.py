@@ -27,6 +27,9 @@ def dispatch_execution(job: dict, *, connection, db_path):
     execution_id = job["id"]
     current = repository.get(execution_id)
     if current["status"] not in TERMINAL_STATUSES:
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event("dispatcher.started", component="dispatcher")
         result = run_supervised_capture(
             [
                 sys.executable,

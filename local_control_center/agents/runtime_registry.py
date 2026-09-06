@@ -133,6 +133,7 @@ PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS = frozenset(
     }
 )
 PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS = PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS | {
+    "RUST_LOG",
     "CODEX_HOME",
     "OPENAI_API_KEY",
     "OPENAI_ORG_ID",
@@ -170,6 +171,12 @@ def _product_owner_codex_environment(runtime_home: Path, *, native_auth_copied: 
         if (value := os.environ.get(key)) is not None
     }
     environment["CODEX_HOME"] = str(runtime_home)
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+    from local_control_center.shared.diagnostics import RUST_LOG_FILTER
+
+    context = CURRENT_EXECUTION.get()
+    if context and context.diagnostics_expires_at > time.time():
+        environment["RUST_LOG"] = RUST_LOG_FILTER
     if not native_auth_copied:
         for key in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
             value = os.environ.get(key)
@@ -191,6 +198,17 @@ def validate_product_owner_codex_environment(
         return error
     if not set(environment).issubset(PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS):
         return error
+    if "RUST_LOG" in environment:
+        from local_control_center.process_supervision.context import CURRENT_EXECUTION
+        from local_control_center.shared.diagnostics import RUST_LOG_FILTER
+
+        context = CURRENT_EXECUTION.get()
+        if (
+            not context
+            or context.diagnostics_expires_at <= time.time()
+            or environment["RUST_LOG"] != RUST_LOG_FILTER
+        ):
+            return error
 
     codex_home_value = environment.get("CODEX_HOME")
     if not codex_home_value:

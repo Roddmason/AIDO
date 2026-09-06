@@ -119,6 +119,16 @@ def _record_http_request_without_blocking(
             correlation_id=correlation_id,
         )
     except sqlite3.Error as error:
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "sqlite.http_telemetry.error",
+            component="http",
+            requestId=correlation_id,
+            error=error,
+            operation="http_telemetry",
+            connectionId=f"conn-{id(connection):x}",
+        )
         logger.warning(
             "HTTP telemetry write skipped (correlation_id=%s, error=%s).",
             correlation_id,
@@ -192,14 +202,12 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        correlation_id = resolve_correlation_id(request.headers)
-        logger.exception(
-            "Unhandled error on %s %s (correlation_id=%s): %s",
-            request.method,
-            request.url.path,
-            correlation_id,
-            exc,
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        correlation_id = getattr(request.state, "correlation_id", None) or resolve_correlation_id(
+            request.headers
         )
+        diagnostic_event("http.error", component="http", requestId=correlation_id, error=exc, level="ERROR")
         return JSONResponse(
             status_code=500,
             content={
@@ -215,8 +223,19 @@ def create_app(
             return await call_next(request)
 
         correlation_id = resolve_correlation_id(request.headers)
+        request.state.correlation_id = correlation_id
         started_ms = monotonic_ms()
-        with _operation_connection_scope(platform) as connection:
+        from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        with (
+            _operation_connection_scope(platform) as connection,
+            execution_scope(
+                ProcessExecutionContext(
+                    db_path=platform.db_path, connection=connection, request_id=correlation_id
+                )
+            ),
+        ):
             try:
                 response = await call_next(request)
             except Exception:
@@ -230,6 +249,14 @@ def create_app(
                 )
                 raise
             response.headers["X-Correlation-ID"] = correlation_id
+            diagnostic_event(
+                "http.response",
+                component="http",
+                statusCode=response.status_code,
+                durationMs=elapsed_ms(started_ms),
+                method=request.method,
+                outcome="http_response",
+            )
             _record_http_request_without_blocking(
                 connection,
                 method=request.method,
@@ -301,7 +328,18 @@ def create_app(
 
     @app.get("/api/v1/telemetry/status", response_model=TelemetryStatusResponse)
     async def telemetry_status() -> dict[str, Any]:
-        return {"externalExporter": external_telemetry_status()}
+        from local_control_center.shared.diagnostics import ensure_diagnostics
+
+        return {"externalExporter": external_telemetry_status(), "diagnostics": ensure_diagnostics().status()}
+
+    @app.post("/api/v1/telemetry/ui-error")
+    async def ui_error(request: Request) -> dict[str, str]:
+        """Recibe sólo una señal fija: ni mensaje de excepción, ni formulario, ni stack de UI."""
+        require_write(request)
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event("ui.render.error", component="ui", level="ERROR")
+        return {"requestId": request.state.correlation_id}
 
     @app.get("/api/v1/operations/database", response_model=SqliteDiagnosticsResponse)
     async def database_status() -> dict[str, Any]:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,17 +23,32 @@ def open_sqlite_connection(db_path: str | Path, *, busy_timeout_ms: int = 30000)
     require_safe_sqlite_runtime()
     resolved = Path(db_path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(
-        resolved,
-        timeout=busy_timeout_ms / 1000,
-        isolation_level=None,
-        check_same_thread=False,
-    )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
-    return connection
+    connection = None
+    started = time.monotonic()
+    try:
+        connection = sqlite3.connect(
+            resolved, timeout=busy_timeout_ms / 1000, isolation_level=None, check_same_thread=False
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
+        return connection
+    except sqlite3.Error as error:
+        from .diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "sqlite.open.error",
+            component="sqlite",
+            error=error,
+            operation="open_configure",
+            connectionId=f"conn-{id(connection):x}" if connection is not None else None,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
+        if connection is not None:
+            connection.close()
+        raise
 
 
 def require_safe_sqlite_runtime() -> None:
@@ -58,13 +74,52 @@ def require_safe_sqlite_runtime() -> None:
 def immediate_transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Abre una transacción atómica (``BEGIN IMMEDIATE``): COMMIT al salir, ROLLBACK si algo falla."""
     # A failed BEGIN owns no transaction: preserve its error and any enclosing caller's work.
-    connection.execute("BEGIN IMMEDIATE")
+    from .diagnostics import diagnostic_event
+
+    started = time.monotonic()
+    transaction_id = f"txn-{uuid.uuid4().hex}"
+    operation = "begin"
     try:
+        connection.execute("BEGIN IMMEDIATE")
+    except Exception as error:
+        diagnostic_event(
+            "sqlite.transaction.error",
+            component="sqlite",
+            error=error,
+            operation=operation,
+            connectionId=f"conn-{id(connection):x}",
+            transactionId=transaction_id,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
+        raise
+    try:
+        operation = "body"
         yield connection
+        operation = "commit"
         connection.execute("COMMIT")
-    except Exception:
+    except Exception as error:
+        diagnostic_event(
+            "sqlite.transaction.error",
+            component="sqlite",
+            error=error,
+            operation=operation,
+            connectionId=f"conn-{id(connection):x}",
+            transactionId=transaction_id,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
         if connection.in_transaction:
-            connection.execute("ROLLBACK")
+            try:
+                connection.execute("ROLLBACK")
+            except Exception as rollback_error:
+                diagnostic_event(
+                    "sqlite.rollback.error",
+                    component="sqlite",
+                    error=rollback_error,
+                    connectionId=f"conn-{id(connection):x}",
+                    transactionId=transaction_id,
+                )
         raise
 
 

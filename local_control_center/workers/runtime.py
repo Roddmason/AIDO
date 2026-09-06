@@ -230,6 +230,15 @@ class LocalWorkerRuntime:
                     lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
                 )
                 self._fencing_token = decision.fencing_token if decision.acquired else None
+                from local_control_center.shared.diagnostics import diagnostic_event
+
+                diagnostic_event(
+                    "leadership.acquire",
+                    component="worker",
+                    workerId=self.worker_id,
+                    fencingToken=decision.fencing_token,
+                    outcome=decision.role,
+                )
                 control = WorkerControlRepository(connection).get()
             finally:
                 connection.close()
@@ -308,7 +317,25 @@ class LocalWorkerRuntime:
                 lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
                 status=status,
             )
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "leadership.renew",
+            component="worker",
+            workerId=self.worker_id,
+            fencingToken=self._fencing_token,
+            outcome="renewed" if renewed else "lost",
+        )
         if not renewed:
+            from local_control_center.shared.diagnostics import diagnostic_event
+
+            diagnostic_event(
+                "leadership.lost",
+                component="worker",
+                workerId=self.worker_id,
+                fencingToken=self._fencing_token,
+                outcome="authority_lost",
+            )
             self._fencing_token = None
             self._status = "standby"
             self._reason = "Worker leadership fence is no longer valid."

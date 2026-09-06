@@ -62,6 +62,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
     (source / "auth.json").write_text('{"offlineFixture":true}')
     monkeypatch.setenv("CODEX_HOME", str(source))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "private-local"))
+    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(tmp_path / "diagnostics"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=db)
     runtime.init()
     register_workspace(runtime.connection, "offline-workspace", workspace)
@@ -90,6 +91,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
             data=json.dumps(body).encode() if body is not None else None,
             headers={
                 "Content-Type": "application/json",
+                "X-Correlation-ID": f"corr-offline-{action}",
                 **({"X-Local-Control-Token": token} if token else {}),
             },
         )
@@ -208,6 +210,22 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
                 == "validated"
             )
         assert all(p.stat().st_size == size for p, size in sizes.items())
+        if action == "transient":
+            from local_control_center.shared.diagnostics import incident_events
+
+            events = wait_until(lambda: list(incident_events(tmp_path / "diagnostics", job)), 5)
+            assert events, "Missing HTTP/worker/native diagnostic correlation"
+            assert all(
+                e.get("requestId") == f"corr-offline-{action}"
+                for e in events
+                if e["event"] in {"process.created", "dispatcher.started", "worker.claimed"}
+            )
+            assert {"process.created", "dispatcher.started", "worker.claimed"}.issubset(
+                {e["event"] for e in events}
+            )
+        # Writer exit is earlier than the worker's durable completion. Do not revoke its
+        # fence from fixture teardown while complete_job_run is still in flight.
+        wait_until(lambda: worker.status()["inFlightJobs"] == 0, 15)
         receipt.update(status="PASS", oldWriterIdentities=writers, oldWritersGone=True)
         evidence(f"watchdog-http-{action}-{uuid.uuid4().hex}", receipt)
     finally:

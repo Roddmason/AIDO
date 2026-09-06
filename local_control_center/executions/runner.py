@@ -52,6 +52,18 @@ def run_registered_operation(
             lease = ResourceRepository(connection).active_lease_for_execution(execution_id)
             if lease is None:
                 raise ValueError("La ejecución no posee una reserva vigente.")
+            from local_control_center.jobs_approvals.repository import JobsRepository
+            from local_control_center.shared.diagnostics import (
+                attempt_options,
+                diagnostic_event,
+                diagnostic_root,
+            )
+
+            job = JobsRepository(connection).get_job(execution_id)
+            run = connection.execute(
+                "SELECT id FROM job_runs WHERE job_id=? ORDER BY rowid DESC LIMIT 1", (execution_id,)
+            ).fetchone()
+            options = attempt_options(diagnostic_root(), execution_id)
             with execution_scope(
                 ProcessExecutionContext(
                     db_path=platform.db_path,
@@ -62,6 +74,9 @@ def run_registered_operation(
                     worker_id=owner_id,
                     fencing_token=fencing_token,
                     in_job_runner=True,
+                    request_id=job["payload"].get("diagnosticContext", {}).get("requestId"),
+                    attempt_id=run[0] if run else None,
+                    diagnostics_expires_at=options.get("expiresAt", 0),
                 )
             ):
                 result = (
@@ -69,6 +84,7 @@ def run_registered_operation(
                 )
                 if inspect.isawaitable(result):
                     result = asyncio.run(result)
+                diagnostic_event("dispatcher.result", component="dispatcher", outcome="handler_returned")
                 if not legacy and spec.result_model is not None:
                     adapter = TypeAdapter(spec.result_model)
                     result = adapter.dump_python(adapter.validate_python(result), mode="json", by_alias=True)

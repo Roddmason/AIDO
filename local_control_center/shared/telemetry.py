@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
+from .diagnostics import diagnostic_event  # noqa: F401 - public telemetry entry point
 from .event_bus import EventBus
 from .redaction import redact_secrets
 

@@ -3,12 +3,13 @@
  * errors so one broken page (or a failed chunk download over a flaky network) degrades
  * to a retryable message instead of blanking the whole shell. Retry remounts the subtree
  * (via a changing key) so a previously-rejected `React.lazy` import is attempted again.
- * React logs the underlying error itself, so no extra logging is added here.
+ * Reports a fixed correlated signal; never sends the exception or form contents.
  * @author Rodrigo Mason
  */
 
 import type { ReactNode } from 'react';
 import { Component, Fragment } from 'react';
+import { getHandshake } from '../api/client';
 
 import { Button, ErrorState } from '../components/ui';
 
@@ -32,6 +33,23 @@ export class RouteErrorBoundary extends Component<
 
 	static getDerivedStateFromError(): Partial<RouteErrorBoundaryState> {
 		return { hasError: true };
+	}
+
+	componentDidCatch() {
+		const correlationId = `corr-ui-${crypto.randomUUID()}`;
+		const signal = AbortSignal.timeout(3000);
+		void getHandshake(signal)
+			.then(({ token }) =>
+				fetch('/api/v1/telemetry/ui-error', {
+					method: 'POST',
+					signal,
+					headers: { 'X-Local-Control-Token': token, 'X-Correlation-ID': correlationId },
+				}),
+			)
+			.then((response) => {
+				if (!response.ok) throw new Error('diagnostic delivery rejected');
+			})
+			.catch(() => console.warn({ event: 'ui.diagnostics.degraded', requestId: correlationId }));
 	}
 
 	private readonly handleRetry = () => {

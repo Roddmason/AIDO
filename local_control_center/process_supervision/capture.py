@@ -22,7 +22,9 @@ REDACTION_LOOKBEHIND = 16_384
 class ArtifactCapture:
     """Escribe salida saneada de manera incremental sin acumular el log completo."""
 
-    def __init__(self, root: Path, stream: str, failure_event: Any):
+    def __init__(self, root: Path, stream: str, failure_event: Any, *, encoding: str = "utf-8"):
+        if encoding not in {"utf-8", "utf-16-le"}:
+            raise ValueError("Unsupported supervised output encoding")
         self.id = f"artifact-{uuid.uuid4()}"
         directory = evidence_artifact_root(root)
         directory.mkdir(parents=True, exist_ok=True)
@@ -33,7 +35,7 @@ class ArtifactCapture:
         self.size = 0
         self.total_bytes = 0
         self.pending = ""
-        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
         self.failure_event = failure_event
         self.closed = False
         self.truncated = False

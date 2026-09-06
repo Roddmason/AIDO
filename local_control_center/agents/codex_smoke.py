@@ -19,6 +19,7 @@ from local_control_center.process_supervision.service import command_fingerprint
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.diagnostics import diagnostic_event
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -138,6 +139,15 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         return {"status": "configuration_required", "reason": "Codex executable is not configured."}
     compatibility = CodexCompatibilityService(connection)
     probe = compatibility.probe(executable)
+    diagnostic_event(
+        "runtime.readiness",
+        component="codex_smoke",
+        runtimeId="codex_cli",
+        runtimeVersion=probe.get("version"),
+        executableResolved=executable,
+        executableSha256=probe.get("binaryFingerprint"),
+        outcome=probe["status"],
+    )
     if probe["status"] == "incompatible":
         return probe
     cli = CodexCliRuntime(executable=executable, connection=connection)
@@ -176,6 +186,19 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         },
     )
     with isolated_product_owner_codex_environment() as environment:
+        diagnostic_event(
+            "runtime.auth.ready",
+            component="codex_smoke",
+            runtimeId="codex_cli",
+            effectiveConfig={
+                "model": model,
+                "effortRequested": None,
+                "sandbox": "read-only",
+                "configIsolation": True,
+                "rustLog": environment.get("RUST_LOG"),
+                "authMethod": "native_session" if not environment.get("OPENAI_API_KEY") else "api_key",
+            },
+        )
         result = cli.run(
             request, trusted_subprocess_environment=environment, trusted_smoke_audit_id=approval["id"]
         )
@@ -194,6 +217,7 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         and process["exit_code"] == 0
         and not process["cancelled"]
         and not process["timed_out"]
+        and process["termination_reason"] not in {"native_exception_captured", "native_capture_failed"}
         and evidence.get("remainingDescendantCount") == 0
         and not evidence.get("stdoutCaptureTruncated")
         and smoke_output_is_safe(result.stdout)
@@ -210,6 +234,15 @@ def run_codex_smoke(connection: sqlite3.Connection, body: CodexSmokeRequest) -> 
         "model": model,
         "lastCheckedAt": utc_now(),
     }
+    diagnostic_event(
+        "smoke.contract.result",
+        component="codex_smoke",
+        runtimeId="codex_cli",
+        runtimeVersion=probe["version"],
+        managedProcessId=managed_id,
+        outcome=receipt["status"],
+        errorCode=process["exit_code"] if process else None,
+    )
     if process:
         connection.execute(
             """INSERT INTO codex_smoke_receipts (managed_process_id, binary_fingerprint, contract_fingerprint, receipt_json, checked_at)

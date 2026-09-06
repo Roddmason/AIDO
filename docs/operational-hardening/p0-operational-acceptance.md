@@ -1471,6 +1471,7 @@ reservas anidadas, CPU, creación prematura y handles/colisión. Clasificación 
 | Recursos, supervisión, watchdog, identidad, recuperación, captura y diagnóstico | PASS: 121 tests, exit del paso 0, `F/quality-fast-60076eee46fd47ddb6824a3331a00488.json` |
 | Integración HTTP/worker OS/dispatcher/CLI sintético | BLOCKED: perfil build_heavy, runner exit 75 por aggregate_memory_budget; envoltorio PowerShell observado exit 1 |
 | Verificación corta y secretos | PASS: `F/quality-fast-ff88f08b1f13485693643d629c55c6a2.json`, exit exterior 0; 18 PASS, 1 SKIP opt-in sin ProcDump en ese comando; no sustituye la captura activada de los 121 tests |
+| Verificación post-commit | PASS: `F/quality-fast-8d3b896a367d4ad8a68d3432080d6703.json`, 12 tests y gitleaks sobre los dos commits, exit exterior 0; mismo runner/base/DB, selección `--python-test tests_py/test_quality_tiers.py` |
 | Captura sintética de excepción / presión | PASS: minidumps analizados por CDB; no runtime real |
 | Cancelación, fencing, cleanup focalizados | PASS dentro de los 121 tests; cero descendientes al cierre del Job del runner; HTTP ampliado aún BLOCKED |
 | PR completo / release | BLOCKED / NOT_RUN; PR no ejecutado, release depende de PR |
@@ -1483,12 +1484,14 @@ por la retención normal de pytest, no se presenta como artefacto aún disponibl
 integración ahora reserva el perfil existente de 16 GiB para API+worker+dispatcher+pytest; las
 pruebas pequeñas conservan qa_light. No se da por demostrada la causa exacta de ese MemoryError
 ni por aprobada su corrección sin ejecutar nuevamente el árbol completo.
-Snapshot **21:30:25Z**: **33.077.927.936 bytes disponibles (30,806 GiB)**; trabajo 16 GiB + headroom
-16 GiB = **34.359.738.368 bytes**; déficit **1.281.810.432 bytes**, reservas activas **0**.
+Snapshot final **21:36:58Z**: **33.027.104.768 bytes disponibles (30,759 GiB)**; trabajo 16 GiB + headroom
+16 GiB = **34.359.738.368 bytes**; déficit **1.332.633.600 bytes**, reservas activas **0**.
 `N/resource-scope-resource-preview.json` es un preview exit 0, no un gate PASS. Se recuperó una
 única reserva de un runner interrumpido mediante el protocolo existente, tras comprobar dueño
 y raíz muertos por PID+creation time y Job ausente; `N/resource-scope-quality-recovery.json`.
 No se cerraron procesos ajenos. Los tres DeprecationWarning SWIG preexistentes se conservan.
+Comprobación final independiente exit 0: identidades de objetivos/colectores sintéticos ausentes,
+hashes de los dumps privados intactos y cero leases de análisis; `N/resource-scope-native-closeout.json`.
 
 Comando ejecutado para los 121 tests y la admisión HTTP (variables opt-in sólo de ese proceso):
 

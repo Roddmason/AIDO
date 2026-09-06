@@ -2,6 +2,9 @@
 
 Fecha: 2026-09-05.
 
+Las secciones iniciales registran la primera pasada. La continuación del
+2026-09-06, al final, actualiza sus resultados y pendientes.
+
 ## Baseline y alcance
 
 - HEAD de partida: `90d602c7c01a2cfee19c112dedd947767e2acbf8` en
@@ -79,3 +82,75 @@ hardlinks, compresión o actividad concurrente.
    antes de retirar `@tanstack/react-virtual` mediante pnpm; no reconstruir ni
    migrar `node_modules` como parte de esta limpieza.
 3. Mantener los bloqueos de aceptación P0 y sus recibos tal como están.
+
+## Continuación aplicada — 2026-09-06
+
+Baseline real: `c1dbc86be3a0b8c4f531345f6ff50f91231e4b1e`, árbol limpio en
+`codex/aido-cleanup-post-p0`; sin nueva rama ni procesos AIDO detectados antes
+de los cambios. Se respetó §14 de la aceptación. Intérprete conservado:
+`.venv/Scripts/python.exe`, CPython 3.13.15, ligado a `.tmp/p0-python/`.
+
+| Acción | Aplicada o no | Evidencia | Pendiente exacto |
+| --- | --- | --- | --- |
+| Retirar `@tanstack/react-virtual@3.14.3` | Sí, del manifiesto/lockfile | Commit `014ec7eccacf3642ca112fda98bb0540ba5a52c3`; sin imports, reexports, carga dinámica, configuración o entrypoints consumidores | No se desinstaló del `node_modules` activo |
+| Regenerar lockfile con pnpm 10.24.0 | Sí, exit 0 | Sólo 20 líneas eliminadas: dependencia y transitiva exclusiva `@tanstack/virtual-core@3.17.1`; sin upgrades ajenos | Ninguno para coherencia manifiesto/lockfile; no hace falta restaurar el store antiguo para esta operación |
+| Instalar candidato aislado | No, admisión exit 75 | Una copia independiente de 836 archivos versionados, idénticos por SHA-256; sin `.git`, `.venv` ni `node_modules` copiados/enlazados | `aggregate_memory_budget` y episodios `host_cpu_saturated`; instalar con capacidad disponible, luego typecheck/build |
+| Pruebas focalizadas | Sí, 56 PASS, exit 0 | Ejecutadas sobre esa copia con Python supervisado; hashes del candidato en recibos | No prueban la instalación JavaScript sin TanStack |
+| Lint web | Sí, exit 0 | 205 archivos, seis advertencias `reloadToken` preexistentes; sin fixes | Se usó la herramienta instalada, no como prueba de reinstalación |
+| Cachés | No; 0 archivos eliminados | Revalidación de las mismas 48 rutas: 671 archivos, 11.232.703 bytes lógicos, sin archivos versionados ni reparse points | No se repitió la eliminación rechazada por política en la primera pasada; revisar excepciones indicadas abajo |
+| Worktrees | No; 0 retirados | 170 registrados; Git status e identidad de rama/HEAD comprobados, sin errores | 1 checkout de limpieza; 1 con contenido ajeno no preservado; 168 referenciados por manifiestos; 0 desechables demostrados; 0 sin categoría |
+
+Comandos de validación (salvo Git, mediante el ejecutor supervisado existente
+de `local_control_center.quality`, sin cambiar reservas):
+
+- `corepack pnpm@10.24.0 install --lockfile-only --ignore-scripts --no-frozen-lockfile`
+  — exit 0; no modificación de la instalación activa.
+- `corepack pnpm@10.24.0 install --frozen-lockfile --ignore-scripts`, solicitado
+  en la copia — **no llegó a ejecutarse**; admisión agotada tras 120 segundos,
+  exit 75. No se autorizaron scripts ni se cambió el store global.
+- `.venv/Scripts/python.exe -B -m pytest -q tests_py/test_project_hygiene_and_license.py tests_py/test_web_rework_architecture.py tests_py/test_ci_and_openapi_client.py`
+  — exit 0, 56 passed en 3,20 s; ejecutable de la venv preservada y cwd de la copia.
+- `corepack pnpm@10.24.0 run lint:web` — exit 0.
+- `node node_modules/@biomejs/biome/bin/biome check package.json` — exit 1,
+  **0 archivos procesados**, porque la configuración existente ignora ese archivo;
+  no es PASS ni se alteró el gate. El manifiesto sí fue procesado por pnpm y tests.
+- `git diff --check` — exit 0; hook Gitleaks del commit de dependencia — exit 0.
+
+Los recibos propios están en `.tmp/post-p0-cleanup-20260906/`, ignorada por Git:
+`lockfile.json`, `install.json`, `tests.json`, `lint.json`, `lint-web.json`,
+`tested-candidate.json`, `worktrees.json`, `cache-dry-run.json`,
+`protected-after.json` y `volumes-after.json`. No sustituyen recibos P0.
+
+Intervención manual pendiente para cachés: revisar **sólo** las rutas exactas
+de `cache-paths.txt` contra `cache-dry-run.json`, en un entorno autorizado,
+revalidando uso/referencias/identidad antes de borrar. No es una aprobación
+masiva: hay 10 bytecodes sin fuente actual bajo los caches de
+`local_control_center/`, `agents/` y `backlog/`. Los otros dos avisos del dry-run
+corresponden a bytecode pytest de `evidence/test_results.py`, cuya fuente sí existe.
+Se retienen hasta resolver las dudas; no se cambió de herramienta ni se elevaron
+permisos para eludir el rechazo anterior. `tests_py/__pycache__` sigue excluido.
+
+El worktree `.claude/worktrees/strange-bell-806bff` conserva cambios ajenos en
+`tests_web/threads.spec.js`, además de `.tmp`, `.venv`, `node_modules`, build y
+resultados ignorados. Los otros 168 tienen ruta, proyecto y tarea enlazados en
+sus manifiestos de ejecución: Git limpio no demuestra fin de ejecución ni
+ausencia de leases o referencias persistidas. Se requiere acreditar ese estado
+y la coherencia de su retirada antes de usar `git worktree remove` sin `--force`.
+No se llamó al limpiador existente: su vía de archivado actualiza registros y
+allocations; no se autoriza esa reparación en esta tarea. Los tamaños parciales
+de los manifiestos truncados no se suman como tamaño total ni ahorro.
+
+Archivos eliminados y bytes lógicos liberados por borrado: **0 / 0 B**.
+Entre 04:55:10 y 05:06:02 UTC, C: pasó de 87.991.578.624 a 87.979.610.112 B
+libres (delta **−11.968.512 B**); H: de 377.363.988.480 a 377.345.888.256 B
+(delta **−18.100.224 B**). Son observaciones del volumen, no ahorro atribuible:
+la copia/recibos propios añaden archivos y existe actividad externa; no se midió
+asignación física, compresión ni hardlinks. La dependencia sigue instalada en
+el checkout activo. No hay cambio de lógica, funciones o componentes retirados.
+
+SHA-256, tamaño y mtime sin cambios para `.venv/pyvenv.cfg`, los dos metadatos
+de `node_modules`, el manifiesto final P0 y el documento de aceptación.
+No se escribió sobre bases operativas, evidencia P0, backups, credenciales,
+sesiones, intérprete base ni build servido. No hubo inferencia, login, cambios
+de proveedor, push, merge o cutover. Typecheck/build aislados y PR completo
+siguen pendientes; P0 **BLOCKED**, smoke y watchdog conservan su estado anterior.

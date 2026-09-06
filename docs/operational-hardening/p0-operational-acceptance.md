@@ -5,6 +5,9 @@ con Codex y Claude reales. La nueva copia reparada pasa integridad relacional, p
 operacional falló y la política histórica sigue sin resolver. La base original no fue reparada.
 Este informe no declara «AIDO completamente funcional» ni autoriza adopción, merge o publicación.
 
+Actualización del incidente del watchdog, **2026-09-06**: véase §14.7. Se conservan los resultados
+anteriores; corregir el watchdog no convierte el nuevo smoke nativo fallido en PASS.
+
 ## Estado vigente del cierre autorizado — 2026-09-05, 17:20Z
 
 Continuación desde `d464c571b51fbecb175706923707b2efa12d0a44`, encontrado exactamente como HEAD,
@@ -948,3 +951,159 @@ en `N/gate-delivery-snapshot.json`: disponibles **32.866.168.832 bytes / 30,609 
 requeridos **34.359.738.368 bytes / 32 GiB**, déficit **1.493.569.536 bytes / 1,391 GiB**.
 Cero reservas activas; misma denegación `aggregate_memory_budget`; Unreal ausente. No se dejó
 ningún bucle de espera ni se ejecutó PR/release contra esa denegación.
+
+### 14.7. Incidente del watchdog — 2026-09-06
+
+Alcance limitado al incidente, desde `d7c92592104a7bcbb07a8d66b9db32743adeb60a`, rama
+`codex/aido-cleanup-post-p0`, inicialmente limpia. Sin reset, cambio de rama, limpieza adicional,
+P1/P2, nuevas integraciones, adopción ni modificaciones de la base operativa original.
+
+#### Candidato y estados separados
+
+| Pista | Estado | Evidencia / limitación |
+| --- | --- | --- |
+| Candidato en commits locales | PASS | `d5434b87da78de70ea9d171ffce28f724194dc33`: watchdog/identidad/entornos; `7160d579355b6228292495d88016f55b9ec1694a`: integración HTTP y perfil QA. |
+| Contención, fencing, identidad y recuperación sintética | PASS | 184 pruebas: 124 + 3 HTTP nativas + 57 regresiones adicionales, sin skips. |
+| Residuo sensible anterior, §14.5 | PASS | La ruta exacta ya no existe. Sólo se consultó existencia; no se leyó auth ni se intentó borrar/eludir el rechazo anterior. No se atribuye quién la retiró. |
+| Auth/capacidades Codex | PASS | 0.149.0; probes nativos y entorno aislado exit 0, sesión ChatGPT, sin API key ni flags faltantes. No prueba cuota ni ejecución. |
+| Único smoke adicional desde AIDO | FAIL | CLI nativo exit `3221225725 / 0xC00000FD`, desbordamiento de pila. Sin reintento. Sigue `validation_required / validated_smoke_missing`. |
+| Instalación frontend aislada, typecheck y build | BLOCKED | `build_heavy`: déficit 540.205.056 bytes. No se sustituyeron por herramientas heredadas. |
+| PR completo | BLOCKED | `aggregate_memory_budget`; comando/gates NOT_RUN, exit exterior null. Las pruebas focalizadas no sustituyen PR. |
+| Release | NOT_RUN | PR no ejecutado/aprobado; misma falta de capacidad. |
+| Coexistencia Unreal | NOT_RUN | Snapshot sin editor abierto; no se abrió/controló Unreal. |
+| Adopción original | NOT_RUN | No autorizada ni ejecutada; no se repitió reparación de datos. |
+
+SHA-256 productivo probado: `e3c90fda98c446a351b742912a1f6e12bd0ff51276ffa2743019aa75d9e57c8a`.
+`N/watchdog-final-traceability.json` conserva fuentes, configuración, lockfiles, versiones, commits,
+receipts y hashes. Esta documentación es posterior al código `7160d579`; se verifica que sólo
+cambia documentación y no el contenido productivo probado.
+
+#### Causa reproducida y corrección
+
+Una conexión independiente retiene `BEGIN IMMEDIATE`. El watchdog abre su propia conexión en
+autocommit e intenta `HostResourceGovernor.heartbeat` → `BEGIN IMMEDIATE` para renovar la reserva.
+Ese BEGIN devuelve **SQLITE_BUSY (5)**; la conexión del watchdog **no adquirió una transacción**.
+Antes, cualquier excepción causaba `control_watch_failed` y terminaba su Job Object: si el objeto
+contenía la API, desaparecía el servidor HTTP, no sólo el CLI.
+
+Esta reproducción prueba un defecto actual; **no demuestra la causa original de §14.3**, cuyo
+logger sólo conservó SQLite code 1. Se mantienen las correcciones del helper: un BEGIN fallido no
+revierte al llamador ni se sustituye por un rollback sin transacción propia.
+
+- Sólo SQLITE_BUSY del heartbeat idempotente admite una ventana de **2 s**. Cada iteración relee
+  cancelación, fencing y vigencia de la reserva. No se repite el comando externo. El timeout de
+  250 ms también rige al abrir la conexión del watchdog.
+- Agotar la ventana termina únicamente su árbol con `control_watch_deadline_exceeded`. Perder
+  liderazgo termina ese árbol con `leadership_fence_lost` **antes** de persistir cancelación:
+  un escritor SQLite no puede demorar la contención ni sustituir ese motivo.
+- Logging existente, fuera de la transacción fallida: excepción causal redactada, código/nombre
+  SQLite, fase, acción, managed process, ejecución, lease, worker y fence. Sin SQL, argumentos
+  privados ni entorno completo. Otros fallos de supervisión siguen cerrando de forma segura.
+- Windows crea/asigna/reanuda el proceso antes de persistir PID/create-time. El ensayo mata al
+  owner en ese intervalo y prueba un arranque real con `root_pid=0` durable. Ahora se conserva
+  UNKNOWN, registro y reserva pendientes, impidiendo replay automático. Si el handle sigue
+  disponible y falla la persistencia, se termina el árbol y se registra la causa en fase
+  `identity_persist` (`SQLITE_CONSTRAINT_TRIGGER` en la inyección determinista).
+
+`test_watchdog_http_pipeline.py` usa HTTP loopback real, API en proceso separado, worker,
+dispatcher, sandbox y watchdog nativos. Sólo el ejecutable IA se sustituye por el binario
+compilado de `tests_py/fixtures/watchdog/codex.cs`, sin red ni lectura de credenciales. Sus receipts
+están sólo en DBs de tests: **no certifican Codex real**. Ambos escritores desaparecen tras
+cancelación/fencing. El estado HTTP durante contención respondió en **513,867 ms**, bajo el límite
+de 1 s; API disponible después de liberar el escritor. IDs OS, Job Object de la API y resultados
+durables: `N/watchdog-http-*.json`.
+
+El primer recorrido multiproceso agotó `qa_light` de 4 GiB: `MemoryError`, exit interno 3,
+peak nativo **4.429.447.168 bytes**. Una prueba reprodujo la clasificación incorrecta. Sólo ese
+archivo se separó al perfil existente **agent_cli, 8 GiB / CPU 40% / 16 procesos**, sin inferencia.
+Las regresiones pequeñas siguen **qa_light, 4 GiB / CPU 25% / 8 procesos**; el mínimo del host sigue
+16 GiB. PR conserva todos sus casos y perfiles.
+
+Con `auth.json` sintético se probaron salida normal, cancelación nativa, muerte abrupta del owner
+y limpieza rechazada. El aislador existente registra propiedad/identidad en `audit_events` antes
+de copiar auth. La recuperación existente sólo retira hogares propios de owners muertos, sin
+árboles pendientes de reconciliar; rechaza junctions/symlinks y conserva hogares de owners vivos.
+Un rechazo queda auditado. No hay nuevo servicio de limpieza ni gestor de credenciales.
+
+#### Pruebas, comandos y errores conservados
+
+Receipts en `F/ = .tmp/operational-hardening-p0/`, prefijo `quality-fast-`, sufijo `.json`:
+
+| Receipt | Exit exterior | Resultado |
+| --- | ---: | --- |
+| `0fd3d8a1bac04a3dba5805e82a065c33` | 1 | Imports; pruebas aún no ejecutadas. |
+| `37e8c385b57147319e0f174b5090a80c` | null | Sesión interrumpida, sin resultado terminal. Owner/raíz propios muertos; recuperación normal liberó esa reserva. No PASS. |
+| `74b484b13af2451787746f575eba9f3e` | 1 | Tres fallos nativos reproducidos. |
+| `ca165da92cd745e396d09f734ff33bdf` | 0 | 35 pruebas después del fix del watchdog. |
+| `d015deac122b40129776ef8a21351d87` | 1 | Dos fallos de identidad/diagnóstico reproducidos. |
+| `7f65c265088d414eba74639e0d180717` | 1 | Identidad 2 PASS; fixture C# falló por separadores de ruta, corregidos. |
+| `36a6d15ef0ab4923ab8ac9e6abe147b4` | 1 | Python interno exit 3/MemoryError; no PASS del recorrido. |
+| `ce7969fff1e04e2592fdc4d6e97ee62c` | 1 | Clasificación y dos fallos de auth temporal; 13 PASS. |
+| `65de4dff21664086a16ccd3a37a0eee0` | 1 | Docstring D401, corregido; pruebas no ejecutadas. |
+| `0e43b4ce7ef64292b79967ef2717777d` | 0 | 16 pruebas + 3 HTTP nativas. |
+| `7787fc286a2644e0930205e4f6f2d7b4` | 0 | **124 + 3**, contenido final; lint/secretos exit 0. |
+| `bfd2530e6d2c494da120657dc285eb7d` | 0 | **57** regresiones adicionales, candidato en commits. |
+
+Comandos del contenido final, sin retirar casos:
+
+```powershell
+uv run python -m local_control_center.quality --tier fast --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_watchdog_contention.py --python-test tests_py/test_watchdog_identity.py --python-test tests_py/test_watchdog_temporary_auth.py --python-test tests_py/test_watchdog_http_pipeline.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_transaction_begin_failure.py --python-test tests_py/test_host_resource_governor.py --python-test tests_py/test_codex_smoke_policy_seam.py --python-test tests_py/test_codex_capability_contract.py --python-test tests_py/test_worker_leadership.py --python-test tests_py/test_quality_tiers.py --python-test tests_py/test_product_owner_agent_real_runtime.py
+uv run python -m local_control_center.quality --tier fast --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_operational_recovery.py --python-test tests_py/test_durable_executions.py --python-test tests_py/test_local_worker_runtime.py --python-test tests_py/test_operational_http_boundaries.py --python-test tests_py/test_operational_hardening_p0.py
+```
+
+Persisten tres deprecaciones SWIG (`SwigPyPacked`, `SwigPyObject`, `swigvarlink`), no silenciadas.
+Warnings de contención inyectada y telemetry omitida son observaciones esperadas de esos ensayos,
+no se ocultan ni se presentan como errores de inferencia.
+
+#### Único smoke real: watchdog operativo, CLI nativo fallido
+
+El controlador tuvo primero un `UnicodeDecodeError` leyendo el catálogo con codificación Windows:
+exit 1 **antes de job/aprobación/intent o CLI**. Se conserva `N/watchdog-smoke-preparation.json`.
+Antes de continuar se cotejaron cero jobs/aprobaciones y cuatro procesos Git terminados por hash
+de argv. Se corrigió la lectura a UTF-8; esa preparación no cuenta como inferencia ni PASS.
+
+DB nueva `N/watchdog-smoke.sqlite`, repositorio desechable sin remotos, mismo usuario OS efectivo
+de API/worker. Autorización delegada real `audit-108bc50d-60af-43f0-b736-66e0e3cc7016`, sin identidad
+humana fabricada. Un POST smoke autenticado y un run-once, ambos HTTP 202; ninguna otra fase IA.
+
+- Job/ejecución: `job-81bdebda-a4c7-46c8-82f2-12bc3244c9b1`.
+- Aprobación smoke: `audit-244629fc-c162-4eb4-9c48-74091bb35f04`.
+- CLI: `managed-process-96adad03-f3a9-42dc-917b-e19d31570999`, PID **65828**, identidad y cierre
+  persistidos. Inicio `06:53:09.947Z`, fin `06:53:18.706Z`; sin timeout/cancelación del watchdog,
+  cero descendientes restantes. Dispatcher exit 0.
+- Codex **0.149.0**, mismos hashes binario/contrato de §14.3. Solicitado `gpt-5.6-terra`;
+  **modelo servido, thread nativo, inferencia, consumo y cuota restante UNKNOWN**. `no_limit` local
+  no significa cuota ilimitada. Sin nuevas keys, API pagada, fallback ni extra usage.
+- Exit nativo **3221225725 (`0xC00000FD`)**. Stderr: `thread 'tokio-rt-worker' ... has overflowed its stack`.
+  SHA stderr `ef89952dc0184d9060c161f1add350766588efb7efaec9221edd96ca4950264b`;
+  stdout vacío. La causa interna del desbordamiento **no está establecida**. Pista detenida:
+  no se relanzó Codex ni se modificó el adaptador para sortearlo.
+- La API atravesó dos SQLITE_BUSY de heartbeat con `action=retry_heartbeat` y respondió hasta
+  el cierre deliberado. No hubo `control_watch_failed` que la terminara.
+- La operación HTTP quedó `completed` porque devolvió el resultado; **el smoke es `failed`**.
+  `reason=null` del envelope no borra el exit ni el stderr causal. No se marcó healthy manualmente.
+- README conserva su hash. El manifiesto completo sí cambió: AIDO escribió un
+  `.tmp/evidence-artifacts/*.runtime.json` mediante `CliSessionStore`. Se conserva
+  `workspaceUnchanged=false`: no se oculta el archivo ni se atribuye a una escritura de Codex.
+
+`uv run --no-sync python T/watchdog_smoke.py`: exit **1**. Los scripts `watchdog_preflight.py`,
+`watchdog_resources.py` y `watchdog_trace.py` terminaron exit 0 como comprobaciones, **no como
+aprobación del smoke ni de gates pendientes**. `T/` es el directorio temporal autorizado ya usado.
+Sus hashes y los receipts están en `N/watchdog-final-traceability.json`. Se verificaron 27 artefactos,
+cero registros/procesos propios activos, cero reservas y ausencia de hogares temporales de este
+preflight/CLI. El historial y consumo UNKNOWN del intento anterior siguen intactos.
+
+#### Dependencias y capacidad de entrega
+
+JSON válido y ambas dependencias retiradas ausentes de todas las secciones: Node exit 0. Diff
+autorizado: **1 línea menos en package.json, 20 menos en pnpm-lock.yaml**. Biome incluye sólo el
+frontend; su gate PR apunta a `local-control-center/web`. Se conserva la exclusión del manifiesto;
+no se usó `--no-errors-on-unmatched` ni se registró PASS por un archivo no procesado. La validación
+JSON es separada; véase también `docs/cleanup/post-p0-cleanup.md`.
+
+Snapshot **2026-09-06T06:58:11.531Z**: disponibles **33.819.533.312 bytes / 31,497 GiB**;
+`build_heavy` **16 GiB** + mínimo del host **16 GiB**, requeridos **34.359.738.368 bytes / 32 GiB**;
+déficit **540.205.056 bytes / 0,503 GiB**, **cero reservas activas**, `aggregate_memory_budget`.
+Instalación congelada aislada/typecheck/build, PR completo y release no se lanzaron fuera de
+admisión ni se sustituyeron por herramientas activas. No se mantuvo espera indefinida ni se cerraron
+procesos ajenos. No se reconstruyeron node_modules/venv activos. Sin push, merge, publicación ni cutover.

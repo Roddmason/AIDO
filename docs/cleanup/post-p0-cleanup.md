@@ -154,3 +154,27 @@ No se escribió sobre bases operativas, evidencia P0, backups, credenciales,
 sesiones, intérprete base ni build servido. No hubo inferencia, login, cambios
 de proveedor, push, merge o cutover. Typecheck/build aislados y PR completo
 siguen pendientes; P0 **BLOCKED**, smoke y watchdog conservan su estado anterior.
+
+## Incidente del watchdog — 2026-09-06, limpieza detenida
+
+No se retiraron otras dependencias, cachés ni worktrees, ni se reconstruyeron node_modules/venv.
+La validación ligera del manifiesto con Node procesó JSON real y comprobó las secciones
+`dependencies`, `devDependencies`, `optionalDependencies` y `peerDependencies`: exit **0**;
+`@tanstack/react-virtual` y `@tanstack/virtual-core` ausentes. El diff frente al padre de
+`014ec7ec` sigue limitado a **1 línea eliminada en package.json y 20 en pnpm-lock.yaml**.
+Ese desglose corrige el conteo agregado impreciso anterior, sin ampliar la retirada.
+
+Biome excluye el manifiesto por `biome.json:files.includes`, que admite sólo TS/TSX/CSS/JSON
+del frontend. El contrato PR ejecuta Biome sobre `local-control-center/web`, no sobre el root.
+Se conserva esa política: el exit 1 histórico con cero archivos **no es PASS** y no se oculta
+con `--no-errors-on-unmatched`. Validación del JSON y lint frontend son resultados distintos.
+
+La corrección del watchdog y sus 184 pruebas, el único smoke real fallido por stack overflow
+nativo y la trazabilidad se agregaron a §14.7 de `docs/operational-hardening/p0-operational-acceptance.md`.
+No se presenta QA backend como validación de la eliminación de la dependencia.
+
+Instalación congelada en copia aislada, typecheck/build con esa instalación, PR completo y release
+siguen pendientes. Snapshot `2026-09-06T06:58:11.531Z`: 31,497 GiB disponibles, `build_heavy` 16 GiB
++ reserva de seguridad 16 GiB; déficit **540.205.056 bytes**, cero reservas activas,
+`aggregate_memory_budget`. No se lanzaron fuera de admisión. Evidencia en la colección P0 existente,
+`N/watchdog-resources.json` y `N/watchdog-final-traceability.json`; no se creó otra colección de informes.

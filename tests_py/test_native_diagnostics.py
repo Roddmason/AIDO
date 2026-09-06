@@ -173,3 +173,26 @@ def test_collector_closed_when_target_resume_fails(tmp_path, monkeypatch):
         finally:
             for capture in captures:
                 capture.finish()
+
+
+def test_failed_collector_without_dump_is_fail_not_not_run(tmp_path):
+    """Unit fault injection only; not a native OS certification."""
+    from types import SimpleNamespace
+
+    from local_control_center.process_supervision.native_diagnostics import NativeCapture
+
+    capture = object.__new__(NativeCapture)
+    capture.closed, capture.readers, capture.directory = False, [], tmp_path
+    capture.target = SimpleNamespace(
+        execution_id="failed-collector",
+        managed_process_id="fixture-target",
+        process=SimpleNamespace(pid=42, poll=lambda: 0xC0000409),
+    )
+    capture.collector = SimpleNamespace(
+        released=True, captures={}, process=SimpleNamespace(wait=lambda **kwargs: 1, poll=lambda: 1)
+    )
+    capture.service = SimpleNamespace(complete=lambda *args, **kwargs: None)
+    capture.receipt = {"classification": "SENSITIVE_NATIVE"}
+    with pytest.raises(RuntimeError, match="Native capture failed"):
+        capture.finish()
+    assert capture.receipt["outcome"] == "FAIL"

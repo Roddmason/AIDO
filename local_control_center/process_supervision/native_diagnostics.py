@@ -10,6 +10,7 @@ import hashlib
 import json
 import mmap
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -225,7 +226,25 @@ class NativeCapture:
             self.receipt["sha256"] = file_sha256(dumps[0])
         if len(dumps) > 1:
             raise RuntimeError("Native capture produced more than one artifact")
-        self.receipt["outcome"] = "captured" if len(dumps) == 1 else "NOT_RUN"
+        collector_exit = self.collector.process.poll()
+        self.receipt["collectorExitCode"] = collector_exit
+        # ProcDump 12.01 also returned 1 after a complete, identity-valid synthetic dump.
+        # Preserve that native code; artifact validation, not exit zero alone, proves capture.
+        failed = not dumps and (collector_exit != 0 or self.target.process.poll() not in (None, 0))
+        self.receipt["outcome"] = "FAIL" if failed else "captured" if dumps else "no_exception_observed"
+        # Read only the collector's completed, bounded artifact, outside SQLite. Keep numeric
+        # causal codes, not arbitrary output or memory, in the common diagnostic channel.
+        error_codes = []
+        stdout = self.collector.captures.get("stdout")
+        if stdout is not None:
+            with stdout.path.open(encoding="utf-8") as source:
+                for _ in range(512):
+                    line = source.readline(8192)
+                    if not line:
+                        break
+                    if re.search(r"Dump \d+ error:", line):
+                        error_codes.extend(re.findall(r"0x[0-9a-fA-F]{8}", line))
+        self.receipt["collectorErrorCodes"] = sorted(set(error_codes))
         with (self.directory / "capture.receipt.json").open("x", encoding="utf-8") as output:
             json.dump(self.receipt, output, indent=2)
         diagnostic_event(
@@ -233,10 +252,12 @@ class NativeCapture:
             component="native_capture",
             executionId=self.target.execution_id,
             managedProcessId=self.target.managed_process_id,
-            outcome="captured" if len(dumps) == 1 else "NOT_RUN",
-            errorCode=self.receipt.get("exceptionCode"),
+            outcome=self.receipt["outcome"],
+            errorCode=error_codes[0] if error_codes else self.receipt.get("exceptionCode", collector_exit),
             evidenceRefs=[{"classification": "SENSITIVE_NATIVE", "id": self.target.managed_process_id}],
         )
+        if failed:
+            raise RuntimeError("Native capture failed; private collector receipt preserves the outcome")
 
 
 def file_sha256(path: Path) -> str:

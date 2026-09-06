@@ -135,6 +135,8 @@ class CliSessionStore:
         process_evidence: dict[str, Any],
     ) -> dict[str, str | None]:
         project_id, root = self._artifact_context(workspace_id)
+        if env_policy.get("permissionProfile") == "plan":
+            root = self._database_root()
         artifacts: dict[str, str | None] = {"stdout": None, "stderr": None, "logs": None}
         if process_evidence.get("stdoutArtifactId"):
             artifacts["stdout"] = process_evidence["stdoutArtifactId"]

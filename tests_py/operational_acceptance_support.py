@@ -80,6 +80,53 @@ def native_readback(managed) -> dict:
     }
 
 
+def quality_envelope() -> dict:
+    """Read the concrete owning test-runner Job; isolated test DBs are not host reservations."""
+    from contextlib import closing
+    from types import SimpleNamespace
+
+    import win32api
+    import win32job
+
+    from local_control_center.process_supervision.windows_job import job_name
+    from local_control_center.shared.db import open_sqlite_connection
+
+    path = os.environ.get("AIDO_TEST_QUALITY_DB")
+    if not path:
+        return {"status": "NOT_RUN", "reason": "Explicit quality DB identity not supplied"}
+    ancestors = {p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]}
+    with closing(open_sqlite_connection(path)) as connection:
+        rows = connection.execute(
+            "SELECT * FROM managed_processes WHERE finished_at IS NULL AND released_at IS NULL"
+        ).fetchall()
+    envelopes = []
+    for row in rows:
+        if (
+            row["root_pid"] not in ancestors
+            or abs(ancestors[row["root_pid"]] - row["root_create_time"]) >= 0.01
+        ):
+            continue
+        handle = win32job.OpenJobObject(win32job.JOB_OBJECT_QUERY, False, job_name(row["managed_process_id"]))
+        try:
+            assert win32job.IsProcessInJob(win32api.GetCurrentProcess(), handle)
+            envelopes.append(
+                {
+                    "managedProcessId": row["managed_process_id"],
+                    "resourceLeaseId": row["resource_lease_id"],
+                    **native_readback(SimpleNamespace(native_handle=handle)),
+                }
+            )
+        finally:
+            handle.Close()
+    assert envelopes, "The explicit quality DB must prove an owning native Job"
+    return {
+        "status": "PASS",
+        "jobs": envelopes,
+        "furtherExternalAncestors": "UNKNOWN",
+        "testReservationsAreSubordinate": True,
+    }
+
+
 def process_sample(db_path: Path) -> dict:
     process = psutil.Process()
     memory = process.memory_info()

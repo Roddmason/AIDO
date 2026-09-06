@@ -144,6 +144,22 @@ def test_aggregate_budget_allows_cli_and_one_qa_with_sufficient_headroom(tmp_pat
         assert third.status == "resource_wait"
 
 
+def test_control_plane_cpu_is_not_free_when_admitting_collector(tmp_path):
+    """A control-plane root plus CLI plus collector would reserve 85%, above the 75% policy."""
+    with open_sqlite_connection(tmp_path / "scope.sqlite") as connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=48 * GIB)
+        for identity, workload in (
+            ("api", "control_plane"),
+            ("cli", "agent_cli"),
+        ):
+            assert governor.admit(_request(identity, workload), snapshot=snapshot).lease
+        decision = governor.admit(_request("collector", "qa_light"), snapshot=snapshot)
+        assert decision.lease is None
+        assert decision.reason_code == "aggregate_cpu_budget"
+
+
 def test_unreal_and_heavy_conflicts_have_specific_reasons(tmp_path: Path) -> None:
     with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
         initialize_platform_schema(connection)

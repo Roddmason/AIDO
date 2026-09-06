@@ -196,3 +196,191 @@ def test_failed_collector_without_dump_is_fail_not_not_run(tmp_path):
     with pytest.raises(RuntimeError, match="Native capture failed"):
         capture.finish()
     assert capture.receipt["outcome"] == "FAIL"
+
+
+@pytest.fixture(scope="module")
+def native_failfast_targets(tmp_path_factory):
+    toolchain = Path(
+        "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64"
+    )
+    kernel = Path("C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64/kernel32.lib")
+    if not (toolchain / "cl.exe").is_file() or not kernel.is_file():
+        pytest.skip("Explicit local MSVC/Windows SDK fixture toolchain unavailable")
+    folder = tmp_path_factory.mktemp("native-failfast")
+    binaries = {}
+    for pressure in (False, True):
+        stem = "pressure" if pressure else "fastfail"
+        target, obj = folder / f"{stem}.exe", folder / f"{stem}.obj"
+        compile_result = subprocess.run(
+            [
+                str(toolchain / "cl.exe"),
+                "/nologo",
+                "/c",
+                "/Zi",
+                f"/Fd{folder / (stem + '.compile.pdb')}",
+                *(["/DPRESSURE"] if pressure else []),
+                f"/Fo{obj}",
+                str(Path("tests_py/fixtures/watchdog/native_fastfail.cpp").resolve()),
+            ],
+            cwd=folder,
+            capture_output=True,
+            timeout=30,
+        )
+        assert compile_result.returncode == 0, compile_result.stdout
+        linked = subprocess.run(
+            [
+                str(toolchain / "link.exe"),
+                "/NOLOGO",
+                "/NODEFAULTLIB",
+                "/ENTRY:mainCRTStartup",
+                "/SUBSYSTEM:CONSOLE",
+                "/DEBUG",
+                f"/OUT:{target}",
+                str(obj),
+                str(kernel),
+            ],
+            cwd=folder,
+            capture_output=True,
+            timeout=30,
+        )
+        assert linked.returncode == 0, linked.stdout
+        binaries[pressure] = target
+    return binaries
+
+
+@pytest.mark.parametrize("condition", ["fastfail", "pressure", "abrupt"])
+def test_native_capture_lifecycle_under_bounded_pressure(
+    tmp_path, monkeypatch, native_failfast_targets, condition
+):
+    """Real ProcDump, native __fastfail(7), finite VirtualAlloc and separate target/collector Jobs."""
+    import queue
+    import shutil
+    import threading
+    from contextlib import closing
+
+    import win32api
+    import win32con
+    import win32job
+
+    from local_control_center.process_supervision.native_diagnostics import private_directory
+    from local_control_center.process_supervision.service import run_supervised_capture
+    from local_control_center.shared.db import open_sqlite_connection
+    from tests_py.operational_acceptance_support import evidence, native_readback, quality_envelope
+
+    collector, cdb = Path(os.environ.get("AIDO_TEST_PROCDUMP", "")), Path(os.environ.get("AIDO_TEST_CDB", ""))
+    if not collector.is_file() or not cdb.is_file():
+        pytest.skip("Native capture and analysis must both be explicitly configured")
+    target = native_failfast_targets[condition == "pressure"]
+    root = tmp_path / "diagnostics"
+    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(root))
+    diagnostics.activate_attempt(
+        root,
+        f"native-{condition}",
+        ttl_seconds=120,
+        native_collector=str(collector),
+        executable_sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+    )
+    service = ProcessSupervisorService(db_path=tmp_path / "native.sqlite")
+    managed = service.start(
+        argv=[str(target)],
+        cwd=target.parent,
+        execution_id=f"native-{condition}",
+        workload_class="qa_light",
+        memory_limit_bytes=32 * 1024**2,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    lines, observed = queue.Queue(), []
+    reader = threading.Thread(
+        target=lambda: [lines.put(line) for line in managed.process.stdout], daemon=True
+    )
+    reader.start()
+    receipt = {"status": "FAIL", "inference": False, "condition": condition, "dumpStatus": "NOT_RUN"}
+    try:
+        while True:
+            line = lines.get(timeout=10)
+            observed.append(line.decode("utf-8").strip())
+            if line.strip() == b"ready":
+                break
+        receipt["stdoutSignals"] = observed
+        capture = managed.native_capture
+        assert capture.receipt["collectorReadyBeforeResume"]
+        receipt["targetJob"] = native_readback(managed)
+        receipt["collectorJob"] = native_readback(capture.collector)
+        receipt["qualityEnvelope"] = quality_envelope()
+        handle = win32api.OpenProcess(
+            win32con.PROCESS_QUERY_INFORMATION, False, capture.collector.process.pid
+        )
+        try:
+            assert not win32job.IsProcessInJob(handle, managed.native_handle)
+            receipt["collectorIndependentOfTargetJob"] = True
+        finally:
+            handle.Close()
+        with closing(open_sqlite_connection(service.db_path)) as connection:
+            receipt["reservations"] = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id,memory_limit_bytes,cpu_limit_percent FROM resource_leases WHERE released_at IS NULL"
+                )
+            ]
+        assert len(receipt["reservations"]) == 2
+        if condition == "pressure":
+            assert any(value.startswith("allocationFailedWin32=") for value in observed)
+        managed.process.stdin.write(b"x" if condition == "abrupt" else b"f")
+        managed.process.stdin.close()
+        managed.process.wait(timeout=25)
+        record = service.complete(managed, exit_code=managed.process.returncode)
+        reader.join(timeout=2)
+        assert not reader.is_alive()
+        receipt.update(
+            nativeExitCode=record.exit_code,
+            terminationReason=record.termination_reason,
+            capture=capture.receipt,
+            collectorClosed=capture.closed,
+        )
+        dumps = list(capture.directory.glob("*.dmp"))
+        if condition == "abrupt":
+            assert not dumps
+            assert record.exit_code == 123 and capture.closed
+            receipt["status"] = "PASS"
+        elif dumps:
+            assert len(dumps) == 1 and capture.receipt["exceptionCode"] == 0xC0000409
+            # Keep private binary evidence out of pytest retention and out of Git.
+            retained = collector.parents[2] / "native-validation" / managed.managed_process_id
+            private_directory(retained)
+            for file in capture.directory.iterdir():
+                if file.is_file():
+                    shutil.copy2(file, retained / file.name)
+            analysis = run_supervised_capture(
+                [
+                    str(cdb),
+                    "-sins",
+                    "-y",
+                    str(target.parent),
+                    "-z",
+                    str(retained / dumps[0].name),
+                    "-c",
+                    ".ecxr; k 12; lm; q",
+                ],
+                cwd=retained,
+                db_path=retained / "analysis.sqlite",
+                workload_class="qa_light",
+                timeout_seconds=45,
+            )
+            receipt.update(privateNativeDirectory=str(retained), cdbExitCode=analysis["returnCode"])
+            assert analysis["returnCode"] == 0
+            assert "c0000409" in analysis["stdout"].lower()
+            assert "mainCRTStartup" in analysis["stdout"]
+            receipt.update(status="PASS", dumpStatus="PASS", symbolMatchedFrame="mainCRTStartup")
+        else:
+            receipt["dumpStatus"] = "FAIL"
+            pytest.fail("Synthetic capture produced no valid dump; see bounded private receipt")
+    finally:
+        if not managed.released:
+            service.complete(managed, exit_code=managed.process.poll(), termination_reason="fixture_cleanup")
+        reader.join(timeout=2)
+        for stream in (managed.process.stdin, managed.process.stdout, managed.process.stderr):
+            stream.close()
+        receipt["collectorGone"] = managed.native_capture.collector.process.poll() is not None
+        evidence(f"resource-scope-capture-{condition}", receipt)

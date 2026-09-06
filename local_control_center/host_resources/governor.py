@@ -104,8 +104,6 @@ class HostResourceGovernor:
         policy: Any,
     ) -> ResourceAdmissionDecision | None:
         profile = workload_profile(request.workload_class)
-        if profile.essential:
-            return None
 
         def wait(reason_code: str, reason: str) -> ResourceAdmissionDecision:
             return ResourceAdmissionDecision(
@@ -115,6 +113,18 @@ class HostResourceGovernor:
                 lease=None,
                 snapshot=snapshot,
             )
+
+        # Each lease is one independent CPU budget, including essential control-plane roots.
+        # Their memory remains funded by the existing host headroom; never double-count it.
+        reserved_cpu = sum(lease.cpu_limit_percent for lease in active)
+        cpu_exceeded = reserved_cpu + profile.cpu_limit_percent > policy.max_cpu_percent
+        if profile.essential and cpu_exceeded:
+            return wait(
+                "aggregate_cpu_budget",
+                "Combined workload CPU limits exceed the configured aggregate CPU budget.",
+            )
+        if profile.essential:
+            return None
 
         if snapshot.available_memory_bytes < policy.hard_free_memory_bytes:
             return wait(
@@ -171,8 +181,7 @@ class HostResourceGovernor:
                 "light_workload_capacity",
                 "The configured light-workload concurrency limit is already reserved.",
             )
-        reserved_cpu = sum(lease.cpu_limit_percent for lease in non_control_active)
-        if reserved_cpu + profile.cpu_limit_percent > policy.max_cpu_percent:
+        if cpu_exceeded:
             return wait(
                 "aggregate_cpu_budget",
                 "Combined workload CPU limits exceed the configured aggregate CPU budget.",

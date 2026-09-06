@@ -67,8 +67,10 @@ Current status:
     hand-rolled `motion/useControlMotion.ts`).
   - `react-resizable-panels@4.11.2` — resizable IDE shell panels (planned
     consumer: Explorer/Inspector split in `app/AppShell.tsx`).
-  - `@tanstack/react-virtual@3.14.3` — list/table virtualization (planned
-    consumer: long logs / usage-ledger tables).
+- `@tanstack/react-virtual@3.14.3` was removed from the manifest and lockfile
+  on 2026-09-06: the planned logs / usage-ledger consumer was never implemented.
+  The existing installation is retained; isolated validation is recorded in
+  [post-p0-cleanup.md](cleanup/post-p0-cleanup.md).
 - TanStack supply-chain note: `@tanstack/react-virtual` is MIT, headless,
   dependency-light and actively maintained by the TanStack org; approved for
   use. This supersedes the prior "avoid TanStack" hold.

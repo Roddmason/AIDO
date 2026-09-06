@@ -1,7 +1,8 @@
 # Aceptación operacional P0 — 2026-09-05
 
-**Estado vigente: §14.9 — diagnóstico estructurado, 2026-09-06.** Instrumentación y captura
-sintética verificadas; smoke real y captura real FAIL. Causa del stack overflow histórico UNKNOWN.
+**Estado vigente: §14.10 — ámbitos de recursos Windows, 2026-09-06.** Contradicción reproducida;
+rechazo previo al spawn y conversión CPU corregidos. Integración completa BLOCKED por admisión.
+Smokes históricos FAIL conservados; smoke de este encargo NOT_RUN, permiso de inferencia **0**.
 Las tablas anteriores se conservan como historia, no como aceptación del candidato actual.
 
 **Resultado global: BLOCKED.** Las regresiones locales indicadas pasan; no se certificó el ciclo
@@ -1371,3 +1372,134 @@ memoria y el fallo de escritura del colector. No hay login/licencia pendiente ni
 actualización global. PR sigue BLOCKED por admisión (preview exit 0, no un PR ejecutado/exit 75).
 Selección original consultada en modo read-only sigue apuntando a Codex 0.149.0; hash intacto.
 No se modificó/adoptó la DB original ni se hizo push, merge, publicación o control de Unreal.
+
+### 14.10 Ámbitos de reservas, Jobs y colector — 2026-09-06
+
+Continuación desde `0bb5ee04624b72b9f8d2ea9f5a03362a69fee7bd`, encontrado limpio y sin
+descendientes, en `codex/aido-cleanup-post-p0`. Código y tests propios conservados en
+`443a163271608f5949aeee32cb5e4326a43278af`. No se ejecutó ningún modelo ni se renovó el permiso.
+No se cambiaron runtimes, credenciales, configuración global, entorno activo ni datos operativos.
+`F` y `N` conservan los significados anteriores. Manifiesto de fuentes probadas:
+`N/resource-scope-tested-source.json`; hash productivo
+`f3d2c34a592ead70f488f772b80b40342cb8f00fc611e01e1a6d9ec1a9f398b3`.
+El HEAD final de documentación y la igualdad del contenido probado quedan en
+`N/resource-scope-final-traceability.json`; incluye hashes de fuentes, configuración, lockfiles y recibos.
+
+**Jerarquía comprobada, no tres árboles intercambiables.** `_spawn` del launcher canónico usa
+Popen/CREATE_NEW_PROCESS_GROUP: no asigna por sí mismo un Job `control_plane` al worker.
+El contenedor de 2 GiB del incidente procede del lanzamiento supervisado del ensayo histórico,
+no de esa función. Worker → dispatcher → CLI es un árbol de procesos; cada llamada al backend
+crea un Job suspendido, asigna antes de resume y hereda los Jobs del creador. Dispatcher y CLI
+comparten una reserva; el colector solicita otra. Reservas distintas no implican Jobs hermanos.
+
+| Ámbito | Antes | Comportamiento corregido comprobado |
+|---|---|---|
+| Ancestro control_plane / ejecución independiente | 2 GiB/20% → 8 GiB/40%; el hijo no obtiene 8 GiB independientes | `resource_scope_conflict` antes de crear el hijo; cero filas/procesos del hijo |
+| Descendiente de la misma reserva | 25% → 25% relativo = 6,25% del nivel exterior | Readback 25% → 100% relativo = 25% del nivel exterior; mismo presupuesto, no se elimina el tope exterior |
+| Captura iniciada dentro de un Job propio | Colector con reserva nueva pero subordinado al dispatcher/worker | Rechazo antes de crear el objetivo: requiere creador independiente; no se añadió broker/breakaway |
+| CPU agregada | Se excluían leases control_plane | Se incluyen todas las leases: 20+40+25=85% no cabe en la política de 75% |
+
+Con dos reservas control_plane, la combinación histórica sería 105%; ni siquiera 20+20+40 cabe
+en 75%. La memoria del plano de control continúa dentro del headroom existente de 16 GiB, sin
+contabilizarla nuevamente como reserva de carga. No se aumentaron umbrales ni se redujeron topes.
+Se abren los handles concretos `Local\AIDO-<managedProcessId>`, vinculados a PID+creation time y
+a la misma DB supervisora; se comprueba pertenencia y se cierran inmediatamente. Se rechaza una
+colisión de nombre sin reconfigurar el Job existente. No se usó un handle NULL como inventario.
+CPU solicitada sigue expresada respecto del host; el setter Windows usa porcentaje del padre.
+El porcentaje efectivo del host permanece UNKNOWN si no se conoce toda la jerarquía externa.
+[Contrato CPU Windows](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information).
+
+**Límite explícito:** esta corrección cubre la ascendencia AIDO registrada en la misma DB, no
+descubre automáticamente todos los Jobs de otros orígenes/DB. No certifica un launcher con nuevo
+presupuesto independiente del plano de control ni una topología productiva completa del colector.
+En vez de lanzar esa topología incompatible se rechaza cuando el conflicto propio es conocido.
+Los fixtures registran además el Job concreto exterior del runner de calidad: sus DB aisladas
+no son reservas globales adicionales ni demuestran CPU libre del host. No se eluden ancestros.
+
+**Contraejemplo y métricas.** Fixture mínimo nativo x64, tres procesos sintéticos, bloques de
+4 MiB tocados por página; reserva virtual de 1 GiB sin commit distinguida de RSS/private bytes.
+Padre 64 MiB, hijo declarado 256 MiB: sexta solicitud rechazada por VirtualAlloc, error 1455.
+Control negativo con padre 128 MiB: las mismas 18 solicitudes (72 MiB conjuntos) pasan.
+Nunca se intentó agotar el host. Tasas leídas 20%/40% significan 8% del nivel exterior, no 40%
+independiente ni utilización medida. Procesos y membresías se comprobaron con handles concretos;
+al cerrar, listas de PID vacías. `N/resource-scope-native-counterexample-{64,128}.json`.
+
+`JobObjectExtendedLimitInformation` clase 9, estructura x64 de 144 bytes, `SIZE_T`, offset 136
+de PeakJobMemoryUsed: pywin32 y ctypes coincidieron consultando el mismo handle. JOB_MEMORY
+activo, PROCESS_MEMORY inactivo; setters anteriores al arranque. En el rechazo se leyó pico
+**67.596.288 bytes** frente al tope **67.108.864**, sin que la asignación rechazada se declarase
+exitosa. Por tanto un pico superior al límite no prueba RSS utilizable por encima del tope.
+Se conservan sin modificar los **2.281.967.616** bytes históricos del worker: no se reconstruyó
+el instante/contabilidad interna que produjo ese valor, ni se atribuye su árbol a Codex.
+No se sumaron picos padre/hijo ni se dedujo nada de la ausencia de notificaciones.
+[Estructura y campos oficiales](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information).
+
+**Colector y cierre.** ProcDump/CDB mantienen los hashes y firmas Microsoft de §14.9, revalidados;
+sin descarga, licencia repetida ni instalación global. El argv histórico se reconstruyó con
+coincidencia exacta del fingerprint durable SHA-256
+`502879365ff136c2c357f5a298f5d75c3b1a3ee48c506d8cbd1bba8c7012e8d6`:
+`procdump64.exe -accepteula -mm -e -n 1 -at 10 52916 <directorio privado del managedProcessId>/exception.dmp`.
+El array completo con rutas exactas está en `N/resource-scope-historical-argv.json`.
+Sin `-e 1`, clon, filtros adicionales, dump completo ni privilegios elevados.
+
+El fixture anterior llama RaiseFailFastException(NULL,NULL,0), excepción C0000602. El nuevo C++
+llama **__fastfail(7)**, C0000409/FAST_FAIL_FATAL_APP_EXIT; compartir código de excepción con Rust
+no demuestra idéntica causa interna. Se probó normal, tras rechazo VirtualAlloc bajo Job de
+32 MiB (cota de solicitudes 96 MiB), y ExitProcess(123) con el monitor activo. El colector estaba
+listo antes de resume, no pertenecía al Job del objetivo y conservó su Job/lease propios.
+Timeout de dump 10 s, cierre acotado 12 s. Fastfail y presión: un dump íntegro por caso, contexto
+de excepción válido, CDB exit 0 y frame `mainCRTStartup` con símbolos del fixture. No se infirió
+éxito a partir del exit de ProcDump (fue 1 con dump válido). Abrupto sin excepción: cierre PASS,
+sin dump esperado; el FAIL del monitor sin dump permanece en su recibo interno.
+`N/resource-scope-capture-{fastfail,pressure,abrupt}.json`; binarios/dumps privados SENSITIVE_NATIVE
+bajo `%LOCALAPPDATA%/AIDO/native-validation`, fuera de Git, sin exportación.
+
+El Job exterior qa_light del ensayo limita conjuntamente pytest y fixtures a 4 GiB/25%:
+colector 25% relativo significa 6,25% de su nivel exterior, no 25% medido del host. La captura
+pequeña fue utilizable, pero **no certifica 4 GiB independientes disponibles para el colector**.
+La captura productiva desde dispatcher sigue BLOCKED por la precondición de ámbito. No se
+reprodujo 0x800707D1 ni se identificó un driver causal. También se reprodujo un handle Popen
+retenido después de wait; `release` ahora lo cierra tras confirmar salida, sin invalidar waits vivos.
+
+**Regresiones, admisión y estados.** RED nativo `b9a9c150`, `ca0ddc73`, `a257a277` y `9f3e6ba0`:
+reservas anidadas, CPU, creación prematura y handles/colisión. Clasificación agregada RED
+`56583819`; persistencia del ámbito en el evento existente RED `115d4635`. Recibos completos
+`F/quality-fast-<id>.json`; sus fallos no se borraron. GREEN del contenido final:
+
+| Pista | Estado / evidencia |
+|---|---|
+| Recursos, supervisión, watchdog, identidad, recuperación, captura y diagnóstico | PASS: 121 tests, exit del paso 0, `F/quality-fast-60076eee46fd47ddb6824a3331a00488.json` |
+| Integración HTTP/worker OS/dispatcher/CLI sintético | BLOCKED: perfil build_heavy, runner exit 75 por aggregate_memory_budget; envoltorio PowerShell observado exit 1 |
+| Verificación corta y secretos | PASS: `F/quality-fast-ff88f08b1f13485693643d629c55c6a2.json`, exit exterior 0; 18 PASS, 1 SKIP opt-in sin ProcDump en ese comando; no sustituye la captura activada de los 121 tests |
+| Captura sintética de excepción / presión | PASS: minidumps analizados por CDB; no runtime real |
+| Cancelación, fencing, cleanup focalizados | PASS dentro de los 121 tests; cero descendientes al cierre del Job del runner; HTTP ampliado aún BLOCKED |
+| PR completo / release | BLOCKED / NOT_RUN; PR no ejecutado, release depende de PR |
+| Linux / macOS / smoke real de este encargo | NOT_RUN / NOT_RUN / NOT_RUN; permiso de inferencia 0 |
+
+La primera ampliación HTTP falló (6 FAIL, 1 PASS; `F/quality-fast-1803dac5b97241e5ba8cabc4fd2518f7.json`):
+pico agregado **8.724.848.640 bytes** con cap 8 GiB. Se observó `MemoryError` en stderr del
+dispatcher, create_app → inspect.get_annotations; el archivo temporal se retiró posteriormente
+por la retención normal de pytest, no se presenta como artefacto aún disponible. La prueba de
+integración ahora reserva el perfil existente de 16 GiB para API+worker+dispatcher+pytest; las
+pruebas pequeñas conservan qa_light. No se da por demostrada la causa exacta de ese MemoryError
+ni por aprobada su corrección sin ejecutar nuevamente el árbol completo.
+Snapshot **21:30:25Z**: **33.077.927.936 bytes disponibles (30,806 GiB)**; trabajo 16 GiB + headroom
+16 GiB = **34.359.738.368 bytes**; déficit **1.281.810.432 bytes**, reservas activas **0**.
+`N/resource-scope-resource-preview.json` es un preview exit 0, no un gate PASS. Se recuperó una
+única reserva de un runner interrumpido mediante el protocolo existente, tras comprobar dueño
+y raíz muertos por PID+creation time y Job ausente; `N/resource-scope-quality-recovery.json`.
+No se cerraron procesos ajenos. Los tres DeprecationWarning SWIG preexistentes se conservan.
+
+Comando ejecutado para los 121 tests y la admisión HTTP (variables opt-in sólo de ese proceso):
+
+```powershell
+$env:AIDO_TEST_PROCDUMP='C:/Users/Rodd/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
+$env:AIDO_TEST_CDB='C:/Users/Rodd/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
+$env:AIDO_TEST_QUALITY_DB='H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite'
+$env:AIDO_ACCEPTANCE_EVIDENCE='H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/authorized-close'
+uv run python -m local_control_center.quality --tier fast --base 0bb5ee04624b72b9f8d2ea9f5a03362a69fee7bd --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_host_resource_governor.py --python-test tests_py/test_windows_resource_scope.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_watchdog_contention.py --python-test tests_py/test_watchdog_identity.py --python-test tests_py/test_watchdog_temporary_auth.py --python-test tests_py/test_worker_leadership.py --python-test tests_py/test_operational_recovery.py --python-test tests_py/test_native_diagnostics.py --python-test tests_py/test_structured_diagnostics.py --python-test tests_py/test_transaction_begin_failure.py --python-test tests_py/test_quality_tiers.py --python-test tests_py/test_watchdog_http_pipeline.py
+```
+
+La causa del fallo de asignación **sintético** está discriminada por el límite y el control
+negativo; las causas del fallo histórico de asignación y del stack overflow siguen **UNKNOWN**.
+No se hizo smoke real, push, merge, adopción, cambios de autenticación ni control de Unreal.

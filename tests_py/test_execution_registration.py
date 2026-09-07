@@ -7,6 +7,7 @@ from local_control_center.control_plane.runtime import ControlCenterRuntime
 
 def test_registers_original_smoke_without_constructing_fastapi_routes(tmp_path, monkeypatch):
     from fastapi import routing
+
     from local_control_center.executions.registration import register_operation
 
     def forbidden(*args, **kwargs):

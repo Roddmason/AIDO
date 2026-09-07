@@ -431,7 +431,8 @@ def test_canonical_launcher_positive_http_capture(tmp_path, monkeypatch, offline
                         "-y",
                         str(retained),
                         "-z",
-                        str(retained / "exception.dmp"),
+                        # Retained invocation paths can exceed CDB's legacy path limit.
+                        "\\\\?\\" + str(retained / "exception.dmp"),
                         "-c",
                         ".ecxr; k 12; lm; q",
                     ),

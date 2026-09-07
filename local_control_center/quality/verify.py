@@ -73,7 +73,7 @@ def verification_plan(run_dir: Path) -> list[QualityStep]:
         QualityStep(
             "quality-pr",
             (sys.executable, "-m", "local_control_center.quality", "--tier", "pr"),
-            "build_heavy",
+            "capture_session",
             25200,
         ),
     ]

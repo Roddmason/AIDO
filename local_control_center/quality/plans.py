@@ -112,7 +112,7 @@ def build_plan(
                     "-File",
                     "scripts/verify-operational-hardening.ps1",
                 ),
-                "build_heavy",
+                "capture_session",
                 21600,
             ),
             QualityStep(

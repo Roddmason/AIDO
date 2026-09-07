@@ -36,6 +36,18 @@ def test_pr_keeps_capture_cases_in_their_joint_profile_not_inside_a_smaller_ance
     assert workload_profile(capture.workload_class).memory_limit_bytes == 18 * 1024**3
 
 
+def test_release_wrappers_can_contain_the_complete_pr_capture_budget(tmp_path):
+    from local_control_center.host_resources.profiles import workload_profile
+    from local_control_center.quality.verify import verification_plan
+
+    outer = next(step for step in build_plan(ROOT, "release") if step.name == "operational-verification")
+    inner = next(step for step in verification_plan(tmp_path) if step.name == "quality-pr")
+    for step in (outer, inner):
+        profile = workload_profile(step.workload_class)
+        assert profile.memory_limit_bytes >= 18 * 1024**3
+        assert profile.cpu_limit_percent == 65
+
+
 def test_fast_never_selects_full_suites_and_checks_modified_python():
     steps = build_plan(
         ROOT,

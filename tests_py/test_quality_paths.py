@@ -64,6 +64,7 @@ def test_invocations_and_steps_use_fresh_separate_paths(tmp_path):
     assert not Path(env["AIDO_QUALITY_FIXTURES"]).is_relative_to(base)
     assert not Path(env["AIDO_ACCEPTANCE_EVIDENCE"]).is_relative_to(first.scratch)
     assert Path(env["PLAYWRIGHT_ARTIFACT_ROOT"]).is_relative_to(first.evidence)
+    assert Path(env["AIDO_DIAGNOSTICS_DIR"]).is_relative_to(first.evidence)
     assert json.loads((first.evidence / "paths.json").read_text())["invocationId"] == first.invocation_id
     with pytest.raises(ValueError):
         first.prepare_pytest(("python", "-m", "pytest"), {"PYTEST_ADDOPTS": "--basetemp=old"})
@@ -72,6 +73,7 @@ def test_invocations_and_steps_use_fresh_separate_paths(tmp_path):
 def test_public_runner_path_preparation_propagates_only_child_settings(tmp_path, monkeypatch):
     from local_control_center.quality import __main__ as runner
     from local_control_center.quality.paths import inherited_paths
+    from local_control_center.shared.diagnostics import ensure_diagnostics
 
     root = tmp_path / "checkout"
     root.mkdir()
@@ -79,6 +81,9 @@ def test_public_runner_path_preparation_propagates_only_child_settings(tmp_path,
     calls = []
 
     def run(step, **kwargs):
+        from local_control_center.shared.diagnostics import ensure_diagnostics
+
+        assert ensure_diagnostics().root == root / "retained" / "runner-diagnostics"
         calls.append((step.name, kwargs))
         if step.name == "worktree-context":
             return {"returnCode": 0, "stdoutCaptureTruncated": False, "stdout": f"worktree {root}\n"}
@@ -88,11 +93,15 @@ def test_public_runner_path_preparation_propagates_only_child_settings(tmp_path,
         }
 
     monkeypatch.setattr(runner, "_run", run)
-    manifest, environment = runner._prepare_paths(
-        root, root / "quality.sqlite", root / "retained", tmp_path / "scratch"
-    )
+    try:
+        manifest, environment = runner._prepare_paths(
+            root, root / "quality.sqlite", root / "retained", tmp_path / "scratch"
+        )
+    finally:
+        ensure_diagnostics().close()
     assert environment["AIDO_TEST_QUALITY_DB"] == str(root / "quality.sqlite")
     assert inherited_paths(environment).invocation_id == manifest["invocationId"]
+    assert manifest["runnerDiagnostics"] == str(root / "retained" / "runner-diagnostics")
     assert calls[1][1]["environment"]["LC_ALL"] == "C"
     assert dict(os.environ) == before
 

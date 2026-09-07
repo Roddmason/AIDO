@@ -184,6 +184,7 @@ def test_quality_local_runs_direct_commands_for_long_gates() -> None:
     assert next(step for step in steps if step.name == "ruff").argv == (
         "uv",
         "run",
+        "--no-sync",
         "--extra",
         "dev",
         "ruff",
@@ -193,6 +194,7 @@ def test_quality_local_runs_direct_commands_for_long_gates() -> None:
     scanner_prefix = (
         "uv",
         "run",
+        "--no-sync",
         "--extra",
         "dev",
         "semgrep",

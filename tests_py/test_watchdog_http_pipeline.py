@@ -32,6 +32,23 @@ from tests_py.test_model_runtime_gateway import register_workspace
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows native operational pipeline")
 
 
+@pytest.fixture
+def pipeline_diagnostics(tmp_path, monkeypatch):
+    from local_control_center.shared.diagnostics import configure_diagnostics
+
+    # Deterministically reproduce a previous test's process-wide bootstrap. Changing
+    # the environment alone must not be mistaken for reconfiguring the existing sink.
+    previous = configure_diagnostics(tmp_path / "previous-bootstrap")
+    root = tmp_path / "diagnostics"
+    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(root))
+    sink = configure_diagnostics(root)
+    assert previous.stopping.is_set()
+    try:
+        yield sink
+    finally:
+        sink.close()
+
+
 @pytest.fixture(scope="module")
 def offline_codex(tmp_path_factory):
     binary = tmp_path_factory.mktemp("offline-cli") / "codex.exe"
@@ -54,7 +71,7 @@ def offline_codex(tmp_path_factory):
     "action", ["transient", "loss", "cancel", "os-success", "os-loss", "os-cancel", "os-crash"]
 )
 def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
-    tmp_path, monkeypatch, offline_codex, action
+    tmp_path, monkeypatch, offline_codex, action, pipeline_diagnostics
 ):
     db = tmp_path / "runtime.sqlite"
     workspace = tmp_path / "workspace"
@@ -64,7 +81,6 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
     (source / "auth.json").write_text('{"offlineFixture":true}')
     monkeypatch.setenv("CODEX_HOME", str(source))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "private-local"))
-    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(tmp_path / "diagnostics"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=db)
     runtime.init()
     register_workspace(runtime.connection, "offline-workspace", workspace)
@@ -152,6 +168,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
         "action": action,
         "inference": False,
         "binarySha256": hashlib.sha256(offline_codex.read_bytes()).hexdigest(),
+        "parentDiagnosticRoot": str(pipeline_diagnostics.root),
     }
     try:
 
@@ -308,6 +325,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
             assert {"process.created", "dispatcher.started", "worker.claimed"}.issubset(
                 {e["event"] for e in events}
             )
+            receipt["correlatedEvents"] = events
         # Writer exit is earlier than the worker's durable completion. Do not revoke its
         # fence from fixture teardown while complete_job_run is still in flight.
         if os_worker is None:

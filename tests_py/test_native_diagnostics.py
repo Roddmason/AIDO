@@ -350,10 +350,17 @@ def test_native_capture_lifecycle_under_bounded_pressure(
             # Keep private binary evidence out of pytest retention and out of Git.
             evidence_root = Path(os.environ.get("AIDO_ACCEPTANCE_EVIDENCE", str(tmp_path))).parent
             retained = evidence_root / "native-private" / managed.managed_process_id
+            # Exercise the CDB MAX_PATH boundary independent of checkout/runner path length.
+            retained /= "captura sintética " + "x" * max(0, 270 - len(str(retained)))
             private_directory(retained)
             for file in capture.directory.iterdir():
                 if file.is_file():
                     shutil.copy2(file, retained / file.name)
+            dump_path = str((retained / dumps[0].name).resolve())
+            assert len(dump_path) > 260
+            dump_argument = (
+                "\\\\?\\UNC\\" + dump_path[2:] if dump_path.startswith("\\\\") else "\\\\?\\" + dump_path
+            )
             analysis = run_quality_step(
                 QualityStep(
                     "synthetic-cdb-analysis",
@@ -363,18 +370,24 @@ def test_native_capture_lifecycle_under_bounded_pressure(
                         "-y",
                         str(target.parent),
                         "-z",
-                        str(retained / dumps[0].name),
+                        dump_argument,
                         "-c",
                         ".ecxr; k 12; lm; q",
                     ),
                     "qa_light",
                     45,
                 ),
-                root=retained,
+                # CreateProcess still requires a short cwd; retained evidence is not a work directory.
+                root=target.parent,
                 db_path=retained / "analysis.sqlite",
                 display_output=False,
             )
-            receipt.update(privateNativeDirectory=str(retained), cdbExitCode=analysis["returnCode"])
+            receipt.update(
+                privateNativeDirectory=str(retained),
+                cdbExitCode=analysis["returnCode"],
+                cdbDumpPathMode="extended-length",
+                cdbDumpPathLength=len(dump_path),
+            )
             assert analysis["returnCode"] == 0
             assert "c0000409" in analysis["stdout"].lower()
             assert "mainCRTStartup" in analysis["stdout"]

@@ -8,8 +8,9 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssZ")
+$RunId = [Guid]::NewGuid().ToString("N")
 if (-not $OutputRoot) {
-    $OutputRoot = Join-Path $RepoRoot ".tmp\release-certification\$Timestamp"
+    $OutputRoot = Join-Path $RepoRoot ".tmp\release-certification\$Timestamp-$RunId"
 } else {
     $OutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
 }
@@ -103,7 +104,25 @@ function Write-RedactedJsonFile {
         [Parameter(Mandatory = $true)][string]$Path
     )
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
-    ConvertTo-RedactedJson -Value $Value | Set-Content -LiteralPath $Path -Encoding UTF8
+    $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-RedactedJson -Value $Value))
+    $temporary = Join-Path (Split-Path -Parent $Path) ("." + [Guid]::NewGuid().ToString("N") + ".writing")
+    $owned = $false
+    try {
+        $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $owned = $true
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally {
+            $stream.Dispose()
+        }
+        # The two-argument Move fails on an existing destination; no overwrite fallback.
+        [IO.File]::Move($temporary, $Path)
+    } finally {
+        if ($owned -and [IO.File]::Exists($temporary)) {
+            try { [IO.File]::Delete($temporary) } catch { Write-Warning "Owned publication temporary could not be removed." }
+        }
+    }
 }
 
 function Write-ReleaseReport {
@@ -260,6 +279,15 @@ function Get-MissingSmokeConfiguration {
 }
 
 Initialize-SecretMasks
+try {
+    # Atomic ownership before any command or log: never reuse a prior report directory.
+    New-Item -ItemType Directory -Path $OutputRoot -ErrorAction Stop | Out-Null
+} catch {
+    if (Test-Path -LiteralPath $OutputRoot) {
+        throw "release_output_collision: OutputRoot already exists; use a new directory."
+    }
+    throw
+}
 New-Item -ItemType Directory -Force -Path $ReportDir, $LogDir | Out-Null
 Set-Location -LiteralPath $RepoRoot
 
@@ -380,6 +408,7 @@ foreach ($smokeResult in $smokeResults) {
 
 $report = [pscustomobject]@{
     schema = "aido.release-certification.v1"
+    runId = $RunId
     status = $overallStatus
     reason = $overallReason
     certificationScope = $certificationScope

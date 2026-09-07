@@ -30,23 +30,29 @@ def dispatch_execution(job: dict, *, connection, db_path):
         from local_control_center.shared.diagnostics import diagnostic_event
 
         diagnostic_event("dispatcher.started", component="dispatcher")
-        result = run_supervised_capture(
-            [
-                sys.executable,
-                "-m",
-                "local_control_center.executions.runner",
-                "--db",
-                str(db_path),
-                "--execution-id",
-                execution_id,
-                "--owner-id",
-                context.worker_id,
-                "--fencing-token",
-                str(context.fencing_token),
-            ],
-            cwd=Path(__file__).resolve().parents[2],
-            timeout_seconds=900,
-            workload_class=current["workloadClass"],
+        from local_control_center.process_supervision.session_client import request_session
+
+        result = (
+            request_session(context, "dispatch")
+            if context.aggregate_managed_process_id
+            else run_supervised_capture(
+                [
+                    sys.executable,
+                    "-m",
+                    "local_control_center.executions.runner",
+                    "--db",
+                    str(db_path),
+                    "--execution-id",
+                    execution_id,
+                    "--owner-id",
+                    context.worker_id,
+                    "--fencing-token",
+                    str(context.fencing_token),
+                ],
+                cwd=Path(__file__).resolve().parents[2],
+                timeout_seconds=900,
+                workload_class=current["workloadClass"],
+            )
         )
         current = repository.get(execution_id)
         if current["status"] not in TERMINAL_STATUSES:

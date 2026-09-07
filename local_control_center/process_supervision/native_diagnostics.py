@@ -113,7 +113,10 @@ class NativeCapture:
         with marker.open("x", encoding="utf-8") as output:
             output.write(managed.managed_process_id)
         capture_context = (
-            replace(context, resource_lease_id=None)
+            replace(
+                context,
+                resource_lease_id=context.resource_lease_id if context.aggregate_managed_process_id else None,
+            )
             if context
             else ProcessExecutionContext(db_path=db_path, execution_id=managed.execution_id)
         )

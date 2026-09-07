@@ -263,7 +263,8 @@ def test_native_capture_lifecycle_under_bounded_pressure(
     import win32job
 
     from local_control_center.process_supervision.native_diagnostics import private_directory
-    from local_control_center.process_supervision.service import run_supervised_capture
+    from local_control_center.quality.__main__ import _run as run_quality_step
+    from local_control_center.quality.plans import QualityStep
     from local_control_center.shared.db import open_sqlite_connection
     from tests_py.operational_acceptance_support import evidence, native_readback, quality_envelope
 
@@ -347,26 +348,31 @@ def test_native_capture_lifecycle_under_bounded_pressure(
         elif dumps:
             assert len(dumps) == 1 and capture.receipt["exceptionCode"] == 0xC0000409
             # Keep private binary evidence out of pytest retention and out of Git.
-            retained = collector.parents[2] / "native-validation" / managed.managed_process_id
+            evidence_root = Path(os.environ.get("AIDO_ACCEPTANCE_EVIDENCE", str(tmp_path))).parent
+            retained = evidence_root / "native-private" / managed.managed_process_id
             private_directory(retained)
             for file in capture.directory.iterdir():
                 if file.is_file():
                     shutil.copy2(file, retained / file.name)
-            analysis = run_supervised_capture(
-                [
-                    str(cdb),
-                    "-sins",
-                    "-y",
-                    str(target.parent),
-                    "-z",
-                    str(retained / dumps[0].name),
-                    "-c",
-                    ".ecxr; k 12; lm; q",
-                ],
-                cwd=retained,
+            analysis = run_quality_step(
+                QualityStep(
+                    "synthetic-cdb-analysis",
+                    (
+                        str(cdb),
+                        "-sins",
+                        "-y",
+                        str(target.parent),
+                        "-z",
+                        str(retained / dumps[0].name),
+                        "-c",
+                        ".ecxr; k 12; lm; q",
+                    ),
+                    "qa_light",
+                    45,
+                ),
+                root=retained,
                 db_path=retained / "analysis.sqlite",
-                workload_class="qa_light",
-                timeout_seconds=45,
+                display_output=False,
             )
             receipt.update(privateNativeDirectory=str(retained), cdbExitCode=analysis["returnCode"])
             assert analysis["returnCode"] == 0

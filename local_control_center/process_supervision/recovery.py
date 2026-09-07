@@ -100,7 +100,16 @@ def recover_managed_processes(db_path: Path) -> list[str]:
                 _recover_artifact(connection, db_path, artifact_id)
             ManagedProcessRepository(connection).finish(
                 record.managed_process_id,
-                stats=ProcessStats(cancelled=True, termination_reason="owner_crashed; partial_evidence"),
+                stats=ProcessStats(
+                    cancelled=not (
+                        record.workload_class == "capture_session"
+                        and record.termination_reason == "launcher_shutdown_pending_exit"
+                    ),
+                    termination_reason="launcher_shutdown_complete; exit_unknown"
+                    if record.workload_class == "capture_session"
+                    and record.termination_reason == "launcher_shutdown_pending_exit"
+                    else "owner_crashed; partial_evidence",
+                ),
             )
             if record.resource_lease_id:
                 ResourceRepository(connection).release(record.resource_lease_id, reason="owner_crashed")

@@ -16,7 +16,27 @@ from .models import ResourceSnapshot, WorkloadClass, WorkloadProfile
 
 GIB = 1024**3
 
+# One definition of the admitted session: all parts are fractions of the same
+# aggregate scope, not independent leases. The creator uses aggregate headroom.
+CAPTURE_SESSION_PARTS = {
+    "creator": {"memoryBytes": 2 * GIB, "cpuPercent": 13},
+    "api": {"memoryBytes": 2 * GIB, "cpuPercent": 6.5},
+    "worker": {"memoryBytes": 2 * GIB, "cpuPercent": 6.5},
+    "execution": {"memoryBytes": 8 * GIB, "cpuPercent": 26},
+    "collector": {"memoryBytes": 4 * GIB, "cpuPercent": 13},
+}
+
 WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
+    "capture_session": WorkloadProfile(
+        workload_class="capture_session",
+        heavy=True,
+        light=False,
+        essential=False,
+        cpu_limit_percent=sum(part["cpuPercent"] for part in CAPTURE_SESSION_PARTS.values()),
+        memory_limit_bytes=sum(part["memoryBytes"] for part in CAPTURE_SESSION_PARTS.values()),
+        process_limit=64,
+        gpu_required=False,
+    ),
     "control_plane": WorkloadProfile(
         workload_class="control_plane",
         heavy=False,

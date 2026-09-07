@@ -8,10 +8,15 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import threading
 import time
+import uuid
 from pathlib import Path
 
 import psutil
+
+_EVIDENCE_PATHS: dict[Path, Path] = {}
+_EVIDENCE_LOCK = threading.Lock()
 
 
 def save(path: Path, value: dict) -> None:
@@ -24,7 +29,21 @@ def save(path: Path, value: dict) -> None:
 def evidence(name: str, value: dict) -> None:
     destination = os.environ.get("AIDO_ACCEPTANCE_EVIDENCE")
     if destination:
-        save(Path(destination) / f"{name}.json", value)
+        preferred = Path(destination).resolve() / f"{name}.json"
+        with _EVIDENCE_LOCK:
+            path = _EVIDENCE_PATHS.get(preferred)
+            if path is None:
+                preferred.parent.mkdir(parents=True, exist_ok=True)
+                path = preferred
+                while True:
+                    try:
+                        path.open("x", encoding="utf-8").close()
+                        break
+                    except FileExistsError:
+                        path = preferred.with_stem(f"{name}-{uuid.uuid4().hex}")
+                _EVIDENCE_PATHS[preferred] = path
+            # Finalize only this process's receipt; referenced historical files are immutable.
+            save(path, value)
 
 
 def wait_until(predicate, timeout: float = 15):

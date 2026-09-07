@@ -24,6 +24,18 @@ def test_native_http_pipeline_has_capacity_without_escalating_small_regressions(
     assert light not in heavy_step.argv
 
 
+def test_pr_keeps_capture_cases_in_their_joint_profile_not_inside_a_smaller_ancestor():
+    from local_control_center.host_resources.profiles import workload_profile
+
+    plan = build_plan(ROOT, "pr")
+    python = next(step for step in plan if step.name == "python")
+    capture = next(step for step in plan if step.name == "python-capture-session")
+    assert "--ignore=tests_py/test_launcher_capture_http.py" in python.argv
+    assert "tests_py/test_launcher_capture_http.py" in capture.argv
+    assert capture.workload_class == "capture_session"
+    assert workload_profile(capture.workload_class).memory_limit_bytes == 18 * 1024**3
+
+
 def test_fast_never_selects_full_suites_and_checks_modified_python():
     steps = build_plan(
         ROOT,

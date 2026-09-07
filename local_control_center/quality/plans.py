@@ -132,12 +132,18 @@ def build_plan(
                     "-m",
                     "pytest",
                     "tests_py",
+                    "--ignore=tests_py/test_launcher_capture_http.py",
                     "-v",
                     "--tb=short",
                     "--junitxml=.tmp/operational-hardening-p0/quality-pr-python.xml",
                 ),
                 "build_heavy",
                 timeout_seconds=7200,
+            ),
+            QualityStep(
+                "python-capture-session",
+                (py, "-m", "pytest", "-q", "tests_py/test_launcher_capture_http.py"),
+                "capture_session",
             ),
             QualityStep("web", (node, "scripts/run-web-tests.mjs"), "browser_test", 14400),
             build,
@@ -207,12 +213,21 @@ def build_plan(
     # MemoryError (1803dac5). Reserve the existing 16 GiB aggregate profile before spawn;
     # small backend regressions retain qa_light and never depend on this admission.
     native_pipeline = [path for path in tests if path == "tests_py/test_watchdog_http_pipeline.py"]
-    light_tests = [path for path in tests if path not in native_pipeline]
+    session_pipeline = [path for path in tests if path == "tests_py/test_launcher_capture_http.py"]
+    light_tests = [path for path in tests if path not in native_pipeline and path not in session_pipeline]
     if light_tests:
         steps.append(QualityStep("python-focused", (py, "-m", "pytest", "-q", *light_tests)))
     if native_pipeline:
         steps.append(
             QualityStep("python-native-pipeline", (py, "-m", "pytest", "-q", *native_pipeline), "build_heavy")
+        )
+    if session_pipeline:
+        # The joint launcher profile includes control plane, execution and collector.
+        # It is not qa_light: the outer runner remains an additional native ancestor.
+        steps.append(
+            QualityStep(
+                "python-capture-session", (py, "-m", "pytest", "-q", *session_pipeline), "capture_session"
+            )
         )
     if ui_changed:
         steps.append(typecheck)

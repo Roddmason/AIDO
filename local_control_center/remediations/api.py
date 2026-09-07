@@ -12,7 +12,11 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from local_control_center.executions.models import ExecutionAccepted
-from local_control_center.executions.router import OperationSpec, enqueue_registered_operation
+from local_control_center.executions.router import (
+    ExecutionRouter,
+    OperationSpec,
+    enqueue_registered_operation,
+)
 from local_control_center.remediations.contracts import (
     RemediationDismissResponse,
     RemediationExecuteRequest,
@@ -28,7 +32,7 @@ REMEDIATION_EXECUTE_BODY = Body(default=None)
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Build remediation routes bound to the platform connection and worker runtime."""
-    router = APIRouter()
+    router = ExecutionRouter(platform=platform, require_write=require_write)
 
     def service() -> BlockerRemediationService:
         return BlockerRemediationService(platform.connection, root=getattr(platform, "cwd", None))

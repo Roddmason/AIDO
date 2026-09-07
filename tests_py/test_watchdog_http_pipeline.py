@@ -120,6 +120,20 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+    def drain_output(stream):
+        try:
+            while stream.read1(65536):
+                pass  # Preserve existing bounded/redacted supervisor artifacts before pytest retention.
+        finally:
+            stream.close()
+
+    api_readers = [
+        threading.Thread(target=drain_output, args=(stream,), daemon=True)
+        for stream in (api.process.stdout, api.process.stderr)
+    ]
+    for reader in api_readers:
+        reader.start()
     worker = LocalWorkerRuntime(db_path=db, cwd=tmp_path)
     thread = threading.Thread(target=worker.run_forever, daemon=True)
     busy = threading.Event()
@@ -159,7 +173,10 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
             token,
         )["executionId"]
         receipt["executionId"] = job
-        http("/api/v1/workers/run-once", {}, token)
+        # run-once consumes one admission check, not "wait until admitted". Under a
+        # transient host rejection that leaves this test paused before any job run.
+        # Poll only the one synthetic queued job, then pause before fault injection.
+        http("/api/v1/workers/resume", {}, token)
         if action.startswith("os-"):
             import importlib.util
             from types import SimpleNamespace
@@ -185,6 +202,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
         else:
             thread.start()
         wait_until(lambda: len(list(workspace.glob("writer-*.log"))) == 2, 30)
+        http("/api/v1/workers/pause", {}, token)
         with closing(open_sqlite_connection(db)) as reader:
             rows = reader.execute("SELECT * FROM managed_processes WHERE execution_id=?", (job,)).fetchall()
             assert len(rows) >= 2 and all(row["root_pid"] > 0 for row in rows)
@@ -294,7 +312,7 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
         # fence from fixture teardown while complete_job_run is still in flight.
         if os_worker is None:
             wait_until(lambda: worker.status()["inFlightJobs"] == 0, 15)
-        elif action != "os-crash":
+        elif action not in {"os-crash", "os-loss"}:
 
             def closed():
                 with closing(open_sqlite_connection(db)) as connection:
@@ -303,6 +321,18 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
                     ).fetchone()
 
             wait_until(closed, 15)
+        if action == "os-loss":
+            # The deliberately fenced-out worker must NOT finalize a durable job run.
+            # Native closure is independently verifiable; the result awaits a new leader.
+            def native_closed():
+                with closing(open_sqlite_connection(db)) as connection:
+                    return not connection.execute(
+                        "SELECT 1 FROM managed_processes WHERE execution_id=? AND finished_at IS NULL",
+                        (job,),
+                    ).fetchone()
+
+            wait_until(native_closed, 15)
+            receipt["durableResult"] = "UNKNOWN_PENDING_FENCED_RECOVERY"
         receipt.update(status="PASS", oldWriterIdentities=writers, oldWritersGone=True)
         evidence(f"watchdog-http-{action}-{uuid.uuid4().hex}", receipt)
     finally:
@@ -313,4 +343,24 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
         if os_worker is not None:
             launcher._stop_child(os_worker)
         service.complete(api, exit_code=api.process.poll(), termination_reason="offline_fixture_finished")
+        for reader in api_readers:
+            reader.join(timeout=2)
+        receipt.setdefault("status", "FAIL")
+        receipt["apiOutput"] = {
+            name: capture.path.read_text(encoding="utf-8", errors="replace")[-16000:]
+            for name, capture in api.captures.items()
+            if capture.path.is_file()
+        }
+        receipt["apiReadersClosed"] = all(not reader.is_alive() for reader in api_readers)
+        with closing(open_sqlite_connection(db)) as connection:
+            outputs = connection.execute(
+                "SELECT a.path FROM artifacts a JOIN managed_processes p ON a.id IN (p.stdout_artifact_id,p.stderr_artifact_id) WHERE p.execution_id=?",
+                (receipt.get("executionId", ""),),
+            ).fetchall()
+        receipt["dispatcherOutput"] = [
+            Path(row[0]).read_text(encoding="utf-8", errors="replace")[-16000:]
+            for row in outputs
+            if Path(row[0]).is_file()
+        ]
+        evidence(f"watchdog-http-closeout-{action}-{uuid.uuid4().hex}", receipt)
         runtime.close()

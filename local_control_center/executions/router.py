@@ -63,8 +63,10 @@ class ExecutionRouter(APIRouter):
     def add_api_route(self, path: str, endpoint: Callable, **kwargs) -> None:
         """Registra el original para despacho y un wrapper rápido como endpoint HTTP."""
         spec = getattr(endpoint, "_aido_operation", None)
+        registration_only = getattr(self.platform, "_register_operations_only", False)
         if spec is None:
-            super().add_api_route(path, endpoint, **kwargs)
+            if not registration_only:
+                super().add_api_route(path, endpoint, **kwargs)
             return
         hints = get_type_hints(endpoint)
         result_model = kwargs.get("response_model")
@@ -72,6 +74,8 @@ class ExecutionRouter(APIRouter):
             result_model = hints.get("return")
         spec = replace(spec, result_model=result_model)
         self.platform.execution_handlers[spec.name] = (spec, endpoint)
+        if registration_only:
+            return
         status_code = kwargs.get("status_code") or 200
         signature = inspect.signature(endpoint)
 

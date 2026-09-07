@@ -6,29 +6,38 @@
 set -e
 
 # --- 1) Secret scanning (gitleaks) over the staged diff ---
-if command -v gitleaks >/dev/null 2>&1; then
-	if ! gitleaks git --staged --redact --config .gitleaks.toml; then
-		echo "pre-commit: gitleaks found potential secrets in staged changes — commit blocked." >&2
-		echo "            review the findings above; never commit .env files, keys, tokens or credentials." >&2
-		exit 1
-	fi
-else
-	echo "pre-commit: gitleaks is not on PATH — staged changes were NOT secret-scanned." >&2
-	echo "            install gitleaks (https://github.com/gitleaks/gitleaks) to enable this gate." >&2
+if ! command -v gitleaks >/dev/null 2>&1 || [ ! -x /usr/bin/timeout ]; then
+	echo "pre-commit: analysis_error: gitleaks or bounded GNU timeout unavailable; commit blocked." >&2
+	exit 1
 fi
+# Gitleaks 8.30.1: error=1; --exit-code changes findings only, never scanner/Git errors.
+# Keep its redacted JSON report on stdout for the supervisor's existing capture channel.
+# GNU timeout (bundled with Git for Windows) supplies distinct deadline/signal statuses.
+scan_exit=0
+/usr/bin/timeout -k 5s 60s gitleaks git --staged --redact --no-banner --no-color \
+	--config .gitleaks.toml --exit-code 10 --report-format json --report-path - || scan_exit=$?
+case "$scan_exit" in
+	0) echo "pre-commit: analysis_clean: staged scan completed without findings." >&2 ;;
+	10) echo "pre-commit: secret_found: staged scan reported findings; commit blocked." >&2; exit 1 ;;
+	124|130|137|143) echo "pre-commit: timeout_or_cancelled: scan incomplete; commit blocked (exit $scan_exit)." >&2; exit 1 ;;
+	*) echo "pre-commit: analysis_error: scanner or Git failed; commit blocked (exit $scan_exit)." >&2; exit 1 ;;
+esac
 
 # --- 2) Python format + lint (ruff), scoped to the staged .py files only ---
 # Scoping to staged files means a commit is blocked only when IT introduces drift, never by
 # unrelated pre-existing drift elsewhere in the tree (e.g. a file another session is still editing).
-staged_py=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+if ! staged_py=$(git diff --cached --name-only --diff-filter=ACM -- '*.py'); then
+	echo "pre-commit: analysis_error: unable to enumerate staged Python; commit blocked." >&2
+	exit 1
+fi
 if [ -n "$staged_py" ]; then
 	if command -v uv >/dev/null 2>&1; then
-		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --extra dev ruff format --check --; then
+		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --no-sync --extra dev ruff format --check --; then
 			echo "pre-commit: ruff found unformatted staged Python — commit blocked." >&2
 			echo "            run 'uv run --extra dev ruff format .' and re-stage." >&2
 			exit 1
 		fi
-		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --extra dev ruff check --; then
+		if ! printf '%s\n' "$staged_py" | xargs -d '\n' uv run --no-sync --extra dev ruff check --; then
 			echo "pre-commit: ruff check found lint errors in staged Python — commit blocked." >&2
 			echo "            run 'uv run --extra dev ruff check --fix .' and re-stage." >&2
 			exit 1
@@ -36,6 +45,7 @@ if [ -n "$staged_py" ]; then
 	else
 		echo "pre-commit: uv is not on PATH — staged Python was NOT format/lint-checked." >&2
 		echo "            install uv (https://docs.astral.sh/uv/) to enable this gate." >&2
+		exit 1
 	fi
 fi
 

@@ -236,7 +236,17 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
         pytest.skip("Native collector not configured")
 
     db, output = tmp_path / "scope.sqlite", tmp_path / "result.json"
-    service = ProcessSupervisorService(db_path=db)
+    # This DB models nested lease policy, not a second independent host allocation.
+    # Under the public runner, retain its real admitted native envelope and remove
+    # the unrelated instantaneous CPU sample from this fixture's domain admission.
+    # Outside that runner retain real admission; never claim mocked OS containment.
+    snapshot = None
+    if os.environ.get("AIDO_TEST_QUALITY_DB"):
+        from local_control_center.host_resources.models import ResourceSnapshot
+
+        assert quality_envelope()["status"] == "PASS"
+        snapshot = ResourceSnapshot.test_snapshot()
+    service = ProcessSupervisorService(db_path=db, resource_snapshot=snapshot)
     parent = service.start(
         argv=[
             sys.executable,

@@ -12,6 +12,7 @@ import argparse
 import os
 import sqlite3
 import sys
+import tempfile
 import threading
 import uuid
 from contextlib import closing
@@ -28,7 +29,15 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
-from .__main__ import _emit, _inherited_context, _monitor, _run, _write_report
+from .__main__ import (
+    _emit,
+    _inherited_context,
+    _monitor,
+    _prepare_paths,
+    _run,
+    _write_progress,
+    _write_report,
+)
 from .plans import QualityStep
 
 
@@ -159,8 +168,7 @@ def main() -> int:
     code = 1
 
     def save() -> None:
-        _write_report(run_dir / "report.json", report)
-        _write_report(output / "report.json", report)
+        _write_progress(run_dir / "report.json", report)
 
     save()
     try:
@@ -168,10 +176,20 @@ def main() -> int:
             HostResourceProbe(relevant_paths=[root, args.db_path.parent]).sample().model_dump(by_alias=True)
         )
         with execution_scope(_inherited_context(args.db_path)):
+            report["paths"], environment = _prepare_paths(
+                root,
+                args.db_path,
+                run_dir / "evidence",
+                Path(
+                    os.environ.get(
+                        "AIDO_QUALITY_TEMP_ROOT", str(Path(tempfile.gettempdir()) / "aido-quality")
+                    )
+                ),
+            )
             for step in verification_plan(run_dir):
                 report["activeStep"] = step.name
                 save()
-                result = _run(step, root=root, db_path=args.db_path)
+                result = _run(step, root=root, db_path=args.db_path, environment=environment)
                 report["steps"].append({"name": step.name, **result})
                 save()
                 if result["returnCode"] != 0 or result["timedOut"] or result["cancelled"]:
@@ -195,7 +213,7 @@ def main() -> int:
         stop.set()
         monitor.join(timeout=3)
         report.update(finishedAt=utc_now(), exitCode=code)
-        save()
+        _write_report(run_dir / "report.json", report)
         for name, value in {
             "process-tree-report.json": report.get("processTree", {"status": "not_run"}),
             "resource-report.json": {"preflight": report.get("preflight"), **report["resourceObservation"]},
@@ -208,7 +226,7 @@ def main() -> int:
                 "steps": [step for step in report["steps"] if step["name"] == "migration-upgrade-backup"]
             },
         }.items():
-            _write_report(output / name, value)
+            _write_report(run_dir / name, value)
         lines = [
             "# AIDO P0 verification",
             "",
@@ -228,7 +246,8 @@ def main() -> int:
                 "External smoke: configuration_required; command not executed. See report.json for requirements.",
             ]
         )
-        (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with (run_dir / "report.md").open("x", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n")
     return code
 
 

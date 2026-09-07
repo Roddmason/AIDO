@@ -153,6 +153,21 @@ def test_full_python_suite_has_capacity_for_native_git_security_hook_tree(tmp_pa
     assert python.workload_class == "build_heavy"
 
 
+def test_focused_git_hook_suite_uses_the_full_pr_envelope():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for test in ("tests_py/test_aido_real_runtime_slice.py", "tests_py/test_git_hook_contract.py"):
+        step = next(s for s in build_plan(root, "fast", python_tests=[test]) if s.name == "python-focused")
+        assert step.workload_class == "build_heavy"
+    step = next(
+        s
+        for s in build_plan(root, "fast", python_tests=["tests_py/test_quality_paths.py"])
+        if s.name == "python-focused"
+    )
+    assert step.workload_class == "qa_light"
+
+
 def test_semgrep_is_serial_offline_and_findings_fail_the_gate(tmp_path):
     import sys
 

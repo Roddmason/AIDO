@@ -148,8 +148,10 @@ def build_plan(
             QualityStep("web", (node, "scripts/run-web-tests.mjs"), "browser_test", 14400),
             build,
             typecheck,
-            QualityStep("ruff", ("uv", "run", "--extra", "dev", "ruff", "check", ".")),
-            QualityStep("format", ("uv", "run", "--extra", "dev", "ruff", "format", "--check", ".")),
+            QualityStep("ruff", ("uv", "run", "--no-sync", "--extra", "dev", "ruff", "check", ".")),
+            QualityStep(
+                "format", ("uv", "run", "--no-sync", "--extra", "dev", "ruff", "format", "--check", ".")
+            ),
             QualityStep(
                 "biome", (node, "node_modules/@biomejs/biome/bin/biome", "check", "local-control-center/web")
             ),
@@ -163,6 +165,7 @@ def build_plan(
                 (
                     "uv",
                     "run",
+                    "--no-sync",
                     "--extra",
                     "dev",
                     "semgrep",
@@ -207,7 +210,10 @@ def build_plan(
     steps = [diff]
     if python_files:
         steps.append(
-            QualityStep("ruff-changed", ("uv", "run", "--extra", "dev", "ruff", "check", "--", *python_files))
+            QualityStep(
+                "ruff-changed",
+                ("uv", "run", "--no-sync", "--extra", "dev", "ruff", "check", "--", *python_files),
+            )
         )
     # The API + OS worker + dispatcher + pytest tree reached the 8 GiB cap and raised
     # MemoryError (1803dac5). Reserve the existing 16 GiB aggregate profile before spawn;
@@ -216,7 +222,12 @@ def build_plan(
     session_pipeline = [path for path in tests if path == "tests_py/test_launcher_capture_http.py"]
     light_tests = [path for path in tests if path not in native_pipeline and path not in session_pipeline]
     if light_tests:
-        steps.append(QualityStep("python-focused", (py, "-m", "pytest", "-q", *light_tests)))
+        # These integration suites include pytest, Git shims, hooks, Gitleaks and its Git child.
+        # qa_light's eight-process aggregate rejects that tree (868bb8d1); match the full PR
+        # profile, without changing qa_light or weakening host CPU/memory admission.
+        native_git = {"tests_py/test_aido_real_runtime_slice.py", "tests_py/test_git_hook_contract.py"}
+        profile = "build_heavy" if native_git.intersection(light_tests) else "qa_light"
+        steps.append(QualityStep("python-focused", (py, "-m", "pytest", "-q", *light_tests), profile))
     if native_pipeline:
         steps.append(
             QualityStep("python-native-pipeline", (py, "-m", "pytest", "-q", *native_pipeline), "build_heavy")

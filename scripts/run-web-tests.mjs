@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -12,7 +13,7 @@ const posixPython = fileURLToPath(new URL('../.venv/bin/python', import.meta.url
 // (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
 const defaultDashboardPort = String(8600 + (process.pid % 900));
 const dashboardPort = process.env.PLAYWRIGHT_DASHBOARD_PORT || defaultDashboardPort;
-const dbPath = process.env.PLAYWRIGHT_DB_PATH || `.tmp/playwright-control-center-${process.pid}.sqlite`;
+const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(os.tmpdir(), `playwright-control-center-${process.pid}.sqlite`);
 const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);

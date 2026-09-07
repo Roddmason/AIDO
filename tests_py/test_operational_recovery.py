@@ -197,7 +197,10 @@ def test_clean_install_contains_launchers_and_checks_native_api(tmp_path, monkey
 
     steps = []
 
-    def check_step(step, *, root, db_path):
+    child_environment = {"AIDO_QUALITY_INVOCATION_ID": "isolated-release-test"}
+
+    def check_step(step, *, root, db_path, environment):
+        assert environment == child_environment
         assert (root / "local-control-center/scripts/start_control_center.py").is_file()
         assert (root / "local-control-center/scripts/start-control-center.ps1").is_file()
         assert (root / "scripts/verify-operational-hardening.ps1").is_file()
@@ -207,7 +210,12 @@ def test_clean_install_contains_launchers_and_checks_native_api(tmp_path, monkey
     monkeypatch.setattr(release, "_run", check_step)
     report = {"steps": []}
     release.clean_install(
-        Path.cwd(), tmp_path, tmp_path / "supervision.sqlite", report, tmp_path / "report.json"
+        Path.cwd(),
+        tmp_path,
+        tmp_path / "supervision.sqlite",
+        report,
+        tmp_path / "report.json",
+        child_environment,
     )
     assert steps[-1] == "clean-native-api"
     assert report["cleanInstall"] == "passed"

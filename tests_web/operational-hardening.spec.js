@@ -54,5 +54,5 @@ test('Operations displays offline truth and requires a reason for emergency stop
 	await expect(stop).toBeHidden();
 	await expect(settings.getByText(/Test-only isolated dashboard emergency control/)).toBeVisible();
 	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-	await page.screenshot({ path: `.tmp/operational-hardening-p0/operations-${testInfo.project.name}.png`, fullPage: true });
+	await page.screenshot({ path: testInfo.outputPath(`operations-${testInfo.project.name}.png`), fullPage: true });
 });

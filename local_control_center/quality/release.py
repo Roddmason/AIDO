@@ -34,14 +34,16 @@ from local_control_center.shared.migrations import CURRENT_SCHEMA_VERSION, initi
 from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
-from .__main__ import _emit, _inherited_context, _run, _write_report
+from .__main__ import _emit, _inherited_context, _prepare_paths, _run, _write_progress, _write_report
 from .maintenance import backup_bundle, restore_bundle
 from .plans import QualityStep
 
 BASELINE_REVISION = "94eaf8c1756f17493c7f80af359d86cb9561816c"
 
 
-def upgrade_from_baseline(root: Path, temporary: Path, db_path: Path, report: dict) -> None:
+def upgrade_from_baseline(
+    root: Path, temporary: Path, db_path: Path, report: dict, environment: dict[str, str] | None = None
+) -> None:
     """Crea una base con código baseline real, la respalda y migra la restauración dos veces."""
     archive = temporary / "baseline.zip"
     result = _run(
@@ -50,6 +52,7 @@ def upgrade_from_baseline(root: Path, temporary: Path, db_path: Path, report: di
         ),
         root=root,
         db_path=db_path,
+        environment=environment,
     )
     report["steps"].append({"name": "baseline-archive", **result})
     if result["returnCode"] != 0:
@@ -72,6 +75,7 @@ def upgrade_from_baseline(root: Path, temporary: Path, db_path: Path, report: di
         QualityStep("baseline-bootstrap", (sys.executable, "-c", bootstrap, str(original))),
         root=checkout,
         db_path=db_path,
+        environment=environment,
     )
     report["steps"].append({"name": "baseline-bootstrap", **result})
     if result["returnCode"] != 0:
@@ -179,7 +183,14 @@ def native_api_smoke(root: Path, db_path: Path) -> dict:
         }
 
 
-def clean_install(root: Path, temporary: Path, db_path: Path, report: dict, report_path: Path) -> None:
+def clean_install(
+    root: Path,
+    temporary: Path,
+    db_path: Path,
+    report: dict,
+    report_path: Path,
+    environment: dict[str, str] | None = None,
+) -> None:
     """Instala Python y frontend desde locks en un árbol nuevo y comprueba API y build reales."""
     install = temporary / "clean-install"
     install.mkdir()
@@ -260,10 +271,10 @@ def clean_install(root: Path, temporary: Path, db_path: Path, report: dict, repo
     ]
     for step in steps:
         report["activeStep"] = step.name
-        _write_report(report_path, report)
-        result = _run(step, root=install, db_path=db_path)
+        _write_progress(report_path, report)
+        result = _run(step, root=install, db_path=db_path, environment=environment)
         report["steps"].append({"name": step.name, **result})
-        _write_report(report_path, report)
+        _write_progress(report_path, report)
         if result["returnCode"] != 0 or result["timedOut"] or result["cancelled"]:
             raise RuntimeError(f"Clean installation failed at {step.name}.")
     report["cleanInstall"] = "passed"
@@ -278,18 +289,28 @@ def main() -> int:
     db_path = Path(os.environ.get("AIDO_QUALITY_DB_PATH") or default_db_path())
     path = root / ".tmp/operational-hardening-p0" / f"release-{uuid.uuid4().hex}.json"
     report = {"startedAt": utc_now(), "status": "running", "steps": []}
-    _write_report(path, report)
+    _write_progress(path, report)
     code = 1
     try:
-        with (
-            execution_scope(_inherited_context(db_path)),
-            tempfile.TemporaryDirectory(prefix="aido-release-") as directory,
-        ):
-            temporary = Path(directory)
-            upgrade_from_baseline(root, temporary, db_path, report)
-            _write_report(path, report)
-            if not args.upgrade_only:
-                clean_install(root, temporary, db_path, report, path)
+        with execution_scope(_inherited_context(db_path)):
+            report["paths"], environment = _prepare_paths(
+                root,
+                db_path,
+                path.with_suffix(""),
+                Path(
+                    os.environ.get(
+                        "AIDO_QUALITY_TEMP_ROOT", str(Path(tempfile.gettempdir()) / "aido-quality")
+                    )
+                ),
+            )
+            with tempfile.TemporaryDirectory(
+                prefix="aido-release-", dir=report["paths"]["scratch"]
+            ) as directory:
+                temporary = Path(directory)
+                upgrade_from_baseline(root, temporary, db_path, report, environment)
+                _write_progress(path, report)
+                if not args.upgrade_only:
+                    clean_install(root, temporary, db_path, report, path, environment)
         report["status"] = "passed"
         code = 0
     except (Exception, KeyboardInterrupt) as error:

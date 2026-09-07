@@ -3,7 +3,8 @@
  * enter a required or optional credential reference (base URL only for custom/remote/Azure), sync
  * and pick models, validate, then assign roles — that writes through the real control plane: it
  * creates a vault credential (secret in, never out), enables the provider account, discovers its
- * models, runs a real test prompt and routes the chosen model to the selected roles. Auto-routing
+ * models, checks provider health and routes the chosen model to the selected roles. Inference is
+ * a separate, explicitly authorized action on the provider card, never a configuration check. Auto-routing
  * gateways (OmniRoute) sync their catalog on entering the models step and route roles to the
  * provider-level wildcard — the same `{provider, model: "*"}` candidate scripts/setup_omniroute.py
  * pins — because the gateway, not the role, picks the concrete model per request. The API key is
@@ -26,14 +27,12 @@ import {
 	patchModelGatewayRolePolicy,
 	putSetting,
 	syncProviderAccountModels,
-	testPromptModelGatewayProvider,
 } from '../../api/client';
 import type { CredentialBackend, ModelGatewayModel, ModelGatewayRolePolicy } from '../../api/types';
 import {
 	StatusChip as Badge,
 	Button,
 	Checkbox,
-	Dialog as Modal,
 	SegmentedControl,
 	SelectField,
 	TextField,
@@ -169,6 +168,11 @@ export function AddProviderWizard({
 	const [reenableRemote, setReenableRemote] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
+	const titleRef = useRef<HTMLHeadingElement>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: each wizard step must move keyboard focus to its heading.
+	useEffect(() => {
+		if (open) titleRef.current?.focus();
+	}, [open, step]);
 
 	/**
 	 * The API key stays out of React state: a controlled input mirrors its value into the `value`
@@ -374,6 +378,7 @@ export function AddProviderWizard({
 					);
 					return false;
 				}
+				clearApiKey();
 				const created = await createCredential(token, {
 					label: `${entry.displayName} API key`,
 					source: writableBackend,
@@ -413,10 +418,16 @@ export function AddProviderWizard({
 			});
 			clearApiKey();
 			return true;
-		} catch (saveError) {
-			setError(errorMessage(saveError));
+		} catch {
+			setError(
+				t(
+					'app.providers.wizard.saveFailedSafe',
+					'Configuration could not be saved. Check the credential backend and endpoint. Secret input was cleared; no inference was run.',
+				),
+			);
 			return false;
 		} finally {
+			clearApiKey();
 			setBusy(false);
 		}
 	};
@@ -442,14 +453,11 @@ export function AddProviderWizard({
 		setBusy(true);
 		setError('');
 		try {
-			await healthCheckModelGatewayProvider(token, entry.id);
-			const model = discovered.find((item) => selected.has(item.id))?.model;
-			const response = await testPromptModelGatewayProvider(
-				token,
-				entry.id,
-				model ? { model } : {},
-			);
-			setValidation((response as { test: TestOutcome }).test);
+			const response = await healthCheckModelGatewayProvider(token, entry.id);
+			setValidation({
+				ok: response.health.healthStatus === 'healthy',
+				error: response.health.healthStatus,
+			});
 		} catch (validateError) {
 			setValidation({ ok: false, error: errorMessage(validateError) });
 		} finally {
@@ -564,14 +572,41 @@ export function AddProviderWizard({
 	};
 
 	return (
-		<Modal open={open} label={t('app.providers.wizard.title', 'Add provider')} onClose={onClose}>
+		<section
+			className="provider-setup-wizard"
+			aria-label={t('app.providers.wizard.title', 'Add provider')}
+		>
+			<div className="surface-toolbar">
+				<h3 ref={titleRef} tabIndex={-1}>
+					{t('app.providers.wizard.title', 'Add provider')}
+				</h3>
+				<Button
+					disabled={busy}
+					onClick={() => {
+						clearApiKey();
+						onClose();
+					}}
+				>
+					{t('app.providers.wizard.close', 'Close provider setup')}
+				</Button>
+			</div>
+			<p className="field-help">
+				{t(
+					'app.providers.wizard.accessBoundary',
+					'API / local endpoint configuration. This is not a CLI subscription session. Saving does not run inference; API usage may be billable. No automatic switch of access method.',
+				)}
+			</p>
 			<div className="form-grid">
 				<ol
 					className="wizard-steps"
 					aria-label={t('app.providers.wizard.stepsAria', 'Add provider steps')}
 				>
 					{STEP_ORDER.map((item, index) => (
-						<li key={item} className={item === step ? 'current' : ''}>
+						<li
+							key={item}
+							className={item === step ? 'current' : ''}
+							aria-current={item === step ? 'step' : undefined}
+						>
 							<span className="mono">0{index + 1}</span>
 							<strong>{stepLabels[item]}</strong>
 						</li>
@@ -840,13 +875,19 @@ export function AddProviderWizard({
 
 				{step === 'validate' ? (
 					<>
+						<p className="field-help">
+							{t(
+								'app.providers.wizard.checkBoundary',
+								'Checks configuration and authentication only. A model smoke is a separate action requiring authorization and quota. Without authorization, do not run it.',
+							)}
+						</p>
 						<Button
 							variant="primary"
 							onClick={() => void runValidate()}
 							loading={busy}
 							icon={<CheckCircle2 size={15} />}
 						>
-							{t('app.providers.wizard.runValidate', 'Validate connection')}
+							{t('app.providers.wizard.checkConfiguration', 'Check configuration / auth')}
 						</Button>
 						{validation ? (
 							<div className="inline" role="status">
@@ -947,6 +988,6 @@ export function AddProviderWizard({
 					)}
 				</div>
 			</div>
-		</Modal>
+		</section>
 	);
 }

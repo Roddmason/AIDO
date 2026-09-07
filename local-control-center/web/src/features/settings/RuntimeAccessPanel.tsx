@@ -12,10 +12,10 @@
  * @author Rodrigo Mason
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { JsonValue } from '../../api/generated/openapi';
-import { Button, Dialog } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { type WiredEditing, WiredRows } from './SettingsChoiceCards';
 import type { ResolvedSetting, SettingScope } from './useSettings';
@@ -44,6 +44,11 @@ type PendingDisable = {
 export function RuntimeAccessPanel({ ctx }: { ctx: RuntimeAccessContext }) {
 	const { t } = useI18n();
 	const [pending, setPending] = useState<PendingDisable | null>(null);
+	const confirmationRef = useRef<HTMLElement>(null);
+	const triggerRef = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		if (pending) confirmationRef.current?.focus();
+	}, [pending]);
 	const flags = ctx.resolved.filter((setting: ResolvedSetting) =>
 		RUNTIME_FLAG_KEYS.includes(setting.key),
 	);
@@ -58,6 +63,7 @@ export function RuntimeAccessPanel({ ctx }: { ctx: RuntimeAccessContext }) {
 		...ctx,
 		setValue: async (key, scope, scopeId, value) => {
 			if (RUNTIME_FLAG_KEYS.includes(key) && value === false) {
+				triggerRef.current = document.activeElement as HTMLElement;
 				setPending({ key, scope, scopeId, value });
 				return;
 			}
@@ -81,31 +87,44 @@ export function RuntimeAccessPanel({ ctx }: { ctx: RuntimeAccessContext }) {
 				)}
 			</p>
 			<WiredRows ctx={guarded} settings={flags} />
-			<Dialog
-				open={pending !== null}
-				onClose={() => setPending(null)}
-				label={t(
-					'app.settings.runtime.access.confirmTitle',
-					'Disable this transport platform-wide?',
-				)}
-			>
-				<div className="stack">
-					<p>
-						{t(
-							'app.settings.runtime.access.confirmBody',
-							'Every project loses this transport until you turn it back on, including runs already queued.',
-						)}
-					</p>
-					<div className="inline">
-						<Button variant="primary" onClick={() => void confirmDisable()}>
-							{t('app.settings.runtime.access.confirmAccept', 'Disable transport')}
-						</Button>
-						<Button onClick={() => setPending(null)}>
-							{t('app.settings.runtime.access.confirmCancel', 'Keep it enabled')}
-						</Button>
+			{pending ? (
+				<section
+					ref={confirmationRef}
+					tabIndex={-1}
+					aria-label={t(
+						'app.settings.runtime.access.confirmTitle',
+						'Disable this transport platform-wide?',
+					)}
+				>
+					<div className="stack">
+						<h4>
+							{t(
+								'app.settings.runtime.access.confirmTitle',
+								'Disable this transport platform-wide?',
+							)}
+						</h4>
+						<p>
+							{t(
+								'app.settings.runtime.access.confirmBody',
+								'Every project loses this transport until you turn it back on, including runs already queued.',
+							)}
+						</p>
+						<div className="inline">
+							<Button variant="primary" onClick={() => void confirmDisable()}>
+								{t('app.settings.runtime.access.confirmAccept', 'Disable transport')}
+							</Button>
+							<Button
+								onClick={() => {
+									setPending(null);
+									triggerRef.current?.focus();
+								}}
+							>
+								{t('app.settings.runtime.access.confirmCancel', 'Keep it enabled')}
+							</Button>
+						</div>
 					</div>
-				</div>
-			</Dialog>
+				</section>
+			) : null}
 		</section>
 	);
 }

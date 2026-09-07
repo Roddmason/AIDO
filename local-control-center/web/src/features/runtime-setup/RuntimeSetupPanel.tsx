@@ -99,6 +99,10 @@ export function RuntimeSetupPanel({
 	const [wizardOpen, setWizardOpen] = useState(false);
 	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
 	const openedInitialProviderRef = useRef<string | null>(null);
+	const wizardTrigger = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		if (!wizardOpen) wizardTrigger.current?.focus();
+	}, [wizardOpen]);
 
 	const loadGateway = useCallback(async () => {
 		try {
@@ -281,100 +285,108 @@ export function RuntimeSetupPanel({
 	};
 
 	const openWizard = (providerId: string | null) => {
+		wizardTrigger.current = document.activeElement as HTMLElement;
 		setWizardProviderId(providerId);
 		setWizardOpen(true);
 	};
 
 	return (
 		<>
-			<p className="muted">
-				{t(
-					'app.runtime.summary',
-					'See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.',
-				)}
-			</p>
-			<div className="surface-toolbar">
-				<div className="inline">
-					<span className="muted">{t('app.runtime.readyLabel', 'Runtimes ready')}</span>
-					<strong className="tnum">{executableCount}</strong>
-					<span className="muted">
-						/ <span className="tnum">{providers.length}</span>{' '}
-						{t('app.runtime.executable', 'executable')}
-					</span>
-				</div>
-				<div className="inline">
-					<button className="button primary" type="button" onClick={() => openWizard(null)}>
-						<Plus aria-hidden="true" size={15} />
-						{t('app.providers.addProvider', 'Add provider')}
-					</button>
-					<button
-						className="button"
-						type="button"
-						disabled={refreshing}
-						aria-busy={refreshing}
-						onClick={() => void refreshHealth()}
-					>
-						<RefreshCw aria-hidden="true" size={15} />
-						{t('app.runtime.refresh', 'Refresh health')}
-					</button>
-				</div>
-			</div>
-			{executableCount === 0 ? (
-				<section className="empty-state" aria-live="polite">
-					<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
+			<div hidden={wizardOpen}>
+				<p className="muted">
+					{t(
+						'app.runtime.summary',
+						'See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.',
+					)}
+				</p>
+				<div className="surface-toolbar">
 					<div className="inline">
+						<span className="muted">{t('app.runtime.readyLabel', 'Runtimes ready')}</span>
+						<strong className="tnum">{executableCount}</strong>
+						<span className="muted">
+							/ <span className="tnum">{providers.length}</span>{' '}
+							{t('app.runtime.executable', 'executable')}
+						</span>
+					</div>
+					<div className="inline">
+						<button className="button primary" type="button" onClick={() => openWizard(null)}>
+							<Plus aria-hidden="true" size={15} />
+							{t('app.providers.addProvider', 'Add provider')}
+						</button>
 						<button
-							className="button primary"
+							className="button"
 							type="button"
-							disabled={busyAction !== null}
-							aria-busy={busyAction === 'detect_clis'}
-							onClick={() => void detectClis()}
+							disabled={refreshing}
+							aria-busy={refreshing}
+							onClick={() => void refreshHealth()}
 						>
-							{busyAction === 'detect_clis'
-								? t('app.runtime.setup.running', 'Running...')
-								: t('app.runtime.setup.detectClis', 'Detect installed CLIs')}
+							<RefreshCw aria-hidden="true" size={15} />
+							{t('app.runtime.refresh', 'Refresh health')}
 						</button>
 					</div>
-					<span className="field-help">
-						{t(
-							'app.runtime.setup.detectClisHint',
-							'One check finds Codex, Claude Code, OpenHands and SWE-agent on this machine.',
-						)}
-					</span>
-					<div className="inline">
-						{GUIDED_SETUP_ACTIONS.map((action) => (
+				</div>
+				{executableCount === 0 ? (
+					<section className="empty-state" aria-live="polite">
+						<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
+						<div className="inline">
 							<button
-								key={action.id}
-								className="button"
+								className="button primary"
 								type="button"
 								disabled={busyAction !== null}
-								onClick={() => openWizard(action.id)}
+								aria-busy={busyAction === 'detect_clis'}
+								onClick={() => void detectClis()}
 							>
-								{t(action.labelKey, action.label)}
+								{busyAction === 'detect_clis'
+									? t('app.runtime.setup.running', 'Running...')
+									: t('app.runtime.setup.detectClis', 'Detect installed CLIs')}
 							</button>
-						))}
-					</div>
-				</section>
-			) : null}
-			<div className="masonry-grid">
-				{providers.map((provider) => {
-					const entry = catalogEntry(provider.id);
-					const setup = entry
-						? deriveProviderSetup(entry, accountById.get(provider.id) ?? null, models, rolePolicies)
-						: null;
-					return (
-						<ProviderCard
-							key={provider.id}
-							provider={provider}
-							setup={setup}
-							busyAction={busyAction}
-							onSetupAction={() => runSetupAction(provider.id)}
-							onTest={(model) => runProviderTask(provider.id, 'test', model)}
-							onSync={() => runProviderTask(provider.id, 'sync')}
-							onConfigure={() => openWizard(provider.id)}
-						/>
-					);
-				})}
+						</div>
+						<span className="field-help">
+							{t(
+								'app.runtime.setup.detectClisHint',
+								'One check finds Codex, Claude Code, OpenHands and SWE-agent on this machine.',
+							)}
+						</span>
+						<div className="inline">
+							{GUIDED_SETUP_ACTIONS.map((action) => (
+								<button
+									key={action.id}
+									className="button"
+									type="button"
+									disabled={busyAction !== null}
+									onClick={() => openWizard(action.id)}
+								>
+									{t(action.labelKey, action.label)}
+								</button>
+							))}
+						</div>
+					</section>
+				) : null}
+				<div className="masonry-grid">
+					{providers.map((provider) => {
+						const entry = catalogEntry(provider.id);
+						const setup = entry
+							? deriveProviderSetup(
+									entry,
+									accountById.get(provider.id) ?? null,
+									models,
+									rolePolicies,
+								)
+							: null;
+						return (
+							<ProviderCard
+								key={provider.id}
+								provider={provider}
+								setup={setup}
+								busyAction={busyAction}
+								onSetupAction={() => runSetupAction(provider.id)}
+								onTest={(model) => runProviderTask(provider.id, 'test', model)}
+								onSync={() => runProviderTask(provider.id, 'sync')}
+								onConfigure={() => openWizard(provider.id)}
+							/>
+						);
+					})}
+				</div>
 			</div>
 			<AddProviderWizard
 				open={wizardOpen}
@@ -393,7 +405,10 @@ export function RuntimeSetupPanel({
 				}
 				initialBaseUrl={wizardProviderId ? (accountById.get(wizardProviderId)?.baseUrl ?? '') : ''}
 				onClose={() => setWizardOpen(false)}
-				onSaved={() => void refreshHealth()}
+				onSaved={() => {
+					void loadGateway();
+					void onRefresh();
+				}}
 			/>
 		</>
 	);

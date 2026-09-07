@@ -1,6 +1,8 @@
 """Register the existing operation handler without constructing an HTTP application.
 
 Only code-owned module names are imported; durable input cannot select a Python module.
+
+@author Rodrigo Mason
 """
 
 import importlib

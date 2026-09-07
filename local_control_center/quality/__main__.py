@@ -165,7 +165,10 @@ def _changed_files(root: Path, db_path: Path, base: str) -> tuple[list[str], lis
 
 def _prepare_paths(root: Path, db_path: Path, evidence: Path, parent: Path) -> tuple[dict, dict[str, str]]:
     """Validate the checkout and all worktrees before preparing a public runner invocation."""
+    from local_control_center.shared.diagnostics import configure_diagnostics
+
     parent = validate_scratch_parent(parent, [root, db_path.parent])
+    configure_diagnostics(evidence / "runner-diagnostics")
     worktrees = _run(
         QualityStep("worktree-context", ("git", "worktree", "list", "--porcelain")),
         root=root,
@@ -197,6 +200,7 @@ def _prepare_paths(root: Path, db_path: Path, evidence: Path, parent: Path) -> t
         "invocationId": paths.invocation_id,
         "scratch": str(paths.scratch),
         "evidence": str(paths.evidence),
+        "runnerDiagnostics": str(evidence / "runner-diagnostics"),
     }, env
 
 

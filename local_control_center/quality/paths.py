@@ -83,6 +83,7 @@ class QualityPaths:
             "AIDO_QUALITY_SCRATCH": str(self.scratch),
             "AIDO_QUALITY_RETAINED": str(self.evidence),
             "PLAYWRIGHT_ARTIFACT_ROOT": str(self.evidence / "playwright"),
+            "AIDO_DIAGNOSTICS_DIR": str(self.evidence / "diagnostics"),
         }
 
     def prepare_pytest(

@@ -9,7 +9,7 @@ este test falla con el mismo 500 que veía el usuario.
 
 from __future__ import annotations
 
-import logging
+import json
 import sys
 from pathlib import Path
 
@@ -68,28 +68,39 @@ def test_overview_serializes_assessment_and_product_owner_artifacts(tmp_path: Pa
         runtime.close()
 
 
-def test_unhandled_error_is_logged_and_returns_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_unhandled_error_is_logged_and_returns_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Un error no controlado debe registrar la traza (seguimiento) y responder JSON estable,
     # nunca el texto plano "Internal Server Error" que el cliente no podía parsear.
     import local_control_center.api as api_module
+    from local_control_center.shared.diagnostics import configure_diagnostics
 
     def _boom(**_kwargs):
         raise RuntimeError("forced failure for observability test")
 
     monkeypatch.setattr(api_module, "build_overview_from_connection", _boom)
+    sink = configure_diagnostics(tmp_path / "diagnostics")
     runtime, client = _client(tmp_path, raise_server_exceptions=False)
     try:
-        with caplog.at_level(logging.ERROR, logger="local_control_center.api"):
-            response = client.get("/api/v1/overview")
+        response = client.get("/api/v1/overview", headers={"X-Correlation-ID": "corr-forced-error"})
 
         assert response.status_code == 500
         assert response.headers["content-type"].startswith("application/json")
         body = response.json()
         assert body["error"] == "RuntimeError"
         assert "detail" in body
-        assert any("Unhandled error" in record.message for record in caplog.records)
-        assert any(record.exc_info for record in caplog.records)
     finally:
         runtime.close()
+        sink.close()
+    events = [
+        json.loads(line)
+        for path in sink.root.glob("diag-*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    errors = [event for event in events if event["event"] == "http.error"]
+    assert len(errors) == 1
+    error = errors[0]
+    assert error["level"] == "ERROR"
+    assert error["requestId"] == response.headers["X-Correlation-ID"] == "corr-forced-error"
+    assert error["exceptionChain"][0]["type"] == "RuntimeError"
+    assert error["exceptionChain"][0]["message"] == "forced failure for observability test"
+    assert error["exceptionChain"][0]["frames"]

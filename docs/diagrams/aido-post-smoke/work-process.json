@@ -1,0 +1,29 @@
+{
+  "schema_version": 2, "diagram_type": "workflow",
+  "meta": {"title": "Del proyecto a la evidencia · alcance real", "quality_profile": "showcase"},
+  "lanes": [{"id": "intent", "label": "Persona y configuración"}, {"id": "execution", "label": "Product Loop"}, {"id": "evidence", "label": "Validación local"}, {"id": "future", "label": "Fuera de la certificación", "variant": "exception"}],
+  "nodes": [
+    {"id": "project", "lane": "intent", "col": 0, "width": 155, "type": "frontend", "label": "Registrar proyecto", "tag": "IMPLEMENTADO"},
+    {"id": "request", "lane": "intent", "col": 1, "width": 155, "type": "frontend", "label": "Solicitud y alcance", "tag": "IMPLEMENTADO"},
+    {"id": "plan", "lane": "execution", "col": 1, "width": 155, "type": "backend", "label": "PO y plan", "tag": "IMPLEMENTADO"},
+    {"id": "approval", "lane": "execution", "col": 2, "width": 165, "type": "security", "label": "Aprobación y recursos", "tag": "IMPLEMENTADO"},
+    {"id": "worktree", "lane": "execution", "col": 3, "width": 155, "type": "backend", "label": "Worktree y agente", "tag": "IMPLEMENTADO"},
+    {"id": "qa", "lane": "evidence", "col": 3, "width": 155, "type": "security", "label": "QA y revisión", "tag": "IMPLEMENTADO"},
+    {"id": "receipt", "lane": "evidence", "col": 4, "width": 155, "type": "database", "label": "Recibos y hashes", "tag": "VALIDADO"},
+    {"id": "external", "lane": "future", "col": 4, "width": 180, "type": "external", "label": "Integración externa", "sublabel": "Jira · Confluence · Jenkins · Unreal", "tag": "PROPUESTO"}
+  ],
+  "mainPath": ["project", "request", "plan", "approval", "worktree", "qa", "receipt"],
+  "edges": [
+    {"id": "select", "from": "project", "to": "request", "label": "selección", "role": "main"},
+    {"id": "enqueue", "from": "request", "to": "plan", "label": "job", "role": "main", "fromSide": "bottom", "toSide": "top"},
+    {"id": "policy", "from": "plan", "to": "approval", "label": "contrato", "role": "main"},
+    {"id": "allow", "from": "approval", "to": "worktree", "label": "allow", "role": "main"},
+    {"id": "validate", "from": "worktree", "to": "qa", "label": "diff", "role": "main", "fromSide": "bottom", "toSide": "top"},
+    {"id": "persist", "from": "qa", "to": "receipt", "label": "publicar", "role": "main"},
+    {"id": "future-export", "from": "receipt", "to": "external", "label": "propuesta", "variant": "dashed", "role": "branch", "fromSide": "bottom", "toSide": "top"}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "Evidencia delimitada", "items": ["PR 13/13 y release local 7/7: cc3897c5.", "Un smoke Codex real PASS; no un ciclo de proyecto completo."]},
+    {"dot": "amber", "title": "Fuentes y límites", "items": ["projects/api.py → product_loop/coordinator.py → quality/plans.py.", "Arista externa PROPUESTA, no operación certificada ni autorización."]}
+  ]
+}

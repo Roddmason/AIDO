@@ -1,0 +1,28 @@
+{
+  "schema_version": 1, "diagram_type": "sequence",
+  "meta": {"title": "PO · transporte no es resultado de dominio", "quality_profile": "showcase", "column_fit": "spread", "viewBox": [1050, 520]},
+  "participants": [
+    {"id": "ui", "type": "frontend", "label": "Panel", "sublabel": "Solicitud y alcance"},
+    {"id": "worker", "type": "backend", "label": "Worker", "sublabel": "Job con fencing"},
+    {"id": "po", "type": "backend", "label": "ProductOwnerAgent", "sublabel": "Contrato de dominio"},
+    {"id": "broker", "type": "security", "label": "ToolBroker", "sublabel": "Política y aprobación"},
+    {"id": "supervisor", "type": "security", "label": "Supervisor", "sublabel": "Admisión y límites"},
+    {"id": "runtime", "type": "external", "label": "Runtime elegible", "sublabel": "CLI o adaptador"}
+  ],
+  "messages": [
+    {"id": "queue", "from": "ui", "to": "worker", "y": 160, "label": "HTTP → cola → claim", "note": "executions/runner.py; workers/runtime.py"},
+    {"id": "scope", "from": "worker", "to": "po", "y": 190, "label": "Validar scope", "note": "projectId / workspaceId / taskId; product_owner_agent.py: pertenencia y estado"},
+    {"id": "readiness", "from": "po", "to": "runtime", "y": 220, "label": "Readiness antes del spawn", "variant": "security", "note": "product_owner_agent_contract.py; runtime_status.py. Consulta evidencia; no infiere."},
+    {"id": "policy", "from": "po", "to": "broker", "y": 250, "label": "plan + transporte", "variant": "security", "note": "product_owner_runtime / product_owner_model_call; sin shell genérico"},
+    {"id": "admit", "from": "broker", "to": "supervisor", "y": 280, "label": "Aprobar y admitir", "variant": "security", "note": "approvalGrantId, workloadClass, lease y autoridad"},
+    {"id": "start", "from": "supervisor", "to": "runtime", "y": 310, "label": "Contener → Resume", "note": "process_supervision/service.py; presupuesto efectivo, watchdog"},
+    {"id": "native", "from": "runtime", "to": "supervisor", "y": 340, "label": "exit / stdout / stderr", "variant": "return", "note": "Resultado nativo preservado; PID ausente no prueba ausencia de arranque"},
+    {"id": "evidence", "from": "supervisor", "to": "po", "y": 370, "label": "Artefactos y resultado", "variant": "return", "note": "ToolBroker devuelve evidencia; exit 0 no sustituye validación JSON"},
+    {"id": "domain", "from": "po", "to": "worker", "y": 400, "label": "Validar dominio", "variant": "return", "note": "brief_ready / needs_input / failed_validation: historias, criterios, riesgos y decisiones"},
+    {"id": "status", "from": "worker", "to": "ui", "y": 430, "label": "Estado / blocker", "variant": "return", "note": "También blocked / runtime_unavailable; no atribuir al modelo un rechazo previo"}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "IMPLEMENTADO", "items": ["Contrato: agents/product_owner_agent_contract.py.", "Ejecución y validación: agents/product_owner_agent.py."]},
+    {"dot": "amber", "title": "NO VALIDADO por el smoke", "items": ["El marcador read-only no certifica HU ni un Product Loop completo.", "Esfuerzo observado y causa interna histórica: UNKNOWN."]}
+  ]
+}

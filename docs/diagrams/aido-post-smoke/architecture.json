@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {"title": "AIDO · responsabilidades actuales", "quality_profile": "showcase", "repository": {"url": "https://github.com/Roddmason/AIDO", "revision": "f1d529d21bde857aa795c823e7fcbdc4ff051617"}},
+  "layout": {"mode": "grid", "cols": 4, "origin": [45, 65], "cellW": 190, "cellH": 90, "gapX": 80, "gapY": 120},
+  "components": [
+    {"id": "ui", "type": "frontend", "label": "Panel React", "sublabel": "Configuración y solicitudes", "row": 0, "col": 0, "sources": [{"path": "local-control-center/web/src/features/settings/SettingsModal.tsx"}]},
+    {"id": "api", "type": "backend", "label": "API FastAPI", "sublabel": "HTTP y contratos OpenAPI", "row": 0, "col": 1, "sources": [{"path": "local_control_center/projects/api.py"}]},
+    {"id": "jobs", "type": "messagebus", "label": "Cola durable", "sublabel": "Operaciones en SQLite", "row": 0, "col": 2, "sources": [{"path": "local_control_center/executions/runner.py"}]},
+    {"id": "worker", "type": "backend", "label": "Worker", "sublabel": "Liderazgo y fencing", "row": 0, "col": 3, "sources": [{"path": "local_control_center/workers/runtime.py"}]},
+    {"id": "evidence", "type": "database", "label": "Evidencia local", "sublabel": "Recibos y hashes", "row": 1, "col": 0, "sources": [{"path": "local_control_center/shared/serialization.py"}]},
+    {"id": "supervisor", "type": "security", "label": "Supervisor", "sublabel": "Admisión y límites", "row": 1, "col": 1, "sources": [{"path": "local_control_center/process_supervision/service.py"}]},
+    {"id": "broker", "type": "security", "label": "ToolBroker", "sublabel": "Política y autorización", "row": 1, "col": 2, "sources": [{"path": "local_control_center/agents/tool_broker.py"}]},
+    {"id": "po", "type": "backend", "label": "PO / Product Loop", "sublabel": "Salida de dominio", "row": 1, "col": 3, "sources": [{"path": "local_control_center/agents/product_owner_agent.py"}, {"path": "local_control_center/product_loop/coordinator.py"}]}
+  ],
+  "connections": [
+    {"id": "request", "from": "ui", "to": "api", "label": "HTTP"},
+    {"id": "enqueue", "from": "api", "to": "jobs", "label": "encolar"},
+    {"id": "claim", "from": "jobs", "to": "worker", "label": "claim"},
+    {"id": "dispatch", "from": "worker", "to": "po", "label": "despachar", "fromSide": "bottom", "toSide": "top", "labelAt": [915, 139]},
+    {"id": "policy", "from": "po", "to": "broker", "label": "evaluar", "fromSide": "left", "toSide": "right"},
+    {"id": "run", "from": "broker", "to": "supervisor", "label": "autorizar", "fromSide": "left", "toSide": "right"},
+    {"id": "retain", "from": "supervisor", "to": "evidence", "label": "publicar", "fromSide": "left", "toSide": "right"}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "IMPLEMENTADO", "items": ["Fronteras confirmadas en las rutas fuente de cada componente.", "La API no ejecuta proveedores al guardar un proyecto."]},
+    {"dot": "amber", "title": "Alcance de la prueba", "items": ["Smoke Codex PASS en cc3897c5; no valida el ciclo PO completo.", "Los recibos originales conservan su identidad y sus limitaciones."]}
+  ]
+}

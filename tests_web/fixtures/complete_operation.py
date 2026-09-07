@@ -6,11 +6,30 @@ Never claims conversation jobs or enables providers. OS dispatch/fencing has sep
 """
 
 import argparse
+import os
 from pathlib import Path
 
-from local_control_center.api import create_app
-from local_control_center.control_plane.runtime import ControlCenterRuntime
-from tests_py.execution_client import complete_operation
+
+def fixture_database(value: str) -> Path:
+    """Accept only this runner's exact chunk DB, outside checkout and retained evidence."""
+    from local_control_center.quality.paths import validate_scratch_parent
+
+    scratch = os.environ.get("AIDO_QUALITY_SCRATCH")
+    retained = os.environ.get("AIDO_QUALITY_RETAINED")
+    expected = os.environ.get("PLAYWRIGHT_DB_PATH")
+    if not all((scratch, retained, expected)):
+        raise ValueError("Domain fixture requires the supervised runner's scratch and chunk identity")
+    protected = [Path.cwd(), Path(retained)]
+    root = validate_scratch_parent(Path(scratch), protected)
+    db = validate_scratch_parent(Path(value), protected)
+    if (
+        not db.is_relative_to(root)
+        or db != Path(expected).resolve()
+        or not db.name.startswith("playwright-")
+        or not db.is_file()
+    ):
+        raise ValueError("Domain fixture DB does not match the isolated runner chunk")
+    return db
 
 
 def main():
@@ -19,12 +38,16 @@ def main():
     parser.add_argument("--db", required=True)
     parser.add_argument("--execution-id", required=True)
     args = parser.parse_args()
-    db = Path(args.db).resolve()
-    if not db.is_relative_to(Path(".tmp").resolve()) or not db.name.startswith("playwright-"):
-        raise ValueError("Domain fixture requires an isolated .tmp/playwright- database")
+    db = fixture_database(args.db)
+    from local_control_center.control_plane.runtime import ControlCenterRuntime
+    from local_control_center.executions.registration import register_operation
+    from local_control_center.executions.repository import ExecutionRepository
+    from tests_py.execution_client import complete_operation
+
     platform = ControlCenterRuntime(cwd=Path.cwd(), db_path=db)
     try:
-        create_app(runtime=platform, static_dir=None)
+        execution = ExecutionRepository(platform.connection).get(args.execution_id)
+        register_operation(platform, execution["operation"])
         complete_operation(platform, args.execution_id)
     finally:
         platform.close()

@@ -11,7 +11,29 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
+
+
+def publish_json_exclusive(path: Path, value: Any) -> None:
+    """Publish complete UTF-8 bytes without replacing an existing receipt, even concurrently."""
+    content = json.dumps(value, indent=2, ensure_ascii=False).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".writing", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Same-filesystem hard link is atomic and fails if destination exists (NTFS/POSIX).
+        # Unsupported filesystems fail closed; never fall back to replace/copy-overwrite.
+        os.link(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink()
 
 
 def json_dumps(value: Any) -> str:

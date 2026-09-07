@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test';
 
-// Absolute output dir so screenshots land in the repo regardless of the runner's
-// per-chunk working directory; Playwright creates parent dirs for screenshot paths.
-const SHOT_DIR = 'H:/Proyectos/Personales/AIDO/.tmp/ide-shell';
-
 async function expectShellLoaded(page) {
 	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({
 		timeout: 30_000,
@@ -30,7 +26,7 @@ test('desktop shell exposes resizable panes with accessible separators', async (
 	await expect(page.locator('.shell-sidebar')).toBeVisible();
 	await expect(page.locator('.main-area')).toBeVisible();
 
-	await page.screenshot({ path: `${SHOT_DIR}/desktop-default-${info.project.name}.png` });
+	await page.screenshot({ path: info.outputPath(`desktop-default-${info.project.name}.png`) });
 });
 
 test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and bottom dock (Ctrl+J)', async ({
@@ -57,7 +53,7 @@ test('shortcuts toggle the explorer (Ctrl+B), inspector (Ctrl+Shift+B) and botto
 	await expect(bottomDock).toBeHidden();
 	await page.keyboard.press('Control+j');
 	await expect(bottomDock).toBeVisible();
-	await page.screenshot({ path: `${SHOT_DIR}/desktop-bottom-${info.project.name}.png` });
+	await page.screenshot({ path: info.outputPath(`desktop-bottom-${info.project.name}.png`) });
 });
 
 test('pane collapse persists in versioned localStorage across reloads', async ({ page }) => {
@@ -93,7 +89,7 @@ test('density toggle flips data-density and persists across reload', async ({ pa
 	await page.reload();
 	await expectShellLoaded(page);
 	await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
-	await page.screenshot({ path: `${SHOT_DIR}/compact-${info.project.name}.png` });
+	await page.screenshot({ path: info.outputPath(`compact-${info.project.name}.png`) });
 });
 
 test('the decorative console grid is gone', async ({ page }) => {
@@ -108,5 +104,5 @@ test('mobile shell stacks the explorer and keeps it reachable', async ({ page },
 	await expectShellLoaded(page);
 
 	await expect(page.locator('.shell-sidebar')).toBeVisible();
-	await page.screenshot({ path: `${SHOT_DIR}/mobile-${info.project.name}.png`, fullPage: true });
+	await page.screenshot({ path: info.outputPath(`mobile-${info.project.name}.png`), fullPage: true });
 });

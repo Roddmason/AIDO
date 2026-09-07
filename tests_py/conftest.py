@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import os
 import sys
+import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient as StarletteTestClient
@@ -13,6 +16,21 @@ from local_control_center.agents.runtime_registry import reset_detection_cache
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+@pytest.fixture
+def tmp_path(request, tmp_path_factory):
+    """Keep fixture repositories outside pytest's disposable internals and retained evidence."""
+    destination = os.environ.get("AIDO_QUALITY_FIXTURES")
+    if not destination:
+        return tmp_path_factory.mktemp(request.node.name[:40])
+    root = Path(destination)
+    from local_control_center.quality.paths import validate_scratch_parent
+
+    validate_scratch_parent(
+        root, [Path(__file__).resolve().parents[1], Path(os.environ["AIDO_ACCEPTANCE_EVIDENCE"])]
+    )
+    return Path(tempfile.mkdtemp(prefix="fixture-", dir=root))
 
 
 @pytest.fixture

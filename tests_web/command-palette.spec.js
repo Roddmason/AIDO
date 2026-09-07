@@ -15,7 +15,7 @@ async function routeEmptyEvidenceAndApprovals(page) {
 	});
 }
 
-test('command palette opens as a top-centered modal with grouped actions and shortcut chips', async ({ page }) => {
+test('command palette opens as a top-centered modal with grouped actions and shortcut chips', async ({ page }, testInfo) => {
 	await page.goto('/#threads');
 	await expectControlPlaneLoaded(page);
 
@@ -62,7 +62,7 @@ test('command palette opens as a top-centered modal with grouped actions and sho
 	expect(Math.abs(horizontalCenter - viewport.width / 2)).toBeLessThan(40);
 	expect(box.y).toBeLessThan(viewport.height / 2);
 
-	await page.screenshot({ path: '.tmp/command-palette-open.png' });
+	await page.screenshot({ path: testInfo.outputPath('command-palette-open.png') });
 });
 
 test('command palette filters by text', async ({ page }) => {

@@ -27,7 +27,8 @@ def test_acceptance_evidence_preserves_receipts_from_prior_runs(tmp_path, monkey
     evidence("referenced", {"status": "PASS"})
     assert historical.read_text(encoding="utf-8") == '{"status":"HISTORICAL"}'
     current = list(tmp_path.glob("referenced-*.json"))
-    assert len(current) == 1 and json.loads(current[0].read_text())["status"] == "PASS"
+    assert len(current) == 2
+    assert {json.loads(path.read_text())["status"] for path in current} == {"FAIL", "PASS"}
 
 
 def test_canonical_launcher_help_documents_the_real_opt_in(monkeypatch, capsys):

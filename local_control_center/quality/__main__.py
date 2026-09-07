@@ -6,10 +6,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -23,9 +23,11 @@ from local_control_center.process_supervision.context import ProcessExecutionCon
 from local_control_center.process_supervision.service import ResourceWaitError, run_supervised_capture
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.serialization import publish_json_exclusive
 from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
+from .paths import QualityPaths, inherited_paths, require_non_repository, validate_scratch_parent
 from .plans import QualityStep, build_plan
 
 ADMISSION_WAIT_SECONDS = 120
@@ -67,10 +69,13 @@ def _inherited_context(db_path: Path) -> ProcessExecutionContext:
 
 
 def _write_report(path: Path, report: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".writing")
-    temporary.write_text(json.dumps(redact_secrets(report), indent=2, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    publish_json_exclusive(path, redact_secrets(report))
+
+
+def _write_progress(path: Path, report: dict) -> None:
+    """Retain immutable checkpoints; only the final receipt occupies the announced path."""
+    checkpoint = path.parent / (path.stem + "-progress") / f"{uuid.uuid4().hex}.json"
+    _write_report(checkpoint, {**report, "finalReportPath": str(path)})
 
 
 def _emit(value: str, *, error: bool = False) -> None:
@@ -79,7 +84,21 @@ def _emit(value: str, *, error: bool = False) -> None:
     print(value.encode(encoding, errors="backslashreplace").decode(encoding), file=stream, flush=True)
 
 
-def _run(step: QualityStep, *, root: Path, db_path: Path, display_output: bool = True) -> dict:
+def _run(
+    step: QualityStep,
+    *,
+    root: Path,
+    db_path: Path,
+    display_output: bool = True,
+    environment: dict[str, str] | None = None,
+) -> dict:
+    environment = dict(os.environ if environment is None else environment)
+    arguments = step.argv
+    if "pytest" in arguments:
+        paths = inherited_paths(environment)
+        if paths is None:
+            raise ValueError("Pytest requires an isolated quality invocation")
+        arguments, environment = paths.prepare_pytest(arguments, environment)
     executable = shutil.which(step.argv[0])
     if not executable:
         raise RuntimeError(f"configuration_required: missing executable {step.argv[0]}")
@@ -88,12 +107,12 @@ def _run(step: QualityStep, *, root: Path, db_path: Path, display_output: bool =
     while True:
         try:
             result = run_supervised_capture(
-                [executable, *step.argv[1:]],
+                [executable, *arguments[1:]],
                 cwd=root,
                 db_path=db_path,
                 workload_class=step.workload_class,
                 timeout_seconds=step.timeout_seconds,
-                environment={**os.environ, "AIDO_QUALITY_DB_PATH": str(db_path.resolve())},
+                environment={**environment, "AIDO_QUALITY_DB_PATH": str(db_path.resolve())},
             )
             break
         except ResourceWaitError as error:
@@ -106,7 +125,12 @@ def _run(step: QualityStep, *, root: Path, db_path: Path, display_output: bool =
     for stream in ("stdout", "stderr"):
         if display_output and result.get(stream):
             _emit(redact_secrets(result[stream]))
-    return result
+    return {
+        **result,
+        "qualityCommand": [executable, *arguments[1:]],
+        "qualityInvocationId": environment.get("AIDO_QUALITY_INVOCATION_ID"),
+        "qualityAttemptId": environment.get("AIDO_QUALITY_ATTEMPT_ID"),
+    }
 
 
 def _changed_files(root: Path, db_path: Path, base: str) -> tuple[list[str], list[str], str]:
@@ -139,6 +163,43 @@ def _changed_files(root: Path, db_path: Path, base: str) -> tuple[list[str], lis
     return sorted(set([value for value in changed["stdout"].split("\0") if value] + new)), new, base
 
 
+def _prepare_paths(root: Path, db_path: Path, evidence: Path, parent: Path) -> tuple[dict, dict[str, str]]:
+    """Validate the checkout and all worktrees before preparing a public runner invocation."""
+    parent = validate_scratch_parent(parent, [root, db_path.parent])
+    worktrees = _run(
+        QualityStep("worktree-context", ("git", "worktree", "list", "--porcelain")),
+        root=root,
+        db_path=db_path,
+        display_output=False,
+    )
+    if worktrees["returnCode"] != 0 or worktrees["stdoutCaptureTruncated"]:
+        raise ValueError("Cannot validate worktree boundaries")
+    protected = [
+        root,
+        db_path.parent,
+        *[Path(line[9:]) for line in worktrees["stdout"].splitlines() if line.startswith("worktree ")],
+    ]
+    paths = QualityPaths.create(parent, evidence, protected)
+    env = {
+        **paths.environment(dict(os.environ)),
+        "AIDO_QUALITY_TEMP_ROOT": str(parent),
+        "AIDO_TEST_QUALITY_DB": str(db_path.resolve()),
+    }
+    check = _run(
+        QualityStep("scratch-git-context", ("git", "rev-parse", "--show-toplevel")),
+        root=paths.scratch,
+        db_path=db_path,
+        display_output=False,
+        environment={**env, "LC_ALL": "C"},
+    )
+    require_non_repository(check["returnCode"], check["stderr"])
+    return {
+        "invocationId": paths.invocation_id,
+        "scratch": str(paths.scratch),
+        "evidence": str(paths.evidence),
+    }, env
+
+
 def _monitor(stop: threading.Event, report: dict) -> None:
     """Mide el host durante el gate; no confunde estos samples con el peak del Job Object."""
     psutil.cpu_percent()
@@ -160,6 +221,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python-test", action="append", default=[])
     parser.add_argument("--web-test", action="append", default=[])
     parser.add_argument(
+        "--temporary-root",
+        type=Path,
+        default=Path(os.environ["AIDO_QUALITY_TEMP_ROOT"])
+        if os.environ.get("AIDO_QUALITY_TEMP_ROOT")
+        else Path(tempfile.gettempdir()) / "aido-quality",
+    )
+    parser.add_argument(
         "--db-path", type=Path, default=Path(os.environ.get("AIDO_QUALITY_DB_PATH") or default_db_path())
     )
     args = parser.parse_args(argv)
@@ -178,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     stop = threading.Event()
     monitor = threading.Thread(target=_monitor, args=(stop, report["resourceObservation"]), daemon=True)
-    _write_report(report_path, report)
+    _write_progress(report_path, report)
     _emit(f"Quality report: {report_path}")
     monitor.start()
     exit_code = 1
@@ -187,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
             HostResourceProbe(relevant_paths=[root, args.db_path.parent]).sample().model_dump(by_alias=True)
         )
         with execution_scope(_inherited_context(args.db_path)):
+            report["paths"], env = _prepare_paths(
+                root, args.db_path, report_path.with_suffix(""), args.temporary_root
+            )
             changed, untracked, base_commit = (
                 _changed_files(root, args.db_path, args.base)
                 if args.tier in {"fast", "story"}
@@ -221,10 +292,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
             for step in plan:
                 report["activeStep"] = step.name
-                _write_report(report_path, report)
-                result = _run(step, root=root, db_path=args.db_path)
+                _write_progress(report_path, report)
+                result = _run(step, root=root, db_path=args.db_path, environment=env)
                 report["steps"].append({"name": step.name, **result})
-                _write_report(report_path, report)
+                _write_progress(report_path, report)
                 if result["returnCode"] != 0 or result["timedOut"] or result["cancelled"]:
                     raise RuntimeError(f"Gate failed: {step.name}; exit={result['returnCode']}")
         report["status"] = "passed"

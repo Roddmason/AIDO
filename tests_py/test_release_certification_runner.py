@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "release-certify.ps1"
@@ -203,6 +205,50 @@ def test_release_certification_strict_mode_fails_when_smoke_configuration_is_mis
     )
     assert payload["status"] == "failed"
     assert payload["reason"] == "configuration_required"
+
+
+def test_release_certification_preserves_existing_receipt_before_launch(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "protected output"
+    _write_corepack_shim(bin_dir)
+    destination = output_root / "reports" / "release-certification-report.json"
+    destination.parent.mkdir(parents=True)
+    original = b'{"status":"failed","original":true}\n'
+    destination.write_bytes(original)
+    result = subprocess.run(
+        [_powershell(), "-NoProfile", "-File", str(SCRIPT), "-OutputRoot", str(output_root)],
+        cwd=ROOT,
+        env=_release_env(bin_dir),
+        capture_output=True,
+        timeout=40,
+    )
+    assert result.returncode != 0
+    assert b"release_output_collision" in result.stderr
+    assert destination.read_bytes() == original
+    assert not (output_root / "logs").exists()
+
+
+def test_release_certification_concurrent_root_has_one_owner(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "concurrent output"
+    _write_corepack_shim(bin_dir)
+    barrier = Barrier(2)
+
+    def run(_):
+        barrier.wait(timeout=5)
+        return subprocess.run(
+            [_powershell(), "-NoProfile", "-File", str(SCRIPT), "-OutputRoot", str(output_root)],
+            cwd=ROOT,
+            env=_release_env(bin_dir),
+            capture_output=True,
+            timeout=40,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, range(2)))
+    assert sorted(result.returncode for result in results) == [0, 1]
+    assert b"release_output_collision" in next(result.stderr for result in results if result.returncode)
+    report = output_root / "reports" / "release-certification-report.json"
+    assert json.loads(report.read_text(encoding="utf-8-sig"))["quality"]["status"] == "passed"
+    assert not list(output_root.rglob("*.writing"))
 
 
 def test_release_certification_fails_configured_smoke_that_does_not_write_report(tmp_path: Path) -> None:

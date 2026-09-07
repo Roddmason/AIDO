@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,71 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
+from tests_py.operational_acceptance_support import evidence
+
+
+@pytest.fixture
+def session_completion(monkeypatch):
+    """Wait for actual finalization, including the three supervised Git evidence phases.
+
+    Five seconds was a polling detail, not a response SLO: measured finalization took
+    5.12-6.39 s while native Git executions themselves completed in 0.18-0.26 s.
+    Keep the separate timeout/cancellation assertions and the product deadlines intact.
+    """
+    from local_control_center.agents import cli_session_stream as stream
+
+    events = {}
+    lock = threading.Lock()
+    phases = []
+    original = stream._run
+
+    def completion(session_id):
+        with lock:
+            return events.setdefault(session_id, threading.Event())
+
+    def run(**kwargs):
+        started = time.monotonic()
+        try:
+            return original(**kwargs)
+        finally:
+            with closing(open_sqlite_connection(kwargs["db_path"])) as connection:
+                row = connection.execute(
+                    "SELECT status,started_at,finished_at FROM cli_sessions WHERE id=?",
+                    (kwargs["session_id"],),
+                ).fetchone()
+                evidence(
+                    "cli-session-finalization",
+                    {
+                        "sessionId": kwargs["session_id"],
+                        "durationSeconds": time.monotonic() - started,
+                        "terminal": dict(row),
+                        "events": CliSessionEventStore(connection).list_events(kwargs["session_id"]),
+                        "phases": list(phases),
+                    },
+                )
+            completion(kwargs["session_id"]).set()
+
+    def trace(name):
+        operation = getattr(stream, name)
+
+        def measured(*args, **kwargs):
+            started = time.monotonic()
+            try:
+                return operation(*args, **kwargs)
+            finally:
+                phases.append({"phase": name, "durationSeconds": time.monotonic() - started})
+
+        monkeypatch.setattr(stream, name, measured)
+
+    for name in ("_changed_files", "_capture_diff"):
+        trace(name)
+    monkeypatch.setattr(stream, "_run", run)
+
+    def wait(session_id):
+        assert completion(session_id).wait(15), f"Session did not finalize within test budget: {phases}"
+        assert not is_running(session_id)
+
+    return wait
 
 
 class _FakePipe:
@@ -198,7 +264,7 @@ def _row(connection, session_id: str):
     return connection.execute("SELECT * FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
 
 
-def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path) -> None:
+def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path, session_completion) -> None:
     connection = _connection(tmp_path)
     try:
         _workspace(connection, tmp_path)
@@ -215,7 +281,7 @@ def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path)
         )
         session_id = result["id"]
         assert result["status"] == "running"
-        assert _wait_until(lambda: not is_running(session_id))
+        session_completion(session_id)
 
         types = [event["type"] for event in CliSessionEventStore(connection).list_events(session_id)]
         assert types[0] == "started"
@@ -241,7 +307,9 @@ def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path)
         ("swe_agent", ["sweagent", "run", "--problem_statement.text=work"]),
     ],
 )
-def test_streaming_session_supports_all_cli_runtimes(tmp_path: Path, runtime: str, argv: list[str]) -> None:
+def test_streaming_session_supports_all_cli_runtimes(
+    tmp_path: Path, runtime: str, argv: list[str], session_completion
+) -> None:
     connection = _connection(tmp_path)
     try:
         _workspace(connection, tmp_path)
@@ -257,7 +325,7 @@ def test_streaming_session_supports_all_cli_runtimes(tmp_path: Path, runtime: st
             process_opener=_opener(["ok\n"], [], 0),
         )
         session_id = result["id"]
-        assert _wait_until(lambda: not is_running(session_id))
+        session_completion(session_id)
 
         row = _row(connection, session_id)
         assert row["status"] == "completed"
@@ -372,6 +440,7 @@ def test_streaming_session_caps_the_final_log_artifact_under_a_flood(tmp_path: P
 
 def test_streaming_session_marks_exit_one_as_runtime_failed_with_exit_code_and_evidence(
     tmp_path: Path,
+    session_completion,
 ) -> None:
     connection = _connection(tmp_path)
     try:
@@ -388,7 +457,7 @@ def test_streaming_session_marks_exit_one_as_runtime_failed_with_exit_code_and_e
             process_opener=_opener(["partial log\n"], ["boom\n"], 1),
         )
         session_id = result["id"]
-        assert _wait_until(lambda: not is_running(session_id))
+        session_completion(session_id)
 
         events = CliSessionEventStore(connection).list_events(session_id)
         terminal = events[-1]
@@ -596,6 +665,7 @@ def test_streaming_session_rejects_workspace_path_mismatch_before_popen(tmp_path
 
 def test_streaming_session_records_toolbroker_audit_and_assigned_branch_worktree(
     tmp_path: Path,
+    session_completion,
 ) -> None:
     connection = _connection(tmp_path)
     try:
@@ -614,7 +684,7 @@ def test_streaming_session_records_toolbroker_audit_and_assigned_branch_worktree
             process_opener=_opener(["ok\n"], [], 0),
         )
         session_id = result["id"]
-        assert _wait_until(lambda: not is_running(session_id))
+        session_completion(session_id)
 
         row = _row(connection, session_id)
         env_policy = json_loads(row["env_policy_json"], {})

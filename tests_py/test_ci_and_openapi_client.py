@@ -5,6 +5,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_telemetry_diagnostics_is_optional_typed_and_matches_openapi(tmp_path, monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    from local_control_center.shared.schemas import TelemetryStatusResponse
+    from tests_py.test_ollama_endpoints_api import client_with_store
+
+    client, _, store = client_with_store(tmp_path, monkeypatch)
+    try:
+        payload = client.get("/api/v1/telemetry/status").json()
+        assert isinstance(payload["diagnostics"], dict)
+        assert TelemetryStatusResponse.model_validate(payload).diagnostics == payload["diagnostics"]
+        legacy = {key: value for key, value in payload.items() if key != "diagnostics"}
+        assert TelemetryStatusResponse.model_validate(legacy).diagnostics == {}
+        with pytest.raises(ValidationError):
+            TelemetryStatusResponse.model_validate({**legacy, "diagnostics": "invalid"})
+        schema = client.get("/openapi.json").json()["components"]["schemas"]["TelemetryStatusResponse"]
+        assert "diagnostics" not in schema.get("required", [])
+        assert schema["properties"]["diagnostics"]["type"] == "object"
+        assert "externalExporter" in schema["required"]
+    finally:
+        client.close()
+        store.close()
+
+
 def _generated_type_line(content: str, type_name: str) -> str:
     return next(line for line in content.splitlines() if line.startswith(f"export type {type_name} = "))
 
@@ -413,7 +438,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         in content
     )
     assert "export type ExternalTelemetryStatus" in content
-    assert 'TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus }' in content
+    assert (
+        'TelemetryStatusResponse = { "diagnostics"?: JsonObject; "externalExporter": ExternalTelemetryStatus }'
+        in content
+    )
     assert (
         'WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord }'
         in content

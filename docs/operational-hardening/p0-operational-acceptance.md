@@ -1,7 +1,8 @@
 # Aceptación operacional P0 — 2026-09-05
 
-**Estado vigente: §14.11 — creación coordinada y captura HTTP sintética, 2026-09-06.**
-Ruta positiva Windows y cierre comprobados; rechazo previo conservado. PR completo aún no aprobado.
+**Estado vigente: §14.12 — estabilización del runner, evidencia y regresiones, 2026-09-07.**
+Código vigente `5e036ddf`: regresiones focalizadas PASS; PR completo actual y release BLOCKED.
+El PR completo PASS de `7dd3dd44` se conserva sólo para ese contenido, sin aceptación integral.
 **Integridad de nueve recibos históricos: FAIL; incidencia de esta continuación detallada en §14.11.**
 Smokes históricos FAIL conservados; smoke de este encargo NOT_RUN, permiso de inferencia **0**.
 Las tablas anteriores se conservan como historia, no como aceptación del candidato actual.
@@ -1687,3 +1688,183 @@ uv run python -m local_control_center.quality --tier pr --db-path .tmp/operation
 `<id-unico>` representa un directorio nuevo por invocación, no una ruta literal reutilizable.
 No se ejecutó release por fuera de su condición, ningún modelo ni otra etapa del Product Loop.
 Sin push, merge, publicación de evidencia, adopción original, cambios de credenciales ni Unreal.
+
+### 14.12 Estabilización del runner y fallos del PR — 2026-09-07
+
+**Candidato de código: 5e036ddf5cd3f1f6644a935119e84f5a9d10a70e; aceptación global BLOCKED.**
+Se partió de fd8acff41da7064f62a4f1d359d2ea6170340eb6, sin cambiar de rama.
+S = N/stabilization-f1650108e62949d09060709afb165a44.
+V = H:/aido-isolated-validation/candidate-ad0e3b000e7e4bab86f8b8fca13f80ed/.tmp/operational-hardening-p0.
+Los recibos citados sin F/S/V no sustituyen su ruta completa registrada en los manifiestos.
+
+| Estado al cierre | Resultado y evidencia |
+|---|---|
+| Integridad de nueve recibos históricos | **FAIL**. Cero recuperaciones exactas; no se cambiaron sus hashes originales. |
+| Prevención de nuevas sobrescrituras | **PASS**, helper común y salida alternativa release-certify: colisiones explícitas, bytes anteriores intactos; F/quality-fast-497065521f0940f893d4042f7d9943c0.json. |
+| Integridad de evidencia nueva | **PASS** en los 13 recibos comprobados; hashes de artefacto = DB = recibo. S/final-receipt-integrity-8d94b9bda3924bc0826805784af49296.json. No aprueba datos operativos. |
+| Temporales y fixtures | **PASS**, invocación/etapa exclusivas fuera de checkout/worktrees, separados de evidencia; regresiones de paths incluidas en 86 PASS finales. |
+| 15 Git/hook | **PASS**, node IDs originales presentes en selección combinada de 270 y PR anterior completo. |
+| 6 CLI | **PASS**, misma selección; finalización real y regresiones de fallo/cancelación, sin CLI IA real. |
+| 3 Ollama | **PASS**, fixtures deterministas y contrato read-only, sin red/modelos del usuario. |
+| 1 OpenAPI | **PASS**, diagnostics ausente/presente e inválido; no se relajó el esquema. |
+| Recursos, captura y publicación finales | **PASS**, 86 pruebas / 3 warnings / exit 0 sobre 5e036ddf, V/quality-fast-7152ea6653354e2fa30f113fd8648be7.json. |
+| HTTP/watchdog | **PASS**, 7 pruebas / exit 0 después del cambio CPU. |
+| HTTP + captura integrada | Último **PASS**: 8 pruebas dentro del PR 7dd3dd44. Repetición posterior **BLOCKED**, admisión 75; no se traslada aquel PASS al nuevo código. |
+| API nativa que falló en release | **PASS** como regresión específica: health/panel 200, cierre sin descendientes; no es release completo ni smoke de IA. |
+| Gates estáticos/arquitectura finales | **PASS**, nueve gates sin alterar comandos/límites, exit 0; arquitectura 101 PASS. V/static-final-34d25300c9ce49f49f0d804031e0dbde.json. |
+| PR completo | **PASS / exit 0 exclusivamente sobre 7dd3dd44**. PR del candidato final **BLOCKED** por capacidad del agregado; no lanzado de nuevo. |
+| Release final | **BLOCKED** por PR actual pendiente; instalación/upgrade completa debe revalidarse. El FAIL anterior permanece. Componentes con inferencia: **BLOCKED**, permiso 0. |
+| Smoke real / Linux / macOS | **NOT_RUN**. Inferencia usada en este encargo: **0**. No se certifican plataformas mediante mocks. |
+
+**Evidencia histórica y protección.** S/baseline.json fijó 28 archivos protegidos, los nueve
+hashes históricos y 170 rutas de worktree. Una sola revisión acotada de cinco exportaciones ZIP
+y 28 JSON candidatos obtuvo cero coincidencias exactas:
+S/prior-diagnostic-and-backup-review.json y S/historical-review-result.json.
+Quedan afectadas las conclusiones de §14.10 sustentadas sólo en esos nueve JSON: contraejemplos
+64/128 MiB, capturas fastfail/pressure/abrupt, ámbitos borrow/capture/independent y preview.
+Las nuevas pruebas no restauran ese pasado. Los 28 archivos y ocho PNG previos permanecen
+intactos. La huella agregada de referencias ajenas cambió por checkpoints de la app; el
+snapshot inicial no guardó cada ref individual, por lo que no se afirma identidad universal:
+S/refs-after-app-checkpoint.json. No se modificaron/restauraron refs ajenas ni worktrees.
+
+**Publicación y aislamiento.** El helper existente escribe UTF-8 en un temporal exclusivo,
+flush/fsync y enlace atómico sin reemplazo; una colisión o FS incompatible falla cerrado.
+Cada invocación, intento y checkpoint tiene identidad nueva. Quality/verify/release ya no
+reutilizan alias fijos sobrescribibles. El runner valida rutas reales, reparse points,
+junctions y solapamientos; sólo el mensaje Git exacto «not a git repository» con exit 128
+prueba ausencia de repositorio. Pytest/cache, fixtures Git y evidencia están separados.
+Basetemp/JUnit se transmiten como argv estructurado, no por shlex/PYTEST_ADDOPTS.
+TEMP/TMP y diagnósticos se propagan sólo a hijos; no cambia el entorno global.
+
+La salida alternativa scripts/release-certify.ps1 también se reprodujo: un OutputRoot
+existente se sobrescribía y devolvía 0 (F/quality-fast-3df22758f4e84772b7669714137a8045.json,
+9 PASS/1 FAIL). Ahora la carpeta se adquiere exclusivamente antes de comandos/logs, lleva
+runId único por defecto y el helper JSON existente publica con CreateNew + File.Move sin
+reemplazo. Colisión concurrente exige el error específico, no cualquier exit 1. Regresión:
+15 PASS, exit 0, F/quality-fast-497065521f0940f893d4042f7d9943c0.json, repetida dentro de las
+86 pruebas finales. Se usaron dobles de corepack; no se ejecutaron los smokes de modelos.
+
+**Clasificación confirmada de los 25 fallos.** Node IDs y errores completos provienen del
+diagnóstico F/quality-fast-337b033dc1214ce4b7f95af41eaae070.json (47 PASS/25 FAIL), no del resumen.
+
+| Grupo | Causa demostrada y corrección |
+|---|---|
+| 15 Git/hook | Commit limpio en qa_light agotó su árbol de ocho procesos al crear el Git hijo de Gitleaks: RED 868bb8d13e414d4ca6ad97211ee1a582; misma operación en el perfil previsto build_heavy/32: PASS c3d97229816646a89ea066f2251269fb. Sólo las selecciones que incluyen esas integraciones usan ese perfil existente. No se cambiaron perfiles, CPU/RAM, admisión, fencing ni reglas. |
+| Hook | Gitleaks 8.30.1: 0 limpio, findings con --exit-code 10, error de herramienta/Git y timeout/cancelación siguen bloqueando. GNU timeout existente: 60 s + 5 s de cierre. Commit limpio, canario sintético y salidas 2/124 probados. No allowlists, no-verify ni error presentado como secreto confirmado. El error de cuota original no aportó un código Win32 numérico; no se inventa. |
+| 6 CLI | Cinco segundos era una espera de test, no un SLO productivo. Finalización observada 5,12–6,39 s, tres fases Git supervisadas. Se espera señal de finalización con presupuesto de test 15 s y evidencia por fase; deadlines productivos intactos. S/cli-before-fix-timings.json. |
+| 3 Ollama | Defecto productivo: la mera correlación HTTP habilitaba probes. Ahora sólo allow_probes explícito o in_job_runner los habilita; GET usa estado durable/modelos sincronizados. RED 7101f50981974fbf881572770a353daf; se conservan probes autorizados y fixtures sin red. |
+| OpenAPI | Backend, OpenAPI y cliente ya incluían diagnostics opcional. Se corrigió la expectativa desfasada y se validan ausencia, presencia y payload inválido; no se quitó el campo. |
+
+Contrato de Gitleaks contrastado con
+[git.go 8.30.1](https://raw.githubusercontent.com/gitleaks/gitleaks/v8.30.1/cmd/git.go) y
+[root.go 8.30.1](https://raw.githubusercontent.com/gitleaks/gitleaks/v8.30.1/cmd/root.go).
+Los 25 casos aprobaron juntos también después del cambio CPU, dentro de las 270 pruebas:
+V/quality-fast-52a31a41f95143b68048c85dfd8dd498.json. El manifiesto de integridad citado arriba
+contiene cada node ID, estado, duración y hash de JUnit. El cambio posterior 5e036ddf afecta
+sólo al script opt-in de release y sus pruebas; las regresiones afectadas se ejecutaron sobre él.
+
+**Secuencia de gates; resultados anteriores conservados.**
+
+| Recibo | Resultado y tratamiento |
+|---|---|
+| F/quality-fast-d76ab0e528374afc8cd7bcf744ddaeac.json | 229 PASS + 7 HTTP watchdog + 8 HTTP captura, exit 0. Los FAIL previos ae7837425b834d13842ca9117eff84b0, 544b2b58c0fe4f9ab1741c0c929fa8f0 y b2cfe332e2a3433b8c155e2aa204d663 permanecen; no eran suites verdes. |
+| Primer PR, quality-pr-992c117244e045f68c864151eaf9cd28.json, copia candidate-9d13dd68016d40198c7ca33ae808b74e | FAIL 1: 1.988 PASS/4 FAIL/1 skip, 2.708,64 s. Los 25 originales ya pasaban. S/pr-1-failure-analysis.json. |
+| Correcciones 962e0138 | Expectativa --no-sync, tres cabeceras exigidas, prueba del evento JSONL real y bootstrap de diagnóstico de runner/hijos. La correlación existía pero se escribió en otro sink: S/pr-logging-scope-confirmed.json. Sólo se leyeron eventos del PID/ejecución propios. 61 + 7 + 8 PASS (51e4aedb66004492bfd9cf90a6ec92c3), y 61 PASS finales (7c14a1ac8c4b4235b956e63bd1ead3a0). |
+| Vía web, corrección cc0e841e | complete_operation.py rechazaba la nueva DB temporal por un guard antiguo limitado a checkout/.tmp. Ahora exige DB exacta del fixture dentro del scratch validado y fuera de evidencia/reparse points. Usa register_operation sin inicializar FastAPI completo accidentalmente. 14 PASS b088f77d02d8432684255540fc9cf301; panel desktop/mobile PASS ac0271464b1b4858adce563ada521a5f. |
+| PR quality-pr-8d1d1341532c4212a03480df3aa8fdc3.json, copia del commit 962e0138 | FAIL 1, cancelado deliberadamente al confirmar el defecto web. Sólo árbol propio PID 52588/creation 1788763645.1299472; cero descendientes. No se presenta como PR parcial PASS. |
+| V/quality-pr-9e9936b0e2b74205aae96c5cb5d2b3de.json | Python 1.998 PASS/1 skip/3 warnings, 2.700,72 s; captura BLOCKED 75. La envoltura PowerShell sin propagación explícita devolvió 1, el CLI 75. Déficit entonces 1.129.299.968 bytes; no se usa como snapshot vigente. |
+| V/quality-story-db4acfa03793417b8f9fa9ac4f79042b.json | Web completo 339 PASS/5 skips de viewport, 1.415,64 s; arquitectura/build/secretos 0. Sin ocultar stderr ni dos callbacks ConnectionResetError/WinError 10054. |
+| V/quality-pr-85235c1754db460cb0849a572c05b02f.json | **PR completo PASS de 7dd3dd44**, 13 gates exit 0, cerrado 09:32:52Z: Python 1.998 PASS/1 skip; captura HTTP 8 PASS; web 339 PASS/5 skips; demás gates 0. Wrapper pr-session-5036947212194ef9afeea5f44fb8aa3c.json, exit 0. |
+| V/quality-release-6d05431fbaa14f6fbabd948748b0749b.json | BLOCKED 75 por aggregate_memory_budget, sin spawn del gate; 120 s acotados. |
+| V/release-271b02ca273d4225bd4760dfba0bbc96.json | FAIL 1 del gate independiente release-install-upgrade-backup: bootstrap, upgrade/restore sintéticos, instalaciones congeladas, API TestClient y build aprobaron; clean-native-api rechazó resource_scope_cpu. Wrapper release-independent-d0ecbbecd27e493299550577f658b4b5.json también FAIL 1. |
+| V/quality-fast-5a111cc86cbb45018a450786f23a912e.json | 268 PASS/2 FAIL CDB, 495,82 s, exit 1. Corregidos y repetidos en la selección siguiente, no convertidos retroactivamente en PASS. |
+| V/quality-fast-52a31a41f95143b68048c85dfd8dd498.json | 270 PASS/3 warnings, 491,14 s + 7 HTTP/watchdog PASS, 81,03 s; después captura HTTP BLOCKED por admisión, exit exterior **75**. No equivale a selección completa PASS. |
+
+El PR verde usó el CLI público dentro del agregado capture_session existente de release,
+admitido antes de comenzar: 18 GiB/65 %/64 procesos, host reserva 16 GiB, una lease compartida.
+Todos sus gates conservaron comandos y límites: Python 16 GiB, captura 18 GiB y web 8 GiB.
+Cada stdout/stderr interno está íntegro, 26 hashes verificados; el prefijo de consola del
+wrapper sí fue truncado a su límite de 1 MiB. No sustituye los artefactos completos.
+S/full-pr-integrity-619495a5f9654577afc4f84c59ab33c4.json.
+
+**Dos defectos adicionales demostrados, sin atribuir el crash histórico.**
+
+- CPU: el Job del helper de release pidió 25 % bajo 65 %, con readback 38,46 % del padre:
+  24,999 % del ámbito AIDO. La comparación nominal rechazaba otro hijo de 25 %.
+  [CpuRate oficial](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information)
+  es un entero por diez mil, relativo al padre. RED Windows
+  F/quality-fast-29ce8792770e4e4a83fe2a1ed127dfa8.json: 7 PASS/1 FAIL,
+  test_windows_resource_scope.py::test_productive_supervisor_reconciles_nested_reservations[quantized],
+  con 23 → 7 → 7 % y readback 6,9989 %. f3a1cd6f compara el intervalo racional de cuantización,
+  nunca redondea topes hacia arriba; rechaza déficit real, lease independiente y readback
+  desconocido. Declara porcentaje pedido, efectivo y pérdida. 50 PASS/exit 0:
+  F/quality-fast-ec94186fd57a4737a80dc97a5f150387.json. No cambia perfiles ni reservas.
+- CDB: los node IDs test_native_diagnostics.py::test_native_capture_lifecycle_under_bounded_pressure
+  [fastfail] y [pressure] fallaron con 2147942403/0x80070003: dump existente, ruta de 261 caracteres.
+  El mismo hash falló con ruta relativa (S/cdb-relative-13024be32f0845088b461e70392f52bb.json)
+  y abrió contexto/pila con [ruta extendida](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation)
+  (S/cdb-extended-50baef6869894e9492e3e409902a15c9.json), exit 0, sin modificar el dump.
+  Forzar cwd largo reprodujo WinError 267 (F/quality-fast-8276ca7b57cf49499f86bc96a87c2949.json,
+  5 PASS/2 FAIL). 3629315b conserva cwd corto, evidencia privada larga y argumento extendido;
+  exige longitud >260, espacios/Unicode, excepción y frame con símbolo. 7 PASS/exit 0:
+  F/quality-fast-4471365828594ad2ae16d2c7f0e1ac5e.json; repetido en 270 y 86 PASS.
+
+La regresión específica del helper original de release, sobre copia nueva de fuentes/assets y
+la Python aislada ya instalada, aprobó en 5e036ddf sin reinstalar ni ejecutar release completo:
+V/native-api-regression-owner-9a889f5e740f49af82b6b46990439351.json y
+V/native-api-regression-591d63a46e99480f8276f4763f512276.json, ambos exit 0.
+Health y panel 200; proceso de API salió 3/cancelled por native_smoke_cleanup, como cierre
+del ensayo, cero descendientes y pico 3.294.769.152 bytes. Readback concreto:
+S/native-api-readback-4bc88e88015346dea1bb123512f81e30.json, memoria 16 → 4 → 4 GiB,
+CPU nativa 65 → 38,46 → 100 %, misma lease; petición 25 %, efectivo 24,999 %, pérdida 0,001.
+La jerarquía externa sigue UNKNOWN. El primer controlador del ensayo falló antes de lanzar
+la API por import path (V/native-api-regression-owner-4266f3403c9e472d96168af6dc47c0c9.json);
+se corrigió sólo su invocación por runpy, no AIDO.
+
+**Instalación, contenido y herramientas.** La copia V tiene HEAD Git cc0e841ec8b2ee0399e5409befd0b78ac37d04c9;
+su diff binario completo coincide exactamente con git diff cc0e841e 5e036ddf, SHA-256
+3a9cf3106d254bba83804de38239b28dec1eb70555a36ebe407c48575a07cebe.
+No se afirma que su HEAD Git sea el del contenido. Sin remotos. La instalación nueva,
+S/isolated-install-02f7b594535d4369be747e021f512f6b.json, creó venv y node_modules propios:
+uv sync --locked --all-extras y pnpm@10.24.0 install --frozen-lockfile, typecheck/build 0.
+La dependencia retirada y su transitiva siguen ausentes. No se reconstruyeron entornos activos.
+
+V/tools-final-5d91862537384676b11acbcfbc0a03cb.json registra probes reales sin modelos, exit 0:
+Python 3.13.15 AMD64, SQLite 3.53.1, Git 2.50.1.windows.1, uv 0.11.7, Node 24.16.0,
+pnpm 10.24.0, pytest 9.0.3, FastAPI 0.136.1, psutil 7.2.2, pywin32 311, Ruff 0.15.13,
+Semgrep 1.163.0, httpx 0.28.1, TypeScript 6.0.3, Vite 6.4.2, Playwright 1.60.0, Biome 2.5.0.
+Warnings no ocultados: tres SWIG/deprecación; Biome seis dependencias de hooks preexistentes
+(205 archivos procesados, no package.json ignorado); chunk Vite >500 kB; script esbuild
+bloqueado por política existente; precedencia NO_COLOR/FORCE_COLOR. No se aplicaron fixes
+inseguros ni se cambiaron umbrales, allowlists, skips o reglas para pasar.
+
+**Bloqueo vigente y comandos.** Snapshot 10:32:36Z:
+S/closing-admission-45fa25bf7f8f45bca8d36af6eab17f2e.json.
+Disponibles 35.984.982.016 bytes; agregado 19.327.352.832 + host 17.179.869.184 =
+36.507.222.016 requeridos; déficit **522.240.000 bytes**, cero leases activas.
+build_heavy admite; capture_session devuelve aggregate_memory_budget. Un diagnóstico con
+exit 0 no es aprobación de PR. No se inició otra espera ni se bajó el umbral o cerraron apps.
+El nuevo PR completo y release permanecen BLOCKED; una selección parcial verde no los reemplaza.
+
+Comandos públicos realmente utilizados (la selección ampliada completa está en los argv/JUnit
+de sus recibos; --python-test recibe archivos, no node IDs):
+
+~~~powershell
+uv run --no-sync python -m local_control_center.quality --tier fast --temporary-root H:/aido-quality-scratch --python-test tests_py/test_windows_resource_scope.py --python-test tests_py/test_process_supervision.py --db-path .tmp/operational-hardening-p0/closure/quality.sqlite
+uv run --no-sync python -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+uv run --no-sync python -m local_control_center.quality --tier release --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+~~~
+
+Los dos últimos se ejecutaron sobre 7dd3dd44: PR 0, release 75. Los gates estáticos y la
+regresión API posteriores usaron los mismos QualityStep/_run existentes, con recibos nuevos;
+no son nuevos comandos CLI ni gates completos ficticios.
+
+Commits locales de código: 48603836 (readiness), fc0267a4 (CLI/telemetría), 85bc1ac6
+(runner/evidencia/hook), 962e0138 (contratos/diagnóstico), cc0e841e (fixture web),
+7dd3dd44 (formato), f3a1cd6f (precisión CPU), 3629315b (CDB/rutas), 5e036ddf (salida
+alternativa release). Todos pasaron el hook real supervisado, exit 0. El commit de cierre
+sólo documenta estos resultados; no cambia el contenido productivo probado.
+
+Smokes históricos FAIL y consumo UNKNOWN conservados. Causa histórica del stack overflow
+**UNKNOWN**. Sin inferencia, credenciales reales, base operativa, adopción, push, merge,
+publicación, limpieza de disco ni intervención sobre Unreal.

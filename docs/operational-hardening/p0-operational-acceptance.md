@@ -1,8 +1,10 @@
 # Aceptación operacional P0 — 2026-09-05
 
-**Estado vigente: §14.12 — estabilización del runner, evidencia y regresiones, 2026-09-07.**
-Código vigente `5e036ddf`: regresiones focalizadas PASS; PR completo actual y release BLOCKED.
-El PR completo PASS de `7dd3dd44` se conserva sólo para ese contenido, sin aceptación integral.
+**Estado vigente: §14.13.2 — PR actual PASS y release local sin inferencia PASS, 2026-09-07.**
+Candidato ejecutable probado `cc3897c5`: una corrección del fixture CDB; admisión y límites sin cambios.
+PR: 13 gates PASS, Python 2013 PASS / 1 skip y HTTP/captura 8 PASS; CLI/envoltorio exit 0.
+Release local: instalación, upgrade/restore y HTTP PASS; tier release completo NOT_RUN, separado.
+Los resultados de `5e036ddf` y `7dd3dd44` se conservan sólo para sus contenidos, sin aceptación integral.
 **Integridad de nueve recibos históricos: FAIL; incidencia de esta continuación detallada en §14.11.**
 Smokes históricos FAIL conservados; smoke de este encargo NOT_RUN, permiso de inferencia **0**.
 Las tablas anteriores se conservan como historia, no como aceptación del candidato actual.
@@ -1868,3 +1870,260 @@ sólo documenta estos resultados; no cambia el contenido productivo probado.
 Smokes históricos FAIL y consumo UNKNOWN conservados. Causa histórica del stack overflow
 **UNKNOWN**. Sin inferencia, credenciales reales, base operativa, adopción, push, merge,
 publicación, limpieza de disco ni intervención sobre Unreal.
+
+### 14.13 Validación final del candidato — 2026-09-07, 13:18Z
+
+**BLOCKED antes de iniciar trabajo pesado.** HEAD encontrado:
+`254c41f9264568279f458a3cb0170bab01391666`, rama `codex/aido-cleanup-post-p0`,
+checkout inicialmente limpio. Sólo difiere del código `5e036ddf5cd3f1f6644a935119e84f5a9d10a70e`
+en este informe. No hubo cambios de código, pruebas, configuración, dependencias ni entornos.
+Esta actualización es exclusivamente documental y queda sin commit; HEAD no cambia.
+
+La copia aislada existente conserva HEAD Git `cc0e841ec8b2ee0399e5409befd0b78ac37d04c9`
+y ocho archivos modificados cuyo diff completo coincide con `git diff --binary cc0e841e 5e036ddf`:
+SHA-256 `3a9cf3106d254bba83804de38239b28dec1eb70555a36ebe407c48575a07cebe`.
+Fuentes físicas/configuración/lockfiles de ambos checkouts coinciden con el manifiesto vigente;
+sin archivos ajenos no ignorados ni remotos en la copia. Sus ocho fingerprints de herramientas
+siguen iguales; Python y los módulos AIDO cargados corresponden a la copia aislada.
+No se equipara el HEAD de esa copia con su contenido ni se reutiliza un resultado histórico.
+
+Snapshot del gobernador **2026-09-07T13:18:23.643Z**:
+
+| Concepto | Bytes / límite |
+|---|---:|
+| Memoria disponible medida | 33.820.721.152 |
+| Agregado capture_session | 19.327.352.832 (18 GiB), CPU 65 %, 64 procesos |
+| Reserva del host | 17.179.869.184 (16 GiB) |
+| Requerido, sin otras leases | 36.507.222.016 (34 GiB) |
+| Déficit | **2.686.500.864** |
+| Reservas activas | **0** |
+
+El preview devolvió `resource_wait / aggregate_memory_budget`. No se intentó admisión atómica
+ni se lanzó el CLI PR: un preview desfavorable basta para detener el trabajo, pero no se
+presenta como una admisión atómica fallida. No hubo espera/reintentos, cambio de perfiles,
+reservas duplicadas ni cierre de aplicaciones ajenas. El recibo `pr-session-503694…` se consultó
+sólo para confirmar el comando público y el agregado existente; su PASS sigue siendo de `7dd3dd44`.
+
+| Validación actual | Estado | Evidencia / motivo |
+|---|---|---|
+| Identidad del candidato | **PASS** | Comparación de hashes físicos, diff binario y fingerprints; no es aprobación funcional. |
+| Admisión de sesión completa | **BLOCKED** | Preflight exit **75**, déficit indicado; admisión atómica NOT_RUN. |
+| HTTP + captura del candidato | **NOT_RUN** | No se inició la sesión ni una selección sustitutiva. |
+| PR completo actual | **BLOCKED** | CLI y gates NOT_RUN; sus exit codes son null, no 75 ni 0. |
+| Release local sin inferencia | **BLOCKED** | Prerrequisito PR actual pendiente; instalación/upgrade/restore/HTTP completos NOT_RUN. |
+| Aceptación con runtimes reales | **BLOCKED** | Permiso de inferencia 0, sin habilitar etapas ni cambiar sus condiciones. |
+| Integridad de evidencia nueva | **PASS** | Publicación exclusiva y verificación de hashes; no se sobrescribió evidencia anterior. |
+| Procesos / reservas propios | **PASS** | Ninguna carga iniciada; cero leases y registros de raíces gestionadas activos al cierre. |
+| Smoke real | **NOT_RUN** | Permiso 0; ejecuciones de inferencia 0. |
+
+Evidencia nueva en S (definido en §14.12), no en rutas históricas:
+
+- `final-validation-preflight-bae50bc573094b348359808754f3820f.json`, SHA-256
+  `0390b7a7e9d772c846e4fd8b13efafb1bcabf93854269a24b2a49694fa181b98`.
+- `final-validation-traceability-bae50bc573094b348359808754f3820f.json`: comparación antes/después,
+  identidad de imports, hashes de evidencia y estado final; código intacto y única diferencia documental.
+
+Comprobaciones ejecutadas: `git status --short`, `git rev-parse HEAD`,
+`git diff --name-status 5e036ddf5cd3f1f6644a935119e84f5a9d10a70e HEAD` y comparación
+binaria/hashes (exit 0). Preflight inline mediante la Python aislada, `-B -c`, usando
+`HostResourceProbe.sample`, `HostResourceGovernor.preview` y publicación exclusiva existente:
+exit Python **75**, propagado por PowerShell con `exit $LASTEXITCODE`, exit exterior **75**.
+Esto no es el exit de PR. Cierre de trazabilidad/hashes: exit 0.
+
+El primer comprobador inline de cierre salió **1 / AssertionError**, antes de publicar:
+el saneamiento existente había redactado 14 hashes del nuevo snapshot porque las claves
+eran rutas con `credential`/`token`. No se confundieron con cambios de fuentes. Se comparó
+contra el manifiesto original íntegro y se representaron los hashes como registros
+`path`/`sha256` en la trazabilidad final, sin modificar AIDO ni desactivar la redacción.
+El snapshot inicial permanece intacto; se conserva este fallo del comprobador, no de un gate.
+
+La integridad de los nueve recibos perdidos sigue **FAIL**; no se reabrió su búsqueda.
+Los 28 recibos y ocho PNG protegidos mantienen sus hashes. Causa histórica del stack overflow
+**UNKNOWN**. Linux/macOS **NOT_RUN**. Sin inferencia, nuevos dumps, publicación, push, merge,
+adopción de datos ni aceptación integral de AIDO.
+
+#### 14.13.1 Revalidación con admisión atómica — 2026-09-07, 14:27Z
+
+**PR BLOCKED por recursos; resultados nativos conservados, sin corrección de código.**
+Se ejecutó el plan PR completo sobre el contenido `5e036ddf5cd3f1f6644a935119e84f5a9d10a70e`,
+con HEAD de entrega `254c41f9264568279f458a3cb0170bab01391666` sin cambios. Se reutilizó la
+misma instalación aislada: HEAD Git `cc0e841e` más el diff SHA-256 `3a9cf310…cebe` documentado
+arriba, no un checkout cuyo HEAD sea `5e036ddf`. Se verificaron 864 fuentes por checkout,
+configuración, lockfiles, ocho fingerprints y 47 imports AIDO desde la copia, sin reconstruir
+entornos. La única diferencia del checkout original es este informe, exclusivamente documental.
+
+El preview de 13:38:50.886Z midió 37.158.125.568 bytes disponibles. La admisión **atómica** de
+13:40:29.739Z midió **37.072.359.424 bytes** y adquirió una única reserva
+`resource-lease-8528264f-9e8f-4b3f-af24-e8073da36dc1`: capture_session **18 GiB / 65 % / 64 procesos**,
+más 16 GiB de reserva del host; requerido **36.507.222.016 bytes (34 GiB)**. Los gates compartieron
+esa reserva. El readback del Job exterior y del gate de captura confirmó 18 GiB / 64 procesos,
+CPU rate 6500 exterior y 10000 relativo al padre; ancestros externos adicionales UNKNOWN.
+
+Durante las ocho preparaciones HTTP, entre 14:26:50.873Z y 14:27:15.420Z, la memoria disponible
+quedó entre **36.385.972.224 y 36.425.838.592 bytes**: déficit entre **81.383.424 y 121.249.792 bytes**.
+Cada launcher rechazó `aggregate_memory_budget` antes de crear API, objetivo o colector.
+Excepción causal conservada: `ResourceWaitError: resource_wait: aggregate_memory_budget`,
+desde `start_control_center.run_supervisor → LauncherCaptureSession.__enter__`.
+Las ocho bases de fixtures registraron cero leases creadas: no hubo reservas duplicadas activas.
+La admisión inicial no sustituyó las comprobaciones vivas posteriores. No se demostró un defecto
+funcional ni se cambiaron perfiles, reservas, código o comprobaciones para eludir el rechazo.
+
+| Validación de este intento | Estado | Resultado / evidencia |
+|---|---|---|
+| Identidad y admisión inicial | **PASS** | Contenido exacto; admisión atómica y contención agregada verificadas. |
+| productive-truth / Python | **PASS** | Exits 0 / 0; 2013 passed, 1 skipped, 3 warnings, 2764,35 s de pytest. |
+| HTTP + captura actual | **BLOCKED** | 8 FAIL, gate exit 1; launcher exit 1 en los ocho casos. API/objetivo/colector NOT_RUN. |
+| PR completo actual | **BLOCKED** | Recibo bruto `failed`; CLI 1, sesión supervisora 1, PowerShell exterior 1. |
+| Diez gates restantes | **NOT_RUN** | El runner se detuvo en captura: web, build, typecheck, Ruff, format, Biome, arquitectura, secretos, Semgrep y diff-check. |
+| Release local sin inferencia | **BLOCKED** | NOT_RUN: PR actual no aprobado; instalación/upgrade/restore/HTTP completos siguen pendientes. |
+| Componentes con inferencia | **BLOCKED** | Permiso 0; sin cambiar condiciones ni ejecutar proveedores. |
+| Evidencia nueva | **PASS** | Hashes de ocho artefactos stdout/stderr, dos JUnit y ocho recibos de casos; publicación exclusiva. |
+| Procesos / reservas propios | **PASS** | Cero raíces gestionadas y leases activas; ocho fixtures con `ownProcessesGone=true`. |
+| Smoke real | **NOT_RUN** | Permiso 0; ninguna ejecución capaz de inferencia. |
+
+El skip es el opt-in existente de 30 ciclos (`test_operational_acceptance_native.py::test_thirty_sequential_cycles_with_cancellation_and_recovery`),
+no una exclusión añadida. Se conservan tres deprecaciones SWIG (`SwigPyPacked`, `SwigPyObject`,
+`swigvarlink`). La captura conservó 8 FAIL / 3 warnings / 29,58 s. Los node IDs y errores completos
+están en los JUnit y logs íntegros; un rechazo no se transforma en un test PASS.
+
+Comando público ejecutado desde `H:/aido-isolated-validation/candidate-ad0e3b000e7e4bab86f8b8fca13f80ed`,
+dentro del `_run(QualityStep("complete-pr-public-cli", command, "capture_session", 21600), …)` existente:
+
+~~~powershell
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+~~~
+
+El envoltorio real propagó `result["returnCode"]` mediante `sys.exit` y PowerShell `exit $LASTEXITCODE`:
+los tres exits son **1**. Temporales exclusivos: `H:/aido-quality-scratch/invocation-idunn0rt`,
+fuera del checkout; recibos y artefactos separados. No se volvió a ejecutar la suite tras el rechazo.
+
+Evidencia nueva: en la copia aislada, bajo `.tmp/operational-hardening-p0/`,
+`pr-session-be3e477901694da8905f5f3c143d1923.json` y
+`quality-pr-579798a3fe9d469ebb1d40fbdc751b35.json`. En S:
+
+- `final-validation-preflight-fa362ee8c04b42018d01e9c0902b5e1c.json` (identidad y preview).
+- `final-validation-capture-admission-c907e5ba1f59451e976e26e6e6367af8.json` (admisión atómica, ocho déficits, excepciones y Jobs concretos).
+- `final-validation-integrity-9ed1598fb38c429685dd193b1720c902.json` (hashes, 13 gates previstos, resultados y node IDs).
+- `final-validation-traceability-fa362ee8c04b42018d01e9c0902b5e1c.json` (comparación final antes/después y cierre).
+
+Diagnósticos auxiliares, separados de los gates: un primer probe de versión salió 1 al comparar
+`gitleaks --version` con la salida de `gitleaks version`; usar el comando existente confirmó la
+misma herramienta, exit 0, sin actualizarla. El primer verificador de integridad salió 1 después
+de publicar por comparar sin saneamiento un node ID con un señuelo Bearer sintético; la verificación
+read-only de la representación redactada salió 0 y confirmó el mismo hash, sin sustituir el recibo
+ni tocar el JUnit original. Ninguno de estos exits 0 aprueba el PR ni los datos operativos.
+
+Se conservan la historia anterior y sus hashes: nueve recibos perdidos **FAIL**, causa histórica
+del stack overflow **UNKNOWN**, Linux/macOS **NOT_RUN**. Sin inferencia, push, merge, publicación,
+adopción de datos, cambios productivos ni aceptación integral. Esta actualización documental queda
+sin commit; HEAD final sigue `254c41f9264568279f458a3cb0170bab01391666`.
+
+#### 14.13.2 Captura primero, corrección de fixture y validación completa — 2026-09-07
+
+**Candidato final probado: `cc3897c5b2486d6a597830e5f80b19cc999e4f38`.** Desciende de `254c41f9`:
+único commit propio, `Fix (QA): abre dumps sintéticos con rutas extendidas en CDB`, limitado a
+`tests_py/test_launcher_capture_http.py` (2 inserciones / 1 eliminación). No cambió código productivo,
+configuración, límites ni dependencias. Este informe conserva su diff previo y queda **sin commit**.
+La instalación reutilizada mantiene HEAD Git `cc0e841ec8b2ee0399e5409befd0b78ac37d04c9` más nueve
+archivos modificados, diff binario SHA-256 `b7d3336896ff15bbf7e5255ee8b9e582d22510e10dc843bb2d372d2d7da6457c`.
+Sus fuentes de producto, tests, configuración y lockfiles corresponden al candidato; la documentación
+no es idéntica. No se equiparan HEAD y contenido físico ni se reconstruyeron los entornos activos.
+
+**Autoridad y cálculo de admisión.** La reserva histórica `resource-lease-8528264f-9e8f-4b3f-af24-e8073da36dc1`
+está en `.tmp/operational-hardening-p0/closure/quality.sqlite`, no en las bases de fixtures. Su owner/execution
+es `managed-process-5eb8014d-a612-407d-b8be-8050e0d9d4ef`; raíz PID 25484, creación 1788788430.0722158.
+Fue liberada a las 14:27:16.775Z. `_inherited_context` valida un ancestro nativo vivo por PID + creación,
+registro y lease no liberados/no vencidos; comprueba liderazgo cuando hay un job asociado. No confía en
+un leaseId del entorno. Los gates comparten ese contexto y el supervisor conserva cancelación/fencing.
+
+El launcher recibe el entorno y hereda el Job exterior, pero `LauncherCaptureSession.__enter__` abre
+el `isolated.sqlite` propio de cada fixture y solicita una **reserva local nueva**: no valida/reutiliza
+la lease de quality como una subreserva autenticada. Cada DB aísla trabajos, aprobación sintética,
+liderazgo, cancelación y recuperación. El `qualityEnvelope` prueba pertenencia y límites concretos,
+pero es evidencia del test, no autoridad de admisión del launcher. Cero leases locales no prueba herencia.
+
+El gobernador usa, en la DB seleccionada:
+`reservas activas computables + 18 GiB <= memoria física disponible - 16 GiB de reserva del host`.
+En el rechazo anterior: `0 + 19.327.352.832 > 36.425.838.592 - 17.179.869.184`, déficit **81.383.424 bytes**.
+No añade otra reserva global independiente de 18 GiB: vuelve a exigir el margen completo conservador
+al ámbito local, subordinado nativamente al exterior. No existe atribución fiable para descontar consumo
+propio; capacidad propia restante **UNKNOWN**. No se descuentan RSS, picos, commit ni caída global de RAM.
+Se mantienen comprobaciones vivas de memoria física, CPU, disco, política/concurrencia y autoridad.
+La contención exterior verificada respalda esta sesión; no se afirma un ledger global entre cualquier DB
+ni capacidad garantizada frente a ancestros externos desconocidos. **Defecto de admisión no demostrado**;
+no se modificó esa política conservadora. Evidencia: `capture-admission-boundary-d667ec5…json` en S.
+
+**Margen previo y reproducción.** Sonda existente durante 30,81 s: mínimo **43.919.917.056 bytes**,
+superior al objetivo operativo de 38 GiB (**40.802.189.312 bytes**), con cero trabajos/leases propios.
+Requisito real intacto: **36.507.222.016 bytes (34 GiB)**; margen mínimo **7.412.695.040 bytes**.
+Primera selección de captura: **6 PASS / 2 FAIL**, exit 1, ocho admisiones exitosas; ningún rechazo de recursos.
+Los dos dumps existían y tenían contexto válido, pero CDB no abría una ruta retenida de **261 caracteres**:
+exit **2147942403 / 0x80070003**. Sobre el mismo dump intacto, ruta relativa también falló; prefijo Windows
+`\\?\` permitió abrirlo, exit **0**, excepción `0xc0000409` y frame `mainCRTStartup`. No se lanzó otro objetivo.
+La única corrección usa ese prefijo en el argumento `-z`. Regresión completa: **8 PASS / 3 warnings / 169,25 s**,
+gates/CLI/envoltorio exit **0**, sin residuos. Recibo rojo/verde: `capture-path-regression-94c6ce18…json` en S.
+
+**PR actual, una sola pasada tras la captura verde.** No existe reanudación verificable en el CLI;
+no se ensambló un PASS a partir de recibos. Nueva muestra de 30,01 s: mínimo **43.624.599.552 bytes**.
+Admisión atómica con **43.655.352.320 bytes** disponibles (muestra previa: 43.700.891.648); lease
+`resource-lease-1c5ffdae-a8f1-4a5d-9a87-1c4ae3d24079`, capture_session **18 GiB / CPU 65 % / 64 procesos**.
+PR desde 15:44:24.597Z hasta 16:55:54.666Z: **13/13 gates PASS**, todos con exit 0, incluidos secretos,
+estáticos, build, typecheck, web y captura. Python **2013 PASS / 1 skip / 3 warnings**, 2688,72 s;
+captura **8 PASS / 3 warnings**, 167,56 s; web **339 PASS / 5 skips existentes**. No se añadieron exclusiones.
+El recibo Python anterior permanece intacto y válido para `5e036ddf`; no era aprobación del PR.
+
+Los ocho casos actuales son normal, diagnostic-normal, fastfail, pressure, cancel, fence, owner-crash y
+collector-unavailable. Todos conservan IDs, Jobs concretos, salud, cierre y cero reservas/procesos propios.
+En fastfail/pressure el objetivo falla intencionalmente (`0xc0000409`), ProcDump sale **1** y el resultado
+de captura es `captured`; CDB sale **0** con contexto válido. En cancel/fence la captura figura **FAIL**,
+sin transformarla en éxito: el test PASS certifica detención/limpieza. Los dumps siguen privados y sintéticos.
+
+**Release local completa sin inferencia:** nueva muestra de 30,84 s, mínimo **43.877.998.592 bytes**;
+admisión atómica con **43.600.887.808 bytes** (muestra previa: 43.627.220.992),
+lease `resource-lease-9d576de4-0981-46ee-8f62-b746e3090b6f`.
+Módulo público íntegro, sin `--upgrade-only`: **7/7 pasos PASS**, 17:03:44.360Z–17:04:24.574Z, exit 0.
+Instalación nueva Python/web desde locks en scratch exclusivo; build; fixture baseline `94eaf8c1`,
+58→67, dos aplicaciones, integridad/FK, un proyecto preservado, backup/restore y roundtrip PASS.
+HTTP nativo health/dashboard **200/200**; cierre esperado de API exit **3**, `native_smoke_cleanup`,
+cero descendientes; paso/CLI/envoltorio **0**. No se migró la base operativa.
+El **tier release completo NOT_RUN**: su `operational-verification` repite PR; se ejecutó su gate local
+existente de instalación/upgrade/restore/HTTP, no se presenta como aprobación de todo el tier.
+
+Comandos públicos reales, desde la copia aislada, dentro del `_run(QualityStep(..., "capture_session", ...))`
+existente; deadlines 3600 s para captura/release local y 21600 s para PR. Entorno sólo del intento:
+`AIDO_QUALITY_DB_PATH` apunta a quality.sqlite, `AIDO_QUALITY_TEMP_ROOT=H:/aido-quality-scratch`,
+proveedores/runtimes deshabilitados y herramientas ProcDump/CDB existentes para los tests sintéticos.
+
+~~~powershell
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier fast --python-test tests_py/test_launcher_capture_http.py --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+& .\.venv\Scripts\python.exe -m local_control_center.quality.release
+~~~
+
+Exits nativos y de gate, CLI, `sys.exit(result["returnCode"])` y PowerShell `exit $LASTEXITCODE` se conservan
+por separado. El diagnóstico de ruta relativa salió 0 como envoltorio, pero CDB FAIL: no se convirtió en PASS.
+Temporales exclusivos fuera del checkout; evidencia separada y publicación sin reemplazo. Advertencias
+SWIG y skips existentes conservados. Los errores auxiliares de consulta de columnas inexistentes fueron
+diagnósticos read-only, exit 1; se corrigió la consulta tras inspeccionar el esquema, sin cambiar AIDO.
+
+Recibos íntegros nuevos bajo `.tmp/operational-hardening-p0/` de la copia:
+`pr-session-43702fc7aac34dfea5c3a53850a76901.json`, `quality-pr-b4711877593143c0a76e97f50ca48013.json`,
+`release-local-session-0cc9854bbc36457eb4af1e0c089c4dc6.json`, `release-b5a5fd8aa8d744e4a00715700e67316f.json`.
+Hashes, comandos, node IDs, muestras, readbacks, identidad de fuentes/herramientas y comprobación final:
+**S/`capture-first-final-traceability-e81ee380d4ec4f09ae9df46ba3aea7a3.json`**. No se sobrescribió evidencia
+anterior. Al cierre: cero raíces gestionadas y leases propias activas; fuentes/configuración intactas
+después de los gates, salvo esta actualización documental sin commit.
+
+Integridad histórica de nueve recibos **FAIL**, stack overflow histórico **UNKNOWN**, Linux/macOS
+**NOT_RUN**. Componentes con inferencia **BLOCKED**, smoke real **NOT_RUN**, permiso/ejecuciones **0**.
+Sin push, merge, publicación, cambios de credenciales ni adopción; **no hay aceptación integral de AIDO**.
+
+**Cierre exclusivamente documental — 2026-09-07.** El commit que incorpora este cierre tiene como
+padre `cc3897c5b2486d6a597830e5f80b19cc999e4f38` e incluye únicamente este informe. El padre sigue
+siendo el candidato ejecutable probado; el nuevo commit documental no constituye otra ejecución
+de PR/release ni sustituye los manifiestos o recibos existentes. Las referencias anteriores a
+«sin commit» describen el estado al emitir la validación, antes de este cierre autorizado.
+Se conservan íntegros los resultados, la política de admisión, la distinción de reservas/límites
+y el consumo propio UNKNOWN. Aceptación integral pendiente; crashes históricos de Codex y
+coexistencia con Unreal no se declaran resueltos. Siguiente paso pendiente: smoke real,
+**NOT_RUN** en este cierre por permiso de inferencia **0**, sin repetir ninguna suite.

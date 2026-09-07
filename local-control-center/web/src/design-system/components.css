@@ -868,6 +868,36 @@ kbd.command-kbd {
 	background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-card));
 }
 
+/* These two setup journeys share the existing stepper and tokens, not a new shell. */
+.workspace-setup-wizard .wizard-steps {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.provider-setup-wizard .wizard-steps {
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.workspace-setup-wizard .wizard-steps li,
+.provider-setup-wizard .wizard-steps li {
+	min-width: 0;
+	padding: var(--space-2);
+	font-size: var(--font-size-xs);
+	overflow-wrap: anywhere;
+}
+
+.credential-manager > form {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+	.credential-manager > form {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.provider-setup-wizard .wizard-steps {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
 .review-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));

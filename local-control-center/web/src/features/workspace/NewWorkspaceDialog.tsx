@@ -1,6 +1,6 @@
 /**
  * Three-step wizard (source -> review -> open) for opening an existing folder or
- * creating a new workspace, then turning it into a project.
+ * registering a project in a new folder. Execution workspaces remain separate backend entities.
  * Pure presentation/step orchestration: all detection and the create call live in the
  * `useProjectDiscovery` hook; this component only sequences the steps, gates Next on
  * validation, and reports the created project id back to the caller.
@@ -8,7 +8,7 @@
  */
 
 import { FolderOpen, FolderPlus, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Overview } from '../../api/types';
 import { Dialog as Modal } from '../../components/ui';
@@ -44,6 +44,11 @@ export function NewWorkspaceDialog({
 	const { t } = useI18n();
 	const workspace = useProjectDiscovery(overview, mutate);
 	const [step, setStep] = useState<DialogStep>('source');
+	const stepTitle = useRef<HTMLHeadingElement>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a step transition must announce its new heading to keyboard users.
+	useEffect(() => {
+		if (open) stepTitle.current?.focus();
+	}, [open, step]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: re-seed once per open; `workspace.reset`/`setMode` are re-created every render, so depending on them would reset the form on every keystroke.
 	useEffect(() => {
@@ -63,7 +68,7 @@ export function NewWorkspaceDialog({
 	};
 
 	const goReview = () => {
-		const message = workspace.validate();
+		const message = workspace.validate('source');
 		if (message) {
 			workspace.setError(message);
 			return;
@@ -76,21 +81,47 @@ export function NewWorkspaceDialog({
 		const result = await workspace.submit();
 		if (result) onCreated(result.id);
 	};
+	const close = () => {
+		if (!workspace.busy) onClose();
+	};
+	const goConfirm = () => {
+		const message = workspace.validate();
+		workspace.setError(message);
+		if (!message) setStep('open');
+	};
 
 	return (
-		<Modal open={open} label={t('app.workspace.dialog.title', 'New workspace')} onClose={onClose}>
+		<Modal
+			open={open}
+			label={t('app.workspace.dialog.title', 'New workspace')}
+			onClose={close}
+			className="workspace-setup-wizard"
+		>
 			<div className="form-grid">
 				<ol
 					className="wizard-steps"
 					aria-label={t('app.workspace.steps.aria', 'Workspace setup steps')}
 				>
 					{STEP_ORDER.map((item, index) => (
-						<li key={item} className={item === step ? 'current' : ''}>
+						<li
+							key={item}
+							className={item === step ? 'current' : ''}
+							aria-current={item === step ? 'step' : undefined}
+						>
 							<span className="mono">0{index + 1}</span>
 							<strong>{stepLabels[item]}</strong>
 						</li>
 					))}
 				</ol>
+				<h3 ref={stepTitle} tabIndex={-1}>
+					{stepLabels[step]}
+				</h3>
+				<p className="field-help">
+					{t(
+						'app.workspace.registrationHint',
+						'Register a project from an existing folder or explicitly create a new one. Execution workspaces are allocated separately. This action does not start agents, initialize Git or run a smoke.',
+					)}
+				</p>
 
 				{step === 'source' ? (
 					<>
@@ -248,6 +279,8 @@ export function NewWorkspaceDialog({
 							</label>
 							<input
 								id="workspace-project-name"
+								aria-invalid={Boolean(workspace.error && !workspace.name.trim()) || undefined}
+								aria-describedby={workspace.error ? 'workspace-registration-error' : undefined}
 								className="input"
 								value={workspace.name}
 								maxLength={140}
@@ -318,18 +351,26 @@ export function NewWorkspaceDialog({
 				) : null}
 
 				{workspace.error ? (
-					<div className="form-error" role="alert">
+					<div className="form-error" role="alert" id="workspace-registration-error">
 						{workspace.error}
 					</div>
 				) : null}
 
+				{workspace.busy ? (
+					<p role="status">
+						{t(
+							'app.workspace.registering',
+							'Registering the project. Wait for confirmation before closing.',
+						)}
+					</p>
+				) : null}
 				<div className="wizard-actions">
 					<button
 						className="button"
 						type="button"
 						onClick={
 							stepIndex === 0
-								? onClose
+								? close
 								: () => {
 										workspace.setError('');
 										setStep(STEP_ORDER[Math.max(stepIndex - 1, 0)]);
@@ -354,7 +395,7 @@ export function NewWorkspaceDialog({
 						<button
 							className="button primary"
 							type="button"
-							onClick={step === 'source' ? goReview : () => setStep('open')}
+							onClick={step === 'source' ? goReview : goConfirm}
 							disabled={
 								workspace.busy ||
 								workspace.discoveryBusy ||

@@ -15,6 +15,18 @@
     }
   ],
   "translations": {
+    "app.workspace.error.existingDirectory": {"en": "The selected path is not an existing directory.", "es": "La ruta seleccionada no es un directorio existente."},
+    "settings.credentials.safeError": {"en": "The operation could not be completed. Check the backend availability; secret input has been cleared.", "es": "No se pudo completar la operación. Revisa la disponibilidad del backend; el campo secreto se vació."},
+    "settings.credentials.boundaries": {"en": "Global credential references · saving does not authenticate a provider, choose a model or run inference. CLI subscription sessions are managed separately under Providers & CLI.", "es": "Referencias globales de credenciales · guardar no autentica un proveedor, elige un modelo ni ejecuta inferencia. Las sesiones de suscripción CLI se gestionan por separado en Proveedores y CLI."},
+    "settings.credentials.confirmDelete": {"en": "Delete reference", "es": "Eliminar referencia"},
+    "settings.credentials.advanced": {"en": "Advanced · rotation and audit", "es": "Avanzado · rotación y auditoría"},
+    "app.workspace.registrationHint": {"en": "Register a project from an existing folder or explicitly create a new one. Execution workspaces are allocated separately. This action does not start agents, initialize Git or run a smoke.", "es": "Registra un proyecto desde una carpeta existente o crea una nueva de forma explícita. Los workspaces de ejecución se asignan por separado. Esta acción no inicia agentes, inicializa Git ni ejecuta un smoke."},
+    "app.workspace.registering": {"en": "Registering the project. Wait for confirmation before closing.", "es": "Registrando el proyecto. Espera la confirmación antes de cerrar."},
+    "app.providers.wizard.saveFailedSafe": {"en": "Configuration could not be saved. Check the credential backend and endpoint. Secret input was cleared; no inference was run.", "es": "No se pudo guardar la configuración. Revisa el backend de credenciales y el endpoint. El campo secreto se vació; no se ejecutó inferencia."},
+    "app.providers.wizard.close": {"en": "Close provider setup", "es": "Cerrar configuración del proveedor"},
+    "app.providers.wizard.accessBoundary": {"en": "API / local endpoint configuration. This is not a CLI subscription session. Saving does not run inference; API usage may be billable. No automatic switch of access method.", "es": "Configuración de API o endpoint local. No es una sesión de suscripción CLI. Guardar no ejecuta inferencia; el uso de API puede ser facturable. No se cambia el método de acceso automáticamente."},
+    "app.providers.wizard.checkBoundary": {"en": "Checks configuration and authentication only. A model smoke is a separate action requiring authorization and quota. Without authorization, do not run it.", "es": "Comprueba solo configuración y autenticación. El smoke de un modelo es una acción separada que exige autorización y cuota. Sin autorización, no lo ejecutes."},
+    "app.providers.wizard.checkConfiguration": {"en": "Check configuration / auth", "es": "Comprobar configuración / autenticación"},
     "app.operations.title": {"en": "Operations", "es": "Operaciones"},
     "app.operations.summary": {"en": "Worker, host capacity and managed executions", "es": "Worker, capacidad del host y ejecuciones administradas"},
     "app.operations.disconnected": {"en": "Operational snapshot unavailable; the last reading may be stale.", "es": "Estado operacional no disponible; la última lectura puede estar desactualizada."},

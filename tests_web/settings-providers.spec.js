@@ -27,7 +27,7 @@ async function openWizard(page) {
 	const settings = page.getByRole('dialog', { name: 'Settings' });
 	await expect(settings).toBeVisible();
 	await settings.getByRole('button', { name: 'Add provider' }).click();
-	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	const wizard = page.getByRole('region', { name: 'Add provider' });
 	await expect(wizard).toBeVisible();
 	return wizard;
 }
@@ -56,7 +56,7 @@ async function openConfigureWizard(page, displayName) {
 	const card = settings.locator('.card').filter({ hasText: displayName });
 	await expect(card.first()).toBeVisible({ timeout: 30_000 });
 	await card.first().getByRole('button', { name: 'Configure' }).click();
-	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	const wizard = page.getByRole('region', { name: 'Add provider' });
 	await expect(wizard).toBeVisible();
 	return wizard;
 }

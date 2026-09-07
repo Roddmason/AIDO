@@ -3119,7 +3119,7 @@ test('Runtime guided API setup opens provider wizard instead of running a health
 
 	await settings.getByRole('button', { name: 'Configure NVIDIA NIM' }).click();
 
-	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	const wizard = page.getByRole('region', { name: 'Add provider' });
 	await expect(wizard).toBeVisible();
 	await expect(wizard.getByLabel('Provider', { exact: true })).toHaveValue('nvidia_nim');
 	await wizard.getByRole('button', { name: 'Next' }).click();
@@ -3141,7 +3141,7 @@ test('Runtime setup wizard does not require manual base URL for known providers'
 	await expect(settings).toBeVisible();
 	await settings.getByRole('button', { name: 'Add provider' }).click();
 
-	const wizard = page.getByRole('dialog', { name: 'Add provider' });
+	const wizard = page.getByRole('region', { name: 'Add provider' });
 	await expect(wizard).toBeVisible();
 	await wizard.getByLabel('Provider', { exact: true }).selectOption('nvidia_nim');
 	await wizard.getByRole('button', { name: 'Next' }).click();

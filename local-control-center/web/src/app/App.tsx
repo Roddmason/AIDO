@@ -334,6 +334,7 @@ export function App() {
 				onCreated={(projectId) => {
 					setOperationalProject(projectId);
 					setWorkspaceDialogOpen(false);
+					setSettingsModalOpen(false);
 					navigateTo('workbench');
 					notify({
 						title: t('app.toast.workspaceReady', 'Workspace ready'),
@@ -361,7 +362,7 @@ export function App() {
 
 			{/* Settings modal: global overlay, portaled via Dialog. */}
 			<SettingsModal
-				open={settingsModalOpen}
+				open={settingsModalOpen && !workspaceDialogOpen}
 				onClose={() => setSettingsModalOpen(false)}
 				projectId={selectedProject?.id}
 				initialSection={settingsSection}

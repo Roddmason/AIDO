@@ -5,7 +5,7 @@
  * APIs, and derives detection markers, runtime labels and name-conflict checks.
  * @author Rodrigo Mason
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { createProject, discoverProject, selectLocalDirectory } from '../../api/client';
 import type { JsonValue } from '../../api/generated/openapi';
@@ -86,6 +86,7 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 	const [busy, setBusy] = useState(false);
 	const [discoveryBusy, setDiscoveryBusy] = useState(false);
 	const [pickerBusy, setPickerBusy] = useState(false);
+	const submitting = useRef(false);
 
 	const finalPath =
 		mode === 'create_workspace'
@@ -229,7 +230,7 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		}
 	};
 
-	const validate = () => {
+	const validate = (phase: 'source' | 'complete' = 'complete') => {
 		if (mode === 'create_workspace') {
 			if (!workspaceBasePath.trim())
 				return t('app.workspace.error.basePathRequired', 'Workspace base path is required.');
@@ -240,6 +241,7 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		} else if (!workspaceFolder.trim()) {
 			return t('app.workspace.error.folderRequired', 'Workspace folder is required.');
 		}
+		if (phase === 'source') return '';
 		if (!name.trim()) return t('app.workspace.error.nameRequired', 'Project name is required.');
 		if (!overview.projectTemplates.some((template) => template.id === templateId)) {
 			return t('app.workspace.error.templateInvalid', 'Project template is invalid.');
@@ -248,14 +250,32 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 	};
 
 	const submit = async (): Promise<{ id: string } | null> => {
+		if (submitting.current) return null;
 		const message = validate();
 		if (message) {
 			setError(message);
 			return null;
 		}
+		submitting.current = true;
 		setBusy(true);
 		setError('');
 		try {
+			// Opening is not permission to create a missing directory. Ask the existing
+			// backend discovery boundary before registration; do not infer from the path string.
+			if (mode === 'open_folder' && !createDirectory) {
+				const result = await mutate((token) =>
+					discoverProject(token, { path: workspaceFolder.trim() }),
+				);
+				if (!result.discovery.exists || !result.discovery.isDirectory) {
+					setError(
+						t(
+							'app.workspace.error.existingDirectory',
+							'The selected path is not an existing directory.',
+						),
+					);
+					return null;
+				}
+			}
 			const metadata: Record<string, JsonValue> = {
 				source: 'workspace_dialog',
 				creationMode: METADATA_CREATION_MODE[mode],
@@ -286,6 +306,7 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 			);
 			return null;
 		} finally {
+			submitting.current = false;
 			setBusy(false);
 		}
 	};

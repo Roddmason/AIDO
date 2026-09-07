@@ -17,7 +17,9 @@ export function useDialogFocus(open: boolean, panelRef: RefObject<HTMLElement | 
 		const panel = panelRef.current;
 		const previouslyFocused = document.activeElement as HTMLElement | null;
 		const focusable = () =>
-			Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []);
+			Array.from(panel?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE) ?? []).filter(
+				(element) => element.getClientRects().length > 0 && !element.closest('[inert]'),
+			);
 		(focusable()[0] ?? panel)?.focus();
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key !== 'Tab') return;

@@ -1,5 +1,7 @@
 # Aceptación operacional P0 — 2026-09-05
 
+**Posterior al cierre local:** smoke Codex 0.153.4 PASS sobre `cc3897c5`, nativo/dispatcher 0/0; un intento consumido, permiso restante 0. [Recibo local](../../.tmp/operational-hardening-p0/authorized-close/codex-smoke-5217a125432a4741b7c0748901a7f651/smoke-verification.json). No resuelve por sí solo la causa histórica ni promueve la selección operativa. [Revisión posterior de perfiles, diagramas y dos recorridos UI](../reviews/aido-post-smoke-profiles-ux.md), con su candidato y gates separados.
+
 **Estado vigente: §14.13.2 — PR actual PASS y release local sin inferencia PASS, 2026-09-07.**
 Candidato ejecutable probado `cc3897c5`: una corrección del fixture CDB; admisión y límites sin cambios.
 PR: 13 gates PASS, Python 2013 PASS / 1 skip y HTTP/captura 8 PASS; CLI/envoltorio exit 0.

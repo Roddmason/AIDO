@@ -224,7 +224,7 @@ def test_native_ancestor_memory_and_cpu_are_not_independent(allocation_probe, pa
     assert all(not value["pids"] for value in receipt["after"])
 
 
-@pytest.mark.parametrize("mode", ["independent", "borrow", "capture"])
+@pytest.mark.parametrize("mode", ["independent", "borrow", "capture", "quantized"])
 def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
     """No mock backend: prevent an independent budget inside control-plane, and CPU multiplication."""
     from contextlib import closing
@@ -259,6 +259,7 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
         cwd=Path.cwd(),
         execution_id="scope-parent",
         workload_class="control_plane" if mode == "independent" else "qa_light",
+        cpu_limit_percent=23 if mode == "quantized" else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -276,6 +277,16 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
                     ).fetchone()[0]
                     == 0
                 )
+        elif mode == "quantized":
+            assert not result["rejected"]
+            assert result["containment"]["verified"]["cpuPercent"] == 30.43
+            assert not result["leaf"]["rejected"], result["leaf"]
+            leaf = result["leaf"]["containment"]
+            assert leaf["verified"]["cpuPercent"] == 100
+            assert leaf["scope"]["cpuPercentOfAidoRoot"] == 7
+            assert leaf["scope"]["effectiveCpuPercentOfAidoRoot"] == pytest.approx(6.9989)
+            assert leaf["scope"]["cpuQuantizationLossPercent"] == pytest.approx(0.0011)
+            assert all(row["member"] for row in leaf["scope"]["ancestors"])
         else:
             assert not result["rejected"]
             assert result["containment"]["verified"]["cpuPercent"] == 100

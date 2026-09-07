@@ -25,6 +25,46 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
 
+@pytest.mark.parametrize(
+    ("ancestors", "requested", "native", "effective"),
+    [
+        ([65, 38.46], 25, 100, 24.999),
+        ([65, 38.46, 100], 25, 100, 24.999),
+        ([23, 30.43], 7, 100, 6.9989),
+        ([65], 25, 38.46, 24.999),
+        ([], 65, 65, 65),
+    ],
+)
+def test_cpu_scope_quantization_never_raises_native_caps(ancestors, requested, native, effective):
+    from local_control_center.process_supervision.windows_job import _cpu_scope
+
+    scope = _cpu_scope(requested, ancestors)
+    assert scope["nativeCpuPercent"] == native
+    assert scope["effectiveCpuPercentOfAidoRoot"] == pytest.approx(effective)
+    assert scope["cpuQuantizationLossPercent"] == pytest.approx(requested - effective)
+    assert effective <= requested
+
+
+@pytest.mark.parametrize(
+    ("ancestors", "requested"),
+    [
+        ([20], 25),
+        ([65, 38.46], 25.02),
+        ([23, 30.43], 7.01),
+        ([100], 100.01),
+        ([25], 25.01),
+        ([65, 38.461], 25),
+        ([], 0.001),
+    ],
+)
+def test_cpu_scope_still_rejects_real_deficit_or_unverifiable_rate(ancestors, requested):
+    from local_control_center.process_supervision.service import ResourceWaitError
+    from local_control_center.process_supervision.windows_job import _cpu_scope
+
+    with pytest.raises(ResourceWaitError, match="resource_scope"):
+        _cpu_scope(requested, ancestors)
+
+
 class FakeProcess:
     def __init__(self, pid: int = 4321, returncode: int | None = None) -> None:
         self.pid = pid

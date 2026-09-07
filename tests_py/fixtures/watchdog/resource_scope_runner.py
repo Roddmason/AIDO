@@ -19,7 +19,7 @@ with closing(open_sqlite_connection(db)) as connection:
 context = ProcessExecutionContext(
     db_path=db,
     execution_id="scope-child",
-    resource_lease_id=row[0] if mode in {"borrow", "capture"} else None,
+    resource_lease_id=row[0] if mode in {"borrow", "capture", "quantized", "quantized-leaf"} else None,
 )
 if mode == "capture":
     import hashlib
@@ -36,11 +36,16 @@ if mode == "capture":
     )
 with execution_scope(context):
     service = ProcessSupervisorService(db_path=db)
+    command = [sys.executable, "-c", "import time; time.sleep(.2)"]
+    leaf = destination.with_name("leaf.json")
+    if mode == "quantized":
+        command = [sys.executable, "-m", __spec__.name, str(db), "quantized-leaf", str(leaf)]
     try:
         child = service.start(
-            argv=[sys.executable, "-c", "import time; time.sleep(.2)"],
+            argv=command,
             cwd=Path.cwd(),
             workload_class="agent_cli" if mode == "independent" else "qa_light",
+            cpu_limit_percent=7 if mode.startswith("quantized") else None,
         )
     except ResourceWaitError as error:
         destination.write_text(json.dumps({"rejected": True, "reason": str(error)}), encoding="utf-8")
@@ -48,4 +53,7 @@ with execution_scope(context):
         receipt = child.containment_evidence
         child.process.wait(timeout=10)
         service.complete(child, exit_code=child.process.returncode)
-        destination.write_text(json.dumps({"rejected": False, "containment": receipt}), encoding="utf-8")
+        result = {"rejected": False, "containment": receipt}
+        if mode == "quantized":
+            result["leaf"] = json.loads(leaf.read_bytes())
+        destination.write_text(json.dumps(result), encoding="utf-8")

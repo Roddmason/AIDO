@@ -11,6 +11,7 @@ import subprocess
 import time
 from contextlib import suppress
 from dataclasses import replace
+from fractions import Fraction
 from typing import Any
 
 import psutil
@@ -238,7 +239,6 @@ class WindowsJobObjectProcessSupervisor:
         from .service import ResourceWaitError
 
         inspected = []
-        cpu = 100.0
         for row in ancestors:  # outermost first, OS PID + creation identity checked by caller
             try:
                 job = win32job.OpenJobObject(
@@ -270,24 +270,52 @@ class WindowsJobObjectProcessSupervisor:
                     f"resource_wait: resource_scope_conflict: independent reservation below {row['managed_process_id']} "
                     f"({limits['memoryBytes']} bytes / {limits['cpuPercent']}% parent-relative); no spawn"
                 )
-            cpu *= limits["cpuPercent"] / 100
             if spec.memory_limit_bytes > limits["memoryBytes"]:
                 raise ResourceWaitError(
                     "resource_wait: resource_scope_memory: ancestor cannot provide admitted memory"
                 )
-        if spec.cpu_limit_percent > cpu:
-            raise ResourceWaitError("resource_wait: resource_scope_cpu: ancestor cannot provide admitted CPU")
         return {
             "ancestors": inspected,
             "sharedReservation": bool(inspected),
-            "cpuPercentOfAidoRoot": spec.cpu_limit_percent,
-            "nativeCpuPercent": spec.cpu_limit_percent * 100 / cpu,
+            **_cpu_scope(spec.cpu_limit_percent, [row["cpuPercent"] for row in inspected]),
             "requestedCpuUnit": "host_percent",
             "nativeCpuUnit": "immediate_parent_percent",
             "effectiveHostCpuPercent": None,
             "externalHierarchyStatus": "UNKNOWN",
             "breakaway": False,
         }
+
+
+def _cpu_scope(requested: float, ancestor_rates: list[float]) -> dict:
+    """Compare native-representable caps, never round a cap up or invent host capacity.
+
+    CpuRate is an integer per 10,000, relative to the immediate parent (Windows SDK).
+    Each floored rate denotes a half-open one-tick interval. Only that accumulated
+    quantization interval may explain a request just above the concrete readback.
+    The child then shares 100% of the actual ancestor cap, not the nominal request.
+    """
+    from .service import ResourceWaitError
+
+    actual = upper = Fraction(100)
+    for value in ancestor_rates:
+        ticks = Fraction(str(value)) * 100
+        if ticks.denominator != 1 or not 1 <= ticks <= 10_000:
+            raise ResourceWaitError("resource_wait: resource_scope_unverified: invalid native CPU rate")
+        actual *= ticks / 10_000
+        upper *= min(ticks + 1, 10_000) / 10_000
+    desired = Fraction(str(requested))
+    if desired > actual and desired >= upper:
+        raise ResourceWaitError("resource_wait: resource_scope_cpu: ancestor cannot provide admitted CPU")
+    native_ticks = min(10_000, int(desired * 10_000 / actual))
+    if native_ticks < 1:
+        raise ResourceWaitError("resource_wait: resource_scope_cpu: requested cap is below native precision")
+    effective = actual * native_ticks / 10_000
+    return {
+        "cpuPercentOfAidoRoot": requested,
+        "nativeCpuPercent": native_ticks / 100,
+        "effectiveCpuPercentOfAidoRoot": float(effective),
+        "cpuQuantizationLossPercent": float(desired - effective),
+    }
 
 
 def job_name(managed_process_id: str) -> str:
@@ -366,7 +394,7 @@ def _resume_root_thread(pid: int) -> None:
 
 def _apply_cpu_rate(job: Any, cpu_limit_percent: float) -> bool:
     """Aplica hard cap si el Windows host soporta CPU rate control."""
-    rate = max(1, min(10_000, int(cpu_limit_percent * 100)))
+    rate = max(1, min(10_000, int(Fraction(str(cpu_limit_percent)) * 100)))
     information = _CpuRateControlInformation(
         _JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
         rate,

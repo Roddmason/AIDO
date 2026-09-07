@@ -1,7 +1,8 @@
 # Aceptación operacional P0 — 2026-09-05
 
-**Estado vigente: §14.10 — ámbitos de recursos Windows, 2026-09-06.** Contradicción reproducida;
-rechazo previo al spawn y conversión CPU corregidos. Integración completa BLOCKED por admisión.
+**Estado vigente: §14.11 — creación coordinada y captura HTTP sintética, 2026-09-06.**
+Ruta positiva Windows y cierre comprobados; rechazo previo conservado. PR completo aún no aprobado.
+**Integridad de nueve recibos históricos: FAIL; incidencia de esta continuación detallada en §14.11.**
 Smokes históricos FAIL conservados; smoke de este encargo NOT_RUN, permiso de inferencia **0**.
 Las tablas anteriores se conservan como historia, no como aceptación del candidato actual.
 
@@ -1506,3 +1507,183 @@ uv run python -m local_control_center.quality --tier fast --base 0bb5ee04624b72b
 La causa del fallo de asignación **sintético** está discriminada por el límite y el control
 negativo; las causas del fallo histórico de asignación y del stack overflow siguen **UNKNOWN**.
 No se hizo smoke real, push, merge, adopción, cambios de autenticación ni control de Unreal.
+
+### 14.11 Creación compatible desde el launcher y captura HTTP sintética — 2026-09-06
+
+Continuación desde `1e6e34c706f5459d02bff2fd5934cb02d24ee0e2`, limpio y sin descendientes al
+inicio, conservando `codex/aido-cleanup-post-p0`. Implementación y pruebas en
+`1050ea72a63d3b90bea19d14cabba20c478b4676`; clasificación de los envoltorios de release en
+`7ab41a4142998f106ffd94f1c6a5280507683323`. Este segundo commit no modifica el launcher,
+supervisor, dispatcher ni fixtures nativos probados en el primero. Fuentes y configuración:
+`N/launcher-session-tested-source.json`; cierre y delta final: `N/launcher-session-final-traceability.json`.
+`T` significa `N/launcher-session-tests`, destino nuevo de los recibos sintéticos. Ninguna
+ejecución de modelos, preparación de credenciales reales ni cambio de selección operacional.
+
+**Coordinación local, opt-in en el launcher existente.** `--capture-session` inicia la API y
+el worker canónicos y conserva el lanzamiento normal sin esa opción. No introduce el Job de
+2 GiB alrededor de todo el worker del harness histórico. El launcher es dueño del Job agregado
+y crea el dispatcher y el colector como hermanos; el dispatcher crea solamente su objetivo.
+El pipe privado Windows transporta operaciones tipadas, no argv/PID arbitrarios: verifica el
+PID y creation time de ambos extremos, pertenencia a Jobs propios, intento y fencing durable.
+No hay endpoint HTTP adicional, servicio instalado, credenciales, breakaway ni elevación.
+
+Se admite la combinación antes de crear el objetivo. Luego: objetivo suspendido → asignación
+y readback → identidad persistida → colector contenido/listo → nueva validación de cancelación,
+fencing y reserva → resume. Si el colector preparado no está disponible se rechaza antes del
+spawn del objetivo. La autorización diagnóstica sigue siendo por intento y de un solo uso.
+El launcher cierra sus propios hijos y handles; su reserva raíz se recupera después de demostrar
+su muerte OS, no mediante una declaración de que un proceso vivo ya terminó.
+
+**Presupuesto conjunto y tres árboles distintos.** La política real de la DB supervisora
+permite **65% agregado**, no el 75% citado históricamente. No se aumentó esa política ni se
+redujo la reserva del host de 16 GiB. El perfil `capture_session` reserva 18 GiB/65%; requiere
+34 GiB / **36.507.222.016 bytes** disponibles antes del arranque. El límite de procesos es 64.
+
+| Parte de la sesión | Memoria presupuestada | Parte CPU solicitada | Límite propio comprobado |
+|---|---:|---:|---|
+| Creador/launcher | 2 GiB | 13% | Headroom del agregado; **no** se afirma un cap individual de 2 GiB/13% |
+| API | 2 GiB | 6,5% | Job 2 GiB; CpuRate 1000 relativo al agregado |
+| Worker | 2 GiB | 6,5% | Job 2 GiB; CpuRate 1000 relativo al agregado |
+| Dispatcher + objetivo | 8 GiB compartidos | 26% compartido | Dispatcher 8 GiB/CpuRate 4000; objetivo 8 GiB/10000 relativo al dispatcher |
+| Colector | 4 GiB | 13% | Job 4 GiB/CpuRate 2000 relativo al agregado |
+| Total, sin doble conteo | 18 GiB | 65% | Job agregado 18 GiB/CpuRate 6500; kill-on-close activo |
+
+Los porcentajes solicitados usan la unidad de política CPU del host; los CpuRate de Windows
+son relativos al padre. El Job **exterior del runner** limita también pytest y toda la sesión
+a 18 GiB/CpuRate 6500: se conserva, no se añade como capacidad independiente ni se elude.
+Los límites de la sesión quedan subordinados a él; no se certifica 65% efectivo del host ni
+capacidad independiente cuando existen ancestros externos no completamente conocidos.
+[Semántica de Jobs anidados](https://learn.microsoft.com/en-us/windows/win32/procthread/nested-jobs)
+y [CPU relativa](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information).
+
+Readback con handles concretos `Local\AIDO-<managedProcessId>`: API/worker/dispatcher/colector
+pertenecen al agregado; objetivo al dispatcher y agregado, **no** al worker/colector; colector
+**no** al dispatcher/objetivo. El launcher posee los handles agregado y hermanos; el dispatcher
+posee el del objetivo. Los redirectores de Python se registran en el árbol de procesos y no se
+confunden con el dueño real del handle. En cada DB aislada hay una reserva compartida efectiva;
+no son reservas nuevas de capacidad por encima del Job exterior del runner.
+
+**Prueba positiva desde HTTP.** `F/quality-fast-02b8cd571cf64a64922d5aa860025442.json`:
+**8 PASS, exit exterior y de cada gate 0**, 198,41 s pytest. Ejecutable C++ x64 offline inyectado
+únicamente en el seam de tests; launcher, API, worker, ToolBroker, dispatcher, supervisor,
+ProcDump y CDB reales. Se usan configuración/auth sintéticos, nunca credenciales del usuario.
+
+| Caso / sufijo del recibo `T/launcher-http-<caso>-<id>.json` | Estado del caso | Resultado real separado |
+|---|---|---|
+| normal / c464da81c6834765bddf0359630237e6 | PASS | Objetivo exit 0; operación y contrato sintético validados |
+| diagnostic-normal / c261b117e7684b30b93c1565e1574ab9 | PASS | Objetivo exit 0; `no_exception_observed`, no se inventa dump |
+| fastfail / cef0c17b69c24426a554f91e70be0e3a | PASS | Objetivo 3221226505/C0000409; dump válido; CDB 0 |
+| pressure / fa983693e8504c6185a55b8c052b8274 | PASS | VirtualAlloc rechazado bajo Job de 32 MiB y luego __fastfail(7); dump válido; CDB 0 |
+| cancel / 9cdc1e34e8f344f3b329202cda7f460f | PASS | Cancelación real; monitor sin dump conserva FAIL; cierre 5.786 ms |
+| fence / 0b26db0e87e14c3eb3a99f8eec4d1a46 | PASS | Pérdida real de lease/fencing; cierre 11.330 ms; no escritor antiguo |
+| collector-unavailable / 18cb23f7799148b4b830bb8bc7585c87 | PASS | Sólo dispatcher creado; objetivo/colector no arrancan |
+| owner-crash / d3da60213190415fb8b9e56b6328272b | PASS | Muere el PID+creation time del dueño real de los handles; kill-on-close y recuperación |
+
+Cada recibo conserva IDs HTTP/job/execution/attempt/reserva/proceso/captura, relaciones nativas,
+readback y stdout/stderr acotados antes de la retención de pytest. Health responde durante la
+ejecución: 3,93–379,22 ms en estos fixtures instrumentados. Todos comprueban **cero procesos y
+reservas propios** al cierre. La pérdida de autoridad puede dejar el resultado durable
+`UNKNOWN_PENDING_FENCED_RECOVERY`; un worker vencido no se atribuye una finalización válida.
+Los dumps de los dos fail-fast contienen C0000409 y contexto de excepción, analizados por CDB
+con frame `mainCRTStartup` y símbolos del fixture. ProcDump devuelve **1**, no 0: su exit no
+se confunde con el resultado de la captura. Objetivo fallido nunca se convierte en smoke PASS.
+Captura mínima `-mm -e -n 1 -at 10`, sin clon/first-chance/full dump; archivos sintéticos
+privados bajo `N/native-private`, fuera de Git. Los recibos conservan argv e identidades exactos.
+
+Pico del Job exterior de esos ocho tests: **5.742.993.408 bytes**; CPU acumulada 250,8125 s,
+110 muestras, CPU pico del **host** 67,1% y memoria disponible mínima 37.405.609.984 bytes.
+No se atribuye ese pico de Job a RSS del CLI ni se suman padres/hijos. El host incluye otras
+aplicaciones. Las causas históricas del MemoryError, fallo de asignación y stack overflow
+siguen **UNKNOWN**; los 2.281.967.616 bytes históricos del worker no se reescriben.
+
+**Acoplamiento demostrado del dispatcher.** Ejecutaba `create_app` sólo para registrar handlers,
+construyendo también las rutas FastAPI ajenas a la operación. Ahora registra el handler original
+desde una lista fija de módulos propios, conservando validación y autorización. La regresión
+prohíbe construir APIRoute en ese recorrido. Registro observado: 97–119 ms, RSS posterior
+aproximadamente 63 MB en el fixture; no constituye una comparación de rendimiento controlada
+ni determina por sí solo la causa del MemoryError histórico.
+
+**Gates y regresiones del contenido final.**
+
+| Comprobación / recibo `F/quality-fast-<id>.json` | Resultado |
+|---|---|
+| Registro, sesión, calidad / eeb457a7319745a29f9252181f5038b0 | 27 PASS; lint/secretos/exit exterior 0 |
+| Clasificación release / a82d8ae7bce14680aff8ebbe6286a81d | 14 PASS; exit exterior 0; RED previo f856dcd724a44f87990b4689868a50c5 conservado |
+| Cierre focalizado sobre 7ab41a41, fuera de Git / ee6dd1373aba418e940e9c217aa424a4 | 28 PASS, 7,27 s; diff/lint/secretos y exit exterior 0; los tres warnings SWIG permanecen |
+| Integración HTTP watchdog anterior + captura nativa / 65d59e5db05a48889d12a2629351add5 | 7 PASS + 7 PASS; 91,87 s y 38,90 s; gates y exit exterior 0 |
+| Recursos/supervisión/watchdog/recuperación/diagnóstico / 42812821bbb846cabcfac764e12c4cc3 | 147 PASS, 3 FAIL por admisión CPU en captura; **no** se presenta como suite PASS; esos casos nativos aprobaron después en 65d59e5db05a48889d12a2629351add5 |
+| PR / quality-pr-9b781f772c0749c282a86f639f07e293.json | FAIL/interrumpido mediante el supervisor al 42%; exit exterior 1, cancelación `test_workspace_inside_real_checkout_detected`, cero descendientes; no gate completo |
+| Diagnóstico focal del PR fuera de Git / 337b033dc1214ce4b7f95af41eaae070 | FAIL: 47 PASS, 25 FAIL, 172 s, exit exterior 1; no sustituye un PR completo |
+| Aprobación PR completo | BLOCKED por los fallos pendientes detallados abajo; los gates posteriores no llegaron a ejecutarse |
+| Release | NOT_RUN; condicionado a PR completo correcto y admisión |
+| Linux / macOS / smoke real / adopción original | NOT_RUN; Windows sintético no certifica otros OS; inferencia 0 |
+
+No se cambió ningún máximo para admitir tests. Los temporales de pruebas se situaron en H:
+porque C: incumplía el floor existente de 50 GiB; no se borró contenido de C:. CDB reutiliza
+la espera de admisión **previa al spawn** del runner (120 s), sin reintentar efectos ejecutados.
+La integración nueva tiene perfil `capture_session`, separado del Python general de 16 GiB;
+los envoltorios de release conservan los 18 GiB necesarios para no encerrarla bajo 16 GiB.
+Los tres DeprecationWarning SWIG y el aviso de pytest.ini que prevalece sobre pyproject.toml
+se mantienen visibles. No se reconstruyeron node_modules ni la venv activos.
+
+El primer PR usó basetemp en H: **dentro del checkout**, una configuración incorrecta del
+ensayo: `git rev-parse --show-toplevel` desde el test que debía ser no Git devolvió AIDO.
+Se solicitó cancelación durable al detectar ese riesgo; quedaron 13 fallos observados y no se
+fabricó un resumen final de pytest. El comando de cancelación persistió la intención pero su
+impresión posterior falló con AttributeError (exit 1); el recibo del supervisor demuestra la
+cancelación efectiva, no ese exit de diagnóstico. HEAD/rama y archivos productivos permanecieron
+iguales; no se observaron movimientos de referencias en el reflog del intervalo del ensayo.
+No se eliminaron worktrees ni referencias para ocultar el incidente. Los siguientes ensayos
+generales usan directorios nuevos `H:/aido-test-session-<id>` fuera de todo checkout, verificados
+mediante el exit 128 esperado de Git antes de iniciar pytest.
+
+El diagnóstico focal separado conserva los errores originales: seis aserciones de sesiones CLI
+exceden su espera de test de 5 s; tres aserciones de readiness Ollama no coinciden con el estado
+devuelto; el test del cliente OpenAPI aún exige TelemetryStatusResponse sin el campo opcional
+`diagnostics` existente desde antes de este cambio. Otros quince casos fallan preparando el
+commit Git del fixture: el stderr durable del hook registra **`Not enough quota is available
+to process this command`** al crear el Git hijo de Gitleaks bajo el Job qa_light de ocho procesos.
+El texto genérico del hook dice «secreto», pero esa salida no demuestra un secreto detectado.
+No se modificó/desactivó el hook ni se aplicó una allowlist. Estos fallos no se generalizan a
+todos los perfiles: ese diagnóstico focal no usaba el Job build_heavy de 32 procesos del PR.
+Los archivos de esas aserciones no cambiaron respecto del candidato inicial; eso no demuestra
+por sí solo la causa de todos los resultados. No se amplió este encargo a reparar readiness,
+sesiones CLI o contratos antiguos. El primer fallo no Git desaparece fuera del checkout, pero
+eso tampoco convierte el resto del diagnóstico en PASS. No se repite un PR completo conocido
+fallido ni se ejecuta release para ocultar estos bloqueos.
+
+Snapshot posterior, **01:48:48Z**: 40.357.519.360 bytes disponibles, CPU del host 14%, cero
+reservas activas y cero managed processes sin cierre en la DB de calidad. Previews qa_light,
+build_heavy y capture_session admiten capacidad; **el bloqueo vigente no es falta de RAM**.
+Son previews read-only, no aprobación de un gate. Ningún proceso ajeno se cerró.
+
+**Incidente de integridad de evidencia: FAIL, causado por esta continuación.** Al reutilizar
+los destinos fijos de fixtures anteriores y un helper de preview se sobrescribieron **nueve
+JSON históricos**: `resource-scope-capture-{abrupt,fastfail,pressure}.json`,
+`resource-scope-native-counterexample-{64,128}.json`, `resource-scope-resource-preview.json`,
+`resource-scope-supervisor-{borrow,capture,independent}.json`. Sus bytes históricos no se
+recuperaron. Los hashes originales de `resource-scope-final-traceability.json` permanecen
+intactos y ahora detectan las nueve discrepancias: **esas rutas actuales no prueban los recibos
+originales de §14.10**. Los informes, los otros manifiestos y los dumps privados históricos
+no se sustituyeron para ocultarlo. Detalle auditable: `N/launcher-session-evidence-integrity.json`.
+Se corrigió el helper con creación exclusiva y sufijo único por intento; RED
+`3f229b3e43a84aa193508ac5a45b0b8d`, GREEN de los 27 tests. Los recibos nuevos se escriben en T.
+No se declara preservación histórica íntegra ni se reconstruyen recibos a partir de hashes.
+
+Comandos de las verificaciones supervisadas, con variables sólo en el proceso del ensayo:
+
+```powershell
+$env:PYTEST_ADDOPTS='--basetemp=H:/aido-test-session-<id-unico>'
+$env:AIDO_TEST_PROCDUMP='C:/Users/Rodd/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
+$env:AIDO_TEST_CDB='C:/Users/Rodd/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
+$env:AIDO_TEST_QUALITY_DB='H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite'
+$env:AIDO_ACCEPTANCE_EVIDENCE='H:/Proyectos/Personales/AIDO/.tmp/operational-hardening-p0/authorized-close/launcher-session-tests'
+uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_launcher_capture_http.py
+uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_watchdog_http_pipeline.py --python-test tests_py/test_native_diagnostics.py
+uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_launcher_capture_session.py --python-test tests_py/test_execution_registration.py --python-test tests_py/test_quality_tiers.py
+uv run python -m local_control_center.quality --tier pr --db-path .tmp/operational-hardening-p0/closure/quality.sqlite
+```
+
+`<id-unico>` representa un directorio nuevo por invocación, no una ruta literal reutilizable.
+No se ejecutó release por fuera de su condición, ningún modelo ni otra etapa del Product Loop.
+Sin push, merge, publicación de evidencia, adopción original, cambios de credenciales ni Unreal.

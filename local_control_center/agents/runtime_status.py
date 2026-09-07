@@ -683,7 +683,9 @@ class RuntimeStatusService:
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
-        self.allow_probes = allow_probes or CURRENT_EXECUTION.get() is not None
+        context = CURRENT_EXECUTION.get()
+        # A request correlation scope is not a worker execution or permission to probe.
+        self.allow_probes = allow_probes or bool(context and context.in_job_runner)
         self.probe_runtime_ids = probe_runtime_ids
 
     @staticmethod

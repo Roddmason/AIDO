@@ -30,6 +30,8 @@ class ProcessExecutionContext:
     request_id: str | None = None
     attempt_id: str | None = None
     diagnostics_expires_at: float = 0
+    aggregate_managed_process_id: str | None = None
+    session_role: str | None = None
 
 
 CURRENT_EXECUTION: ContextVar[ProcessExecutionContext | None] = ContextVar("aido_execution", default=None)

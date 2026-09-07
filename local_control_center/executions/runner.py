@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import time
 from pathlib import Path
 from typing import get_type_hints
 
@@ -49,7 +50,14 @@ def run_registered_operation(
                 if operation_workload(connection, spec, payload) != row["workload_class"]:
                     raise ValueError("El perfil de recursos no coincide con la operación registrada.")
                 arguments = _arguments(handler, payload, platform)
-            lease = ResourceRepository(connection).active_lease_for_execution(execution_id)
+            from local_control_center.process_supervision.session_client import session_identity
+
+            session = session_identity(platform.db_path)
+            lease = (
+                session[1]
+                if session
+                else ResourceRepository(connection).active_lease_for_execution(execution_id)
+            )
             if lease is None:
                 raise ValueError("La ejecución no posee una reserva vigente.")
             from local_control_center.jobs_approvals.repository import JobsRepository
@@ -77,6 +85,8 @@ def run_registered_operation(
                     request_id=job["payload"].get("diagnosticContext", {}).get("requestId"),
                     attempt_id=run[0] if run else None,
                     diagnostics_expires_at=options.get("expiresAt", 0),
+                    aggregate_managed_process_id=session[0]["aggregateId"] if session else None,
+                    session_role="execution" if session else None,
                 )
             ):
                 result = (
@@ -193,19 +203,43 @@ def main() -> int:
     args = parser.parse_args()
     from contextlib import closing
 
-    from local_control_center.api import create_app
+    from local_control_center.executions.registration import register_operation
     from local_control_center.shared.db import open_sqlite_connection
 
     with closing(open_sqlite_connection(args.db)) as connection:
         row = connection.execute(
-            "SELECT cwd FROM operational_executions WHERE id=?", (args.execution_id,)
+            "SELECT cwd, operation FROM operational_executions WHERE id=?", (args.execution_id,)
         ).fetchone()
         ExecutionRepository(connection).require_fence(
             args.execution_id, owner_id=args.owner_id, fencing_token=args.fencing_token
         )
     platform = ControlCenterRuntime(cwd=Path(row[0]), db_path=Path(args.db))
     try:
-        create_app(runtime=platform, static_dir=None)
+        platform.init()
+        platform.ensure_runtime_project()
+        import psutil
+
+        from local_control_center.shared.diagnostics import diagnostic_event
+
+        registration_started = time.perf_counter()
+        before = psutil.Process().memory_info()
+        register_operation(platform, row["operation"])
+        after = psutil.Process().memory_info()
+        diagnostic_event(
+            "dispatcher.registration.completed",
+            component="dispatcher",
+            executionId=args.execution_id,
+            workerId=args.owner_id,
+            fencingToken=args.fencing_token,
+            durationMs=(time.perf_counter() - registration_started) * 1000,
+            sample={
+                "processRssBeforeBytes": before.rss,
+                "processRssAfterBytes": after.rss,
+                "processPrivateBeforeBytes": getattr(before, "private", None),
+                "processPrivateAfterBytes": getattr(after, "private", None),
+            },
+            effectiveConfig={"httpApplicationConstructed": False},
+        )
         result = run_registered_operation(
             platform, args.execution_id, owner_id=args.owner_id, fencing_token=args.fencing_token
         )

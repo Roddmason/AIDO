@@ -18,6 +18,7 @@ WorkloadClass = Literal[
     "qa_light",
     "browser_test",
     "build_heavy",
+    "capture_session",
     "unreal_editor",
     "unreal_cook",
     "local_gpu_model",

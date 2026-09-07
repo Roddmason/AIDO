@@ -28,6 +28,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--mode", choices=("api", "worker", "supervisor"), default="supervisor")
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument(
+        "--capture-session",
+        action="store_true",
+        help="Windows: jointly admitted native capture session (18 GiB / CPU 65%%).",
+    )
     return parser.parse_args()
 
 
@@ -138,6 +143,20 @@ def _stop_child(process: subprocess.Popen[bytes]) -> None:
 
 def run_supervisor(args: argparse.Namespace) -> int:
     """Mantiene la API viva si el worker cae y detiene sólo sus dos procesos hijos al salir."""
+    if getattr(args, "capture_session", False):
+        from local_control_center.process_supervision.launcher_session import LauncherCaptureSession
+        from local_control_center.shared.settings import default_db_path
+
+        with LauncherCaptureSession(args.db_path or default_db_path(), ROOT) as session:
+            api = session.start_control("api", [sys.executable, "-m", *cli_argv(args, mode="api")])
+            session.start_control("worker", [sys.executable, "-m", *cli_argv(args, mode="worker")])
+            last_renewal = time.monotonic()
+            while api.poll() is None:
+                if time.monotonic() - last_renewal >= 5:
+                    session.tick()
+                    last_renewal = time.monotonic()
+                time.sleep(0.25)
+            return int(api.returncode or 0)
     api_process = _spawn(args, mode="api")
     worker_process = None
     worker_exit_reported = False

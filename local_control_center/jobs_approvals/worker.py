@@ -18,6 +18,7 @@ from typing import Any
 from local_control_center.agents.research_agent import ResearchAgentRunner
 from local_control_center.host_resources.governor import HostResourceGovernor
 from local_control_center.host_resources.models import (
+    ResourceAdmissionDecision,
     ResourceAdmissionRequest,
     ResourceSnapshot,
     WorkloadClass,
@@ -94,19 +95,33 @@ class ConcurrentWorker:
             jobs = JobsRepository(connection)
             governor = HostResourceGovernor(connection)
             snapshot = self._resource_snapshot(connection)
-            governor.reevaluate_waiting(snapshot=snapshot)
+            from local_control_center.process_supervision.session_client import session_identity
+
+            session = session_identity(self.db_path)
+            if session is None:
+                governor.reevaluate_waiting(snapshot=snapshot)
             next_job = jobs.peek_next_job()
             if next_job is None:
                 return None
-            admission = governor.admit(
-                ResourceAdmissionRequest(
-                    execution_id=next_job["id"],
-                    workload_class=_workload_class_for_job(next_job),
-                    owner_id=worker_id,
-                    job_id=next_job["id"],
-                    lease_seconds=max(1, self.lease_ms // 1000),
-                ),
-                snapshot=snapshot,
+            admission = (
+                ResourceAdmissionDecision(
+                    status="admitted",
+                    reason_code="verified_session_budget",
+                    reason="Work is contained in the launcher's admitted aggregate Job.",
+                    lease=session[1],
+                    snapshot=snapshot,
+                )
+                if session
+                else governor.admit(
+                    ResourceAdmissionRequest(
+                        execution_id=next_job["id"],
+                        workload_class=_workload_class_for_job(next_job),
+                        owner_id=worker_id,
+                        job_id=next_job["id"],
+                        lease_seconds=max(1, self.lease_ms // 1000),
+                    ),
+                    snapshot=snapshot,
+                )
             )
             if admission.status == "resource_wait" or admission.lease is None:
                 return None
@@ -119,10 +134,12 @@ class ConcurrentWorker:
                     job_id=next_job["id"],
                 )
             except StaleWorkerFenceError:
-                governor.release(resource_lease.id, reason="leadership_fence_lost")
+                if session is None:
+                    governor.release(resource_lease.id, reason="leadership_fence_lost")
                 return None
             if not claimed:
-                governor.release(resource_lease.id, reason="job_claim_lost")
+                if session is None:
+                    governor.release(resource_lease.id, reason="job_claim_lost")
                 return None
             try:
                 with (
@@ -130,7 +147,7 @@ class ConcurrentWorker:
                         job_id=claimed["job"]["id"],
                         worker_id=worker_id,
                         fencing_token=fencing_token,
-                        resource_lease_id=resource_lease.id,
+                        resource_lease_id=None if session else resource_lease.id,
                     ),
                     execution_scope(
                         ProcessExecutionContext(
@@ -145,6 +162,8 @@ class ConcurrentWorker:
                             .get("diagnosticContext", {})
                             .get("requestId"),
                             attempt_id=claimed["run"]["id"],
+                            aggregate_managed_process_id=session[0]["aggregateId"] if session else None,
+                            session_role="execution" if session else None,
                         )
                     ),
                 ):
@@ -199,7 +218,8 @@ class ConcurrentWorker:
                             leader_fencing_token=fencing_token,
                         )
             finally:
-                governor.release(resource_lease.id, reason="execution_finished")
+                if session is None:
+                    governor.release(resource_lease.id, reason="execution_finished")
         finally:
             connection.close()
 

@@ -163,6 +163,21 @@ class ProcessSupervisorService:
                 )
             workload_class = "control_plane"
         profile = workload_profile(workload_class)
+        if self.context and self.context.aggregate_managed_process_id:
+            from .launcher_session import SESSION_BUDGET
+            from .session_client import session_identity
+
+            identity = session_identity(self.db_path)
+            if identity is None or identity[0]["aggregateId"] != self.context.aggregate_managed_process_id:
+                raise PermissionError("Unverified aggregate process scope")
+            part = SESSION_BUDGET["parts"].get(self.context.session_role)
+            if part is None:
+                raise PermissionError("Missing session process role")
+            if max(profile.memory_limit_bytes, memory_limit_bytes or 0) > part["memoryBytes"]:
+                raise ResourceWaitError(
+                    "resource_wait: session_role_memory: workload exceeds its joint budget"
+                )
+            cpu_limit_percent = min(cpu_limit_percent or profile.cpu_limit_percent, part["cpuPercent"])
         managed_process_id = f"managed-process-{uuid.uuid4()}"
         execution_id = (
             execution_id or (self.context.execution_id if self.context else None) or managed_process_id
@@ -284,10 +299,18 @@ class ProcessSupervisorService:
                     and abs(native_ancestors[row["root_pid"]] - row["root_create_time"]) < 0.01
                 ]
                 popen_kwargs["resource_scope"] = self.backend.check_resource_scope(spec, ancestors, lease.id)
-                if options and popen_kwargs["resource_scope"]["ancestors"]:
+                if (
+                    options
+                    and popen_kwargs["resource_scope"]["ancestors"]
+                    and not (self.context and self.context.aggregate_managed_process_id)
+                ):
                     raise ResourceWaitError(
                         "resource_wait: resource_scope_conflict: native collector requires an independent creator scope; target not spawned"
                     )
+                if options and self.context and self.context.aggregate_managed_process_id:
+                    from .session_client import request_session
+
+                    request_session(self.context, "capture_preflight")
             phase = "native_root_reserve"
             self._reserve_native_root(spec, lease.id)
             reserved = True
@@ -302,13 +325,38 @@ class ProcessSupervisorService:
             if options:
 
                 def prepare_capture(target):
-                    target.native_capture = NativeCapture(
-                        managed=target,
-                        options=options,
-                        db_path=self.db_path,
-                        context=self.context,
-                        root=diagnostic_root(),
-                    )
+                    if self.context and self.context.aggregate_managed_process_id:
+                        from .session_client import RemoteNativeCapture
+
+                        # The authorized creator must reconcile a concrete suspended identity,
+                        # not infer from root_pid=0 or accept a PID supplied over the pipe.
+                        with closing(open_sqlite_connection(self.db_path)) as connection:
+                            connection.execute(
+                                "UPDATE managed_processes SET root_pid=?, root_create_time=? WHERE managed_process_id=?",
+                                (
+                                    target.process.pid,
+                                    process_create_time(target.process.pid),
+                                    managed_process_id,
+                                ),
+                            )
+                        target.native_capture = RemoteNativeCapture(target, self.context)
+                    else:
+                        target.native_capture = NativeCapture(
+                            managed=target,
+                            options=options,
+                            db_path=self.db_path,
+                            context=self.context,
+                            root=diagnostic_root(),
+                        )
+                    with closing(open_sqlite_connection(self.db_path)) as connection:
+                        self._assert_fence(connection)
+                        if ManagedProcessRepository(connection).cancellation_reason(execution_id):
+                            raise ExecutionCancelled("Cancelled while preparing capture")
+                        from local_control_center.shared.time import utc_now
+
+                        current_lease = ResourceRepository(connection).get_lease(lease.id)
+                        if current_lease.released_at or current_lease.expires_at <= utc_now():
+                            raise ExecutionCancelled("Reservation lost while preparing capture")
 
                 popen_kwargs["before_resume"] = prepare_capture
             managed = self.backend.start(spec, popen_factory=self.popen_factory, **popen_kwargs)
@@ -502,11 +550,26 @@ class ProcessSupervisorService:
                 WHERE resource_lease_id=? AND (finished_at IS NULL OR released_at IS NULL)""",
                 (lease_id,),
             ).fetchall()
-            if any(
+            separate_root = any(
                 row["root_pid"] not in ancestors
                 or abs(ancestors[row["root_pid"]] - row["root_create_time"]) >= 0.01
                 for row in rows
-            ):
+            )
+            if separate_root and self.context and self.context.aggregate_managed_process_id:
+                # The launcher owns an actual aggregate bound; siblings do not create new
+                # independent capacity. Unknown/pre-spawn identities remain fail-closed.
+                from .launcher_session import LauncherCaptureSession
+
+                aggregate = self.context.aggregate_managed_process_id
+                if not all(
+                    row["root_pid"] > 0 and LauncherCaptureSession._member(row["root_pid"], aggregate)
+                    for row in rows
+                ):
+                    raise ResourceWaitError(
+                        "resource_wait: native_root_capacity: aggregate membership unresolved"
+                    )
+                separate_root = False
+            if separate_root:
                 raise ResourceWaitError(
                     "resource_wait: native_root_capacity: lease already owns a separate root"
                 )

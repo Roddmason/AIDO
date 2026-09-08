@@ -921,6 +921,7 @@ class ProductOwnerAgentRunRequest(BaseModel):
     workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")
     preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
     approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    max_runtime_attempts: int = Field(default=2, alias="maxRuntimeAttempts", ge=1, le=2, strict=True)
     model: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 

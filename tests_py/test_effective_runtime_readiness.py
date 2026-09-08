@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from local_control_center.agents.runtime_readiness import apply_effective_readiness, provider_workload_class
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.host_resources.models import ResourceSnapshot
@@ -92,3 +94,74 @@ def test_readonly_ollama_status_never_starts_a_network_probe(monkeypatch):
     )
     assert not status["executable"]
     assert status["healthCheckedAt"] is None
+
+
+@pytest.mark.parametrize("condition", ["verified", "outside", "expired", "mismatch", "memory", "cpu", "gpu"])
+def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, condition):
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.process_supervision import session_client
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
+    runtime.init()
+    try:
+        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=38 * 1024**3)
+        lease = (
+            HostResourceGovernor(runtime.connection)
+            .admit(
+                ResourceAdmissionRequest(
+                    execution_id="capture-root", owner_id="capture-root", workload_class="capture_session"
+                ),
+                snapshot=sample,
+            )
+            .lease
+        )
+        assert lease is not None
+        if condition == "memory":
+            sample = sample.model_copy(update={"available_memory_bytes": 33 * 1024**3})
+        if condition == "cpu":
+            sample = sample.model_copy(update={"cpu_percent_1s": 90.0})
+        ResourceRepository(runtime.connection).record_sample(sample)
+
+        def native_identity(_db):
+            if condition == "expired":
+                raise PermissionError("Launcher reservation is unavailable")
+            return None if condition == "outside" else ({"aggregateId": "capture-root"}, lease)
+
+        monkeypatch.setattr(session_client, "session_identity", native_identity)
+        status = {
+            "id": "codex_cli",
+            "kind": "cli",
+            "configured": True,
+            "authenticated": True,
+            "installed": True,
+            "executable": True,
+            "reason": "Ready",
+            "healthStatus": "healthy",
+            "healthCheckedAt": utc_now(),
+        }
+        policy = {
+            "allowed": True,
+            "policy": {"global": {"cliEnabled": True}, "project": {"cliEnabled": True}},
+        }
+        before = runtime.connection.total_changes
+        with execution_scope(
+            ProcessExecutionContext(
+                db_path=runtime.db_path,
+                execution_id="po-operation",
+                resource_lease_id="unrelated-lease" if condition == "mismatch" else lease.id,
+                aggregate_managed_process_id="capture-root",
+                in_job_runner=True,
+            )
+        ):
+            account = {"baseUrl": "http://localhost:11434"} if condition == "gpu" else {"providerType": "cli"}
+            result = apply_effective_readiness(runtime.connection, status, account, policy)
+        assert result["resourceAdmissible"] is (condition == "verified")
+        assert result["executable"] is (condition == "verified")
+        if condition in {"expired", "mismatch"}:
+            assert "resource_session_unverified" in result["blockingReasons"]
+        assert runtime.connection.total_changes == before
+        assert len(ResourceRepository(runtime.connection).active_leases()) == 1
+    finally:
+        runtime.close()

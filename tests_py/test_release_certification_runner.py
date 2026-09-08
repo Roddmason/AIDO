@@ -251,6 +251,46 @@ def test_release_certification_concurrent_root_has_one_owner(tmp_path):
     assert not list(output_root.rglob("*.writing"))
 
 
+def test_release_certification_rejects_owner_winning_during_directory_creation(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "contended output"
+    _write_corepack_shim(bin_dir)
+    env = _release_env(bin_dir)
+    env["AIDO_TEST_CLAIM_ROOT"] = str(output_root)
+    env["AIDO_TEST_RELEASE_SCRIPT"] = str(SCRIPT)
+    env["AIDO_TEST_CLAIM_DONE"] = "false"
+    # Force the observed TOCTOU window: directory creation succeeds even when
+    # another publisher has obtained the destination before ownership is claimed.
+    command = r"""
+function New-Item {
+    [CmdletBinding()]
+    param([string[]]$Path, [string]$ItemType, [switch]$Force)
+    $result = Microsoft.PowerShell.Management\New-Item @PSBoundParameters
+    if ($ItemType -eq 'Directory' -and $env:AIDO_TEST_CLAIM_DONE -ne 'true') {
+        $env:AIDO_TEST_CLAIM_DONE = 'true'
+        [IO.Directory]::CreateDirectory($env:AIDO_TEST_CLAIM_ROOT) | Out-Null
+        [IO.File]::WriteAllText(
+            (Join-Path $env:AIDO_TEST_CLAIM_ROOT 'owner.txt'), 'original-owner')
+    }
+    return $result
+}
+& $env:AIDO_TEST_RELEASE_SCRIPT -OutputRoot $env:AIDO_TEST_CLAIM_ROOT
+"""
+    result = subprocess.run(
+        [_powershell(), "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        timeout=40,
+    )
+    assert (output_root / "owner.txt").is_file(), result.stdout + result.stderr
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert b"release_output_collision" in result.stderr
+    assert (output_root / "owner.txt").read_text() == "original-owner"
+    assert not (output_root / "logs").exists()
+    assert not (output_root / "reports").exists()
+    assert not list(tmp_path.glob("*.writing"))
+
+
 def test_release_certification_fails_configured_smoke_that_does_not_write_report(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "configured smoke missing report"

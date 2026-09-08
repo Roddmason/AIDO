@@ -279,14 +279,24 @@ function Get-MissingSmokeConfiguration {
 }
 
 Initialize-SecretMasks
+$claimPath = Join-Path (Split-Path -Parent $OutputRoot) (".release-claim-" + $RunId + ".writing")
+$claimOwned = $false
 try {
-    # Atomic ownership before any command or log: never reuse a prior report directory.
-    New-Item -ItemType Directory -Path $OutputRoot -ErrorAction Stop | Out-Null
+    # New-Item's existence check/create is not an exclusive claim under concurrency.
+    # Move a private sibling directory: the destination must not already exist.
+    New-Item -ItemType Directory -Path $claimPath -ErrorAction Stop | Out-Null
+    $claimOwned = $true
+    [IO.Directory]::Move($claimPath, $OutputRoot)
 } catch {
     if (Test-Path -LiteralPath $OutputRoot) {
         throw "release_output_collision: OutputRoot already exists; use a new directory."
     }
     throw
+} finally {
+    if ($claimOwned -and [IO.Directory]::Exists($claimPath)) {
+        # Only our empty staging directory; never remove a competing owner's output.
+        [IO.Directory]::Delete($claimPath, $false)
+    }
 }
 New-Item -ItemType Directory -Force -Path $ReportDir, $LogDir | Out-Null
 Set-Location -LiteralPath $RepoRoot

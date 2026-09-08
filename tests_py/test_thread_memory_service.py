@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -50,7 +51,7 @@ def _token(runtime) -> dict[str, str]:
 
 
 def test_migration_creates_thread_memory_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         names = {
@@ -86,7 +87,7 @@ def test_migration_creates_thread_memory_tables(tmp_path: Path) -> None:
 
 
 def test_reindex_thread_memory_persists_resolved_functionality(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -128,7 +129,7 @@ def test_reindex_thread_memory_persists_resolved_functionality(tmp_path: Path) -
 def test_reindex_existing_functionality_updates_changed_fingerprint_without_id_collision(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -161,7 +162,7 @@ def test_reindex_existing_functionality_updates_changed_fingerprint_without_id_c
 
 
 def test_reindex_thread_memory_extracts_file_paths_from_artifacts_and_decisions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -203,7 +204,7 @@ def test_reindex_thread_memory_extracts_file_paths_from_artifacts_and_decisions(
 
 
 def test_performance_pass_links_similarity_event_to_functionality_registry(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)

@@ -6,7 +6,7 @@ import sys
 import threading
 import urllib.error
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -238,7 +238,7 @@ def test_restricted_subprocess_promotes_large_stdout_and_stderr_to_artifacts(
         "import sys\nsys.stdout.write('stdout-line-' * 1400)\nsys.stderr.write('stderr-line-' * 1400)\n",
         encoding="utf-8",
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         adapter = RestrictedSubprocessAdapter(connection=connection, artifact_root=tmp_path)
         request = runtime_request(
@@ -263,7 +263,7 @@ def test_restricted_subprocess_promotes_large_stdout_and_stderr_to_artifacts(
 
 
 def test_restricted_subprocess_requires_registered_workspace_when_connected(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         adapter = RestrictedSubprocessAdapter(connection=connection, artifact_root=tmp_path)
         request = runtime_request(tmp_path)
@@ -343,7 +343,8 @@ def test_openai_compatible_adapter_fails_closed_on_health_redirect(tmp_path: Pat
             redirect_paths={"/v1/models"},
             success_payloads={},
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
@@ -366,7 +367,8 @@ def test_openai_compatible_adapter_fails_closed_on_chat_redirect(tmp_path: Path)
             success_payloads={},
             redirect_codes={"/v1/chat/completions": 307},
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
@@ -404,7 +406,8 @@ def test_credentialed_ollama_adapter_fails_closed_on_health_redirect(
             redirect_paths={"/api/tags"},
             success_payloads={},
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).patch_provider_account(
@@ -432,7 +435,8 @@ def test_credentialed_ollama_adapter_fails_closed_on_chat_redirect(
             redirect_paths={"/api/chat"},
             success_payloads={"/api/tags": {"models": [{"name": "origin-model"}]}},
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).patch_provider_account(
@@ -545,7 +549,8 @@ def test_anthropic_adapter_fails_closed_on_health_and_chat_redirects(tmp_path: P
             redirect_paths={"/v1/models", "/v1/messages"},
             success_payloads={},
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
@@ -600,7 +605,7 @@ def test_ollama_adapter_executes_against_persisted_remote_endpoint(tmp_path: Pat
 
     monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
     monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "controlled-bearer-token")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -660,7 +665,7 @@ def test_ollama_adapter_never_forwards_persisted_bearer_to_an_override_host(
 
     monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
     monkeypatch.setenv("AIDO_TEST_OLLAMA_TOKEN", "must-not-leave-the-persisted-host")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -721,7 +726,7 @@ def test_ollama_adapter_executes_the_endpoint_selected_in_the_request(tmp_path: 
         return Response(payload)
 
     monkeypatch.setattr("local_control_center.agents.runtime_adapters.ollama.urlopen", fake_urlopen)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -784,7 +789,8 @@ def test_runtime_registry_keeps_credentialless_ollama_execution(
                 "/api/chat": {"message": {"content": "local response"}},
             },
         ) as (origin_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).patch_provider_account(

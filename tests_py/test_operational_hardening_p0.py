@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 
 import anyio
@@ -75,7 +76,12 @@ def test_two_worker_connections_elect_exactly_one_durable_leader(tmp_path: Path)
     from local_control_center.workers.leadership import WorkerLeadershipRepository
 
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as first, open_sqlite_connection(db_path) as second:
+    with (
+        closing(open_sqlite_connection(db_path)) as first,
+        first,
+        closing(open_sqlite_connection(db_path)) as second,
+        second,
+    ):
         initialize_platform_schema(first)
         first_lease = WorkerLeadershipRepository(first).acquire(owner_id="worker-one", lease_seconds=30)
         second_lease = WorkerLeadershipRepository(second).acquire(owner_id="worker-two", lease_seconds=30)
@@ -136,7 +142,7 @@ def test_host_capacity_can_defer_a_heavy_workload_without_failing_it(tmp_path: P
     from local_control_center.host_resources.models import ResourceAdmissionRequest, ResourceSnapshot
 
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         snapshot = ResourceSnapshot.test_snapshot(
             cpu_percent_1s=90,

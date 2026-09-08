@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 
@@ -194,7 +195,7 @@ def test_claude_code_is_not_executable_when_configured_command_does_not_match_ru
 ) -> None:
     monkeypatch.setenv("AIDO_CLAUDE_COMMAND", sys.executable)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """

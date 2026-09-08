@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -196,7 +197,7 @@ def test_phase55_migrates_from_phase54_and_reenters_without_overwriting_executio
     from local_control_center.shared import migrations
 
     database = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         monkeypatch.setattr(migrations, "init_phase55_schema", lambda _connection: None)
         initialize_platform_schema(connection)
         assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 54").fetchone()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import closing
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,7 @@ def _controlled_ollama_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_named_ollama_resource_maps_to_product_owner_and_developer_runtime(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -99,7 +100,7 @@ def test_named_ollama_resource_maps_to_product_owner_and_developer_runtime(tmp_p
 
 
 def test_named_openai_compatible_gateway_maps_to_developer_runtime(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -120,7 +121,7 @@ def test_named_openai_compatible_gateway_maps_to_developer_runtime(tmp_path: Pat
 
 
 def test_security_role_with_model_runtime_enables_optional_model_analysis(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -151,7 +152,7 @@ def test_security_role_with_model_runtime_enables_optional_model_analysis(tmp_pa
 
 
 def test_security_role_on_a_cli_runtime_keeps_deterministic_only_review(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         schedule = {
@@ -169,7 +170,7 @@ def test_security_role_on_a_cli_runtime_keeps_deterministic_only_review(tmp_path
 
 
 def test_unknown_provider_account_does_not_map_to_developer_runtime(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         selected = {"providerId": "not_a_provider", "model": "whatever", "runtime": "gateway"}
@@ -847,7 +848,7 @@ def _remediation_action_types(connection, thread_id: str) -> set[tuple[str, str]
 
 
 def test_product_loop_schema_adds_tables_and_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         tables = {
@@ -863,7 +864,7 @@ def test_product_loop_schema_adds_tables_and_is_idempotent(tmp_path: Path) -> No
 
 
 def test_product_loop_walks_the_happy_path_to_delivered(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "happy")
         coordinator = ProductLoopCoordinator(connection)
@@ -892,7 +893,7 @@ def test_product_loop_is_durable_and_resumes_after_restart(tmp_path: Path) -> No
     db_path = tmp_path / "platform.sqlite"
 
     # --- AIDO session 1: start the loop (with governance) and advance it, then "shut down". ---
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "durable")
         project_id = project["id"]
@@ -910,7 +911,7 @@ def test_product_loop_is_durable_and_resumes_after_restart(tmp_path: Path) -> No
         loop_id = loop["id"]
 
     # --- Restart AIDO: a brand-new connection and coordinator, nothing kept in memory. ---
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         coordinator = ProductLoopCoordinator(connection)
         resumed = coordinator.resume(loop_id)
         assert resumed["loop"]["state"] == "awaiting_user"  # recovered straight from the database
@@ -944,7 +945,7 @@ def test_run_user_message_blocks_new_loop_when_runtime_is_not_executable(tmp_pat
     product_owner = _backlog_ready_po()
     assessment = _AssessmentRunner()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "no-runtime")
@@ -997,7 +998,7 @@ def test_run_user_message_blocks_when_developer_runtime_status_crashes(tmp_path:
     git = _GitGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "developer-runtime-status-crash")
@@ -1030,7 +1031,7 @@ def test_run_user_message_blocks_when_developer_runtime_status_crashes(tmp_path:
 
 
 def test_run_user_message_blocks_missing_workspace_root_with_workspace_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "missing-workspace-root")
         coordinator = ProductLoopCoordinator(connection)
@@ -1050,7 +1051,7 @@ def test_run_user_message_blocks_missing_workspace_root_with_workspace_remediati
 
 
 def test_retry_loop_remediation_queues_real_thread_product_loop_retry(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-queues-real-run")
         coordinator = ProductLoopCoordinator(connection)
@@ -1199,7 +1200,7 @@ def _execute_pending_retry(connection, tmp_path: Path, thread_id: str, loop_id: 
 
 def test_retry_loop_reseals_privacy_from_current_force_local_setting(tmp_path: Path) -> None:
     """Un retry no arrastra el privacyLevel sellado por un forceLocal que el operador ya apagó."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, result = _blocked_loop_with_sealed_privacy(connection, tmp_path, "retry-reseals-privacy")
         thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
@@ -1216,7 +1217,7 @@ def test_retry_loop_reseals_privacy_from_current_force_local_setting(tmp_path: P
 
 def test_retry_loop_reseal_keeps_privacy_while_force_local_is_active(tmp_path: Path) -> None:
     """Mientras forceLocal siga activo el retry re-sella local_private: la privacidad no se relaja."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _, result = _blocked_loop_with_sealed_privacy(connection, tmp_path, "retry-keeps-privacy")
         thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
@@ -1230,7 +1231,7 @@ def test_retry_loop_remediation_rolls_back_job_when_loop_supersede_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-atomic-rollback")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -1284,7 +1285,7 @@ def test_retry_loop_remediation_builds_job_from_context_revalidated_under_lock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-fresh-context")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -1350,7 +1351,7 @@ def test_retry_loop_remediation_builds_job_from_context_revalidated_under_lock(
 
 
 def test_retry_loop_remediation_rejects_stale_blocked_stage(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-stale-stage")
         coordinator = ProductLoopCoordinator(connection)
@@ -1418,7 +1419,7 @@ def test_retry_loop_remediation_rolls_back_when_thread_queue_persistence_fails(
     monkeypatch: pytest.MonkeyPatch,
     failure_point: str,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "retry-status-crash")
         coordinator = ProductLoopCoordinator(connection)
@@ -1504,7 +1505,7 @@ def test_retry_loop_remediation_rolls_back_when_thread_queue_persistence_fails(
 
 def test_continue_plan_only_remediation_queues_real_plan_only_thread_run(tmp_path: Path) -> None:
     runtime = _ControlledRuntime(status="failed")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "plan-only-remediation")
@@ -1613,7 +1614,7 @@ def test_continue_plan_only_remediation_queues_real_plan_only_thread_run(tmp_pat
 
 def test_continue_plan_only_remediation_rejects_stale_blocked_stage(tmp_path: Path) -> None:
     runtime = _ControlledRuntime(status="failed")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "plan-only-stale-stage")
@@ -1700,7 +1701,7 @@ def test_continue_plan_only_remediation_keeps_queued_job_when_thread_status_upda
 
     monkeypatch.setattr(ThreadsRepository, "set_status", crash_queued_thread_status)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "plan-only-status-crash")
@@ -1754,7 +1755,7 @@ def test_continue_plan_only_remediation_keeps_queued_job_when_thread_status_upda
 
 
 def test_product_owner_runtime_block_creates_runtime_remediation_actions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "po-runtime-blocked")
@@ -1784,7 +1785,7 @@ def test_product_owner_runtime_block_creates_runtime_remediation_actions(tmp_pat
 def test_run_user_message_blocks_when_product_owner_runtime_status_crashes(tmp_path: Path) -> None:
     product_owner = _FailingProductOwnerStatusRunner(_product_owner_result("backlog_ready"))
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "po-runtime-status-crash")
@@ -1819,7 +1820,7 @@ def test_run_user_message_blocks_when_product_owner_runtime_status_crashes(tmp_p
 def test_run_user_message_blocks_project_assessment_with_assessment_remediation(tmp_path: Path) -> None:
     product_owner = _backlog_ready_po()
     assessment = _AssessmentBlockedRunner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "assessment-blocked")
@@ -1846,7 +1847,7 @@ def test_run_user_message_blocks_project_assessment_with_assessment_remediation(
 
 
 def test_git_not_initialized_block_creates_git_init_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "git-not-initialized")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -1891,7 +1892,7 @@ def test_run_user_message_blocks_when_git_status_crashes(tmp_path: Path) -> None
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
     git = _FailingGitStatusGate()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "git-status-crash")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -1940,7 +1941,7 @@ def test_run_user_message_blocks_when_git_status_crashes(tmp_path: Path) -> None
 
 
 def test_dirty_git_block_creates_diff_branch_and_patch_remediations(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "dirty-remediation")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -1994,7 +1995,7 @@ def test_block_run_creates_generic_retry_when_remediation_mapping_crashes(
         crash_remediations,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "dirty-remediation-fallback")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -2039,7 +2040,7 @@ def test_run_user_message_incomplete_idea_awaits_user_without_developer_executio
         )
     )
     assessment = _AssessmentRunner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input")
@@ -2199,7 +2200,7 @@ def test_answer_question_remediation_rolls_back_decision_and_job_when_atomic_ste
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "answer-atomic-rollback")
@@ -2298,7 +2299,7 @@ def test_answer_question_remediation_rejects_client_decision_override(
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-decision-override")
@@ -2384,7 +2385,7 @@ def test_answer_question_remediation_rejects_stale_non_question_block(
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-stale-block")
@@ -2476,7 +2477,7 @@ def test_answer_question_remediation_blocks_when_thread_is_already_active(
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, f"needs-input-{active_status}-thread")
@@ -2550,7 +2551,7 @@ def test_answer_question_remediation_ignores_client_clarification_question_overr
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-question-override")
@@ -2651,7 +2652,7 @@ def test_run_user_message_awaits_user_when_thread_status_persistence_crashes(
 
     monkeypatch.setattr(ThreadsRepository, "set_status", crash_waiting_decision_status)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-status-crash")
@@ -2718,7 +2719,7 @@ def test_run_user_message_awaits_user_with_generic_retry_when_remediation_mappin
         crash_remediations,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-remediation-fallback")
@@ -2752,7 +2753,7 @@ def test_run_user_message_blocks_needs_input_without_actionable_options(
 ) -> None:
     runtime = _ControlledRuntime()
     product_owner = _ProductOwnerRunner(_product_owner_result("needs_input"))
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "needs-input-without-options")
@@ -2803,7 +2804,7 @@ def test_run_user_message_blocks_needs_input_with_only_accepted_product_decision
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "aido-decide")
@@ -2869,7 +2870,7 @@ def test_run_user_message_blocks_high_impact_technical_decision_when_research_re
             ],
         )
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "research-required-decision")
@@ -2914,7 +2915,7 @@ def test_run_user_message_brief_ready_persists_brief_and_artifacts(tmp_path: Pat
     runtime = _ControlledRuntime()
     git = _GitGate()
     product_owner = _ProductOwnerRunner(_product_owner_result("brief_ready"))
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "brief-ready")
@@ -2952,7 +2953,7 @@ def test_run_user_message_scope_is_clear_persists_mini_brief_without_developer_e
 ) -> None:
     runtime = _ControlledRuntime()
     product_owner = _scope_is_clear_po()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "scope-is-clear")
@@ -2987,7 +2988,7 @@ def test_run_user_message_backlog_ready_persists_backlog_and_generates_agent_tas
     git = _GitGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "backlog-ready")
@@ -3040,7 +3041,7 @@ def test_run_user_message_default_technical_lead_planner_generates_role_tasks(
     product_owner_result["userStories"] = product_owner_result["output"]["userStories"]
     product_owner = _ProductOwnerRunner(product_owner_result)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "default-tech-lead")
@@ -3081,7 +3082,7 @@ def test_run_user_message_generic_feature_scope_still_generates_executable_agent
     product_owner_result["output"]["productBriefPatch"]["scope"] = "One generated file under src."
     product_owner_result["userStories"] = product_owner_result["output"]["userStories"]
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "generic-feature-tech-lead")
@@ -3109,7 +3110,7 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer", "frontend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "refactor-team")
@@ -3161,7 +3162,7 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
 
 
 def test_team_resource_decisions_use_team_mode_as_ai_routing_policy(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -3196,7 +3197,7 @@ def test_run_user_message_resource_manager_selection_overrides_preferred_runtime
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, provider_id="ollama", model="qwen2.5-coder")
         project = _workspace_project(connection, tmp_path, "resource-over-preferred")
@@ -3225,7 +3226,7 @@ def test_run_user_message_resource_manager_can_drive_nvidia_api_runtime(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_remote_api_resource(
             connection,
@@ -3272,7 +3273,7 @@ def test_run_user_message_ignores_untrusted_unknown_cost_policy_metadata(
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -3335,7 +3336,7 @@ def test_run_user_message_resource_manager_drives_product_owner_runtime_selectio
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_remote_api_resource(
             connection,
@@ -3382,7 +3383,7 @@ def test_resource_manager_approval_remediation_unblocks_product_owner_resource_s
     blocked_product_owner = _backlog_ready_po()
     approved_product_owner = _backlog_ready_po()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["code", "review", "tools", "reasoning", "json"])
         _seed_remote_api_resource(
@@ -3558,7 +3559,7 @@ def _blocked_resource_approval_run(connection, tmp_path: Path, name: str) -> tup
 
 def test_resource_manager_approval_block_creates_pending_action_request(tmp_path: Path) -> None:
     """Un bloqueo por aprobación debe poblar /approvals, no solo dejar la remediación del thread."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-queue")
         thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
@@ -3595,7 +3596,7 @@ def test_resource_manager_approval_block_creates_pending_action_request(tmp_path
 
 def test_approving_resource_action_request_stamps_approval_and_queues_retry(tmp_path: Path) -> None:
     """Aprobar desde /approvals debe dejar el loop aprobado y con retry encolado, no solo un flag."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-approve")
         jobs = JobsRepository(connection)
@@ -3640,7 +3641,7 @@ def test_approving_resource_action_request_requires_a_blocked_loop(tmp_path: Pat
     """Una aprobación rezagada no debe reactivar un loop que ya dejó de estar bloqueado."""
     from fastapi import HTTPException
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _project, blocked = _blocked_resource_approval_run(connection, tmp_path, "resource-approval-stale")
         jobs = JobsRepository(connection)
@@ -3679,7 +3680,7 @@ def test_run_user_message_records_product_owner_resource_usage_learning(
     product_owner_result["latencyMs"] = 812
     product_owner = _ProductOwnerRunner(product_owner_result)
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_remote_api_resource(
             connection,
@@ -3739,7 +3740,7 @@ def test_resource_manager_approval_remediation_unblocks_approved_unknown_cost_se
     blocked_runtime = _ControlledRuntime()
     approved_runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_remote_api_resource(
@@ -3850,7 +3851,7 @@ def test_resource_manager_approval_remediation_rejects_stale_non_resource_manage
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_remote_api_resource(
@@ -3918,7 +3919,7 @@ def test_resource_manager_approval_remediation_ignores_client_resource_override(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_remote_api_resource(
@@ -3984,7 +3985,7 @@ def test_resource_manager_approval_remediation_rejects_non_approval_payload(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_ai_resource(
@@ -4056,7 +4057,7 @@ def test_run_user_message_ignores_untrusted_resource_approval_metadata(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_remote_api_resource(
@@ -4112,7 +4113,7 @@ def test_run_user_message_ignores_resource_approval_with_fake_internal_marker(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_remote_api_resource(
@@ -4202,7 +4203,7 @@ def test_run_user_message_uses_catalogued_executable_model_without_performance_p
         executable_cli_statuses,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "catalogued-ai-resource")
         ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
@@ -4264,7 +4265,7 @@ def test_product_owner_resource_selection_obeys_its_mutable_role_policy_without_
         ],
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE model_catalog SET enabled = 0")
         connection.execute("UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'codex_cli'")
@@ -4323,7 +4324,7 @@ def test_run_user_message_blocks_when_catalogued_runtime_is_not_executable(
         unavailable_cli_statuses,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "unavailable-catalogued-ai-resource")
         ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
@@ -4372,7 +4373,7 @@ def test_run_user_message_blocks_when_product_owner_resource_selection_crashes(
 
     monkeypatch.setattr(AIResourceManager, "select_resource", crashing_select_resource)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "po-resource-manager-crash")
@@ -4409,7 +4410,7 @@ def test_resource_manager_block_keeps_planning_context_in_durable_run(
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         project = _workspace_project(connection, tmp_path, "resource-block-context")
@@ -4456,7 +4457,7 @@ def test_run_user_message_blocks_when_team_assignment_persistence_crashes(
         crash_create_team_assignments,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "team-assignment-persistence-crash")
@@ -4511,7 +4512,7 @@ def test_run_user_message_blocks_when_resource_manager_selection_crashes(
 
     monkeypatch.setattr(AIResourceManager, "select_resource", crashing_select_resource)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "resource-manager-crash")
@@ -4549,7 +4550,7 @@ def test_run_user_message_blocks_when_resource_manager_candidate_has_no_runtime_
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection, capabilities=["chat"])
         _seed_ai_resource(
@@ -4607,7 +4608,7 @@ def test_run_user_message_plan_only_stops_after_team_schedule_without_developer_
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "plan-only-loop")
@@ -4655,7 +4656,7 @@ def test_run_user_message_security_intent_creates_security_and_pentester_assignm
 ) -> None:
     runtime = _RuntimeUnavailable()
     planner = _RoleTaskPlanner(["backend_engineer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "security-team")
@@ -4684,7 +4685,7 @@ def test_run_user_message_does_not_execute_developer_without_backlog_tasks(tmp_p
     runtime = _ControlledRuntime()
     git = _GitGate()
     technical_lead = _TechnicalLeadPlanner(generate_tasks=False)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "no-agent-tasks")
@@ -4730,7 +4731,7 @@ def test_run_user_message_does_not_execute_developer_without_backlog_tasks(tmp_p
 def test_run_user_message_blocks_when_technical_lead_planner_crashes(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     technical_lead = _FailingTechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "technical-lead-crash")
@@ -4778,7 +4779,7 @@ def test_run_user_message_blocks_when_team_scheduler_crashes_before_technical_le
         crashing_schedule_team,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "team-scheduler-crash")
@@ -4830,7 +4831,7 @@ def test_run_user_message_blocks_when_team_scheduler_crashes_after_technical_lea
 
     monkeypatch.setattr(product_loop_coordinator, "schedule_team", crashing_schedule_team)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "team-scheduler-final-crash")
@@ -4879,7 +4880,7 @@ def test_run_user_message_blocks_when_team_scheduler_role_has_no_agent_profile(
 
     monkeypatch.setattr(ProductLoopCoordinator, "_profile_by_role", missing_backend_profile)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "team-scheduler-missing-profile")
@@ -4913,7 +4914,7 @@ def test_run_user_message_blocks_unscheduled_technical_lead_roles_before_runtime
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner(["backend_engineer", "legacy_developer"])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "unscheduled-role")
@@ -4945,7 +4946,7 @@ def test_run_user_message_blocks_technical_lead_task_without_role_before_persist
 ) -> None:
     runtime = _ControlledRuntime()
     planner = _RoleTaskPlanner([""])
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "missing-technical-lead-role")
@@ -4980,7 +4981,7 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
     product_owner = _backlog_ready_po()
     assessment = _AssessmentRunner()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "controlled-runtime")
@@ -5045,7 +5046,7 @@ def test_run_user_message_keeps_durable_result_when_thread_event_persistence_cra
 
     monkeypatch.setattr(ThreadsRepository, "record_event", crash_thread_event)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "thread-event-crash")
@@ -5089,7 +5090,7 @@ def test_run_user_message_keeps_durable_result_when_event_bus_persistence_crashe
 
     monkeypatch.setattr(product_loop_coordinator.EventBus, "record_event", crash_event_bus)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "event-bus-crash")
@@ -5144,7 +5145,7 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
         crash_delivery_approval_action,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "approval-action-crash")
@@ -5289,7 +5290,7 @@ def test_run_user_message_blocks_when_delivery_approval_action_persistence_crash
 
 def test_run_user_message_records_resource_learning_when_developer_runtime_crashes(tmp_path: Path) -> None:
     runtime = _FailingRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "developer-runtime-crash")
@@ -5366,7 +5367,7 @@ def test_developer_runtime_block_survives_resource_learning_persistence_crash(
         crash_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "developer-runtime-learning-crash")
@@ -5401,7 +5402,7 @@ def test_run_user_message_blocks_non_deliverable_runtime_status_with_runtime_con
 ) -> None:
     runtime = _ControlledRuntime(status="failed")
     git = _GitGate()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "runtime-status-context")
@@ -5451,7 +5452,7 @@ def test_run_user_message_blocks_empty_review_diff_with_review_remediation(tmp_p
     if not git_available():
         pytest.skip("git CLI is required for git worktree review remediation")
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "empty-review-diff")
@@ -5493,7 +5494,7 @@ def test_run_user_message_blocks_when_review_diff_capture_crashes(
 
     monkeypatch.setattr(product_loop_coordinator, "capture_git_diff", crash_capture_git_diff)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "review-diff-capture-crash")
@@ -5534,7 +5535,7 @@ def test_run_user_message_blocks_directory_runtime_without_changed_files(tmp_pat
         latency_ms=777,
     )
     git = _GitGate()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "directory-empty-review")
@@ -5616,7 +5617,7 @@ def test_run_user_message_records_resource_usage_and_quality_learning(tmp_path: 
         actual_cost_usd=0.0042,
         latency_ms=1234,
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "resource-learning")
@@ -5691,7 +5692,7 @@ def test_run_user_message_records_per_role_resource_usage_quality_learning(tmp_p
             },
         ]
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "per-role-resource-learning")
@@ -5787,7 +5788,7 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
         crash_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "resource-learning-crash")
@@ -5953,7 +5954,7 @@ def test_run_user_message_blocks_when_resource_learning_persistence_crashes(
 
 def test_run_user_message_records_unknown_resource_usage_without_fabricating_tokens(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "resource-learning-unknown")
@@ -5995,7 +5996,7 @@ def test_run_user_message_blocks_invalid_product_owner_output_with_remediation(
             "evidencePackage": {"id": "evidence-invalid-product-owner"},
         }
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "invalid-po-output")
@@ -6061,7 +6062,7 @@ def test_run_user_message_records_product_owner_resource_learning_when_runtime_c
 ) -> None:
     runtime = _ControlledRuntime()
     product_owner = _FailingProductOwnerRunner(_product_owner_result("backlog_ready"))
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-runtime-crash")
@@ -6146,7 +6147,7 @@ def test_product_owner_runtime_block_survives_resource_learning_persistence_cras
         crash_product_owner_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-runtime-learning-crash")
@@ -6207,7 +6208,7 @@ def test_invalid_product_owner_output_block_survives_resource_learning_persisten
         crash_product_owner_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "invalid-po-learning-crash")
@@ -6262,7 +6263,7 @@ def test_run_user_message_blocks_when_product_owner_resource_learning_persistenc
         crash_product_owner_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-resource-learning-crash")
@@ -6305,7 +6306,7 @@ def test_run_user_message_blocks_empty_backlog_with_product_owner_remediation(tm
     product_owner_result["epics"] = []
     product_owner_result["userStories"] = []
     product_owner = _ProductOwnerRunner(product_owner_result)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "empty-backlog-output")
@@ -6348,7 +6349,7 @@ def test_run_user_message_blocks_when_backlog_persistence_crashes(
         crash_persist_backlog,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "backlog-persistence-crash")
@@ -6392,7 +6393,7 @@ def test_run_user_message_blocks_when_product_owner_output_persistence_crashes(
         crash_persist_output,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-output-persistence-crash")
@@ -6441,7 +6442,7 @@ def test_run_user_message_blocks_when_product_owner_artifact_write_crashes(
         crash_product_owner_artifact,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-artifact-crash")
@@ -6484,7 +6485,7 @@ def test_run_user_message_blocks_when_product_owner_brief_persistence_crashes(
         crash_persist_brief,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-brief-persistence-crash")
@@ -6530,7 +6531,7 @@ def test_run_user_message_blocks_when_product_owner_question_persistence_crashes
         crash_persist_questions,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-question-persistence-crash")
@@ -6576,7 +6577,7 @@ def test_run_user_message_blocks_when_product_owner_decision_persistence_crashes
         crash_persist_decisions,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "product-owner-decision-persistence-crash")
@@ -6610,7 +6611,7 @@ def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_p
     git = _GitGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "thread-events")
@@ -6649,7 +6650,7 @@ def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_p
 
 def test_run_user_message_blocks_existing_functionality_before_runtime_execution(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "existing-functionality")
         repo = ThreadsRepository(connection)
@@ -6733,7 +6734,7 @@ def test_run_user_message_nested_functionality_decision_skips_existing_functiona
 ) -> None:
     runtime = _ControlledRuntime()
     product_owner = _backlog_ready_po()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "existing-functionality-resolved")
@@ -6773,7 +6774,7 @@ def test_run_user_message_blocks_existing_functionality_when_thread_event_persis
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "existing-functionality-event-crash")
         repo = ThreadsRepository(connection)
@@ -6837,7 +6838,7 @@ def test_run_user_message_blocks_existing_functionality_when_thread_status_persi
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = _ControlledRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "existing-functionality-status-crash")
         repo = ThreadsRepository(connection)
@@ -6911,7 +6912,7 @@ def test_run_user_message_blocks_existing_functionality_with_generic_retry_when_
         crash_remediations,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "existing-functionality-remediation-fallback")
         repo = ThreadsRepository(connection)
@@ -6950,7 +6951,7 @@ def test_run_user_message_blocks_existing_functionality_with_generic_retry_when_
 def test_run_user_message_blocks_dirty_git_before_runtime_execution(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     git = _GitGate(dirty=True)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _workspace_project(connection, tmp_path, "dirty")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -6979,7 +6980,7 @@ def test_run_user_message_blocks_when_gitleaks_fails(tmp_path: Path) -> None:
     git = _GitGate(gitleaks_status="blocked")
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "gitleaks")
@@ -7073,7 +7074,7 @@ def test_run_gitleaks_remediation_recovers_blocked_delivery_without_full_rerun(
 
     monkeypatch.setattr(GitWorkspaceService, "gitleaks_scan", passing_gitleaks)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "gitleaks-remediation")
@@ -7156,7 +7157,7 @@ def test_run_gitleaks_remediation_reports_blocked_when_scanner_crashes(
 
     monkeypatch.setattr(GitWorkspaceService, "gitleaks_scan", crashing_gitleaks)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "gitleaks-remediation-crash")
@@ -7204,7 +7205,7 @@ def test_run_user_message_blocks_when_gitleaks_execution_crashes(tmp_path: Path)
     git = _FailingGitleaksGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "gitleaks-crash")
@@ -7239,7 +7240,7 @@ def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
     git = _GitGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "qa-fail")
@@ -7286,7 +7287,7 @@ def test_qa_failed_blocks_when_resource_learning_persistence_crashes(
         crash_resource_learning,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "qa-fail-learning-crash")
@@ -7327,7 +7328,7 @@ def test_run_user_message_blocks_evidence_ready_without_passing_qa(tmp_path: Pat
         latency_ms=654,
     )
     git = _GitGate()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "qa-evidence-blocked")
@@ -7396,7 +7397,7 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
     git = _GitGate()
     product_owner = _backlog_ready_po()
     technical_lead = _TechnicalLeadPlanner()
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "restart")
@@ -7414,7 +7415,7 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
         loop_id = result["loop"]["id"]
         expected_context = result["loop"]["context"]["durableRun"]
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         resumed = ProductLoopCoordinator(connection, root=tmp_path).resume(loop_id)
 
     assert resumed["loop"]["state"] == "awaiting_approval"
@@ -7427,7 +7428,7 @@ def test_run_user_message_recovers_persisted_state_after_restart(tmp_path: Path)
 
 
 def test_invalid_and_unknown_transitions_are_rejected(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "invalid")
         coordinator = ProductLoopCoordinator(connection)
@@ -7443,7 +7444,7 @@ def test_invalid_and_unknown_transitions_are_rejected(tmp_path: Path) -> None:
 
 
 def test_optimistic_version_guard_blocks_stale_writes(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "version")
         coordinator = ProductLoopCoordinator(connection)
@@ -7456,7 +7457,7 @@ def test_optimistic_version_guard_blocks_stale_writes(tmp_path: Path) -> None:
 
 
 def test_block_unblock_and_cancel_paths(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "block")
         coordinator = ProductLoopCoordinator(connection)
@@ -7478,7 +7479,7 @@ def test_block_unblock_and_cancel_paths(tmp_path: Path) -> None:
 
 
 def test_unblock_resumes_the_pre_block_state(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "unblock")
         coordinator = ProductLoopCoordinator(connection)
@@ -7492,7 +7493,7 @@ def test_unblock_resumes_the_pre_block_state(tmp_path: Path) -> None:
 
 
 def test_cancel_is_reachable_from_an_active_state_and_is_terminal(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "cancel")
         coordinator = ProductLoopCoordinator(connection)
@@ -7509,7 +7510,7 @@ def test_cancel_is_reachable_from_an_active_state_and_is_terminal(tmp_path: Path
 
 
 def test_correlation_id_is_persisted_on_loop_and_transitions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "correlation")
         coordinator = ProductLoopCoordinator(connection)
@@ -7525,7 +7526,7 @@ def test_correlation_id_is_persisted_on_loop_and_transitions(tmp_path: Path) -> 
 
 
 def test_budget_consumption_is_metered_off_the_fsm_and_stops_the_loop(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "budget")
         coordinator = ProductLoopCoordinator(connection)
@@ -7549,7 +7550,7 @@ def test_budget_consumption_is_metered_off_the_fsm_and_stops_the_loop(tmp_path: 
 
 
 def test_usage_optimistic_guard_rejects_stale_metering(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "usageseq")
         coordinator = ProductLoopCoordinator(connection)
@@ -7561,7 +7562,7 @@ def test_usage_optimistic_guard_rejects_stale_metering(tmp_path: Path) -> None:
 
 
 def test_state_timeout_stops_the_loop_when_the_deadline_passes(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "timeout")
         coordinator = ProductLoopCoordinator(connection)
@@ -7580,7 +7581,7 @@ def test_state_timeout_stops_the_loop_when_the_deadline_passes(tmp_path: Path) -
 
 
 def test_loop_deadline_stops_the_loop(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "deadline")
         coordinator = ProductLoopCoordinator(connection)
@@ -7596,7 +7597,7 @@ def test_loop_deadline_stops_the_loop(tmp_path: Path) -> None:
 
 
 def test_maximum_rework_rounds_are_enforced(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "rework")
         coordinator = ProductLoopCoordinator(connection)
@@ -7631,7 +7632,7 @@ def test_maximum_rework_rounds_are_enforced(tmp_path: Path) -> None:
 
 
 def test_enforce_stop_conditions_is_idempotent_when_nothing_fires(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "noop")
         coordinator = ProductLoopCoordinator(connection)
@@ -7644,7 +7645,7 @@ def test_enforce_stop_conditions_is_idempotent_when_nothing_fires(tmp_path: Path
 
 
 def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "feedback")
         project_id = project["id"]
@@ -7825,7 +7826,7 @@ def test_feedback_actions_are_classified_applied_and_traceable(tmp_path: Path) -
 
 
 def test_feedback_rejects_unknown_actions_and_untraceable_targets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "feedback-invalid")
         coordinator = ProductLoopCoordinator(connection)
@@ -7839,7 +7840,7 @@ def test_feedback_rejects_unknown_actions_and_untraceable_targets(tmp_path: Path
 
 
 def test_accept_feedback_resolves_pending_delivery_approval_action(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, coordinator, approval_loop, _job, action = _approval_loop_with_action(
             connection, tmp_path, "delivery-approval"
@@ -7876,7 +7877,7 @@ def test_accept_feedback_resolves_pending_delivery_approval_action(tmp_path: Pat
 
 
 def test_request_changes_feedback_denies_pending_delivery_approval_action(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, coordinator, approval_loop, _job, action = _approval_loop_with_action(
             connection, tmp_path, "delivery-rework"
@@ -7915,7 +7916,7 @@ def test_request_changes_feedback_denies_pending_delivery_approval_action(tmp_pa
 
 
 def test_request_changes_feedback_reopens_delivery_thread_for_continuation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, coordinator, approval_loop, _job, action = _approval_loop_with_action(
             connection, tmp_path, "delivery-thread-rework"
@@ -7953,7 +7954,7 @@ def test_request_changes_feedback_reopens_delivery_thread_for_continuation(tmp_p
 
 
 def test_continue_feedback_does_not_queue_unapproved_resource_metadata(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "delivery-continue-unapproved-resource")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -8007,7 +8008,7 @@ def test_continue_feedback_does_not_queue_unapproved_resource_metadata(tmp_path:
 
 
 def test_continue_feedback_queues_real_product_loop_continuation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, initial_coordinator, approval_loop, _job, action = _approval_loop_with_action(
             connection, tmp_path, "delivery-continue"
@@ -8142,7 +8143,7 @@ def test_blocked_thread_without_stored_actions_gets_backfilled_remediations(
 ) -> None:
     """Reproduce el hilo bloqueado huérfano: quedó 'blocked' antes de que existiera la creación de
     remediaciones, así que /remediations devolvía [] y el operador no tenía ninguna salida."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "backfill-orphan")
         durable = result["loop"]["context"]["durableRun"]
@@ -8163,7 +8164,7 @@ def test_blocked_thread_without_stored_actions_gets_backfilled_remediations(
 def test_retry_loop_functionality_block_requires_resolved_decision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "retry-pending-decision")
         durable = result["loop"]["context"]["durableRun"]
@@ -8184,7 +8185,7 @@ def test_retry_loop_after_resolved_functionality_decision_carries_user_choice(
 ) -> None:
     """El retry de un loop bloqueado por funcionalidad existente debe llevar la elección ya resuelta
     del usuario; sin ella, el rerun volvería a bloquearse en el mismo gate para siempre."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         result = _functionality_blocked_run(connection, tmp_path, monkeypatch, "retry-resolved-decision")
         durable = result["loop"]["context"]["durableRun"]
@@ -8213,7 +8214,7 @@ def test_discovery_payload_seeds_goal_statement_setting(tmp_path: Path) -> None:
     from local_control_center.settings.repository import SettingsRepository
 
     product_owner = _backlog_ready_po()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "goal-statement")
@@ -8244,7 +8245,7 @@ def test_discovery_payload_seeds_goal_statement_setting(tmp_path: Path) -> None:
 
 def test_discovery_payload_omits_goal_statement_when_unset(tmp_path: Path) -> None:
     product_owner = _backlog_ready_po()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "goal-statement-unset")
@@ -8266,7 +8267,7 @@ def test_discovery_payload_omits_goal_statement_when_unset(tmp_path: Path) -> No
 
 def test_security_agent_receives_diff_artifact_and_story_specs(tmp_path: Path) -> None:
     security = _SecurityGate()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "security-gate-payload")
@@ -8296,7 +8297,7 @@ def test_security_agent_receives_diff_artifact_and_story_specs(tmp_path: Path) -
 
 def test_security_agent_verdict_blocked_blocks_delivery(tmp_path: Path) -> None:
     security = _SecurityGate(verdict="blocked", reason="Critical security finding blocks completion.")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "security-gate-blocked")
@@ -8337,7 +8338,7 @@ class _FlakyQARuntime(_ControlledRuntime):
 
 def test_qa_failure_reworks_automatically_and_recovers(tmp_path: Path) -> None:
     runtime = _FlakyQARuntime(failures=1)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "auto-rework-recovers")
@@ -8372,7 +8373,7 @@ def test_qa_failure_reworks_automatically_and_recovers(tmp_path: Path) -> None:
 
 def test_qa_failure_exhausts_auto_rework_and_stops_in_reworking(tmp_path: Path) -> None:
     runtime = _ControlledRuntime(status="qa_failed")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "auto-rework-exhausted")
@@ -8408,7 +8409,7 @@ def test_operator_max_rework_policy_overrides_default(
 
     monkeypatch.setattr(ProductLoopCoordinator, "start", start_with_policy)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "auto-rework-policy")
@@ -8452,7 +8453,7 @@ class _SemanticFailingRuntime(_ControlledRuntime):
 
 def test_a_transport_failure_is_retried_on_another_runtime(tmp_path: Path) -> None:
     runtime = _TransportFlakyRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         # A second, free remote provider. With one provider there is nowhere to fail over to and
@@ -8485,7 +8486,7 @@ def test_a_transport_failure_is_retried_on_another_runtime(tmp_path: Path) -> No
 def test_a_contract_violation_is_never_retried_on_another_runtime(tmp_path: Path) -> None:
     """Reintentar un fallo semantico en otro proveedor repite el mismo error y lo paga."""
     runtime = _SemanticFailingRuntime()
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "developer-semantic-no-failover")
@@ -8506,7 +8507,7 @@ def test_a_contract_violation_is_never_retried_on_another_runtime(tmp_path: Path
 
 def test_resource_role_policy_exposes_ordered_preferred_resources(tmp_path: Path) -> None:
     """El contrato del selector exige las entradas provider+model en orden preferred -> fallback -> escalation."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         RoutingProfileStore(connection).patch_role_policy(
             "developer",
@@ -8558,7 +8559,7 @@ def test_failover_replacement_keeps_role_preferred_resources(tmp_path: Path, mon
 
     from local_control_center.agents.ai_resource_manager import AIResourceManager
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         RoutingProfileStore(connection).patch_role_policy(
             "developer",
@@ -8601,7 +8602,7 @@ def test_failover_replacement_uses_the_callers_role_policy(tmp_path: Path, monke
 
     from local_control_center.agents.ai_resource_manager import AIResourceManager
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         RoutingProfileStore(connection).upsert_role_policy(
             {

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.projects.repository import ProjectsRepository
@@ -29,7 +30,7 @@ def _project(connection, tmp_path: Path) -> str:
 
 
 def test_migration_creates_thread_similarity_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         names = {
@@ -57,7 +58,7 @@ def test_migration_creates_thread_similarity_tables(tmp_path: Path) -> None:
 
 
 def test_query_similar_returns_archived_candidate(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -88,7 +89,7 @@ def test_query_similar_returns_archived_candidate(tmp_path: Path) -> None:
 
 
 def test_deleted_thread_is_excluded_unless_requested(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -117,7 +118,7 @@ def test_deleted_thread_is_excluded_unless_requested(tmp_path: Path) -> None:
 
 
 def test_similarity_index_uses_artifacts_without_leaking_secrets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -149,7 +150,7 @@ def test_similarity_index_uses_artifacts_without_leaking_secrets(tmp_path: Path)
 
 
 def test_similarity_index_updates_from_evidence_events_without_leaking_secrets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -184,7 +185,7 @@ def test_similarity_index_updates_from_evidence_events_without_leaking_secrets(t
 
 
 def test_similarity_index_updates_from_resolved_decisions_without_leaking_secrets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -223,7 +224,7 @@ def test_similarity_index_updates_from_resolved_decisions_without_leaking_secret
 
 
 def test_mark_improve_existing_records_similarity_event(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -269,7 +270,7 @@ def _insert_thread_via_sql(connection, project_id: str, thread_id: str, title: s
 
 def test_ensure_project_index_backfills_only_missing_or_stale(tmp_path: Path) -> None:
     """El backfill mínimo indexa lo faltante una vez y no reescribe filas frescas."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -298,7 +299,7 @@ def test_ensure_project_index_backfills_only_missing_or_stale(tmp_path: Path) ->
 
 def test_find_similar_discovers_threads_never_indexed(tmp_path: Path) -> None:
     """find_similar sigue encontrando threads sembrados por SQL directo (sin fila de índice)."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         _insert_thread_via_sql(
@@ -314,7 +315,7 @@ def test_find_similar_discovers_threads_never_indexed(tmp_path: Path) -> None:
 
 def test_set_summary_refreshes_similarity_index(tmp_path: Path) -> None:
     """set_summary toca updated_at y deja el summary visible en el índice de similitud."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)

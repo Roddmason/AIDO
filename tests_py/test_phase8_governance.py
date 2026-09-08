@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -24,7 +25,7 @@ def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClie
 
 
 def test_governance_schema_adds_architecture_risks_and_next_steps(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]

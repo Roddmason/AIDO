@@ -3,6 +3,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents_runtime import GatedAgentsPlanner
@@ -33,7 +34,7 @@ from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -87,7 +88,7 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
 
 def test_schema_initialization_keeps_credentials_view_safe_for_concurrent_workers(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
 
     barrier = threading.Barrier(8)
@@ -485,7 +486,7 @@ def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:
         "idx_cost_usage_created_at",
         "idx_events_type_created_at",
     }
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         names = {
@@ -785,7 +786,7 @@ def test_worker_records_runs_events_and_rejects_unapproved_actions(
     tmp_path: Path, controlled_domain_host
 ) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -821,7 +822,7 @@ def test_worker_fails_unknown_job_kind_instead_of_simulating_success(
     tmp_path: Path, controlled_domain_host
 ) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -866,7 +867,7 @@ def test_worker_executes_thread_product_loop_job_and_updates_thread(
         fake_run_user_message,
     )
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Thread Worker",
@@ -892,7 +893,7 @@ def test_worker_executes_thread_product_loop_job_and_updates_thread(
 
     result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-thread")
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         repo = ThreadsRepository(connection)
         refreshed = repo.get_thread(thread["id"])
@@ -929,7 +930,7 @@ def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(
         fake_run_user_message,
     )
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Plan Worker",
@@ -956,7 +957,7 @@ def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(
 
     result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-plan")
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         repo = ThreadsRepository(connection)
         refreshed = repo.get_thread(thread["id"])
@@ -975,7 +976,7 @@ def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(
 def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Retrieval",
@@ -1071,7 +1072,7 @@ def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebui
 def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_required(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="No Embeddings",
@@ -1097,7 +1098,7 @@ def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_re
 
 
 def test_retrieval_reindex_ignores_non_api_embedding_providers(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Manual Embeddings",
@@ -1129,7 +1130,7 @@ def test_retrieval_reindex_ignores_non_api_embedding_providers(tmp_path: Path) -
 
 
 def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -1140,7 +1141,7 @@ def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> N
 
 def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Agents", path=tmp_path / "agents", template_id="other"
@@ -1159,7 +1160,7 @@ def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monk
 
 def test_agents_planner_records_proposals_through_jobs_repository(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Agents Proposal",

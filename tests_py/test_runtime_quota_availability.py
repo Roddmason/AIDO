@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -45,7 +46,7 @@ def test_a_provider_without_quota_is_not_offered_as_executable(
         "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {"provider": "ollama", "available": True, "models": ["llama3"], "reason": ""},
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(dict(OLLAMA_ACCOUNT))
 
@@ -71,7 +72,7 @@ def test_a_429_from_the_agent_path_records_the_cooldown_that_demotes_the_provide
     tmp_path: Path,
 ) -> None:
     """El adapter de agentes tragaba el HTTPError, así que el 429 nunca llegaba a la cuota."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(dict(OLLAMA_ACCOUNT))
 
@@ -96,7 +97,7 @@ def test_a_429_from_the_agent_path_records_the_cooldown_that_demotes_the_provide
 
 def test_recording_a_rate_limit_never_masks_the_transport_error(tmp_path: Path) -> None:
     """Es una señal auxiliar: si falla, el error real de transporte debe seguir reportándose."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("DROP TABLE provider_limits")
 
@@ -110,7 +111,7 @@ def test_recording_a_rate_limit_never_masks_the_transport_error(tmp_path: Path) 
 
 def test_a_cli_without_quota_stops_being_a_product_owner_runtime(tmp_path: Path) -> None:
     """`is_product_owner_runtime` corta en productOwnerExecutable para CLIs e ignora `executable`."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         QuotaManager(connection).record_rate_limit(
@@ -130,7 +131,7 @@ def test_a_cli_without_quota_stops_being_a_product_owner_runtime(tmp_path: Path)
 
 def test_an_exhausted_provider_keeps_its_more_actionable_reason(tmp_path: Path) -> None:
     """Una causa reparable (falta credencial) es mas util que 'espera el cooldown'; no debe pisarse."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -307,7 +308,7 @@ def test_a_shell_command_without_a_runtime_never_invents_a_provider_limit(
 
 
 def test_providers_without_a_cooldown_are_left_untouched(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(dict(OLLAMA_ACCOUNT))
 

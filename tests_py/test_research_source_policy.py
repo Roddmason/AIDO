@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -192,7 +193,7 @@ def test_stale_high_trust_source_is_flagged() -> None:
 
 
 def test_persisting_a_source_records_full_provenance_as_an_artifact(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="R", path=tmp_path / "r", template_id="other"
@@ -225,7 +226,7 @@ def test_persisting_a_source_records_full_provenance_as_an_artifact(tmp_path: Pa
 
 
 def test_research_sources_table_exposes_canonical_source_contract_columns(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(research_sources)")}

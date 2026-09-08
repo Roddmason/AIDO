@@ -10,6 +10,7 @@ no tienen remoto, y publicación de la rama de trabajo cuando sí lo hay.
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -307,7 +308,7 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
     from local_control_center.shared.migrations import initialize_platform_schema
     from tests_py.test_product_loop_coordinator import _approval_loop_with_action
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, coordinator, loop, _job, _action = _approval_loop_with_action(
             connection, tmp_path, "landing-e2e"

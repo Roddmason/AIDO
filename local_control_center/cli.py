@@ -108,7 +108,14 @@ def main() -> None:
             allow_external=os.environ.get("AIDO_ALLOW_EXTERNAL_DASHBOARD") == "1",
         )
         app = create_app(runtime=runtime, static_dir=args.static_dir)
-        uvicorn.run(app, host=host, port=args.dashboard_port)
+        # Uvicorn's loop factory bypasses the policy set above on recent versions.
+        # Keep the API's existing Windows Selector contract explicit, without a global change.
+        uvicorn.run(
+            app,
+            host=host,
+            port=args.dashboard_port,
+            loop="asyncio:SelectorEventLoop" if os.name == "nt" else "auto",
+        )
 
 
 if __name__ == "__main__":

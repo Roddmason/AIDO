@@ -6,6 +6,7 @@ artifacts enlazados, bitácora de eventos y solicitudes de decisión.
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,7 @@ def _project(connection, tmp_path: Path) -> str:
 
 
 def test_migration_creates_thread_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         rows = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         names = {row["name"] for row in rows}
@@ -53,7 +54,7 @@ def test_migration_creates_thread_tables(tmp_path: Path) -> None:
 
 
 def test_create_and_list_threads_filters_by_owner(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -85,7 +86,7 @@ def test_create_and_list_threads_filters_by_owner(tmp_path: Path) -> None:
 
 
 def test_rename_thread_updates_title_and_audits(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -107,7 +108,7 @@ def test_rename_thread_updates_title_and_audits(tmp_path: Path) -> None:
 
 
 def test_archive_hides_thread_by_default_and_include_archived_restores_it(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -132,7 +133,7 @@ def test_archive_hides_thread_by_default_and_include_archived_restores_it(tmp_pa
 
 
 def test_soft_delete_hides_thread_but_keeps_messages_and_artifacts(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -166,7 +167,7 @@ def test_soft_delete_hides_thread_but_keeps_messages_and_artifacts(tmp_path: Pat
 
 
 def test_running_thread_cannot_be_soft_deleted(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -183,7 +184,7 @@ def test_running_thread_cannot_be_soft_deleted(tmp_path: Path) -> None:
 
 
 def test_owner_type_must_be_known(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -197,7 +198,7 @@ def test_owner_type_must_be_known(tmp_path: Path) -> None:
 
 
 def test_append_message_assigns_monotonic_sequence(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -221,7 +222,7 @@ def test_append_message_assigns_monotonic_sequence(tmp_path: Path) -> None:
 
 
 def test_message_kind_must_be_known(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -236,7 +237,7 @@ def test_message_kind_must_be_known(tmp_path: Path) -> None:
 
 
 def test_attach_artifact_links_to_thread(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -262,7 +263,7 @@ def test_attach_artifact_links_to_thread(tmp_path: Path) -> None:
 
 
 def test_record_event_is_append_only_with_sequence(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -291,7 +292,7 @@ def test_record_event_is_append_only_with_sequence(tmp_path: Path) -> None:
 
 
 def test_list_events_after_returns_incremental_window(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -312,7 +313,7 @@ def test_list_events_after_returns_incremental_window(tmp_path: Path) -> None:
 
 
 def test_decision_lifecycle(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -351,7 +352,7 @@ def test_decision_lifecycle(tmp_path: Path) -> None:
 
 
 def test_set_status_updates_header(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_id = _project(connection, tmp_path)
         repo = ThreadsRepository(connection)

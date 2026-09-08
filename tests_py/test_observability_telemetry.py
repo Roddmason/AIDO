@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -274,7 +275,7 @@ def test_external_telemetry_exporter_is_optional_and_receives_redacted_events(
 
 
 def test_http_request_telemetry_is_pruned_by_retention(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         def seed_event(event_id: str, event_type: str, created_at: str) -> None:

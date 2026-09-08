@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def _request(execution_id: str, workload_class: str, *, job_id: str | None = Non
 
 
 def test_resource_schema_is_idempotent_and_contains_durable_contracts(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         tables = {
@@ -64,7 +65,7 @@ def test_resource_schema_is_idempotent_and_contains_durable_contracts(tmp_path: 
 
 
 def test_memory_and_disk_floors_defer_work_instead_of_failing(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
 
@@ -87,7 +88,7 @@ def test_memory_and_disk_floors_defer_work_instead_of_failing(tmp_path: Path) ->
 
 
 def test_only_one_heavy_workload_is_admitted_globally(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         first = governor.admit(_request("build-one", "build_heavy"), snapshot=_healthy_snapshot())
@@ -100,7 +101,7 @@ def test_only_one_heavy_workload_is_admitted_globally(tmp_path: Path) -> None:
 
 
 def test_two_remote_llm_workloads_coexist_but_third_waits(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         decisions = [
@@ -113,7 +114,7 @@ def test_two_remote_llm_workloads_coexist_but_third_waits(tmp_path: Path) -> Non
 
 
 def test_aggregate_cpu_budget_blocks_light_work_beside_full_budget_build(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         build = governor.admit(_request("build", "build_heavy"), snapshot=_healthy_snapshot())
@@ -125,7 +126,7 @@ def test_aggregate_cpu_budget_blocks_light_work_beside_full_budget_build(tmp_pat
 
 
 def test_aggregate_memory_reservations_preserve_control_plane_headroom(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         snapshot = _healthy_snapshot(available_memory_bytes=26 * GIB)
@@ -135,7 +136,7 @@ def test_aggregate_memory_reservations_preserve_control_plane_headroom(tmp_path:
 
 
 def test_aggregate_budget_allows_cli_and_one_qa_with_sufficient_headroom(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         assert governor.admit(_request("cli", "agent_cli"), snapshot=_healthy_snapshot()).status == "admitted"
@@ -146,7 +147,7 @@ def test_aggregate_budget_allows_cli_and_one_qa_with_sufficient_headroom(tmp_pat
 
 def test_control_plane_cpu_is_not_free_when_admitting_collector(tmp_path):
     """A control-plane root plus CLI plus collector would reserve 85%, above the 75% policy."""
-    with open_sqlite_connection(tmp_path / "scope.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "scope.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         snapshot = _healthy_snapshot(available_memory_bytes=48 * GIB)
@@ -161,7 +162,7 @@ def test_control_plane_cpu_is_not_free_when_admitting_collector(tmp_path):
 
 
 def test_unreal_and_heavy_conflicts_have_specific_reasons(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         gpu = governor.admit(
@@ -177,7 +178,7 @@ def test_unreal_and_heavy_conflicts_have_specific_reasons(tmp_path: Path) -> Non
 
 
 def test_unreal_cook_is_exclusive(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         light = governor.admit(_request("remote-one", "remote_llm_light"), snapshot=_healthy_snapshot())
@@ -189,7 +190,7 @@ def test_unreal_cook_is_exclusive(tmp_path: Path) -> None:
 
 
 def test_expired_lease_is_recovered_and_capacity_is_reusable(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         admitted = governor.admit(
@@ -212,7 +213,7 @@ def test_expired_lease_is_recovered_and_capacity_is_reusable(tmp_path: Path) -> 
 
 
 def test_resource_wait_job_is_durable_and_can_be_reevaluated(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="AIDO", path=tmp_path, template_id="other"
@@ -236,7 +237,7 @@ def test_resource_wait_job_is_durable_and_can_be_reevaluated(tmp_path: Path) -> 
 
 
 def test_usage_sample_retention_is_bounded(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = ResourceRepository(connection)
         now = datetime.now(UTC)
@@ -303,7 +304,7 @@ def test_psutil_probe_collects_required_host_fields(tmp_path: Path) -> None:
 
 def test_worker_defers_then_reevaluates_job_and_releases_resource_lease(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="AIDO", path=tmp_path, template_id="other"
@@ -316,7 +317,7 @@ def test_worker_defers_then_reevaluates_job_and_releases_resource_lease(tmp_path
         db_path=db_path,
         resource_snapshot=_healthy_snapshot(available_memory_bytes=4 * GIB),
     ).run_once(worker_id="worker-one")
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         waiting_job = JobsRepository(connection).get_job(job["id"])
 
     monkeypatch.setattr(
@@ -327,7 +328,7 @@ def test_worker_defers_then_reevaluates_job_and_releases_resource_lease(tmp_path
         db_path=db_path,
         resource_snapshot=_healthy_snapshot(),
     ).run_once(worker_id="worker-one")
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         final_job = JobsRepository(connection).get_job(job["id"])
         active_leases = ResourceRepository(connection).active_leases()
 
@@ -339,7 +340,7 @@ def test_worker_defers_then_reevaluates_job_and_releases_resource_lease(tmp_path
 
 
 def test_hard_floor_records_cancellation_request_for_nonessential_workload(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
         admitted = governor.admit(_request("remote-one", "remote_llm_light"), snapshot=_healthy_snapshot())

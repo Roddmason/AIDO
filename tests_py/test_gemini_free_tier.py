@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -40,7 +41,7 @@ def _enable_gemini(connection: sqlite3.Connection, *, pricing_mode: str = "free"
 def test_phase56_seeds_gemini_without_inventing_a_one_million_token_quota(
     tmp_path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         account = connection.execute(
@@ -94,7 +95,7 @@ def test_phase56_seeds_gemini_without_inventing_a_one_million_token_quota(
 def test_phase56_preserves_custom_product_owner_policy(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -125,7 +126,7 @@ def test_phase56_preserves_custom_product_owner_policy(tmp_path, monkeypatch) ->
 def test_phase56_preserves_partial_product_owner_override(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE role_model_policies SET max_tokens_per_run = 64000 WHERE id = 'product_owner'"
@@ -148,7 +149,7 @@ def test_phase56_preserves_partial_product_owner_override(tmp_path, monkeypatch)
 def test_phase56_upgrades_untouched_persisted_profile_candidates(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         bootstrap_base_team_if_needed(connection)
         legacy_policy = {
@@ -183,7 +184,7 @@ def test_phase56_upgrades_untouched_persisted_profile_candidates(tmp_path, monke
 def test_phase56_preserves_operator_model_override_and_is_reentrant(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_model(
             {
@@ -220,7 +221,7 @@ def test_phase56_preserves_operator_model_override_and_is_reentrant(tmp_path, mo
 def test_phase56_enriches_stale_unmodified_provider_sync(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
         store.upsert_model(
@@ -252,7 +253,7 @@ def test_phase56_enriches_stale_unmodified_provider_sync(tmp_path, monkeypatch) 
 def test_phase56_demotes_unattested_legacy_free_account_with_invalid_metadata(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -273,7 +274,7 @@ def test_phase56_demotes_unattested_legacy_free_account_with_invalid_metadata(tm
 def test_phase56_does_not_point_product_owner_at_conflicting_routing_profile(tmp_path, monkeypatch) -> None:
     original = migrations.init_phase56_schema
     monkeypatch.setattr(migrations, "init_phase56_schema", lambda _connection: None)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -300,7 +301,7 @@ def test_phase56_does_not_point_product_owner_at_conflicting_routing_profile(tmp
 
 
 def test_pricing_requires_an_explicit_free_account(tmp_path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _enable_gemini(connection, pricing_mode="free")
         catalog = PricingCatalog(connection)
@@ -330,7 +331,7 @@ def test_pricing_requires_an_explicit_free_account(tmp_path) -> None:
 def test_free_tier_router_selects_confirmed_gemini_and_fails_closed_for_paid_or_sensitive(
     tmp_path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _enable_gemini(connection, pricing_mode="free")
         router = ModelRouter(connection)
@@ -391,7 +392,7 @@ def test_free_tier_router_selects_confirmed_gemini_and_fails_closed_for_paid_or_
 
 
 def test_ai_resource_manager_enforces_operator_declared_free_account(tmp_path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _enable_gemini(connection, pricing_mode="free")
         manager = AIResourceManager(connection)
@@ -465,7 +466,7 @@ def test_gemini_manifest_enriches_stable_models_but_not_unknown_ids() -> None:
 
 
 def test_gemini_free_account_requires_operator_attestation(tmp_path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
         account = store.get_provider_account("gemini")
@@ -486,7 +487,7 @@ def test_gemini_free_account_requires_operator_attestation(tmp_path) -> None:
 
 
 def test_product_owner_policy_is_free_tier_even_when_request_mode_is_omitted(tmp_path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _enable_gemini(connection, pricing_mode="configured")
 

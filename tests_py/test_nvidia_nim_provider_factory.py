@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -263,7 +263,7 @@ def _execute_brokered_model_call(
 
 
 def test_nvidia_policy_blocks_noncanonical_endpoint_by_provider_family(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         account = _upsert_nvidia_endpoint(connection, "nvidia-team-a")
         repository = RuntimeConfigRepository(connection)
@@ -283,7 +283,7 @@ def test_nvidia_policy_blocks_noncanonical_endpoint_by_provider_family(tmp_path:
 def test_provider_instance_resolves_real_nvidia_adapter_for_noncanonical_endpoint(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         account = _upsert_nvidia_endpoint(connection, "nvidia-team-a")
         second_account = _upsert_nvidia_endpoint(connection, "nvidia-team-b")
@@ -306,7 +306,7 @@ def test_provider_instance_resolves_real_nvidia_adapter_for_noncanonical_endpoin
 def test_descriptive_provider_construction_keeps_disabled_legacy_preset_introspectable(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         provider = provider_instance("nvidia_nim", connection=connection)
@@ -324,7 +324,7 @@ def test_nonhosted_nvidia_endpoint_does_not_inherit_hosted_or_global_configurati
     monkeypatch.setenv("AIDO_NVIDIA_BASE_URL", "https://global-nvidia.example.invalid/v1")
     monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "global-secret-must-not-be-used")
     monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", "https://generic-global.example.invalid/v1")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-self-hosted")
         ProviderAccountStore(connection).patch_provider_account(
@@ -361,7 +361,7 @@ def test_named_provider_keeps_explicit_empty_endpoint_fields_without_canonical_f
     monkeypatch.setenv("AIDO_OPENROUTER_API_KEY", "canonical-openrouter-secret")
     monkeypatch.setenv("AIDO_ANTHROPIC_BASE_URL", "https://canonical-anthropic.example.invalid/v1")
     monkeypatch.setenv("AIDO_ANTHROPIC_API_KEY", "canonical-anthropic-secret")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -388,7 +388,8 @@ def test_self_hosted_nvidia_chat_executes_without_fabricated_bearer(
 ) -> None:
     with (
         _nvidia_http_server() as (base_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-self-hosted-no-auth")
@@ -411,7 +412,7 @@ def test_self_hosted_nvidia_chat_executes_without_fabricated_bearer(
 
 
 def test_legacy_nvidia_id_remains_compatible_with_factory(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).patch_provider_account(
             "nvidia_nim",
@@ -433,7 +434,7 @@ def test_legacy_nvidia_id_remains_compatible_with_factory(tmp_path: Path) -> Non
 def test_embedding_nvidia_family_resolves_typed_provider_without_network(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-embeddings")
         ProviderAccountStore(connection).patch_provider_account(
@@ -457,7 +458,7 @@ def test_selfhosted_embedding_api_uses_documented_discovery_and_passive_health(
     client = _create_client(tmp_path, monkeypatch, raise_server_exceptions=False)
     headers = _auth_headers(client)
     with _nvidia_http_server() as (base_url, state):
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             _upsert_nvidia_endpoint(connection, "nvidia-embeddings-api")
             store = ProviderAccountStore(connection)
@@ -528,7 +529,7 @@ def test_provider_account_sync_applies_family_policy_and_real_factory(
     client = _create_client(tmp_path, monkeypatch)
     headers = _auth_headers(client)
     with _nvidia_http_server() as (base_url, state):
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             account = _upsert_nvidia_endpoint(connection, "nvidia-sync-team-a")
             ProviderAccountStore(connection).patch_provider_account(
                 "nvidia-sync-team-a",
@@ -550,7 +551,7 @@ def test_provider_account_sync_applies_family_policy_and_real_factory(
         assert blocked.json()["detail"] == "runtime.nvidia.enabled is false."
         assert state["modelCalls"] == 0
 
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             RuntimeConfigRepository(connection).set_runtime_setting("runtime.nvidia.enabled", True)
 
         synced = client.post(
@@ -571,7 +572,7 @@ def test_runtime_status_surfaces_endpoint_identity_and_family_without_generation
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("NVIDIA_STATUS_TEAM_A_API_KEY", "status-test-key")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-status-team-a")
         store = ProviderAccountStore(connection)
@@ -621,7 +622,7 @@ def test_nonchat_nvidia_runtime_status_never_inherits_chat_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("NVIDIA_EMBEDDINGS_API_KEY", "status-test-key")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-embeddings-status")
         store = ProviderAccountStore(connection)
@@ -726,7 +727,7 @@ def test_named_endpoint_profiles_and_security_selection_keep_endpoint_scope(
         "local_control_center.agents.security_agent.RuntimeStatusService.list_provider_statuses",
         lambda _service: [runtime],
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         developer_profile = DeveloperAgentRunner(connection, root=tmp_path)._create_profile(runtime)
         product_owner_profile = ProductOwnerAgentRunner(connection, root=tmp_path)._ensure_profile(runtime)
@@ -858,7 +859,7 @@ def test_disabled_nvidia_policy_blocks_before_remote_secret_fetch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-policy-first")
         ProviderAccountStore(connection).patch_provider_account(
@@ -898,7 +899,7 @@ def test_disabled_nvidia_policy_blocks_health_before_provider_construction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-health-policy-first")
         repository = RuntimeConfigRepository(connection)
@@ -926,7 +927,7 @@ def test_disabled_nvidia_policy_blocks_health_before_provider_construction(
 def test_tool_broker_canonical_id_cannot_bypass_persisted_family_binding(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).patch_provider_account(
             "nvidia_nim",
@@ -951,7 +952,8 @@ def test_runtime_adapter_and_broker_bind_selected_nvidia_endpoint_by_family(
     monkeypatch.setenv("NVIDIA_EXEC_TEAM_A_API_KEY", "execute-test-key")
     with (
         _nvidia_http_server() as (base_url, state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         _upsert_nvidia_endpoint(connection, "nvidia-exec-team-a")
@@ -1044,7 +1046,8 @@ def test_tool_broker_named_openrouter_uses_only_selected_endpoint_and_credential
     with (
         _nvidia_http_server() as (endpoint_a_url, endpoint_a_state),
         _nvidia_http_server() as (canonical_b_url, canonical_b_state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         monkeypatch.setenv("AIDO_OPENROUTER_BASE_URL", canonical_b_url)
         initialize_platform_schema(connection)
@@ -1091,7 +1094,8 @@ def test_tool_broker_named_anthropic_uses_only_selected_endpoint_and_credential(
     with (
         _anthropic_http_server() as (endpoint_a_url, endpoint_a_state),
         _anthropic_http_server() as (canonical_b_url, canonical_b_state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         monkeypatch.setenv("AIDO_ANTHROPIC_BASE_URL", canonical_b_url)
         initialize_platform_schema(connection)
@@ -1136,7 +1140,8 @@ def test_tool_broker_openrouter_redirect_fails_closed_without_forwarding_bearer_
     with (
         _nvidia_http_server() as (target_url, target_state),
         _nvidia_http_server(redirect_url=target_url) as (origin_url, origin_state),
-        open_sqlite_connection(tmp_path / "platform.sqlite") as connection,
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
     ):
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
@@ -1201,7 +1206,7 @@ def test_policy_engine_rejects_nvidia_endpoint_without_matching_explicit_family(
 
 
 def test_search_bonus_uses_explicit_nvidia_family_not_endpoint_id_prefix(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         router = ModelRouter(connection)
         request = RoutingRequest(requiresSearch=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import urllib.request
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.model_gateway import ModelGateway
@@ -47,7 +48,7 @@ REQUESTED_RUNTIME_IDS = {
 
 
 def test_runtime_config_schema_adds_tables_without_secret_columns_and_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         tables = {
@@ -97,7 +98,7 @@ def test_runtime_config_schema_adds_tables_without_secret_columns_and_is_idempot
 
 
 def test_requested_runtimes_are_seeded_with_capabilities(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         installations = {item["runtimeId"]: item for item in repo.list_installations()}
@@ -194,7 +195,7 @@ def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
     assert configuration.configured is True
     assert configuration.value("apiKey") is None
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.remote.enabled", True)
@@ -246,7 +247,7 @@ def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
 
 
 def test_cli_is_the_seeded_default_runtime(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
@@ -280,7 +281,7 @@ def test_cli_is_the_seeded_default_runtime(tmp_path: Path) -> None:
 
 
 def test_env_vars_are_override_only_not_normal_config(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
@@ -324,7 +325,7 @@ def test_env_vars_are_override_only_not_normal_config(tmp_path: Path) -> None:
 
 
 def test_runtime_account_persists_auth_metadata_without_storing_secrets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
@@ -373,7 +374,7 @@ def test_runtime_account_persists_auth_metadata_without_storing_secrets(tmp_path
 
 
 def test_runtime_preferences_round_trip_with_default_profiles(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
@@ -405,7 +406,7 @@ def test_runtime_settings_are_registered_for_global_and_project_policy(tmp_path:
     La politica es una conjuncion global AND proyecto, asi que apagar el flag de proyecto sigue
     bastando para vetar un transporte en un repositorio concreto.
     """
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
 
@@ -436,7 +437,7 @@ def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(tmp_path: 
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.cli.enabled", True)
@@ -475,7 +476,7 @@ def test_env_override_warning_is_reported_without_becoming_execution_authority(
     monkeypatch.setenv("OPENAI_API_KEY", "unit-test-openai-key")
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.remote.enabled", False)
@@ -519,7 +520,7 @@ def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatc
     monkeypatch.setenv("OPENAI_API_KEY", "unit-test-openai-key")
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.remote.enabled", True)
@@ -579,7 +580,7 @@ def test_nvidia_runtime_status_uses_known_default_base_url_without_user_input(
     monkeypatch.setenv("AIDO_NVIDIA_MODEL", "nvidia/model")
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.remote.enabled", True)
@@ -619,7 +620,7 @@ def test_nvidia_runtime_status_uses_known_default_base_url_without_user_input(
 
 
 def test_ollama_alias_respects_global_ollama_setting(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.ollama.enabled", False)
@@ -657,7 +658,7 @@ def test_runtime_status_uses_persisted_cli_installation_without_env_command(
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         RuntimeConfigRepository(connection).upsert_installation(
             {
@@ -703,7 +704,7 @@ def test_cli_installed_version_ok_is_not_executable_until_native_auth_is_validat
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         RuntimeConfigRepository(connection).upsert_installation(
             {
@@ -748,7 +749,7 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.upsert_installation(
@@ -793,7 +794,7 @@ def test_chat_only_cli_with_mismatched_executable_fails_prompt_execution_closed(
         }
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.cli.enabled", True)
@@ -840,7 +841,7 @@ def test_stale_persisted_codex_version_cannot_authorize_product_owner(tmp_path: 
         }
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         repo.set_runtime_setting("runtime.cli.enabled", True)
@@ -884,7 +885,7 @@ def test_ollama_ok_with_mocked_server_reports_prompt_capability(tmp_path: Path, 
             "reason": "Ollama test daemon is reachable.",
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'ollama'")
         ollama = next(
@@ -921,7 +922,7 @@ def test_ollama_legacy_blank_base_url_uses_local_default(tmp_path: Path, monkeyp
         "local_control_center.agents.runtime_status.cached_ollama_status",
         fake_ollama_status,
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE provider_accounts SET enabled = 1, base_url = '' WHERE provider_id = 'ollama'"
@@ -943,7 +944,7 @@ def test_invalid_api_credential_ref_blocks_runtime_with_configuration_reason(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -1023,7 +1024,7 @@ def test_cli_becomes_executable_when_native_auth_probe_confirms_login(tmp_path: 
 
     monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)
@@ -1057,7 +1058,7 @@ def test_cli_logged_out_probe_reports_login_command_and_blocks_execution(tmp_pat
 
     monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)
@@ -1086,7 +1087,7 @@ def test_validated_cli_account_is_not_reprobed_on_status_rollup(tmp_path: Path, 
 
     monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate_native_auth)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)
@@ -1120,7 +1121,7 @@ def test_cli_version_probe_hiccup_falls_back_to_persisted_version(tmp_path: Path
 
     monkeypatch.setattr(RuntimeRegistry, "detect", detect)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)
@@ -1166,7 +1167,7 @@ def test_rollup_persists_fresh_cli_version_for_future_fallback(tmp_path: Path, m
         },
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = RuntimeConfigRepository(connection)
         _install_claude_cli(repo)

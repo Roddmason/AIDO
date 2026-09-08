@@ -11,6 +11,7 @@ devuelven exactamente N filas (las más recientes, orden estable por rowid) y co
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -67,7 +68,7 @@ def _seed_workflow_events(connection: sqlite3.Connection, count: int) -> None:
 @pytest.fixture()
 def seeded_connection(tmp_path: Path):
     """Base con 8 filas por colección histórica representativa."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_threads(connection, 8)
         _seed_job_runs(connection, 8)

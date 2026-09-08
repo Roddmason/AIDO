@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import local_control_center.agents.assessment_runner as assessment_runner_module
@@ -21,7 +22,7 @@ def test_runner_produces_policy_gated_assessment_and_artifact(tmp_path: Path) ->
     project_root = tmp_path / "sample"
     build_sample_project(project_root)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, project_root)
 
@@ -66,7 +67,7 @@ def test_runner_redacts_secrets_in_persisted_findings(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, project_root)
 
@@ -86,7 +87,7 @@ def test_runner_releases_sqlite_transaction_during_filesystem_inspection(tmp_pat
     project_root = tmp_path / "sample"
     build_sample_project(project_root)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, project_root)
         observed_transaction_states: list[bool] = []

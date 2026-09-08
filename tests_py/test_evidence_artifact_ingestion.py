@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -175,7 +176,7 @@ def test_get_artifacts_by_ids_batches_dedupes_and_skips_missing(tmp_path: Path) 
     from local_control_center.shared.db import open_sqlite_connection
     from local_control_center.shared.migrations import initialize_platform_schema
 
-    with open_sqlite_connection(tmp_path / "batch.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "batch.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repo = EvidenceRepository(connection)
         for artifact_id in ("artifact-a", "artifact-b"):

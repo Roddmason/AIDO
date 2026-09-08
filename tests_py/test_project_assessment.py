@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.projects.assessment import assess_project, run_project_assessment
@@ -66,7 +67,7 @@ def build_sample_project(root: Path) -> None:
 
 
 def test_assessment_schema_adds_tables_and_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         tables = {
@@ -101,7 +102,7 @@ def test_assess_project_detects_every_dimension(tmp_path: Path) -> None:
 def test_list_project_findings_is_stable_by_insertion_order_on_timestamp_ties(tmp_path: Path) -> None:
     # Every finding of one assessment shares the same millisecond created_at; they must come back in
     # insertion order, not by their random uuid id (the documented "orden de inserción" contract).
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         same_ts = "2026-01-01T00:00:00.000Z"
         expected_order = ["stack", "module", "risk", "gap"]
@@ -125,7 +126,7 @@ def test_run_project_assessment_persists_assessment_and_findings(tmp_path: Path)
     project_root = tmp_path / "sample"
     build_sample_project(project_root)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = ProjectsRepository(connection)
         project = repository.create_project(name="Sample", path=project_root, template_id="other")

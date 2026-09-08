@@ -4,6 +4,7 @@ import ast
 import hashlib
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -122,7 +123,7 @@ def test_live_metrics_write_contention_does_not_cancel_healthy_process(tmp_path,
         resource_snapshot=ResourceSnapshot.test_snapshot(),
     )
     managed = service.start(argv=[sys.executable, "--version"], cwd=tmp_path)
-    with open_sqlite_connection(service.db_path) as connection:
+    with closing(open_sqlite_connection(service.db_path)) as connection, connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
             assert sampled.wait(2)
@@ -158,7 +159,7 @@ def test_capture_initialization_failure_releases_the_tree_and_lease(tmp_path, mo
     with pytest.raises(OSError, match="disk full"):
         service.start(argv=[sys.executable, "--version"], cwd=tmp_path)
     assert len(backend.terminated) == len(backend.released) == 1
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         assert ResourceRepository(connection).active_leases() == []
 
 
@@ -217,14 +218,14 @@ def test_expired_resource_lease_stays_reserved_until_process_cleanup(tmp_path):
         db_path=db_path, backend=backend, resource_snapshot=ResourceSnapshot.test_snapshot()
     )
     child = service.start(argv=[sys.executable, "--version"], cwd=tmp_path)
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         future = iso_after_seconds(utc_now(), 600)
         repository = ResourceRepository(connection)
         assert repository.recover_expired(now_iso=future) == []
         assert len(repository.active_leases(now_iso=future)) == 1
     child.process.returncode = 0
     service.complete(child, exit_code=0)
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         assert ResourceRepository(connection).active_leases() == []
 
 
@@ -255,7 +256,7 @@ def test_docker_cleanup_is_durable_and_retains_lease_on_failure(tmp_path, monkey
     assert calls[0][3] == "--name"
     assert calls[1][1:3] == ["rm", "--force"]
     assert calls[1][3] == calls[0][4]
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         assert len(ResourceRepository(connection).active_leases()) == 1
         assert connection.execute("SELECT released_at FROM managed_containers").fetchone()[0] is None
 
@@ -289,7 +290,7 @@ def test_worker_crash_kills_job_and_recovers_partial_evidence(tmp_path):
     assert result.returncode == 17, result.stderr.decode()
     recovered = recover_managed_processes(db_path)
     assert len(recovered) == 1
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         record = ManagedProcessRepository(connection).get(recovered[0])
         assert record.cancelled and record.finished_at
         assert not psutil.pid_exists(record.root_pid)
@@ -303,7 +304,7 @@ def test_worker_crash_kills_job_and_recovers_partial_evidence(tmp_path):
 
 def test_child_completion_preserves_the_parent_job_resource_lease(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         lease = (
             HostResourceGovernor(connection)
@@ -322,7 +323,7 @@ def test_child_completion_preserves_the_parent_job_resource_lease(tmp_path: Path
         child = service.start(argv=[sys.executable, "--version"], cwd=tmp_path)
         child.process.returncode = 0
         service.complete(child, exit_code=0)
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         assert ResourceRepository(connection).get_lease(lease.id).released_at is None
 
 
@@ -333,7 +334,7 @@ def test_inherited_lease_reserves_root_before_native_spawn_finishes(tmp_path):
     from local_control_center.process_supervision.service import ResourceWaitError
 
     db = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db) as connection:
+    with closing(open_sqlite_connection(db)) as connection, connection:
         initialize_platform_schema(connection)
         lease = (
             HostResourceGovernor(connection)
@@ -392,7 +393,7 @@ def test_durable_cancel_is_seen_by_running_process_and_blocks_next_stage(tmp_pat
         import psutil
 
         child_pid = int(managed.process.stdout.readline().strip())
-        with open_sqlite_connection(db_path) as connection:
+        with closing(open_sqlite_connection(db_path)) as connection, connection:
             ManagedProcessRepository(connection).request_execution_cancel("cancel-me", reason="operator stop")
         managed.process.wait(timeout=6)
         managed.process.stdout.read()
@@ -447,7 +448,7 @@ def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_
     assert len(result["stdout"].encode()) <= 4000
     from local_control_center.shared.settings import default_db_path
 
-    with open_sqlite_connection(default_db_path()) as connection:
+    with closing(open_sqlite_connection(default_db_path())) as connection, connection:
         artifact = connection.execute(
             "SELECT * FROM artifacts WHERE id = ?", (result["stdoutArtifactId"],)
         ).fetchone()
@@ -459,7 +460,7 @@ def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_
 
     from local_control_center.agents.cli_sessions import CliSessionStore
 
-    with open_sqlite_connection(default_db_path()) as connection:
+    with closing(open_sqlite_connection(default_db_path())) as connection, connection:
         session = CliSessionStore(connection).record_result(
             runtime="test",
             executable=sys.executable,
@@ -483,7 +484,7 @@ def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_
 def test_cli_session_command_logs_never_store_the_prompt(tmp_path):
     from local_control_center.agents.cli_sessions import CliSessionStore
 
-    with open_sqlite_connection(tmp_path / "runtime.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "runtime.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         CliSessionStore(connection).record_result(
             runtime="codex_cli",
@@ -500,7 +501,7 @@ def test_cli_session_command_logs_never_store_the_prompt(tmp_path):
 def test_external_execution_under_transaction_is_rejected_before_spawn(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
     backend = FakeSupervisor()
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("BEGIN IMMEDIATE")
         with (
@@ -553,7 +554,7 @@ def test_service_persists_fingerprint_without_command_or_secret(tmp_path: Path) 
     managed.process.returncode = 0
     service.complete(managed, exit_code=0)
 
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         row = connection.execute(
             "SELECT * FROM managed_processes WHERE managed_process_id = ?",
@@ -588,7 +589,7 @@ def test_cancel_is_durable_terminates_tree_and_is_idempotent(tmp_path: Path) -> 
     assert first.cancelled is True
     assert second.cancelled is True
     assert backend.terminated == [managed.managed_process_id]
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         record = ManagedProcessRepository(connection).get(managed.managed_process_id)
     assert record is not None
     assert record.cancel_requested_at
@@ -639,7 +640,7 @@ def test_restricted_sandbox_exposes_managed_process_evidence(
     assert result["managedProcessId"]
     assert result["workloadClass"] == "agent_cli"
     assert result["peakMemoryBytes"] >= 0
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         record = ManagedProcessRepository(connection).get(result["managedProcessId"])
     assert record is not None
     assert record.finished_at

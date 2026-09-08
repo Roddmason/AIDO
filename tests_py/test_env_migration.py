@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.provider_accounts import ProviderAccountStore
@@ -25,7 +26,7 @@ ENV = {
 
 
 def test_migration_populates_tables_warns_and_never_copies_the_secret(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         report = migrate_environment_config(connection, env=ENV)
 
@@ -74,7 +75,7 @@ def test_migration_populates_tables_warns_and_never_copies_the_secret(tmp_path: 
 
 
 def test_migration_falls_back_to_legacy_env_var_by_precedence(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         migrate_environment_config(connection, env={"CODEX_CLI_PATH": "C:/legacy/codex.exe"})
 
@@ -84,7 +85,7 @@ def test_migration_falls_back_to_legacy_env_var_by_precedence(tmp_path: Path) ->
 
 
 def test_migration_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         migrate_environment_config(connection, env=ENV)
         migrate_environment_config(connection, env=ENV)
@@ -97,7 +98,7 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_migration_skips_absent_env_vars(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         report = migrate_environment_config(connection, env={})
 

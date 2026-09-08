@@ -11,6 +11,7 @@ expone lectura abierta + upsert protegido por token de escritura.
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,7 @@ def _project(connection, tmp_path: Path, name: str):
 
 
 def test_upsert_versions_document_and_appends_immutable_history(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "const")
         repo = ProjectConstitutionRepository(connection)
@@ -71,7 +72,7 @@ def test_upsert_versions_document_and_appends_immutable_history(tmp_path: Path) 
 
 
 def test_upsert_rejects_empty_principles_and_unknown_vocabulary(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "invalid")
         repo = ProjectConstitutionRepository(connection)
@@ -82,7 +83,7 @@ def test_upsert_rejects_empty_principles_and_unknown_vocabulary(tmp_path: Path) 
 
 
 def test_bootstrap_derives_goal_and_never_overwrites_operator_document(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "boot")
         repo = ProjectConstitutionRepository(connection)
@@ -102,7 +103,7 @@ def test_bootstrap_derives_goal_and_never_overwrites_operator_document(tmp_path:
 
 
 def test_run_seals_constitution_version_and_hash_into_durable_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "seal")
         SettingsRepository(connection).set_value(

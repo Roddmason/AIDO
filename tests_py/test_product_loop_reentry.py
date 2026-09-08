@@ -10,6 +10,7 @@ así que los estados de espera legítimos (awaiting_user, blocked, brief_ready) 
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
@@ -34,7 +35,7 @@ def _loop_with_run_active(
 
 
 def test_interrupted_loop_is_cancelled_when_the_thread_runs_again(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "reentry")
         coordinator = ProductLoopCoordinator(connection)
@@ -54,7 +55,7 @@ def test_interrupted_loop_is_cancelled_when_the_thread_runs_again(tmp_path: Path
 
 
 def test_waiting_and_foreign_loops_are_never_superseded(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "waiting")
         coordinator = ProductLoopCoordinator(connection)
@@ -82,7 +83,7 @@ def test_operator_wait_states_survive_supersede_even_with_a_hung_run_active(tmp_
     de espera del operador con runActive=True. El guard por estado debe protegerlo: cancelarlo
     descartaría trabajo entregado esperando aprobación.
     """
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "wait")
         coordinator = ProductLoopCoordinator(connection)
@@ -136,7 +137,7 @@ def test_operator_wait_states_survive_supersede_even_with_a_hung_run_active(tmp_
 
 
 def test_run_result_clears_the_run_active_marker(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, tmp_path, "clear")
         coordinator = ProductLoopCoordinator(connection)

@@ -11,6 +11,7 @@ cada remediation debe exponer al frontend.
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,7 @@ def _project_and_thread(connection, tmp_path: Path, name: str) -> tuple[dict, di
 def test_terminal_loop_resolves_its_pending_actions_without_hiding_loopless_recovery(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "terminal-remediation-lifecycle")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -126,7 +127,7 @@ def test_terminal_loop_resolves_its_pending_actions_without_hiding_loopless_reco
 
 
 def test_po_needs_input_persists_one_idempotent_action_per_decision(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "multiple-product-decisions")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -179,7 +180,7 @@ def test_po_needs_input_persists_one_idempotent_action_per_decision(tmp_path: Pa
 
 
 def test_list_backfills_missing_actions_for_current_awaiting_user_decisions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "awaiting-user-backfill")
         ThreadsRepository(connection).set_status(thread["id"], "waiting_decision")
@@ -279,7 +280,7 @@ def test_list_backfills_missing_actions_for_current_awaiting_user_decisions(tmp_
 
 
 def test_execute_rejects_non_pending_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "non-pending-execution")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -304,7 +305,7 @@ def test_execute_rejects_non_pending_remediation(tmp_path: Path) -> None:
 
 
 def test_all_contract_blocker_types_have_specific_repair_actions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         service = BlockerRemediationService(connection, root=tmp_path)
         details = {
@@ -349,7 +350,7 @@ def test_all_contract_blocker_types_have_specific_repair_actions(tmp_path: Path)
 
 
 def test_retry_loop_remediations_declare_explicit_retry_target(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         service = BlockerRemediationService(connection, root=tmp_path)
         details = {
@@ -394,7 +395,7 @@ def test_retry_loop_remediations_declare_explicit_retry_target(tmp_path: Path) -
 
 
 def test_worker_not_running_creates_run_worker_once_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _project, thread = _project_and_thread(connection, tmp_path, "worker-stopped")
         ThreadsRepository(connection).set_status(thread["id"], "queued")
@@ -415,7 +416,7 @@ def test_worker_not_running_creates_run_worker_once_remediation(tmp_path: Path) 
 
 
 def test_gitleaks_missing_block_creates_setup_and_run_gitleaks_remediations(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "gitleaks-missing")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -449,7 +450,7 @@ def test_gitleaks_missing_block_creates_setup_and_run_gitleaks_remediations(tmp_
 
 
 def test_runtime_not_executable_opens_runtime_setup_with_ollama_defaults(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "runtime-ollama")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -533,7 +534,7 @@ def test_runtime_not_executable_opens_runtime_setup_with_ollama_defaults(tmp_pat
 
 
 def test_runtime_auth_missing_remediation_carries_auth_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "runtime-auth")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -570,7 +571,7 @@ def test_runtime_auth_missing_remediation_carries_auth_context(tmp_path: Path) -
 
 
 def test_workspace_allocation_remediation_carries_repair_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "workspace-allocation")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -605,7 +606,7 @@ def test_workspace_allocation_remediation_carries_repair_context(tmp_path: Path)
 
 
 def test_git_remote_missing_block_creates_remote_remediations(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "git-remote-missing")
         now = utc_now()
@@ -669,7 +670,7 @@ def test_git_remote_missing_add_remote_remediation_readds_persisted_remote(
     project_path = tmp_path / "git-remote-readd"
     project_path.mkdir()
     assert run_git(["init", "--initial-branch", "dev"], cwd=project_path).returncode == 0
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="git-remote-readd",
@@ -716,7 +717,7 @@ def test_git_remote_missing_add_remote_remediation_readds_persisted_remote(
 
 
 def test_git_branch_missing_remediation_carries_git_status_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "git-branch-missing")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -752,7 +753,7 @@ def test_git_branch_missing_remediation_carries_git_status_context(tmp_path: Pat
 
 
 def test_resource_manager_missing_api_key_opens_credentials_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-manager-api-key")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -818,7 +819,7 @@ def test_resource_manager_missing_api_key_opens_credentials_remediation(tmp_path
 def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_review(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-privacy-blocked")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -875,7 +876,7 @@ def test_resource_manager_privacy_blocked_offers_local_runtime_then_policy_revie
 
 
 def test_resource_manager_privacy_blocked_requires_nonempty_rejections(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         service = BlockerRemediationService(connection, root=tmp_path)
 
@@ -900,7 +901,7 @@ def test_resource_manager_privacy_blocked_requires_nonempty_rejections(tmp_path:
 def test_resource_manager_privacy_blocked_preserves_credential_precedence(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         service = BlockerRemediationService(connection, root=tmp_path)
 
@@ -934,7 +935,7 @@ def test_resource_manager_privacy_blocked_preserves_credential_precedence(
 def test_resource_manager_unconfigured_remediation_carries_blocked_role_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-manager-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1025,7 +1026,7 @@ def test_resource_manager_unconfigured_remediation_carries_blocked_role_context(
 def test_resource_manager_runtime_mapping_block_does_not_offer_approval(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-runtime-mapping")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1112,7 +1113,7 @@ def test_resource_manager_runtime_mapping_block_does_not_offer_approval(
 def test_resource_manager_legacy_unknown_cost_policy_is_approval_required(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-legacy-approval")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1172,7 +1173,7 @@ def test_resource_manager_legacy_unknown_cost_policy_is_approval_required(
 
 
 def test_team_scheduler_failed_remediation_carries_planning_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "team-scheduler-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1234,7 +1235,7 @@ def test_team_scheduler_failed_remediation_carries_planning_context(tmp_path: Pa
 def test_technical_lead_planning_failed_remediation_carries_planning_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "technical-lead-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1286,7 +1287,7 @@ def test_technical_lead_planning_failed_remediation_carries_planning_context(
 def test_product_owner_output_invalid_remediation_carries_output_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "product-owner-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1344,7 +1345,7 @@ def test_product_owner_output_invalid_remediation_carries_output_context(
 def test_product_owner_needs_input_without_options_is_invalid_output(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "product-owner-empty-options")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1387,7 +1388,7 @@ def test_product_owner_needs_input_without_options_is_invalid_output(
 def test_resource_learning_failed_remediation_carries_retry_evidence_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-learning-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1454,7 +1455,7 @@ def test_resource_learning_failed_remediation_carries_retry_evidence_context(
 def test_approval_unavailable_remediation_carries_delivery_evidence_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "approval-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1504,7 +1505,7 @@ def test_approval_unavailable_remediation_carries_delivery_evidence_context(
 def test_review_diff_unavailable_remediation_carries_review_recovery_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "review-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1567,7 +1568,7 @@ def test_review_diff_unavailable_remediation_carries_review_recovery_context(
 def test_gitleaks_failed_remediation_carries_security_recovery_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "gitleaks-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1636,7 +1637,7 @@ def test_gitleaks_failed_remediation_carries_security_recovery_context(
 def test_qa_failed_remediation_carries_qa_recovery_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "qa-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1719,7 +1720,7 @@ def test_qa_failed_remediation_carries_qa_recovery_context(
 def test_runtime_output_invalid_remediation_carries_runtime_recovery_context(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "runtime-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1784,7 +1785,7 @@ def test_runtime_output_invalid_remediation_carries_runtime_recovery_context(
 
 
 def test_git_dirty_tree_remediation_carries_git_status_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "git-dirty-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1828,7 +1829,7 @@ def test_git_dirty_tree_remediation_carries_git_status_context(tmp_path: Path) -
 
 
 def test_git_not_initialized_remediation_carries_init_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "git-init-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1868,7 +1869,7 @@ def test_git_not_initialized_remediation_carries_init_context(tmp_path: Path) ->
 
 
 def test_git_status_failed_remediation_carries_status_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "git-status-failed-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1908,7 +1909,7 @@ def test_git_status_failed_remediation_carries_status_context(tmp_path: Path) ->
 
 
 def test_resource_manager_unhealthy_provider_opens_provider_health_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "resource-manager-provider-health")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1954,7 +1955,7 @@ def test_resource_manager_unhealthy_provider_opens_provider_health_remediation(t
 
 
 def test_research_network_block_creates_network_access_remediation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "research-network")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -1985,7 +1986,7 @@ def test_research_network_block_creates_network_access_remediation(tmp_path: Pat
 
 
 def test_research_required_remediation_carries_job_and_policy_context(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "research-context")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -2032,7 +2033,7 @@ def test_research_required_remediation_carries_job_and_policy_context(tmp_path: 
 def test_research_required_without_product_loop_does_not_create_dead_retry_action(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "research-no-loop")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -2056,7 +2057,7 @@ def test_research_required_without_product_loop_does_not_create_dead_retry_actio
 
 
 def test_checkout_branch_remediation_requires_confirmation(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "checkout-confirm")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -2088,7 +2089,7 @@ def test_checkout_branch_remediation_requires_confirmation(tmp_path: Path) -> No
 
 
 def test_product_owner_output_invalid_offers_validate_and_switch_runtime(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "product-owner-runtime")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -2126,7 +2127,7 @@ def test_product_owner_output_invalid_offers_validate_and_switch_runtime(tmp_pat
 
 
 def test_remediation_records_carry_primary_destructive_and_technical_reason(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "remediation-fields")
         service = BlockerRemediationService(connection, root=tmp_path)
@@ -2152,7 +2153,7 @@ def test_remediation_records_carry_primary_destructive_and_technical_reason(tmp_
 
 
 def test_blocked_thread_without_a_blocked_loop_still_gets_a_retry_action(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "blocked-thread-no-blocked-loop")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)

@@ -11,6 +11,7 @@ sin ``threadId`` que rompe la persistencia por hilo y hace que el PO vuelva a pr
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
@@ -37,7 +38,7 @@ def _model_question() -> dict[str, object]:
 
 
 def test_ensure_product_initiative_stamps_thread_id_on_a_reused_runner_initiative(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         discovery = ProductDiscoveryRepository(connection)
@@ -81,7 +82,7 @@ def _project_thread_initiative(connection, tmp_path: Path):
 
 
 def test_persist_clarification_questions_reuses_runner_records_without_duplicating(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread, initiative, discovery, threads = _project_thread_initiative(connection, tmp_path)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -118,7 +119,7 @@ def test_persist_clarification_questions_reuses_runner_records_without_duplicati
 
 def test_persist_clarification_questions_still_creates_when_runner_did_not_persist(tmp_path: Path) -> None:
     """Camino stub/tests: sin registros persistidos, el coordinator sigue creando desde output."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread, initiative, discovery, threads = _project_thread_initiative(connection, tmp_path)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
@@ -138,7 +139,7 @@ def test_persist_clarification_questions_still_creates_when_runner_did_not_persi
 
 
 def test_persist_product_decisions_reuses_runner_records_without_duplicating(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project, thread, initiative, discovery, threads = _project_thread_initiative(connection, tmp_path)
         brief = discovery.upsert_product_brief(

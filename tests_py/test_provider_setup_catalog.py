@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -118,7 +119,10 @@ def enable_remote_provider(
         headers=headers,
     )
     assert response.status_code == 200
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
 
 
@@ -218,7 +222,10 @@ def test_from_catalog_omniroute_seeds_build_and_review_runtime_capabilities(
 
     assert response.status_code == 201
     assert response.json()["provider"]["baseUrl"] == "http://localhost:20128/v1"
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         rows = connection.execute(
             "SELECT capability, enabled FROM runtime_capabilities WHERE runtime = 'omniroute'"
         ).fetchall()
@@ -275,7 +282,10 @@ def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_
     headers = auth_headers(client)
     base_url, _handler, server = run_recording_server()
     try:
-        with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        with (
+            closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+            connection,
+        ):
             RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
         created = client.post(
             "/api/v1/provider-accounts/from-catalog",
@@ -338,7 +348,10 @@ def test_omniroute_sync_applies_catalog_exclusion_rule(
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base_url = f"http://127.0.0.1:{server.server_port}"
     try:
-        with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        with (
+            closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+            connection,
+        ):
             RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
             # Residuo de un sync anterior sin la regla: debe quedar apagado tras resincronizar.
             ProviderAccountStore(connection).upsert_model(
@@ -362,7 +375,7 @@ def test_omniroute_sync_applies_catalog_exclusion_rule(
 
 
 def test_setup_catalog_seeds_new_providers_with_verified_base_urls(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         rows = {
             row["provider_id"]: row
@@ -404,7 +417,7 @@ def test_azure_adapter_authenticates_with_api_key_header_not_bearer(
 
 
 def test_provider_instance_dispatch_for_new_catalog_ids(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         azure = provider_instance("azure_openai", connection=connection)
         deepseek = provider_instance("deepseek", connection=connection)

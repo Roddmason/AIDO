@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -168,7 +169,7 @@ def test_overview_remains_responsive_while_worker_connection_is_writing(tmp_path
     release_writer = threading.Event()
 
     def hold_worker_write_lock() -> None:
-        with open_sqlite_connection(runtime.db_path) as connection:
+        with closing(open_sqlite_connection(runtime.db_path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             writer_entered.set()
             release_writer.wait(timeout=2)

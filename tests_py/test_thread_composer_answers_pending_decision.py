@@ -11,6 +11,7 @@ pendiente y reanudar el run, igual que el botón de la UI.
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.projects.repository import ProjectsRepository
@@ -43,7 +44,7 @@ def _thread(connection, tmp_path: Path) -> dict:
 
 
 def test_composer_reply_matching_an_option_resolves_instead_of_reasking(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -79,7 +80,7 @@ def test_composer_reply_matching_an_option_resolves_instead_of_reasking(tmp_path
 
 def test_composer_reply_that_does_not_match_any_option_still_reclassifies(tmp_path: Path) -> None:
     """Un mensaje que NO responde la pregunta sigue el flujo normal (nueva clasificación)."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)

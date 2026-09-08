@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
@@ -21,7 +22,7 @@ PRODUCT_DISCOVERY_TABLES = {
 
 
 def test_product_discovery_schema_adds_all_entities_as_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -36,7 +37,7 @@ def test_product_discovery_schema_adds_all_entities_as_tables(tmp_path: Path) ->
 
 
 def test_product_discovery_schema_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         phase16_rows = connection.execute(
@@ -47,7 +48,7 @@ def test_product_discovery_schema_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_discovery_entities_are_project_scoped_versionable_and_traceable(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = ProductDiscoveryRepository(connection)

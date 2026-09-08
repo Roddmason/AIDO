@@ -12,6 +12,7 @@ así que el cliente respondía y el agente le volvía a preguntar indefinidament
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
@@ -62,7 +63,7 @@ def _fixture(connection, tmp_path: Path) -> tuple[dict, dict]:
 
 
 def test_resolving_thread_decision_settles_the_linked_product_decision(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread_decision, product_decision = _fixture(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -85,7 +86,7 @@ def test_resolving_thread_decision_settles_the_linked_product_decision(tmp_path:
 
 def test_resolution_without_linked_product_decision_is_a_no_op(tmp_path: Path) -> None:
     """Una decisión de hilo sin ``productDecisionId`` se resuelve igual, sin tocar discovery."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="plain-decision",
@@ -118,7 +119,7 @@ def test_resolution_without_linked_product_decision_is_a_no_op(tmp_path: Path) -
 
 def test_stale_product_decision_id_does_not_break_resolution(tmp_path: Path) -> None:
     """Un ``productDecisionId`` que ya no existe no puede tumbar la resolución del cliente."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="stale-link",

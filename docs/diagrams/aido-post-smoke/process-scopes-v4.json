@@ -1,0 +1,25 @@
+{
+  "schema_version": 1, "diagram_type": "architecture",
+  "meta": {"title": "Procesos, Jobs y reservas · no son el mismo árbol", "quality_profile": "showcase"},
+  "layout": {"mode": "grid", "cols": 3, "origin": [40, 35], "cellW": 160, "cellH": 75, "gapX": 150, "gapY": 25},
+  "components": [
+    {"id": "normal", "type": "backend", "label": "Launcher normal", "sublabel": "API + worker", "row": 0, "col": 0},
+    {"id": "dispatch", "type": "backend", "label": "Dispatcher", "sublabel": "Job de ejecución", "row": 0, "col": 1},
+    {"id": "target", "type": "backend", "label": "Carga", "sublabel": "Job descendiente", "row": 0, "col": 2},
+    {"id": "session", "type": "security", "label": "capture_session", "sublabel": "18 GiB · 65% · 64", "row": 1, "col": 1},
+    {"id": "control", "type": "backend", "label": "Plano de control", "sublabel": "Creador + API + worker", "row": 2, "col": 0},
+    {"id": "execution", "type": "backend", "label": "Ejecución", "sublabel": "8 GiB · 40% raíz AIDO", "row": 2, "col": 1},
+    {"id": "collector", "type": "security", "label": "Colector", "sublabel": "4 GiB · 20% raíz AIDO", "row": 2, "col": 2}
+  ],
+  "connections": [
+    {"id": "normal-spawn", "from": "normal", "to": "dispatch", "label": "P: spawn"},
+    {"id": "normal-child", "from": "dispatch", "to": "target", "label": "P + J", "variant": "emphasis"},
+    {"id": "control-budget", "from": "session", "to": "control", "label": "R: 6 GiB / 40% raíz", "variant": "security", "fromSide": "left", "toSide": "top"},
+    {"id": "execution-budget", "from": "session", "to": "execution", "label": "R: subpresupuesto", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelAt": [410, 215]},
+    {"id": "capture-budget", "from": "session", "to": "collector", "label": "R: subpresupuesto", "variant": "security", "fromSide": "right", "toSide": "top"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "P proceso / J Job / R reserva", "items": ["Normal: launcher no añade el Job histórico de 2 GiB.", "Normal: dispatcher/carga comparten lease; Jobs anidados.", "Captura: una lease; Jobs hermanos; creador dueño de handles; host 16 GiB."]},
+    {"dot": "emerald", "title": "Captura opt-in · cuotas relativas a raíz AIDO", "items": ["Ejecución: 40% de su cuota; colector: 20% de su cuota.", "26% / 13% del host son nominales: sólo sin otro ancestro limitante.", "effectiveHostCpuPercent=null con ancestros externos; consumo UNKNOWN.", "Control: creador 20%; API y worker 10% cada uno de la raíz. profiles.py."]}
+  ]
+}

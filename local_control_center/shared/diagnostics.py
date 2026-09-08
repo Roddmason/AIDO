@@ -347,21 +347,24 @@ class DiagnosticHandler(logging.Handler):
                 with diagnostic_io("segment_rotate", self.path):
                     self.path.rename(self.path.with_suffix(".closed.jsonl"))
                 self.path = None
-            files = list(self.root.glob("diag-*.jsonl"))
-            total = sum(p.stat().st_size for p in files)
-            for old in sorted(
-                (
-                    p
-                    for p in files
-                    if p.name.endswith(".closed.jsonl") and not p.with_suffix(".keep").exists()
-                ),
-                key=lambda p: p.stat().st_mtime_ns,
-            ):
-                if total + len(data) <= self.global_bytes:
-                    break
-                total -= old.stat().st_size
-                with diagnostic_io("segment_retire", old):
-                    old.unlink()
+            # Windows supplies size/time with the directory scan. Discarding that metadata
+            # and stat-ing all historical files/keep markers per event starves other writers.
+            with os.scandir(self.root) as entries:
+                files = [
+                    (self.root / entry.name, entry.stat())
+                    for entry in entries
+                    if entry.name.startswith("diag-") and entry.name.endswith(".jsonl")
+                ]
+            total = sum(info.st_size for _, info in files)
+            if total + len(data) > self.global_bytes:
+                for old, info in sorted(files, key=lambda item: item[1].st_mtime_ns):
+                    if total + len(data) <= self.global_bytes:
+                        break
+                    if not old.name.endswith(".closed.jsonl") or old.with_suffix(".keep").exists():
+                        continue
+                    with diagnostic_io("segment_retire", old):
+                        old.unlink()
+                    total -= info.st_size
             if total + len(data) > self.global_bytes:
                 raise OSError(errno.ENOSPC, "diagnostic budget occupied by active/protected segments")
             if self.path is None:

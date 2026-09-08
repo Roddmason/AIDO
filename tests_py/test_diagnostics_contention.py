@@ -121,7 +121,8 @@ def test_denied_open_is_not_retried_as_contention(tmp_path, monkeypatch):
     assert status["diagnosticFailure"]["path"] == str(tmp_path / ".diagnostic-budget.lock")
 
 
-def test_two_processes_rotate_without_unexpected_loss_and_export_exclusively(tmp_path):
+@pytest.mark.parametrize("historical_segments", [0, 96])
+def test_two_processes_rotate_without_unexpected_loss_and_export_exclusively(tmp_path, historical_segments):
     from local_control_center.process_supervision.native_diagnostics import private_directory
     from local_control_center.shared.diagnostics import export_incident
 
@@ -130,6 +131,11 @@ def test_two_processes_rotate_without_unexpected_loss_and_export_exclusively(tmp
         private_directory(tmp_path)
     else:
         tmp_path.mkdir()
+    for number in range(historical_segments):
+        (tmp_path / f"diag-historical-{number}.closed.jsonl").write_text(
+            json.dumps({"event": "historical", "executionId": "previous", "sequence": number}) + "\n",
+            encoding="utf-8",
+        )
 
     code = """
 import json,sys
@@ -167,7 +173,7 @@ print(json.dumps(sink.status()),flush=True)
             assert child.returncode == 0, error
             statuses.append(json.loads(output))
         assert all(s["droppedEvents"] == 0 and not s["diagnosticsDegraded"] for s in statuses)
-        events = _events(tmp_path)
+        events = [event for event in _events(tmp_path) if event["event"] != "historical"]
         assert len(events) == 128 and len({e["processInstanceId"] for e in events}) == 2
         assert list(tmp_path.glob("*.closed.jsonl"))
         export = tmp_path / "sanitized.zip"
@@ -182,6 +188,29 @@ print(json.dumps(sink.status()),flush=True)
             if child.poll() is None:
                 child.kill()
                 child.communicate(timeout=5)
+
+
+def test_ordinary_write_does_not_restat_retained_segments_under_global_lock(tmp_path, monkeypatch):
+    from local_control_center.shared.diagnostics import configure_diagnostics, diagnostic_event
+
+    for number in range(96):
+        (tmp_path / f"diag-historical-{number}.closed.jsonl").write_text("{}\n", encoding="utf-8")
+    calls = []
+    original_stat = Path.stat
+
+    def observe(path, *args, **kwargs):
+        if path.name.startswith("diag-historical-"):
+            calls.append(path.name)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", observe)
+    sink = configure_diagnostics(tmp_path)
+    diagnostic_event("test.current", component="test")
+    sink.close()
+    assert sink.status()["droppedEvents"] == 0
+    # Windows scandir already supplies size/time. Re-querying every retained file and
+    # every .keep marker for each event holds the global lock in proportion to history.
+    assert calls == []
 
 
 @pytest.mark.parametrize("termination", ["normal", "crash", "cancel"])

@@ -6,6 +6,33 @@ from pydantic import ValidationError
 from tests_py.test_launcher_capture_http import offline_native_cli as offline_native_cli
 
 
+@pytest.mark.parametrize("condition", ["owner", "cycle", "depth", "absent"])
+def test_session_ancestry_is_bounded_and_stops_at_verified_owner(condition):
+    from local_control_center.process_supervision import session_client
+
+    calls = []
+
+    class Process:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def parent(self):
+            calls.append(self.pid)
+            if condition == "owner":
+                assert self.pid != 2, "Never enumerate ancestors beyond the already verified owner"
+                return Process(2)
+            if condition == "cycle":
+                return Process(1)
+            if condition == "depth":
+                return Process(self.pid + 1)
+            return None
+
+    assert session_client._has_verified_ancestor(Process(1), 2 if condition == "owner" else 1000) is (
+        condition == "owner"
+    )
+    assert len(calls) <= 64
+
+
 def test_joint_budget_keeps_global_cpu_and_memory_headroom():
     from local_control_center.process_supervision.launcher_session import SESSION_BUDGET
 

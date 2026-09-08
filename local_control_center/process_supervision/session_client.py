@@ -24,6 +24,19 @@ from local_control_center.shared.time import utc_now
 SESSION_ENV = "AIDO_PRIVATE_LAUNCHER_SESSION"
 
 
+def _has_verified_ancestor(process, owner_pid: int) -> bool:
+    """Stop at the verified owner; fail closed on cycles or an excessive parent chain."""
+    visited = set()
+    for _ in range(64):
+        if process is None or process.pid in visited:
+            return False
+        if process.pid == owner_pid:
+            return True
+        visited.add(process.pid)
+        process = process.parent()
+    return False
+
+
 def session_identity(db_path):
     """Verify the native ancestor and reservation before granting shared-scope authority."""
     raw = os.environ.get(SESSION_ENV)
@@ -54,8 +67,7 @@ def session_identity(db_path):
         raise PermissionError("Launcher identity mismatch")
     if value["pid"] != owner.pid or abs(value["created"] - owner.create_time()) >= 0.01:
         raise PermissionError("Launcher endpoint owner mismatch")
-    ancestors = {p.pid for p in [psutil.Process(), *psutil.Process().parents()]}
-    if owner.pid not in ancestors:
+    if not _has_verified_ancestor(psutil.Process(), owner.pid):
         raise PermissionError("Caller is not a launcher descendant")
     job = win32job.OpenJobObject(win32job.JOB_OBJECT_QUERY, False, job_name(row["managed_process_id"]))
     try:

@@ -13,6 +13,36 @@ import pytest
 from local_control_center.quality.__main__ import _write_report
 
 
+@pytest.mark.parametrize(
+    "variables,expected",
+    [
+        ({"NO_COLOR": "1", "FORCE_COLOR": "1"}, "0"),
+        ({"NO_COLOR": "1"}, "0"),
+        ({"FORCE_COLOR": "2"}, "2"),
+        ({}, "0"),
+    ],
+)
+def test_quality_uses_one_child_only_color_contract(tmp_path, variables, expected):
+    from local_control_center.quality.paths import QualityPaths
+
+    source = {k: v for k, v in os.environ.items() if k not in {"NO_COLOR", "FORCE_COLOR"}}
+    source.update(variables)
+    before = dict(source)
+    environment = QualityPaths("test", tmp_path / "scratch", tmp_path / "evidence").environment(source)
+    assert source == before
+    assert "NO_COLOR" not in environment
+    assert environment["FORCE_COLOR"] == expected
+    for child_force in (expected, "1"):  # Playwright 1.60's worker explicitly forces ANSI.
+        result = subprocess.run(
+            ["node", "-e", "require('node:tty').WriteStream.prototype.getColorDepth.call({}, process.env)"],
+            env={**environment, "FORCE_COLOR": child_force},
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0 and not result.stderr, result.stderr
+
+
 def test_runner_refuses_to_replace_existing_receipt(tmp_path):
     path = tmp_path / "receipt.json"
     _write_report(path, {"status": "failed"})

@@ -71,6 +71,21 @@ def reset_runtime_status_caches() -> Iterator[None]:
 def manage_testclient_event_loops(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     created_clients: list[StarletteTestClient] = []
     original_init = StarletteTestClient.__init__
+    original_enter = StarletteTestClient.__enter__
+    original_exit = StarletteTestClient.__exit__
+
+    def enter_once(self: StarletteTestClient):
+        if getattr(self, "_aido_auto_entered", False):
+            return self
+        result = original_enter(self)
+        self._aido_auto_entered = True
+        return result
+
+    def exit_once(self: StarletteTestClient, *args):
+        try:
+            return original_exit(self, *args)
+        finally:
+            self._aido_auto_entered = False
 
     def auto_entering_init(self: StarletteTestClient, *args, **kwargs) -> None:
         original_init(self, *args, **kwargs)
@@ -79,6 +94,8 @@ def manage_testclient_event_loops(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
         created_clients.append(self)
 
     monkeypatch.setattr(StarletteTestClient, "__init__", auto_entering_init)
+    monkeypatch.setattr(StarletteTestClient, "__enter__", enter_once)
+    monkeypatch.setattr(StarletteTestClient, "__exit__", exit_once)
     yield
     for client in reversed(created_clients):
         if getattr(client, "_aido_auto_entered", False):

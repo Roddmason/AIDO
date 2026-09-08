@@ -168,8 +168,11 @@ export function AgentsPage({
 	const gatewayCatalogErrorText = resolveAsyncError(gatewayCatalogError, t);
 	const [profileBusy, setProfileBusy] = useState(false);
 	const [overrideBusyProfileId, setOverrideBusyProfileId] = useState('');
-	const [reloadToken, setReloadToken] = useState(0);
-	const reload = () => setReloadToken((token) => token + 1);
+	const [refreshController, setRefreshController] = useState(() => new AbortController());
+	const reload = () => {
+		refreshController.abort();
+		setRefreshController(new AbortController());
+	};
 	const modes =
 		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
 			runtimeModeOptions.includes(mode as AgentRuntimeMode),
@@ -207,13 +210,15 @@ export function AgentsPage({
 
 	useEffect(() => {
 		const controller = new AbortController();
-		getAgentProfiles(selectedProjectId || undefined, controller.signal)
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
+		getAgentProfiles(selectedProjectId || undefined, signal)
 			.then((result) => {
+				if (signal.aborted) return;
 				setAgentProfilesError(null);
 				setAgentProfiles(result.agentProfiles);
 			})
 			.catch((loadError) => {
-				if (!controller.signal.aborted) {
+				if (!signal.aborted) {
 					setAgentProfilesError(
 						toAsyncError(loadError, 'app.agents.errProfilesLoad', 'Agent profiles load failed.'),
 					);
@@ -222,7 +227,7 @@ export function AgentsPage({
 		return () => {
 			controller.abort();
 		};
-	}, [reloadToken, selectedProjectId]);
+	}, [refreshController, selectedProjectId]);
 
 	useEffect(() => {
 		if (runtimeProviders) setRuntimeProviderState(runtimeProviders);
@@ -230,13 +235,15 @@ export function AgentsPage({
 
 	useEffect(() => {
 		const controller = new AbortController();
-		getRuntimeProviders(controller.signal)
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
+		getRuntimeProviders(signal)
 			.then((providers) => {
+				if (signal.aborted) return;
 				setRuntimeProviderError(null);
 				setRuntimeProviderState(providers);
 			})
 			.catch((loadError) => {
-				if (!controller.signal.aborted) {
+				if (!signal.aborted) {
 					setRuntimeProviderError(
 						toAsyncError(
 							loadError,
@@ -249,17 +256,18 @@ export function AgentsPage({
 		return () => {
 			controller.abort();
 		};
-	}, [reloadToken]);
+	}, [refreshController]);
 
 	useEffect(() => {
-		let mounted = true;
+		const controller = new AbortController();
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
 		Promise.all([
-			getModelGatewayProviders(),
-			getModelGatewayRoutingProfiles(),
-			getModelGatewayRolePolicies(),
+			getModelGatewayProviders(signal),
+			getModelGatewayRoutingProfiles(signal),
+			getModelGatewayRolePolicies(signal),
 		])
 			.then(([providers, profiles, policies]) => {
-				if (!mounted) return;
+				if (signal.aborted) return;
 				setGatewayCatalogError(null);
 				setGatewayCatalog({
 					providers: Array.from(
@@ -284,7 +292,7 @@ export function AgentsPage({
 				});
 			})
 			.catch((loadError) => {
-				if (!mounted) return;
+				if (signal.aborted) return;
 				setGatewayCatalog({ providers: [], routingProfiles: [], rolePolicies: [] });
 				setGatewayCatalogError(
 					toAsyncError(
@@ -295,9 +303,9 @@ export function AgentsPage({
 				);
 			});
 		return () => {
-			mounted = false;
+			controller.abort();
 		};
-	}, [reloadToken]);
+	}, [refreshController]);
 
 	const createProfile = async () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(profileId)) {

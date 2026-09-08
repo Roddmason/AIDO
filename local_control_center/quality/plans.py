@@ -153,7 +153,14 @@ def build_plan(
                 "format", ("uv", "run", "--no-sync", "--extra", "dev", "ruff", "format", "--check", ".")
             ),
             QualityStep(
-                "biome", (node, "node_modules/@biomejs/biome/bin/biome", "check", "local-control-center/web")
+                "biome",
+                (
+                    node,
+                    "node_modules/@biomejs/biome/bin/biome",
+                    "check",
+                    "--error-on-warnings",
+                    "local-control-center/web",
+                ),
             ),
             QualityStep("architecture", (py, "-m", "pytest", *ARCHITECTURE_TESTS, "-q")),
             QualityStep(

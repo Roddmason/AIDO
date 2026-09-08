@@ -431,9 +431,18 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			path.join(scratchDir, 'platform.sqlite'), testInfo.outputPath('lifecycle.sqlite'),
 			String(dashboardProcess.pid), String(workerProcess.pid),
 		], { cwd: repoRoot, encoding: 'utf8', timeout: 130_000 });
-		await testInfo.attach('lifecycle-state.json', { body: snapshot.stdout || snapshot.stderr, contentType: 'application/json' });
-		await testInfo.attach('lifecycle-timeline.json', { body: JSON.stringify(operationTimeline), contentType: 'application/json' });
-		await testInfo.attach('lifecycle-processes.log', { body: dashboardLog.join(''), contentType: 'text/plain' });
+		// The line reporter does not persist body attachments on PASS. Retain explicit files
+		// in this invocation's evidence directory before pytest/Playwright fixtures close.
+		for (const [name, body, contentType] of [
+			['lifecycle-state.json', snapshot.stdout || snapshot.stderr, 'application/json'],
+			['lifecycle-timeline.json', JSON.stringify(operationTimeline), 'application/json'],
+			['lifecycle-processes.log', dashboardLog.join(''), 'text/plain'],
+			['lifecycle-provider-counts.json', JSON.stringify(mockCalls), 'application/json'],
+		]) {
+			const destination = testInfo.outputPath(name);
+			writeFileSync(destination, body, { encoding: 'utf8', flag: 'wx' });
+			await testInfo.attach(name, { path: destination, contentType });
+		}
 		expect(snapshot.status, snapshot.stderr).toBe(0);
 		if (testInfo.status !== testInfo.expectedStatus) {
 			console.log(`[lifecycle] mock calls: ${JSON.stringify(mockCalls)}`);

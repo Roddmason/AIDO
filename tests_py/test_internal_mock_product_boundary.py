@@ -1,24 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
-def make_client(tmp_path: Path) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+@pytest.fixture
+def mock_boundary_client(tmp_path: Path) -> Iterator[tuple[ControlPlaneFixture, TestClient, dict[str, str]]]:
     store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return store, client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+    try:
+        store.init()
+        app = create_app(runtime=store, static_dir=None)
+        with TestClient(app) as client:
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            yield store, client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+    finally:
+        store.close()
 
 
-def test_runtime_provider_api_does_not_expose_internal_mock(tmp_path: Path) -> None:
-    _store, client, _headers = make_client(tmp_path)
+def test_runtime_provider_api_does_not_expose_internal_mock(mock_boundary_client) -> None:
+    _store, client, _headers = mock_boundary_client
 
     response = client.get("/api/v1/runtime/providers")
 
@@ -28,8 +34,8 @@ def test_runtime_provider_api_does_not_expose_internal_mock(tmp_path: Path) -> N
     assert all(provider["id"] != "internal_mock" for provider in payload["providers"])
 
 
-def test_model_gateway_does_not_expose_mock_route_execution(tmp_path: Path) -> None:
-    _store, client, headers = make_client(tmp_path)
+def test_model_gateway_does_not_expose_mock_route_execution(mock_boundary_client) -> None:
+    _store, client, headers = mock_boundary_client
 
     response = client.post(
         "/api/v1/model-gateway/route/execute-mock",
@@ -40,8 +46,8 @@ def test_model_gateway_does_not_expose_mock_route_execution(tmp_path: Path) -> N
     assert response.status_code == 404
 
 
-def test_agent_profile_api_rejects_internal_mock_runtime(tmp_path: Path) -> None:
-    _store, client, headers = make_client(tmp_path)
+def test_agent_profile_api_rejects_internal_mock_runtime(mock_boundary_client) -> None:
+    _store, client, headers = mock_boundary_client
 
     response = client.post(
         "/api/v1/agent-profiles",
@@ -59,8 +65,8 @@ def test_agent_profile_api_rejects_internal_mock_runtime(tmp_path: Path) -> None
     assert "runtime" in str(response.json()["detail"]).lower()
 
 
-def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path) -> None:
-    store, client, headers = make_client(tmp_path)
+def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path, mock_boundary_client) -> None:
+    store, client, headers = mock_boundary_client
     project_path = tmp_path / "project"
     project_path.mkdir()
     project = store.create_project(name="Project", path=project_path, template_id="other")
@@ -82,8 +88,8 @@ def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path) -> None:
     assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
 
 
-def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path) -> None:
-    store, client, headers = make_client(tmp_path)
+def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path, mock_boundary_client) -> None:
+    store, client, headers = mock_boundary_client
     project_path = tmp_path / "project-pr"
     project_path.mkdir()
     project = store.create_project(name="Project PR", path=project_path, template_id="other")
@@ -105,8 +111,8 @@ def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path) -> None:
     assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
 
 
-def test_product_seeds_do_not_create_internal_mock_runtime_records(tmp_path: Path) -> None:
-    store, _client, _headers = make_client(tmp_path)
+def test_product_seeds_do_not_create_internal_mock_runtime_records(mock_boundary_client) -> None:
+    store, _client, _headers = mock_boundary_client
     connection = store.connection
 
     checks = {

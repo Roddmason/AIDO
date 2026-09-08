@@ -7,6 +7,96 @@ import { expect, test } from './fixtures/operations.js';
 
 const REAL_QA_HASH = 'a'.repeat(64);
 
+async function watchRequestCancellation(page) {
+	await page.addInitScript(() => {
+		window.aidoCancelledRequests = [];
+		const original = window.fetch;
+		window.fetch = (input, options) => {
+			const url = String(input);
+			options?.signal?.addEventListener('abort', () => window.aidoCancelledRequests.push(url), { once: true });
+			return original(input, options);
+		};
+	});
+}
+
+test('AIDO-69 agent catalog requests are cancelled on navigation and retry recovers', async ({ page }) => {
+	await watchRequestCancellation(page);
+	let attempts = 0;
+	await page.route('**/api/v1/model-gateway/providers', async (route) => {
+		attempts += 1;
+		if (attempts === 1) return route.fulfill({ status: 503, json: { detail: 'synthetic catalog unavailable' } });
+		return route.continue();
+	});
+	await page.goto('/#agents');
+	await expect(page.getByText('synthetic catalog unavailable')).toBeVisible();
+	await page.getByRole('button', { name: 'Retry', exact: true }).click();
+	await expect(page.getByText('synthetic catalog unavailable')).toBeHidden();
+	await expect.poll(() => attempts).toBe(2);
+	await page.evaluate(() => { window.location.hash = '#home'; });
+	await expect(page.getByLabel('Profile id')).toBeHidden();
+	await expect.poll(() => page.evaluate(() => window.aidoCancelledRequests.some((url) => url.includes('/model-gateway/providers')))).toBe(true);
+});
+
+test('AIDO-69 evidence retry refreshes artifacts once and cancels them on unmount', async ({ page }) => {
+	const evidence = await createAuditableEvidence(page);
+	await watchRequestCancellation(page);
+	let attempts = 0;
+	await page.route(`**/api/v1/evidence/${evidence.evidenceId}/artifacts/*`, async (route) => {
+		if (!route.request().url().endsWith(evidence.patchArtifactId)) return route.continue();
+		attempts += 1;
+		if (attempts === 1) return route.fulfill({ status: 503, body: 'synthetic artifact unavailable' });
+		return route.continue();
+	});
+	await page.goto('/#evidence');
+	await page.getByRole('button', { name: `View evidence package ${evidence.evidenceId}` }).click();
+	await expect(page.getByText('synthetic artifact unavailable')).toBeVisible();
+	await page.getByRole('button', { name: 'Retry', exact: true }).click();
+	await expect(page.getByText('+export function EvidencePage({ token }) {')).toBeVisible();
+	expect(attempts).toBe(2);
+	await page.evaluate(() => { window.location.hash = '#home'; });
+	await expect(page.getByRole('heading', { name: 'Evidence detail', exact: true })).toBeHidden();
+	await expect.poll(() => page.evaluate(() => window.aidoCancelledRequests.some((url) => /\/artifacts\//.test(url)))).toBe(true);
+});
+
+test('AIDO-69 optional route chunks load on navigation rather than the home request', async ({ page }, testInfo) => {
+	const assets = [];
+	page.on('request', (request) => {
+		const pathname = new URL(request.url()).pathname;
+		if (pathname.startsWith('/assets/')) assets.push(pathname);
+	});
+	await page.goto('/#home');
+	await expect(page.locator('.content-frame')).toBeVisible();
+	const initial = [...assets];
+	const initialSizes = [];
+	for (const asset of initial.filter((asset) => asset.endsWith('.js'))) {
+		const response = await page.request.get(asset);
+		expect(response.status()).toBe(200);
+		const bytes = (await response.body()).length;
+		// Vite 6's warning measures uncompressed chunk kB, not gzip or aggregate bytes.
+		expect(bytes, asset).toBeLessThanOrEqual(500_000);
+		initialSizes.push({ asset, bytes });
+	}
+	for (const [route, chunk] of [['models', 'ModelGatewayPage'], ['review-board', 'ReviewPage'], ['workbench', 'WorkbenchPage']]) {
+		expect(initial.some((asset) => asset.includes(`${chunk}-`))).toBe(false);
+		await page.evaluate((hash) => { window.location.hash = hash; }, `#${route}`);
+		await expect.poll(() => assets.some((asset) => asset.includes(`${chunk}-`))).toBe(true);
+		await expect(page.getByRole('main').getByRole('heading').first()).toBeVisible();
+	}
+	await testInfo.attach('route-assets.json', { body: JSON.stringify({ initial, initialSizes, afterNavigation: assets }), contentType: 'application/json' });
+});
+
+test('AIDO-69 failed optional chunk preserves the shell and navigation', async ({ page }) => {
+	await page.route('**/assets/ModelGatewayPage-*.js', (route) => route.abort('failed'));
+	await page.goto('/#home');
+	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible();
+	await page.evaluate(() => { window.location.hash = '#models'; });
+	await expect(page.getByText('This view could not be loaded', { exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible();
+	await page.evaluate(() => { window.location.hash = '#home'; });
+	await expect(page.getByText('This view could not be loaded', { exact: true })).toBeHidden();
+	await expect(page.locator('.content-frame')).toBeVisible();
+});
+
 function realQaEvidenceFields() {
 	return {
 		evidenceSource: 'qa_passed_by_command',
@@ -273,6 +363,7 @@ async function createAuditableEvidence(page, { emptyPatch = false, malformedPatc
 		agentRunId: agentRun.id,
 		workspaceId: workspace.id,
 		patchHash: patchArtifact.hash,
+		patchArtifactId: patchArtifact.id,
 		secret,
 		bearer,
 		passwordSecret,

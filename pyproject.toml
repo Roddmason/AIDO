@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 agents = ["openai-agents>=0.4.0"]
-faiss = ["faiss-cpu>=1.13.0"]
+faiss = ["faiss-cpu==1.14.2"]
 otel = [
 	"opentelemetry-sdk>=1.30.0",
 	"opentelemetry-exporter-otlp-proto-http>=1.30.0",
@@ -32,6 +32,7 @@ test = ["pytest>=9.0.0", "httpx>=0.28.0"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests_py"]
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 110

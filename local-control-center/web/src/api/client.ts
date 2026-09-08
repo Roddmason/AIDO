@@ -1061,10 +1061,12 @@ export async function fetchEvidenceArtifact(
 	token: string,
 	evidenceId: string,
 	artifactId: string,
+	signal?: AbortSignal,
 ): Promise<ArtifactPayload> {
 	const response = await fetch(
 		`/api/v1/evidence/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}`,
 		{
+			signal,
 			headers: {
 				Accept: '*/*',
 				[WRITE_HEADER]: token,

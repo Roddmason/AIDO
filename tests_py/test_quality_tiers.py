@@ -7,6 +7,11 @@ from local_control_center.quality.plans import build_plan, iteration_scripts
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_pr_rejects_biome_warnings_without_hiding_them():
+    step = next(step for step in build_plan(ROOT, "pr") if step.name == "biome")
+    assert "--error-on-warnings" in step.argv
+
+
 def test_native_http_pipeline_has_capacity_without_escalating_small_regressions():
     from local_control_center.host_resources.profiles import workload_profile
 

@@ -72,8 +72,11 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const [previewLoadingId, setPreviewLoadingId] = useState('');
 	const [downloadLoadingId, setDownloadLoadingId] = useState('');
 	const [previewError, setPreviewError] = useState('');
-	const [reloadToken, setReloadToken] = useState(0);
-	const reload = () => setReloadToken((token) => token + 1);
+	const [refreshController, setRefreshController] = useState(() => new AbortController());
+	const reload = () => {
+		refreshController.abort();
+		setRefreshController(new AbortController());
+	};
 	const detailErrorText = resolveAsyncError(detailError, t);
 	const diffErrorText = resolveAsyncError(diffError, t);
 	const securityErrorText = resolveAsyncError(securityError, t);
@@ -84,22 +87,25 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			return;
 		}
 		const controller = new AbortController();
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
 		setDetail(null);
 		setDetailError(null);
 		setDetailLoading(true);
-		void getEvidenceDetail(selectedEvidenceId, controller.signal)
-			.then((payload) => setDetail(payload))
+		void getEvidenceDetail(selectedEvidenceId, signal)
+			.then((payload) => {
+				if (!signal.aborted) setDetail(payload);
+			})
 			.catch((error) => {
-				if (!controller.signal.aborted)
+				if (!signal.aborted)
 					setDetailError(
 						toAsyncError(error, 'app.pages.errEvidenceDetail', 'Evidence detail failed.'),
 					);
 			})
 			.finally(() => {
-				if (!controller.signal.aborted) setDetailLoading(false);
+				if (!signal.aborted) setDetailLoading(false);
 			});
 		return () => controller.abort();
-	}, [reloadToken, selectedEvidenceId]);
+	}, [refreshController, selectedEvidenceId]);
 	const selectedPackage = detail?.evidencePackage ?? null;
 	const detailArtifacts = detail?.artifacts ?? [];
 	const patchArtifact = useMemo(() => findPatchArtifact(detailArtifacts), [detailArtifacts]);
@@ -113,14 +119,14 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		}
 		const artifactId = String(patchArtifact.id ?? '');
 		if (!artifactId) return;
-		let active = true;
+		const controller = new AbortController();
 		setDiffLoading(true);
-		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId)
+		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId, controller.signal)
 			.then((payload) => {
-				if (active) setDiffPayload(payload);
+				if (!controller.signal.aborted) setDiffPayload(payload);
 			})
 			.catch((error) => {
-				if (active)
+				if (!controller.signal.aborted)
 					setDiffError(
 						toAsyncError(
 							error,
@@ -130,12 +136,12 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 					);
 			})
 			.finally(() => {
-				if (active) setDiffLoading(false);
+				if (!controller.signal.aborted) setDiffLoading(false);
 			});
 		return () => {
-			active = false;
+			controller.abort();
 		};
-	}, [patchArtifact, reloadToken, selectedEvidenceId, token]);
+	}, [patchArtifact, selectedEvidenceId, token]);
 	useEffect(() => {
 		setSecurityPayload(null);
 		setSecurityError(null);
@@ -145,14 +151,14 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 		}
 		const artifactId = String(securityArtifact.id ?? '');
 		if (!artifactId) return;
-		let active = true;
+		const controller = new AbortController();
 		setSecurityLoading(true);
-		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId)
+		void fetchEvidenceArtifact(token, selectedEvidenceId, artifactId, controller.signal)
 			.then((payload) => {
-				if (active) setSecurityPayload(payload);
+				if (!controller.signal.aborted) setSecurityPayload(payload);
 			})
 			.catch((error) => {
-				if (active)
+				if (!controller.signal.aborted)
 					setSecurityError(
 						toAsyncError(
 							error,
@@ -162,12 +168,12 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 					);
 			})
 			.finally(() => {
-				if (active) setSecurityLoading(false);
+				if (!controller.signal.aborted) setSecurityLoading(false);
 			});
 		return () => {
-			active = false;
+			controller.abort();
 		};
-	}, [reloadToken, securityArtifact, selectedEvidenceId, token]);
+	}, [securityArtifact, selectedEvidenceId, token]);
 	const openPreview = async (artifact: Artifact) => {
 		const artifactId = String(artifact.id ?? '');
 		const evidenceId = String(artifact.evidencePackageId ?? '');

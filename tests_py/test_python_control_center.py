@@ -3,8 +3,10 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
+
+import pytest
 
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.app import create_app
@@ -30,6 +32,13 @@ from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
@@ -116,9 +125,13 @@ def test_schema_initialization_keeps_credentials_view_safe_for_concurrent_worker
     assert "CREATE VIEW IF NOT EXISTS credentials AS" in phase30_source
 
 
-def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="API", path=tmp_path / "api", template_id="other")
     store.memory.create_memory_item(
@@ -130,7 +143,7 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
         source_ref="test",
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     overview_response = client.get("/api/v1/overview")
     assert overview_response.status_code == 200
@@ -187,13 +200,15 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
     assert search.json()["results"] == []
 
 
-def test_require_write_rejects_near_miss_token(tmp_path: Path, monkeypatch) -> None:
+def test_require_write_rejects_near_miss_token(owned_runtime_resources, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Token", path=tmp_path / "token", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     token = client.get("/api/v1/security/handshake").json()["token"]
     near_miss = token[:-1] + ("A" if token[-1] != "A" else "B")
@@ -214,7 +229,9 @@ def test_require_write_rejects_near_miss_token(tmp_path: Path, monkeypatch) -> N
     assert accepted.status_code == 202
 
 
-def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Path, monkeypatch) -> None:
+def test_static_routes_resolve_relative_static_dir_at_app_creation(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     app_root = tmp_path / "app-root"
     static_dir = app_root / "dist"
     other_cwd = tmp_path / "other"
@@ -222,27 +239,33 @@ def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Pat
     other_cwd.mkdir()
     (static_dir / "index.html").write_text("<html><body>control shell</body></html>", encoding="utf-8")
 
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
 
     monkeypatch.chdir(app_root)
     app = create_app(runtime=store, static_dir=Path("dist"))
     monkeypatch.chdir(other_cwd)
 
-    response = TestClient(app).get("/")
+    response = owned_runtime_resources.enter_context(TestClient(app)).get("/")
 
     assert response.status_code == 200
     assert "control shell" in response.text
 
 
-def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monkeypatch) -> None:
+def test_sse_snapshot_does_not_race_shared_store_connection(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Concurrent", path=tmp_path / "concurrent", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def request(path: str) -> tuple[int, str]:
         response = client.get(path)
@@ -256,14 +279,18 @@ def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monk
     assert any("event: snapshot" in body for _, body in responses)
 
 
-def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch) -> None:
+def test_sse_snapshot_uses_isolated_store_connection(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="SSE", path=tmp_path / "sse", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def fail_if_shared_store_is_used():
         raise AssertionError("SSE endpoint must not snapshot through the shared request store")
@@ -277,14 +304,18 @@ def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch
     assert "chat.route" in response.text
 
 
-def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monkeypatch) -> None:
+def test_overview_routes_do_not_use_store_read_model_facade(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Overview", path=tmp_path / "overview", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def fail_if_facade_is_used():
         raise AssertionError(
@@ -302,9 +333,13 @@ def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monk
     assert "event: snapshot" in events.text
 
 
-def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypatch) -> None:
+def test_overview_returns_bounded_recent_event_snapshot(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Overview Events",
@@ -327,7 +362,9 @@ def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypa
     assert len(store.events.list_events(project_id=project["id"])) == OVERVIEW_EVENT_LIMIT + 25
     assert len(store.events.list_audit_events(project_id=project["id"])) >= OVERVIEW_AUDIT_EVENT_LIMIT + 10
 
-    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
 
     assert response.status_code == 200
     overview = response.json()
@@ -343,9 +380,13 @@ def test_overview_returns_bounded_recent_event_snapshot(tmp_path: Path, monkeypa
     assert max(audit_sequences) == OVERVIEW_AUDIT_EVENT_LIMIT + 9
 
 
-def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) -> None:
+def test_overview_bounds_heavy_history_collections(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Overview History",
@@ -407,7 +448,9 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
     assert len(store.agents.list_agent_tool_calls()) == OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15
     assert len(store.agents.list_cost_usage()) == OVERVIEW_COST_USAGE_LIMIT + 10
 
-    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
 
     assert response.status_code == 200
     overview = response.json()
@@ -417,12 +460,16 @@ def test_overview_bounds_heavy_history_collections(tmp_path: Path, monkeypatch) 
     assert len(overview["costUsage"]) == OVERVIEW_COST_USAGE_LIMIT
 
 
-def test_overview_compacts_embedded_blobs_and_caps_evidence_history(tmp_path: Path, monkeypatch) -> None:
+def test_overview_compacts_embedded_blobs_and_caps_evidence_history(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     # El overview viaja cada 5s: las señales escalares (status, ids) deben sobrevivir,
     # pero los blobs embebidos (schedules, prompts, snapshots anidados) viven en sus
     # endpoints de detalle, no en el poll.
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Overview Compact",
@@ -458,7 +505,9 @@ def test_overview_compacts_embedded_blobs_and_caps_evidence_history(tmp_path: Pa
             ],
         )
 
-    response = TestClient(create_app(runtime=store, static_dir=None)).get("/api/v1/overview")
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
 
     assert response.status_code == 200
     overview = response.json()
@@ -497,9 +546,13 @@ def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:
         assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone()
 
 
-def test_startup_lifespan_prunes_stale_http_request_telemetry(tmp_path: Path, monkeypatch) -> None:
+def test_startup_lifespan_prunes_stale_http_request_telemetry(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     store.connection.execute(
         "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
@@ -583,12 +636,16 @@ def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(
     runtime.close()
 
 
-def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_covers_platform_v1_catalog_routes(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     token = client.get("/api/v1/security/handshake").json()["token"]
 
     routes = {
@@ -661,13 +718,17 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
     )
 
 
-def test_fastapi_covers_threads_and_legacy_read_only_cutover(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_covers_threads_and_legacy_read_only_cutover(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="V1", path=tmp_path / "v1", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     token = client.get("/api/v1/security/handshake").json()["token"]
     headers = {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
@@ -712,15 +773,17 @@ def test_fastapi_covers_threads_and_legacy_read_only_cutover(tmp_path: Path, mon
 
 
 def test_retrieval_status_reports_configuration_required_without_real_embeddings(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     from local_control_center.memory_retrieval import index as retrieval_index
 
     monkeypatch.setattr(retrieval_index, "faiss", None)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    status = TestClient(app).get("/api/v1/retrieval/status")
+    status = owned_runtime_resources.enter_context(TestClient(app)).get("/api/v1/retrieval/status")
     assert status.status_code == 200
     body = status.json()
     assert body["status"] == "configuration_required"

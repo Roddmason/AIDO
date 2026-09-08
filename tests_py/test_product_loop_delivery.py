@@ -21,7 +21,8 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 from local_control_center.settings.repository import SettingsRepository
 from local_control_center.workspaces_projects.git_worktrees import commit_workspace_changes
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
-from tests_py.test_workspace_isolation_contract import create_git_repo, make_app
+from tests_py.test_workspace_isolation_contract import create_git_repo
+from tests_py.test_workspace_isolation_contract import make_app as make_app
 
 pytestmark = [
     pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
@@ -63,7 +64,7 @@ def _landed_workspace(
 
 
 def test_direct_push_lands_on_base_and_deletes_the_work_branch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "delivery-direct"
@@ -95,7 +96,7 @@ def test_direct_push_lands_on_base_and_deletes_the_work_branch(
 
 
 def test_pr_modes_degrade_to_direct_push_when_no_remote_is_configured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "delivery-degrade"
@@ -119,7 +120,7 @@ def test_pr_modes_degrade_to_direct_push_when_no_remote_is_configured(
 
 
 def test_manual_pr_with_remote_publishes_the_work_branch_and_waits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "delivery-pr"
@@ -206,7 +207,7 @@ def _stub_github(
 
 
 def test_auto_pr_lets_the_technical_lead_approve_merge_and_clean_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo, project, workspace = _auto_pr_repo(store, tmp_path, "autopr")
@@ -237,7 +238,7 @@ def test_auto_pr_lets_the_technical_lead_approve_merge_and_clean_up(
 
 
 def test_auto_pr_lt_rejects_failed_qa_and_keeps_the_branch_for_iteration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo, project, workspace = _auto_pr_repo(store, tmp_path, "autopr-reject")
@@ -257,7 +258,9 @@ def test_auto_pr_lt_rejects_failed_qa_and_keeps_the_branch_for_iteration(
     assert run_git(["rev-parse", "--verify", "codex/autopr-reject-hu"], cwd=repo).returncode == 0
 
 
-def test_auto_pr_waits_for_green_ci_before_merging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_pr_waits_for_green_ci_before_merging(
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     _repo, project, workspace = _auto_pr_repo(store, tmp_path, "autopr-ci")
     _configure_git(store.connection, project["id"], requireCiGreen=True)
@@ -277,7 +280,7 @@ def test_auto_pr_waits_for_green_ci_before_merging(tmp_path: Path, monkeypatch: 
 
 
 def test_auto_pr_without_github_credentials_waits_for_a_human(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     _repo, project, workspace = _auto_pr_repo(store, tmp_path, "autopr-nocreds")

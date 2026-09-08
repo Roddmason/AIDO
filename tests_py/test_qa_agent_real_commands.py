@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,23 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_git_project(
@@ -56,6 +65,7 @@ def create_git_project(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_command_ok_records_passed_verdict_and_artifact_hashes(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -101,6 +111,7 @@ def test_qa_agent_command_ok_records_passed_verdict_and_artifact_hashes(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_discovers_package_script_with_default_timeout(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -155,6 +166,7 @@ def test_qa_agent_discovers_package_script_with_default_timeout(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_rejects_command_string(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -185,6 +197,7 @@ def test_qa_agent_rejects_command_string(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_command_failure_records_failed_verdict(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -226,6 +239,7 @@ def test_qa_agent_command_failure_records_failed_verdict(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_missing_noncritical_command_is_skipped_with_reason_not_passed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -270,6 +284,7 @@ def test_qa_agent_missing_noncritical_command_is_skipped_with_reason_not_passed(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_qa_agent_missing_critical_command_fails(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -332,6 +347,7 @@ def test_qa_verdict_required_for_completed() -> None:
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_run_for_context_persists_story_spec_artifact_and_input(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -372,6 +388,7 @@ def test_run_for_context_persists_story_spec_artifact_and_input(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_run_for_context_legacy_input_payload_unchanged(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

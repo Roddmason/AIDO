@@ -1,3 +1,4 @@
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -12,23 +13,33 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    for name in [
-        "AIDO_CODEX_COMMAND",
-        "AIDO_CLAUDE_COMMAND",
-        "AIDO_ENABLE_CLI_RUNTIMES",
-        "AIDO_ENABLE_REAL_PROVIDER_CALLS",
-        "AIDO_OPENAI_COMPATIBLE_API_KEY",
-        "AIDO_OLLAMA_BASE_URL",
-    ]:
-        monkeypatch.delenv(name, raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            for name in [
+                "AIDO_CODEX_COMMAND",
+                "AIDO_CLAUDE_COMMAND",
+                "AIDO_ENABLE_CLI_RUNTIMES",
+                "AIDO_ENABLE_REAL_PROVIDER_CALLS",
+                "AIDO_OPENAI_COMPATIBLE_API_KEY",
+                "AIDO_OLLAMA_BASE_URL",
+            ]:
+                monkeypatch.delenv(name, raising=False)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project(store: ControlPlaneFixture, tmp_path: Path) -> dict[str, str]:
@@ -39,7 +50,7 @@ def create_project(store: ControlPlaneFixture, tmp_path: Path) -> dict[str, str]
 
 
 def test_thread_intake_queues_product_loop_without_legacy_records(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_project(store, tmp_path)

@@ -18,7 +18,8 @@ import pytest
 
 from local_control_center.git_workspace.api import is_git_snapshot_request
 from local_control_center.security_policy.git_command_runner import git_available
-from tests_py.test_git_workspace_api import create_client, create_git_project
+from tests_py.test_git_workspace_api import create_client as create_client
+from tests_py.test_git_workspace_api import create_git_project
 
 pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is required for git workspace tests")
 
@@ -95,7 +96,7 @@ def test_is_git_snapshot_request_matches_only_get_snapshot_paths() -> None:
 
 
 def test_git_status_subprocess_phase_does_not_block_other_api_requests(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Mientras el refresh aceptado corre fuera de HTTP, otra lectura responde sin esperarlo.
 
@@ -136,7 +137,7 @@ def test_git_status_subprocess_phase_does_not_block_other_api_requests(
 
 
 def test_concurrent_snapshot_requests_share_one_brokered_execution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Dos GET solapados reutilizan el refresh persistido sin ejecutar Git otra vez.
 
@@ -186,7 +187,7 @@ def test_concurrent_snapshot_requests_share_one_brokered_execution(
 
 
 def test_git_snapshot_requests_still_record_http_telemetry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """La exención del lock no puede saltarse la telemetría HTTP ni el header de correlación."""
     store, client, _headers = create_client(tmp_path, monkeypatch)

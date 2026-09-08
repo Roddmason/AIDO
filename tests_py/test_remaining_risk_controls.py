@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
+
+import pytest
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
@@ -13,15 +16,29 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
-def test_workflow_creation_rejects_unbounded_kind_title_and_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_creation_rejects_unbounded_kind_title_and_metadata(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
         name="Workflow Forms", path=tmp_path / "workflow-forms", template_id="other"
@@ -62,7 +79,9 @@ def test_workflow_creation_rejects_unbounded_kind_title_and_metadata(tmp_path: P
     assert accepted.json()["workflow"]["kind"] == "idea_to_pr"
 
 
-def test_mcp_registration_rejects_untyped_or_shell_like_server_config(tmp_path: Path, monkeypatch) -> None:
+def test_mcp_registration_rejects_untyped_or_shell_like_server_config(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     _store, client, headers = make_app(tmp_path, monkeypatch)
 
     invalid_id = client.post(
@@ -99,7 +118,9 @@ def test_mcp_registration_rejects_untyped_or_shell_like_server_config(tmp_path: 
     assert accepted.json()["mcpServer"]["id"] == "mcp_local_docs"
 
 
-def test_overview_exposes_evidence_artifacts_for_workflow_inspection(tmp_path: Path, monkeypatch) -> None:
+def test_overview_exposes_evidence_artifacts_for_workflow_inspection(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
         name="Workflow Artifacts", path=tmp_path / "workflow-artifacts", template_id="other"

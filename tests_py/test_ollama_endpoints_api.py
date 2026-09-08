@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -58,15 +59,25 @@ def run_ollama_tags_server(
     return f"http://127.0.0.1:{server.server_port}", handler, server
 
 
-def client_with_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[TestClient, dict[str, str], ControlPlaneFixture]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store
+@pytest.fixture
+def client_with_store():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[TestClient, dict[str, str], ControlPlaneFixture]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store
+
+        yield create_owned
 
 
 def endpoint_payload(endpoint_id: str, base_url: str, **extra: Any) -> dict[str, Any]:
@@ -80,7 +91,7 @@ def endpoint_payload(endpoint_id: str, base_url: str, **extra: Any) -> dict[str,
 
 
 def test_ollama_endpoints_create_local_health_and_catalog_sync(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base_url, _handler, server = run_ollama_tags_server(models=["llama3:latest", "nomic-embed-text"])
     try:
@@ -105,6 +116,7 @@ def test_ollama_endpoints_create_local_health_and_catalog_sync(
         ).fetchall()
     finally:
         server.shutdown()
+        server.server_close()
 
     assert created.status_code == 201
     assert created.json()["endpoint"]["id"] == "ollama-local"
@@ -129,7 +141,9 @@ def test_ollama_endpoints_create_local_health_and_catalog_sync(
     ]
 
 
-def test_readonly_ollama_readiness_uses_synced_models_without_network(tmp_path, monkeypatch):
+def test_readonly_ollama_readiness_uses_synced_models_without_network(
+    client_with_store, tmp_path, monkeypatch
+):
     from local_control_center.agents.runtime_status import RuntimeStatusService
 
     base_url, handler, server = run_ollama_tags_server(models=["controlled-readiness-model"])
@@ -163,7 +177,7 @@ def test_readonly_ollama_readiness_uses_synced_models_without_network(tmp_path, 
 
 
 def test_ollama_endpoint_accepts_remote_lan_http_without_auth(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, headers, store = client_with_store(tmp_path, monkeypatch)
     payload = endpoint_payload("ollama-remote-lan", "http://192.168.1.50:11434", kind="remote")
@@ -196,7 +210,7 @@ def test_ollama_endpoint_accepts_remote_lan_http_without_auth(
 
 
 def test_ollama_remote_endpoint_uses_optional_credential_ref_as_bearer_header(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("AIDO_OLLAMA_REMOTE_KEY", "test-ollama-endpoint-token-123456")
     base_url, handler, server = run_ollama_tags_server(models=["qwen2.5-coder:14b"])
@@ -215,6 +229,7 @@ def test_ollama_remote_endpoint_uses_optional_credential_ref_as_bearer_header(
         health = client.post("/api/v1/ollama/endpoints/ollama-remote-auth/health", headers=headers)
     finally:
         server.shutdown()
+        server.server_close()
 
     assert created.status_code == 201
     assert created.json()["endpoint"]["credentialStatus"] == "configured"
@@ -228,7 +243,7 @@ def test_ollama_remote_endpoint_uses_optional_credential_ref_as_bearer_header(
 
 
 def test_ollama_endpoint_health_marks_down_endpoint_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base_url, _handler, server = run_ollama_tags_server(status_code=503)
     try:
@@ -241,6 +256,7 @@ def test_ollama_endpoint_health_marks_down_endpoint_unavailable(
         health = client.post("/api/v1/ollama/endpoints/ollama-down/health", headers=headers)
     finally:
         server.shutdown()
+        server.server_close()
 
     assert created.status_code == 201
     assert health.status_code == 200
@@ -250,7 +266,7 @@ def test_ollama_endpoint_health_marks_down_endpoint_unavailable(
 
 
 def test_routing_selects_remote_ollama_endpoint_when_local_has_no_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     local_url, _local_handler, local_server = run_ollama_tags_server(models=[])
     remote_url, _remote_handler, remote_server = run_ollama_tags_server(models=["llama3:latest"])
@@ -285,7 +301,9 @@ def test_routing_selects_remote_ollama_endpoint_when_local_has_no_model(
         )
     finally:
         local_server.shutdown()
+        local_server.server_close()
         remote_server.shutdown()
+        remote_server.server_close()
 
     assert local_created.status_code == 201
     assert remote_created.status_code == 201
@@ -299,7 +317,7 @@ def test_routing_selects_remote_ollama_endpoint_when_local_has_no_model(
 
 
 def test_seeded_local_daemon_is_exposed_as_an_ollama_endpoint(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, _headers, _store = client_with_store(tmp_path, monkeypatch)
 
@@ -316,7 +334,7 @@ def test_seeded_local_daemon_is_exposed_as_an_ollama_endpoint(
 
 
 def test_endpoint_kind_survives_a_provider_type_the_router_did_not_write(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, _headers, store = client_with_store(tmp_path, monkeypatch)
     # The provider catalog seeds `ollama_remote` with provider_type 'local'; once an operator gives it
@@ -338,7 +356,7 @@ def test_endpoint_kind_survives_a_provider_type_the_router_did_not_write(
 
 
 def test_explicit_endpoint_kind_is_preserved_over_the_url_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, headers, _store = client_with_store(tmp_path, monkeypatch)
 
@@ -356,7 +374,7 @@ def test_explicit_endpoint_kind_is_preserved_over_the_url_host(
 
 
 def test_endpoint_kind_is_inferred_from_the_whole_loopback_range(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, headers, _store = client_with_store(tmp_path, monkeypatch)
 

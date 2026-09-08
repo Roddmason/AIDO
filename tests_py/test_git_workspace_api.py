@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -20,21 +21,29 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    from local_control_center.host_resources.models import ResourceSnapshot
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
 
-    monkeypatch.setattr(
-        "local_control_center.host_resources.probes.HostResourceProbe.sample",
-        lambda *args, **kwargs: ResourceSnapshot.test_snapshot(),
-    )
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            from local_control_center.host_resources.models import ResourceSnapshot
+
+            monkeypatch.setattr(
+                "local_control_center.host_resources.probes.HostResourceProbe.sample",
+                lambda *args, **kwargs: ResourceSnapshot.test_snapshot(),
+            )
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def init_git_project(path: Path) -> None:
@@ -69,7 +78,7 @@ def create_plain_project(
 
 
 def test_git_init_completed_for_project_without_git_creates_default_branch_and_no_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_plain_project(store, tmp_path, template_id="python-fastapi")
@@ -100,7 +109,7 @@ def test_git_init_completed_for_project_without_git_creates_default_branch_and_n
 
 
 def test_git_init_defaults_to_dev_when_branch_not_supplied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_plain_project(store, tmp_path)
@@ -117,7 +126,7 @@ def test_git_init_defaults_to_dev_when_branch_not_supplied(
 
 
 def test_git_init_preserves_existing_gitignore_without_overwriting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_plain_project(store, tmp_path, template_id="python-fastapi")
@@ -136,7 +145,7 @@ def test_git_init_preserves_existing_gitignore_without_overwriting(
 
 
 def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -165,7 +174,7 @@ def test_git_remote_add_persists_sanitized_metadata_and_uses_git_remote_add(
 
 
 def test_git_remote_with_embedded_token_is_blocked_before_git_remote_add(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -189,7 +198,7 @@ def test_git_remote_with_embedded_token_is_blocked_before_git_remote_add(
 
 
 def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected_base(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -215,7 +224,7 @@ def test_git_branch_policy_suggests_branch_from_intent_and_creates_from_selected
 
 
 def test_git_branch_policy_blocks_main_and_master_as_work_branches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -239,7 +248,7 @@ def test_git_branch_policy_blocks_main_and_master_as_work_branches(
 
 
 def test_git_branch_policy_allows_protected_branch_with_explicit_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -274,7 +283,7 @@ def test_git_branch_policy_allows_protected_branch_with_explicit_override(
 
 
 def test_git_status_detects_current_branch_and_records_broker_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -301,7 +310,7 @@ def test_git_status_detects_current_branch_and_records_broker_evidence(
 
 
 def test_git_status_detects_branch_dirty_state_and_sanitizes_existing_remotes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -334,7 +343,7 @@ def test_git_status_detects_branch_dirty_state_and_sanitizes_existing_remotes(
 
 
 def test_git_status_rejects_project_nested_inside_another_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A project folder nested inside a PARENT repo must report 'not connected', not leak its branches.
 
@@ -363,7 +372,7 @@ def test_git_status_rejects_project_nested_inside_another_repo(
 
 
 def test_git_status_categorizes_changed_untracked_and_staged_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -386,7 +395,7 @@ def test_git_status_categorizes_changed_untracked_and_staged_files(
 
 
 def test_git_branches_reuse_status_snapshot_without_extra_git_commands(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Sólo POST refresh ejecuta Git; ambos GET reutilizan su evidencia durable."""
     store, client, _headers = create_client(tmp_path, monkeypatch)
@@ -416,7 +425,7 @@ def test_git_branches_reuse_status_snapshot_without_extra_git_commands(
 
 
 def test_git_branch_can_be_created_from_current_branch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -437,7 +446,7 @@ def test_git_branch_can_be_created_from_current_branch(
 
 
 def test_git_checkout_blocks_dirty_tree_without_confirmation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -459,7 +468,7 @@ def test_git_checkout_blocks_dirty_tree_without_confirmation(
 
 
 def test_git_diff_returns_real_diff_and_changed_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, _headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -478,7 +487,7 @@ def test_git_diff_returns_real_diff_and_changed_files(
 
 
 def test_git_gitleaks_unavailable_returns_configuration_required(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
@@ -508,7 +517,9 @@ def write_fake_gitleaks(bin_dir: Path, script: str) -> None:
         command.chmod(0o755)
 
 
-def test_git_gitleaks_failure_blocks_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_git_gitleaks_failure_blocks_delivery(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project = create_git_project(store, tmp_path)
     fake_bin = tmp_path / "fake-bin"

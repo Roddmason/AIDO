@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -28,14 +29,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_git_repo(path: Path) -> None:
@@ -87,7 +98,7 @@ def worktree_paths(repo: Path) -> set[str]:
 
 
 def test_plan_classifies_archived_thread_and_protects_open_thread_and_control_rows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -129,7 +140,7 @@ def test_plan_classifies_archived_thread_and_protects_open_thread_and_control_ro
 
 
 def test_plan_excludes_fresh_workspaces_and_flags_missing_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -164,7 +175,7 @@ def test_plan_excludes_fresh_workspaces_and_flags_missing_paths(
 
 
 def test_plan_classifies_finished_workflow_and_reports_repo_orphans(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -220,7 +231,7 @@ def test_plan_classifies_finished_workflow_and_reports_repo_orphans(
 
 
 def test_apply_archives_candidates_removes_worktrees_and_prunes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -284,7 +295,7 @@ def test_apply_archives_candidates_removes_worktrees_and_prunes(
 
 
 def test_apply_can_delete_work_branches_when_opted_in(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -315,7 +326,7 @@ def test_apply_can_delete_work_branches_when_opted_in(
 
 
 def test_cleanup_api_roundtrip_requires_token_and_explicit_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"

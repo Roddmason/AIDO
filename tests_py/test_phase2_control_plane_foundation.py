@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
+
+import pytest
 
 from local_control_center.app import create_app
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -43,14 +52,16 @@ def test_phase2_schema_adds_control_plane_foundation_tables(tmp_path: Path) -> N
 
 
 def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Phase 2", path=tmp_path / "phase2", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     workflow = client.post(
@@ -158,13 +169,17 @@ def test_workflows_policy_evidence_agents_and_model_policy_routes_are_real(
     assert any(event["type"] == "workflow.started" for event in overview["events"])
 
 
-def test_phase2_write_routes_require_loopback_token(tmp_path: Path, monkeypatch) -> None:
+def test_phase2_write_routes_require_loopback_token(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Auth", path=tmp_path / "auth", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     response = client.post(
         "/api/v1/workflows",

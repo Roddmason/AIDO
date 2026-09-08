@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -105,15 +106,25 @@ def test_failed_runtime_tool_call_reports_execution_cause_and_stderr_artifact() 
     assert result["stderrArtifactId"] == "artifact-stderr"
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -604,6 +615,7 @@ def test_product_owner_readiness_prefers_cli_runtime() -> None:
 )
 @pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_instructions(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     runtime_id: str,
@@ -815,6 +827,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
 
 @pytest.mark.usefixtures("controlled_codex_compatibility")
 def test_product_owner_cli_runtime_without_resource_decision_fails_closed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -929,7 +942,7 @@ def test_product_owner_readiness_accepts_a_named_ollama_endpoint() -> None:
 
 
 def test_product_owner_agent_without_real_runtime_returns_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
@@ -964,7 +977,7 @@ def test_product_owner_agent_without_real_runtime_returns_unavailable(
 
 
 def test_product_owner_agent_valid_output_generates_brief_and_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-valid")
@@ -1041,7 +1054,7 @@ def test_product_owner_agent_valid_output_generates_brief_and_backlog(
 
 
 def test_product_owner_agent_incomplete_idea_returns_relevant_questions_without_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-incomplete")
@@ -1071,7 +1084,7 @@ def test_product_owner_agent_incomplete_idea_returns_relevant_questions_without_
 
 
 def test_product_owner_brief_approval_generates_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-approval")
@@ -1109,7 +1122,7 @@ def test_product_owner_brief_approval_generates_backlog(
 
 
 def test_product_owner_scope_is_clear_returns_brief_ready_without_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-scope-clear")
@@ -1132,7 +1145,7 @@ def test_product_owner_scope_is_clear_returns_brief_ready_without_backlog(
 
 
 def test_product_owner_agent_runs_through_nvidia_nim_runtime_adapter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-nvidia")
@@ -1157,7 +1170,7 @@ def test_product_owner_agent_runs_through_nvidia_nim_runtime_adapter(
 
 
 def test_product_owner_agent_runs_through_anthropic_runtime_adapter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-anthropic")
@@ -1182,7 +1195,7 @@ def test_product_owner_agent_runs_through_anthropic_runtime_adapter(
 
 
 def test_product_owner_agent_blocking_decisions_withhold_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-blocked")
@@ -1219,7 +1232,7 @@ def test_product_owner_agent_blocking_decisions_withhold_backlog(
 
 
 def test_product_owner_agent_invalid_output_fails_validation_without_persistence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-invalid")
@@ -1243,7 +1256,7 @@ def test_product_owner_agent_invalid_output_fails_validation_without_persistence
 
 
 def test_product_owner_autonomous_profile_auto_resolves_reversible_decision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-autonomous")
@@ -1282,7 +1295,7 @@ def test_product_owner_autonomous_profile_auto_resolves_reversible_decision(
 
 
 def test_product_owner_guided_profile_escalates_and_withholds_backlog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-guided")
@@ -1305,7 +1318,7 @@ def test_product_owner_guided_profile_escalates_and_withholds_backlog(
 
 
 def test_product_owner_repairs_invalid_output_on_second_attempt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-repair-ok")
@@ -1330,7 +1343,7 @@ def test_product_owner_repairs_invalid_output_on_second_attempt(
 
 
 def test_product_owner_single_attempt_preserves_invalid_output_without_repair(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-single-attempt")
@@ -1358,7 +1371,7 @@ def test_product_owner_single_attempt_preserves_invalid_output_without_repair(
 
 @pytest.mark.parametrize("limit", [0, 3, -1, True, "1", 1.5, None])
 def test_product_owner_rejects_invalid_attempt_limit_before_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: object
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: object
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-invalid-attempt-limit")
@@ -1371,7 +1384,7 @@ def test_product_owner_rejects_invalid_attempt_limit_before_runtime(
 
 
 def test_product_owner_stops_after_repair_attempt_cap(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-repair-cap")

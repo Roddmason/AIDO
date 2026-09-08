@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 
 from local_control_center.backlog.repository import BacklogRepository
+from tests_py.test_product_owner_agent_real_runtime import create_client as create_client
 from tests_py.test_product_owner_agent_real_runtime import (
-    create_client,
     create_project_and_workspace,
     run_with_controlled_provider,
 )
@@ -101,7 +101,7 @@ def _expansion_output(*, epic_title: str) -> dict[str, Any]:
 
 
 def test_epic_expansion_links_new_stories_to_existing_epic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="epic-expansion")
@@ -141,7 +141,7 @@ def test_epic_expansion_links_new_stories_to_existing_epic(
 
 
 def test_epic_expansion_rejects_stories_for_other_epics_without_persisting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="epic-expansion-invalid")
@@ -171,7 +171,9 @@ def test_epic_expansion_rejects_stories_for_other_epics_without_persisting(
     assert len(backlog.list_epics(project["id"])) == 1
 
 
-def test_epic_expansion_unknown_epic_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_epic_expansion_unknown_epic_returns_404(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="epic-expansion-404")
 

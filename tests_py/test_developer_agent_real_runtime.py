@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -25,17 +26,25 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_git_project(
@@ -224,6 +233,7 @@ def start_controlled_nvidia_server() -> tuple[ThreadingHTTPServer, str]:
 
 
 def test_developer_agent_status_reports_contract_and_no_executable_runtime(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -299,6 +309,7 @@ def test_developer_agent_readiness_accepts_a_named_ollama_endpoint() -> None:
 
 
 def test_developer_agent_requires_workspace_before_execution(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -321,6 +332,7 @@ def test_developer_agent_requires_workspace_before_execution(
 
 
 def test_developer_agent_accepts_a_named_gateway_account_as_runtime(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -357,6 +369,7 @@ def test_developer_agent_accepts_a_named_gateway_account_as_runtime(
 
 
 def test_developer_agent_rejects_a_provider_account_that_does_not_exist(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -382,6 +395,7 @@ def test_developer_agent_rejects_a_provider_account_that_does_not_exist(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -443,6 +457,7 @@ def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evi
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_real_cli_runtime_with_failing_qa_finishes_qa_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -485,6 +500,7 @@ def test_developer_agent_real_cli_runtime_with_failing_qa_finishes_qa_failed(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_ollama_runtime_applies_structured_patch_in_workspace(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -534,6 +550,7 @@ def test_developer_agent_ollama_runtime_applies_structured_patch_in_workspace(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_workspace(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -597,6 +614,7 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_nvidia_nim_runtime_applies_structured_patch_in_workspace(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -674,6 +692,7 @@ def test_developer_agent_ui_and_openapi_expose_executable_status() -> None:
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_forwards_story_specs_to_qa_agent(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

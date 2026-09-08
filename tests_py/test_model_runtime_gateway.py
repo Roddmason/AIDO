@@ -6,7 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
-from contextlib import closing
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,6 +48,13 @@ from tests_py.evidence_helpers import real_qa_evidence_fields
 from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
@@ -69,12 +76,20 @@ def enable_runtime_policy(
         repo.set_runtime_setting("runtime.nvidia.enabled", True)
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    return TestClient(app)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            return _owned_fixture_resources.enter_context(TestClient(app))
+
+        yield create_owned
 
 
 def enable_provider(client: TestClient, headers: dict[str, str], provider_id: str, **extra: object) -> None:
@@ -513,7 +528,7 @@ def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
 
 
 def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -554,7 +569,7 @@ def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
 
 
 def test_provider_account_requests_cannot_write_health_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -645,7 +660,7 @@ def test_prepare_model_call_preserves_unknown_estimated_cost(tmp_path: Path) -> 
 
 
 def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("AIDO_TEST_COMPATIBLE_API_KEY", "sk-testsecret123456")
     client = create_client(tmp_path, monkeypatch)
@@ -981,7 +996,7 @@ def test_credential_preflight_script_accepts_pnpm_argument_separator() -> None:
 
 
 def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1526,7 +1541,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
         server.shutdown()
 
 
-def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_catalog_crud_endpoints(create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -1563,7 +1578,7 @@ def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_routing_profiles_and_role_policy_seeds_are_exposed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     profiles = client.get("/api/v1/model-gateway/routing-profiles")
@@ -1588,7 +1603,7 @@ def test_routing_profiles_and_role_policy_seeds_are_exposed(
 
 
 def test_agent_profile_stores_routing_runtime_and_budget_controls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1628,7 +1643,7 @@ def test_agent_profile_stores_routing_runtime_and_budget_controls(
 
 
 def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quota(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1673,7 +1688,7 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
 
 
 def test_route_preview_ranks_provider_wildcard_preferred_candidate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El candidato comodín ``{provider, model: "*"}`` debe aportar rank en el scorer legacy.
 
@@ -1712,7 +1727,7 @@ def test_route_preview_ranks_provider_wildcard_preferred_candidate(
 
 
 def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1755,7 +1770,7 @@ def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it
 
 
 def test_route_preview_local_private_blocks_remote_providers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1783,7 +1798,7 @@ def test_route_preview_local_private_blocks_remote_providers(
 
 
 def test_route_preview_developer_prefers_cli_runtime_over_nvidia_for_code_edit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1813,7 +1828,7 @@ def test_route_preview_developer_prefers_cli_runtime_over_nvidia_for_code_edit(
 
 
 def test_route_preview_technical_lead_selects_premium_xhigh_when_budget_allows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1842,7 +1857,7 @@ def test_route_preview_technical_lead_selects_premium_xhigh_when_budget_allows(
 
 
 def test_route_preview_requires_approval_when_estimated_cost_exceeds_role_threshold(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1868,7 +1883,7 @@ def test_route_preview_requires_approval_when_estimated_cost_exceeds_role_thresh
 
 
 def test_budget_rule_denies_route_preview_before_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1913,7 +1928,7 @@ def test_budget_rule_denies_route_preview_before_selection(
 
 
 def test_budget_rule_requires_approval_in_route_preview(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1957,7 +1972,7 @@ def test_budget_rule_requires_approval_in_route_preview(
 
 
 def test_budget_rule_fallback_rejects_candidate_and_selects_next_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2003,7 +2018,7 @@ def test_budget_rule_fallback_rejects_candidate_and_selects_next_runtime(
 
 
 def test_budget_rule_warn_keeps_selection_and_surfaces_warning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2086,7 +2101,7 @@ def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: P
 
 
 def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2120,7 +2135,7 @@ def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
 
 
 def test_discover_models_uses_sqlite_policy_when_env_flag_is_absent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2135,6 +2150,7 @@ def test_discover_models_uses_sqlite_policy_when_env_flag_is_absent(
 
 
 def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2173,6 +2189,7 @@ def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
 
 
 def test_discover_models_rejects_real_api_provider_without_configured_credential_before_network(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2200,6 +2217,7 @@ def test_discover_models_rejects_real_api_provider_without_configured_credential
 
 
 def test_discover_models_real_mode_stores_provider_sourced_models_without_real_network(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2253,6 +2271,7 @@ def test_discover_models_real_mode_stores_provider_sourced_models_without_real_n
 
 
 def test_pricing_snapshot_api_records_redacted_append_only_snapshot_and_updates_catalog(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2314,7 +2333,7 @@ def test_phase14_schema_adds_pricing_snapshots(tmp_path: Path) -> None:
 
 
 def test_benchmark_routing_ignores_insufficient_data_in_score(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2362,7 +2381,7 @@ def test_benchmark_routing_ignores_insufficient_data_in_score(
 
 
 def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2414,7 +2433,7 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
 
 
 def test_operator_reported_benchmarks_are_separated_from_objective_routing_score(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2466,7 +2485,7 @@ def test_operator_reported_benchmarks_are_separated_from_objective_routing_score
 
 
 def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def healthy_provider(self: OpenAICompatibleProvider) -> ProviderHealth:
         return ProviderHealth(
@@ -2505,6 +2524,7 @@ def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_p
 
 
 def test_provider_health_429_records_cooldown_and_redacts_last_error(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2687,7 +2707,9 @@ def test_usage_ledger_summary_does_not_present_known_cost_subtotals_as_complete(
     assert summary["byProvider"][0]["estimatedCostUsd"] is None
 
 
-def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_route_execute_mock_endpoint_is_not_exposed(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -2710,7 +2732,7 @@ def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch:
 
 
 def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -2738,7 +2760,7 @@ def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing
 
 
 def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2781,7 +2803,7 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
 
 
 def test_operator_reported_benchmark_outcomes_do_not_create_objective_rates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2827,7 +2849,7 @@ def test_operator_reported_benchmark_outcomes_do_not_create_objective_rates(
 
 
 def test_release_validation_benchmark_provenance_is_accepted_as_objective(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2864,7 +2886,7 @@ def test_release_validation_benchmark_provenance_is_accepted_as_objective(
 
 
 def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -2920,7 +2942,7 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
 
 
 def test_failed_test_result_overrides_passed_verdict_in_benchmarks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -3161,7 +3183,7 @@ def test_auth_status_sandbox_rejects_unlisted_subcommands() -> None:
 
 
 def test_cli_detect_probe_without_version_degrades_instead_of_offline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from local_control_center.agents.runtime_registry import RuntimeRegistry
 
@@ -3698,7 +3720,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
 
 
 def test_agent_profiles_accept_expanded_executable_role_catalog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -3802,7 +3824,9 @@ def test_secrets_are_redacted_from_logs() -> None:
     assert redacted["nested"]["api_key"] == "[redacted]"
 
 
-def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_gateway_endpoints_return_valid_json(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     endpoints = [
@@ -3849,7 +3873,7 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
 
 
 def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_costly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -3909,15 +3933,17 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
 
 
 def test_workflow_start_records_model_router_decisions_for_each_step(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Routing Workflow", path=tmp_path / "routing-workflow", template_id="other"
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     workflow = client.post(
         "/api/v1/workflows",

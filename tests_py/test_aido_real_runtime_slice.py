@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -38,19 +39,27 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
-    monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    # The test owns its injected runtime. Close clients before their runtime,
+    # also when setup/assertions fail, without closing unrelated product resources.
+    with ExitStack() as owners:
+
+        def create(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
+            monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
+            monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
+            store = owners.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = owners.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create
 
 
 def create_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "Patch Project") -> dict[str, Any]:
@@ -337,6 +346,7 @@ def create_promoted_issue_to_patch(
 
 
 def test_github_pull_request_config_is_not_required_for_startup(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -350,6 +360,7 @@ def test_github_pull_request_config_is_not_required_for_startup(
 
 
 def test_workflow_detail_contract_exposes_full_audit_records(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -515,6 +526,7 @@ def test_workflow_detail_contract_exposes_full_audit_records(
 
 
 def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposing_values(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -582,6 +594,7 @@ def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposi
 
 
 def test_runtime_provider_configuration_endpoint_reports_missing_config_with_reasons(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -613,6 +626,7 @@ def test_runtime_provider_configuration_endpoint_reports_missing_config_with_rea
 
 
 def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_values(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -647,6 +661,7 @@ def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_v
 
 
 def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -682,6 +697,7 @@ def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
 
 
 def test_runtime_provider_status_does_not_report_api_available_without_credentials(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -718,6 +734,7 @@ def test_runtime_provider_status_does_not_report_api_available_without_credentia
 
 
 def test_remote_provider_status_fails_closed_without_configuration(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -750,6 +767,7 @@ def test_remote_provider_status_fails_closed_without_configuration(
 
 
 def test_remote_provider_status_does_not_call_remote_health_by_default(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -790,6 +808,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
 
 
 def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -848,6 +867,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
 
 
 def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_executable(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -924,6 +944,7 @@ def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_
 
 
 def test_runtime_provider_status_reports_missing_cli_as_not_detected(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -956,6 +977,7 @@ def test_runtime_provider_status_reports_missing_cli_as_not_detected(
 
 
 def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -997,6 +1019,7 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
 
 
 def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runtime(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1049,6 +1072,7 @@ def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runti
 
 
 def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1121,6 +1145,7 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
 
 
 def test_issue_to_patch_requires_structured_qa_argv(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1143,6 +1168,7 @@ def test_issue_to_patch_requires_structured_qa_argv(
 
 
 def test_issue_to_patch_without_executable_runtime_finishes_unavailable_not_success(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1194,6 +1220,7 @@ def test_issue_to_patch_without_executable_runtime_finishes_unavailable_not_succ
 
 
 def test_issue_to_patch_removed_simulation_runtime_is_rejected(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1216,6 +1243,7 @@ def test_issue_to_patch_removed_simulation_runtime_is_rejected(
 
 
 def test_issue_to_patch_completed_requires_diff_evidence_and_passed_qa(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1284,6 +1312,7 @@ def test_restricted_subprocess_blocks_network_host_two_token_variant(tmp_path: P
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_runtime_unavailable_when_executable_runtime_has_no_real_command(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1324,6 +1353,7 @@ def test_issue_to_patch_runtime_unavailable_when_executable_runtime_has_no_real_
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_creates_diff_patch_artifact_and_requires_review(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1374,6 +1404,7 @@ def test_issue_to_patch_real_runtime_creates_diff_patch_artifact_and_requires_re
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_transitions_workflow_job_and_agent_run_after_human_review(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1443,6 +1474,7 @@ def test_issue_to_patch_approval_transitions_workflow_job_and_agent_run_after_hu
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_rejects_unapproved_action_request(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1481,6 +1513,7 @@ def test_issue_to_patch_approval_rejects_unapproved_action_request(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_rejects_blocking_security_findings(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1549,6 +1582,7 @@ def test_issue_to_patch_approval_rejects_blocking_security_findings(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_requires_approved_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1589,6 +1623,7 @@ def test_promote_patch_to_branch_requires_approved_evidence(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_rejects_tampered_patch_artifact_sha256(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1636,6 +1671,7 @@ def test_promote_patch_to_branch_rejects_tampered_patch_artifact_sha256(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_reruns_qa(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1711,6 +1747,7 @@ def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_does_not_mark_promoted_when_post_apply_qa_fails(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1759,6 +1796,7 @@ def test_promote_patch_to_branch_does_not_mark_promoted_when_post_apply_qa_fails
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_rejects_runs_without_promoted_branch(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1802,6 +1840,7 @@ def test_create_pull_request_rejects_runs_without_promoted_branch(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_reports_pr_unavailable_when_github_config_is_missing(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1841,6 +1880,7 @@ def test_create_pull_request_reports_pr_unavailable_when_github_config_is_missin
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1911,6 +1951,7 @@ def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_does_not_fake_success_when_github_api_fails(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1955,6 +1996,7 @@ def test_create_pull_request_does_not_fake_success_when_github_api_fails(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_review_gate(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2020,6 +2062,7 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_with_failing_qa_finishes_qa_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2087,6 +2130,7 @@ def test_issue_to_patch_completed_requires_valid_evidence_package_contract() -> 
 
 
 def test_issue_to_patch_does_not_execute_runtime_without_git_worktree_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

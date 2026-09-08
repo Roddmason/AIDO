@@ -23,7 +23,8 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
-from tests_py.test_workspace_isolation_contract import create_git_repo, make_app
+from tests_py.test_workspace_isolation_contract import create_git_repo
+from tests_py.test_workspace_isolation_contract import make_app as make_app
 
 pytestmark = [
     pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
@@ -73,7 +74,7 @@ def _capture(
 
 
 def test_denied_intent_to_add_with_untracked_files_degrades_the_capture_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     project, workspace = _workspace_with_repo(store, tmp_path, name="deny-intent")
@@ -91,7 +92,7 @@ def test_denied_intent_to_add_with_untracked_files_degrades_the_capture_state(
 
 
 def test_denied_intent_to_add_without_untracked_files_keeps_captured_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     project, workspace = _workspace_with_repo(store, tmp_path, name="deny-tracked")
@@ -107,7 +108,7 @@ def test_denied_intent_to_add_without_untracked_files_keeps_captured_state(
 
 
 def test_allowed_intent_to_add_reports_captured_with_untracked_patch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = make_app(tmp_path, monkeypatch)
     project, workspace = _workspace_with_repo(store, tmp_path, name="allow-intent")

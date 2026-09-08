@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,14 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
 from tests_py.runtime_status_helpers import ProbedRuntimeStatusService
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
 
 pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is required for real AIDO E2E")
 
@@ -276,6 +285,7 @@ class _TechnicalLeadRuntime:
 
 
 def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,10 +295,12 @@ def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     secret = "sk-" + ("test" * 4)
 
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     _seed_ai_resource(store.connection)
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = _auth_headers(client)
     repo = tmp_path / "real-product-loop-repo"
     _init_git_project(repo)

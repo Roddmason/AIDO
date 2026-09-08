@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from local_control_center.app import create_app
 from local_control_center.threads.repository import ThreadsRepository
@@ -20,13 +23,25 @@ EXPECTED_N8N_OUTBOUND_EVENTS = [
 ]
 
 
-def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], ControlPlaneFixture]:
-    monkeypatch.setenv("AIDO_N8N_TOKEN", N8N_TOKEN)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store
+@pytest.fixture
+def _client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[TestClient, dict[str, str], ControlPlaneFixture]:
+            monkeypatch.setenv("AIDO_N8N_TOKEN", N8N_TOKEN)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store
+
+        yield create_owned
 
 
 def _project(store: ControlPlaneFixture, tmp_path: Path) -> dict[str, Any]:
@@ -49,7 +64,7 @@ def _target(client: TestClient, headers: dict[str, str], project_id: str) -> dic
     return response.json()["target"]
 
 
-def test_n8n_status_and_configure_use_requested_api_contract(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_status_and_configure_use_requested_api_contract(_client, tmp_path: Path, monkeypatch) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
 
@@ -95,7 +110,7 @@ def test_n8n_status_and_configure_use_requested_api_contract(tmp_path: Path, mon
 
 
 def test_n8n_configure_rejects_events_outside_external_automation_contract(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
@@ -115,7 +130,9 @@ def test_n8n_configure_rejects_events_outside_external_automation_contract(
     assert response.status_code == 422
 
 
-def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(
+    _client, tmp_path: Path, monkeypatch
+) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     target = _target(client, headers, project["id"])
@@ -148,7 +165,7 @@ def test_n8n_emit_uses_requested_endpoint_with_mocked_outbound_webhook(tmp_path:
 
 
 def test_n8n_inbound_token_adds_message_and_returns_thread_status_without_execution(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
@@ -201,7 +218,7 @@ def test_n8n_inbound_token_adds_message_and_returns_thread_status_without_execut
 
 
 def test_n8n_inbound_rate_limit_and_critical_delivery_approval_are_blocked(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
@@ -240,7 +257,7 @@ def test_n8n_inbound_rate_limit_and_critical_delivery_approval_are_blocked(
 
 
 def test_n8n_emit_event_delivers_mocked_outbound_event_and_redacts_secrets(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
@@ -308,7 +325,7 @@ def test_n8n_emit_event_delivers_mocked_outbound_event_and_redacts_secrets(
     assert "[redacted]" in sqlite_dump
 
 
-def test_n8n_test_endpoint_uses_configured_target(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_test_endpoint_uses_configured_target(_client, tmp_path: Path, monkeypatch) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     target = _target(client, headers, project["id"])
@@ -339,7 +356,7 @@ def test_n8n_test_endpoint_uses_configured_target(tmp_path: Path, monkeypatch) -
     assert sent[0]["payload"]["payload"] == {"test": True, "sample": "ok"}
 
 
-def test_n8n_inbound_webhook_creates_thread_with_scoped_token(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_inbound_webhook_creates_thread_with_scoped_token(_client, tmp_path: Path, monkeypatch) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     _target(client, headers, project["id"])
@@ -379,7 +396,9 @@ def test_n8n_inbound_webhook_creates_thread_with_scoped_token(tmp_path: Path, mo
     assert [message["content"] for message in messages] == ["Create a QA checklist."]
 
 
-def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(
+    _client, tmp_path: Path, monkeypatch
+) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     _target(client, headers, project["id"])
@@ -425,7 +444,9 @@ def test_n8n_inbound_webhook_blocks_loop_creation_and_execution_actions(tmp_path
     assert N8N_TOKEN not in json.dumps(blocked_loop.json())
 
 
-def test_n8n_emit_event_blocks_event_not_allowed_for_project_target(tmp_path: Path, monkeypatch) -> None:
+def test_n8n_emit_event_blocks_event_not_allowed_for_project_target(
+    _client, tmp_path: Path, monkeypatch
+) -> None:
     client, headers, store = _client(tmp_path, monkeypatch)
     project = _project(store, tmp_path)
     target = _target(client, headers, project["id"])

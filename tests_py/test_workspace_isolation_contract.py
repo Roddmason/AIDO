@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -24,14 +25,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_git_repo(path: Path) -> str:
@@ -58,7 +69,7 @@ def create_git_repo(path: Path) -> str:
 
 
 def test_non_git_workspace_is_isolated_copy_with_manifest_and_hashes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project_root = tmp_path / "plain-project"
@@ -98,6 +109,7 @@ def test_non_git_workspace_is_isolated_copy_with_manifest_and_hashes(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_git_project_allocation_uses_real_worktree_and_preserves_main_tree(
+    make_app,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,6 +143,7 @@ def test_git_project_allocation_uses_real_worktree_and_preserves_main_tree(
 
 
 def test_agent_tool_execution_without_workspace_is_blocked_before_runtime(
+    make_app,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -189,6 +202,7 @@ def test_agent_tool_execution_without_workspace_is_blocked_before_runtime(
 
 
 def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
+    make_app,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -249,6 +263,7 @@ def test_runtime_path_outside_registered_workspace_is_denied_before_execution(
 
 
 def test_prompt_workspace_archive_refuses_to_delete_outside_controlled_temp_root(
+    make_app,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -298,7 +313,7 @@ def test_prompt_workspace_archive_refuses_to_delete_outside_controlled_temp_root
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "cleanup-repo"
@@ -341,7 +356,7 @@ def test_workspace_archive_keeps_evidence_after_worktree_cleanup(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_reuse_existing_returns_the_same_workspace_instead_of_conflicting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El loop reutiliza un workspace estable por hilo en vez de crear uno nuevo por turno.
 
@@ -385,7 +400,7 @@ def test_reuse_existing_returns_the_same_workspace_instead_of_conflicting(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_archive_deletes_the_work_branch_ref_not_just_the_worktree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Al archivar con ``delete_branch`` se borra el ref de la rama, no solo el worktree.
 
@@ -413,7 +428,7 @@ def test_archive_deletes_the_work_branch_ref_not_just_the_worktree(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_worktree_forks_from_configured_base_branch_and_falls_back_to_head(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El worktree se abre sobre la rama base configurada; si no existe, cae a HEAD sin degradar.
 
@@ -451,7 +466,7 @@ def test_worktree_forks_from_configured_base_branch_and_falls_back_to_head(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_commit_workspace_changes_persists_agent_work_on_the_branch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El trabajo del agente pasa de patch efímero a commit real sobre la rama de la HU."""
     from local_control_center.workspaces_projects.git_worktrees import commit_workspace_changes
@@ -528,7 +543,7 @@ def _committed_work_branch(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_merge_lands_the_work_branch_on_a_non_checked_out_base(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El merge aterriza en una base NO checked-out vía worktree temporal, sin tocar el árbol principal."""
     from local_control_center.workspaces_projects.git_worktrees import merge_work_branch_into_base
@@ -563,7 +578,7 @@ def test_merge_lands_the_work_branch_on_a_non_checked_out_base(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_merge_lands_on_the_checked_out_base_and_conflict_aborts_cleanly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Merge directo cuando la base está checked-out; un conflicto aborta sin dejar el árbol a medias."""
     from local_control_center.workspaces_projects.git_worktrees import (
@@ -631,7 +646,7 @@ def test_merge_lands_on_the_checked_out_base_and_conflict_aborts_cleanly(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_push_branch_publishes_to_the_configured_remote(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El push publica la rama en el remoto configurado (bare local), auditado por policy."""
     from local_control_center.workspaces_projects.git_worktrees import (

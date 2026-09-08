@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,23 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -151,6 +160,7 @@ def test_model_analysis_prompt_without_story_specs_stays_findings_only() -> None
 
 
 def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -179,6 +189,7 @@ def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
 
 
 def test_security_agent_clean_workspace_passes_with_file_hashes(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -208,6 +219,7 @@ def test_security_agent_clean_workspace_passes_with_file_hashes(
 
 
 def test_security_agent_path_traversal_candidate_blocks(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,6 +242,7 @@ def test_security_agent_path_traversal_candidate_blocks(
 
 
 def test_security_agent_dangerous_docker_flags_block(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,6 +277,7 @@ def test_security_agent_dangerous_docker_flags_block(
 
 
 def test_security_agent_missing_external_scanners_records_skipped_results(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -291,6 +305,7 @@ def test_security_agent_missing_external_scanners_records_skipped_results(
 
 
 def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -352,6 +367,7 @@ def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
 
 
 def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

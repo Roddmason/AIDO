@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
@@ -9,23 +11,42 @@ from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import REAL_QA_HASH, real_qa_evidence_fields
 
 
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_evidence_client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(
-        name="Evidence Source", path=tmp_path / "evidence-source", template_id="other"
-    )
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return client, auth_headers(client), project
+@pytest.fixture
+def make_evidence_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict[str, str], dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            project = store.create_project(
+                name="Evidence Source", path=tmp_path / "evidence-source", template_id="other"
+            )
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return client, auth_headers(client), project
+
+        yield create_owned
 
 
-def test_generic_evidence_api_rejects_manual_attestation_as_qa_passed(tmp_path: Path, monkeypatch) -> None:
+def test_generic_evidence_api_rejects_manual_attestation_as_qa_passed(
+    make_evidence_client, tmp_path: Path, monkeypatch
+) -> None:
     client, headers, project = make_evidence_client(tmp_path, monkeypatch)
 
     response = client.post(
@@ -51,6 +72,7 @@ def test_generic_evidence_api_rejects_manual_attestation_as_qa_passed(tmp_path: 
 
 
 def test_generic_evidence_api_rejects_qa_passed_without_real_command_execution(
+    make_evidence_client,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -80,6 +102,7 @@ def test_generic_evidence_api_rejects_qa_passed_without_real_command_execution(
 
 
 def test_generic_evidence_api_accepts_qa_passed_only_with_real_command_execution(
+    make_evidence_client,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -104,6 +127,7 @@ def test_generic_evidence_api_accepts_qa_passed_only_with_real_command_execution
 
 
 def test_generic_evidence_api_allows_collected_artifacts_without_qa_passed(
+    make_evidence_client,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -131,12 +155,16 @@ def test_generic_evidence_api_allows_collected_artifacts_without_qa_passed(
     assert evidence["evidenceSource"] == "evidence_collected"
 
 
-def test_evidence_ingests_junit_xml_into_normalized_test_results(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_ingests_junit_xml_into_normalized_test_results(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="JUnit Evidence", path=tmp_path / "junit", template_id="other")
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     junit_xml = """
     <testsuite name="unit" tests="3" failures="1" errors="0" skipped="1" time="1.25">
@@ -179,12 +207,16 @@ def test_evidence_ingests_junit_xml_into_normalized_test_results(tmp_path: Path,
     assert failed_record["metadata"]["format"] == "junit"
 
 
-def test_evidence_ingests_pytest_summary_into_normalized_test_result(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_ingests_pytest_summary_into_normalized_test_result(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Pytest Evidence", path=tmp_path / "pytest", template_id="other")
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.post(
@@ -215,14 +247,18 @@ def test_evidence_ingests_pytest_summary_into_normalized_test_result(tmp_path: P
     assert evidence["testResults"][0]["metadata"]["counts"] == {"passed": 97, "skipped": 2}
 
 
-def test_evidence_rejects_passed_verdict_with_failed_results(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_rejects_passed_verdict_with_failed_results(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Failed Evidence", path=tmp_path / "failed-evidence", template_id="other"
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.post(
@@ -245,16 +281,19 @@ def test_evidence_rejects_passed_verdict_with_failed_results(tmp_path: Path, mon
 
 
 def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadata(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Evidence Redaction", path=tmp_path / "evidence-redaction", template_id="other"
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     sample_key = "sk-" + "evidencesecret123456"
     bearer = "Bearer evidencebearer123456"
@@ -330,16 +369,19 @@ def test_evidence_persists_runtime_links_and_redacts_logs_risks_and_test_metadat
 
 
 def test_evidence_package_contract_includes_required_operational_fields(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Evidence Contract", path=tmp_path / "evidence-contract", template_id="other"
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     large_log = "large log line\n" * 1200
 
@@ -401,12 +443,14 @@ def test_evidence_package_contract_includes_required_operational_fields(
     assert log_artifact["hash"] == evidence["logs"][0]["logHash"]
 
 
-def test_evidence_rejects_unsafe_junit_xml(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_rejects_unsafe_junit_xml(owned_runtime_resources, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Unsafe JUnit", path=tmp_path / "unsafe", template_id="other")
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.post(

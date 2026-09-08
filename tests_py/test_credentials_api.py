@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.provider_accounts import ProviderAccountStore
@@ -31,19 +33,29 @@ class _FakeKeyring:
         self.values.pop((service, account), None)
 
 
-def _client(
-    tmp_path: Path, monkeypatch
-) -> tuple[TestClient, dict[str, str], ControlPlaneFixture, _FakeKeyring]:
-    fake_keyring = _FakeKeyring()
-    monkeypatch.setattr(KeyringBackend, "_keyring", staticmethod(lambda: fake_keyring))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store, fake_keyring
+@pytest.fixture
+def _client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[TestClient, dict[str, str], ControlPlaneFixture, _FakeKeyring]:
+            fake_keyring = _FakeKeyring()
+            monkeypatch.setattr(KeyringBackend, "_keyring", staticmethod(lambda: fake_keyring))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            return client, {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}, store, fake_keyring
+
+        yield create_owned
 
 
-def test_credentials_api_lifecycle_never_returns_secret_values(tmp_path: Path, monkeypatch) -> None:
+def test_credentials_api_lifecycle_never_returns_secret_values(_client, tmp_path: Path, monkeypatch) -> None:
     client, headers, store, fake_keyring = _client(tmp_path, monkeypatch)
 
     initial = client.get("/api/v1/credentials")
@@ -116,7 +128,7 @@ def test_credentials_api_lifecycle_never_returns_secret_values(tmp_path: Path, m
 
 
 def test_credentials_api_accepts_product_contract_aliases_and_reports_provider_usage(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     client, headers, store, fake_keyring = _client(tmp_path, monkeypatch)
 
@@ -194,7 +206,7 @@ def test_credentials_api_accepts_product_contract_aliases_and_reports_provider_u
 
 
 def test_credentials_api_migrates_environment_overrides_without_copying_values(
-    tmp_path: Path, monkeypatch
+    _client, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("AIDO_GITHUB_TOKEN", SECRET)
     monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", ROTATED_SECRET)

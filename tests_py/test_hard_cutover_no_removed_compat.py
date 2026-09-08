@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -17,12 +18,20 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def make_client(tmp_path: Path) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    app = create_app(runtime=store)
-    client = TestClient(app)
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return store, client, {"X-Local-Control-Token": token}
+@pytest.fixture
+def make_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            app = create_app(runtime=store)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            return store, client, {"X-Local-Control-Token": token}
+
+        yield create_owned
 
 
 def test_removed_backend_and_frontend_contracts_are_absent() -> None:
@@ -100,6 +109,7 @@ def test_frontend_is_vite_typescript_and_dependency_surface_is_pruned() -> None:
 
 
 def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
+    make_client,
     tmp_path: Path,
 ) -> None:
     store, client, headers = make_client(tmp_path)
@@ -184,7 +194,7 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
     assert client.get(removed_state_route).status_code == 404
 
 
-def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(tmp_path: Path) -> None:
+def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(make_client, tmp_path: Path) -> None:
     store, client, headers = make_client(tmp_path)
     project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
 
@@ -213,7 +223,7 @@ def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(tmp_path: 
     assert store.connection.execute("SELECT COUNT(*) AS total FROM thread_messages").fetchone()["total"] >= 1
 
 
-def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
+def test_removed_compatibility_routes_are_not_mounted(make_client, tmp_path: Path) -> None:
     _store, _client, _headers = make_client(tmp_path)
     app = _client.app
     mounted_paths = {getattr(route, "path", "") for route in app.routes}
@@ -259,7 +269,7 @@ def test_frontend_source_does_not_call_removed_legacy_endpoints() -> None:
     assert offenders == []
 
 
-def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(tmp_path: Path) -> None:
+def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(make_client, tmp_path: Path) -> None:
     _store, client, headers = make_client(tmp_path)
     assert client.get("/api/v1/model-providers").status_code == 404
     assert client.get("/api/v1/model-policies").status_code == 404

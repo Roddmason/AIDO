@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -19,14 +20,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -80,7 +91,7 @@ class _FetchedResponse:
 
 
 def test_research_agent_status_exposes_source_policy_contract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _store, client, _headers = create_client(tmp_path, monkeypatch)
 
@@ -100,7 +111,7 @@ def test_research_agent_status_exposes_source_policy_contract(
 
 
 def test_research_agent_blocks_when_internet_source_cannot_be_fetched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def offline_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
         raise URLError("network unreachable")
@@ -141,7 +152,7 @@ def test_research_agent_blocks_when_internet_source_cannot_be_fetched(
 
 
 def test_research_agent_fetches_official_source_and_persists_research_sources(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     docs_content = "Official Python asyncio documentation says TaskGroup is available."
 
@@ -202,7 +213,7 @@ def test_research_agent_fetches_official_source_and_persists_research_sources(
 
 
 def test_research_agent_recommendation_cites_trusted_source_without_manual_decision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-recommendation")
@@ -244,7 +255,7 @@ def test_research_agent_recommendation_cites_trusted_source_without_manual_decis
 
 
 def test_research_agent_uses_policy_allowed_web_search_and_prefers_official_sources(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-search")
@@ -297,7 +308,7 @@ def test_research_agent_uses_policy_allowed_web_search_and_prefers_official_sour
 
 
 def test_research_agent_default_web_search_provider_fetches_and_prioritizes_official_sources(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-default-search")
@@ -354,7 +365,7 @@ def test_research_agent_default_web_search_provider_fetches_and_prioritizes_offi
 
 
 def test_research_agent_web_search_blocks_with_reason_when_internet_is_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def offline_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
         raise URLError("network unreachable")
@@ -400,7 +411,7 @@ def test_research_agent_web_search_blocks_with_reason_when_internet_is_unavailab
 
 
 def test_research_agent_technical_decision_cites_persisted_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-decision")
@@ -449,7 +460,7 @@ def test_research_agent_technical_decision_cites_persisted_source(
 
 
 def test_research_agent_persists_sources_and_recommends_highest_trust_conflict(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-persist")
@@ -526,7 +537,7 @@ def test_research_agent_persists_sources_and_recommends_highest_trust_conflict(
 
 
 def test_research_agent_blocks_uncited_or_untrusted_web_conclusions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(_store, tmp_path, task_id="research-block")
@@ -566,7 +577,7 @@ def test_research_agent_blocks_uncited_or_untrusted_web_conclusions(
 
 
 def test_research_agent_highest_trust_conflict_requires_human_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(_store, tmp_path, task_id="research-review")

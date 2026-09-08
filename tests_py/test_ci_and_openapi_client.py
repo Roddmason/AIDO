@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests_py.test_ollama_endpoints_api import client_with_store as client_with_store
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_telemetry_diagnostics_is_optional_typed_and_matches_openapi(tmp_path, monkeypatch):
+def test_telemetry_diagnostics_is_optional_typed_and_matches_openapi(
+    client_with_store, tmp_path, monkeypatch
+):
     import pytest
     from pydantic import ValidationError
 
     from local_control_center.shared.schemas import TelemetryStatusResponse
-    from tests_py.test_ollama_endpoints_api import client_with_store
 
     client, _, store = client_with_store(tmp_path, monkeypatch)
     try:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,23 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -77,6 +86,7 @@ def _write_release_package(path: str | Path, *, scripts: dict[str, str]) -> None
 
 
 def test_devops_agent_runs_release_toolchain_and_default_quality_with_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -112,6 +122,7 @@ def test_devops_agent_runs_release_toolchain_and_default_quality_with_evidence(
 
 
 def test_devops_agent_accepts_configurable_quality_subset(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -138,6 +149,7 @@ def test_devops_agent_accepts_configurable_quality_subset(
 
 
 def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -165,6 +177,7 @@ def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
 
 
 def test_devops_agent_without_docker_does_not_fail_startup(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +208,7 @@ def test_devops_agent_without_docker_does_not_fail_startup(
 
 
 def test_devops_agent_missing_build_command_reports_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -221,6 +235,7 @@ def test_devops_agent_missing_build_command_reports_reason(
 
 
 def test_devops_agent_detects_deprecated_legacy_powershell_scripts(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -245,6 +260,7 @@ def test_devops_agent_detects_deprecated_legacy_powershell_scripts(
 
 
 def test_devops_agent_existing_build_command_executes_through_broker_with_artifacts(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

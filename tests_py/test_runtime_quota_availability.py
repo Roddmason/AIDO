@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -159,74 +159,83 @@ def test_an_exhausted_provider_keeps_its_more_actionable_reason(tmp_path: Path) 
     assert after["reason"] == before["reason"]
 
 
-def _failing_shell_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    stderr: str,
-    tool_call: dict[str, Any],
-    return_code: int = 1,
-) -> tuple[ControlPlaneFixture, dict[str, Any]]:
-    """Ejecuta una corrida real por el ToolBroker con el sandbox simulado y salida fallida.
+@pytest.fixture
+def _failing_shell_run():
+    with ExitStack() as _owned_fixture_resources:
 
-    Solo se sustituye el sandbox (la frontera con el proceso externo): la policy, el broker, la
-    cuota y el estado de runtimes son los reales, que es donde vive el comportamiento a probar.
-    """
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    project_path = tmp_path / "quota-project"
-    project_path.mkdir(parents=True, exist_ok=True)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(name="Quota Project", path=project_path, template_id="other")
-    workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
-        project_id=project["id"],
-        task_id="task-quota",
-        agent_id="developer_agent",
-    )
-    agents = AgentsRepository(store.connection)
-    profile = agents.upsert_agent_profile(
-        {
-            "id": "developer_agent",
-            "name": "Developer Agent",
-            "role": "implementer",
-            "runtimeMode": "cli",
-            "permissionProfile": "dev_safe",
-            "allowedTools": ["shell"],
-        }
-    )
-    agent_run = agents.create_agent_run(
-        project_id=project["id"],
-        agent_profile_id=profile["id"],
-        task_id="task-quota",
-        input_payload={},
-        output_payload={},
-        status="running",
-    )
-    monkeypatch.setattr(
-        "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
-        lambda *_args, **_kwargs: {
-            "stdout": "",
-            "stderr": stderr,
-            "returnCode": return_code,
-            "blocked": False,
-        },
-    )
-    result = ToolBroker(store.connection).evaluate_tool_call(
-        project_id=project["id"],
-        agent_run_id=agent_run["id"],
-        agent_profile=profile,
-        tool_call={
-            "workspaceId": workspace["id"],
-            "workspacePath": workspace["path"],
-            "path": workspace["path"],
-            "execute": True,
-            **tool_call,
-        },
-    )
-    return store, result
+        def create_owned(
+            tmp_path: Path,
+            monkeypatch: pytest.MonkeyPatch,
+            *,
+            stderr: str,
+            tool_call: dict[str, Any],
+            return_code: int = 1,
+        ) -> tuple[ControlPlaneFixture, dict[str, Any]]:
+            """Ejecuta una corrida real por el ToolBroker con el sandbox simulado y salida fallida.
+
+            Solo se sustituye el sandbox (la frontera con el proceso externo): la policy, el broker, la
+            cuota y el estado de runtimes son los reales, que es donde vive el comportamiento a probar.
+            """
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            project_path = tmp_path / "quota-project"
+            project_path.mkdir(parents=True, exist_ok=True)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            project = store.create_project(name="Quota Project", path=project_path, template_id="other")
+            workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
+                project_id=project["id"],
+                task_id="task-quota",
+                agent_id="developer_agent",
+            )
+            agents = AgentsRepository(store.connection)
+            profile = agents.upsert_agent_profile(
+                {
+                    "id": "developer_agent",
+                    "name": "Developer Agent",
+                    "role": "implementer",
+                    "runtimeMode": "cli",
+                    "permissionProfile": "dev_safe",
+                    "allowedTools": ["shell"],
+                }
+            )
+            agent_run = agents.create_agent_run(
+                project_id=project["id"],
+                agent_profile_id=profile["id"],
+                task_id="task-quota",
+                input_payload={},
+                output_payload={},
+                status="running",
+            )
+            monkeypatch.setattr(
+                "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
+                lambda *_args, **_kwargs: {
+                    "stdout": "",
+                    "stderr": stderr,
+                    "returnCode": return_code,
+                    "blocked": False,
+                },
+            )
+            result = ToolBroker(store.connection).evaluate_tool_call(
+                project_id=project["id"],
+                agent_run_id=agent_run["id"],
+                agent_profile=profile,
+                tool_call={
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "path": workspace["path"],
+                    "execute": True,
+                    **tool_call,
+                },
+            )
+            return store, result
+
+        yield create_owned
 
 
 def _run_developer_cli(
+    _failing_shell_run,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -249,10 +258,11 @@ def _run_developer_cli(
 
 
 def test_a_cli_that_exits_on_a_usage_limit_stops_being_offered_as_executable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _failing_shell_run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """La cuota de un CLI solo falla al EJECUTAR: el health-check la da por buena y el loop lo re-elige."""
     store, result = _run_developer_cli(
+        _failing_shell_run,
         tmp_path,
         monkeypatch,
         stderr="You've hit your usage limit. Try again later.",
@@ -270,10 +280,11 @@ def test_a_cli_that_exits_on_a_usage_limit_stops_being_offered_as_executable(
 
 
 def test_an_ordinary_cli_failure_keeps_the_provider_selectable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _failing_shell_run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Un fallo de codigo no dice nada del proveedor; degradarlo dejaria la instalacion sin runtimes."""
     store, result = _run_developer_cli(
+        _failing_shell_run,
         tmp_path,
         monkeypatch,
         stderr="SyntaxError: invalid syntax",
@@ -284,7 +295,7 @@ def test_an_ordinary_cli_failure_keeps_the_provider_selectable(
 
 
 def test_a_shell_command_without_a_runtime_never_invents_a_provider_limit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _failing_shell_run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Sin runtime declarado el broker cae al nombre del sandbox; eso no es un proveedor."""
     store, result = _failing_shell_run(

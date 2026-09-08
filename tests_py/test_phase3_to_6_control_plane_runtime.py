@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,6 +40,14 @@ from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
 from tests_py.execution_client import CompletedExecutionClient as TestClient
 
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
 pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
@@ -58,89 +66,99 @@ def allocate_test_workspace(
     )
 
 
-def create_sensitive_shell_approval(
-    tmp_path: Path,
-    monkeypatch,
-    *,
-    profile_id: str = "cli_contextual_approval",
-    command: str = "pnpm add left-pad",
-    argv: list[str] | None = None,
-    runtime_id: str = "docker",
-    evidence_refs: list[str] | None = None,
-    diff_refs: list[dict[str, object]] | None = None,
-) -> SimpleNamespace:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project_path = tmp_path / f"{profile_id}-project"
-    project = store.create_project(name=f"Approval {profile_id}", path=project_path, template_id="other")
-    workspace = store.workspaces.allocate_workspace(
-        project_id=project["id"],
-        task_id=f"{profile_id}-task",
-        agent_id="implementer",
-    )
-    workspace_path = str(workspace["path"])
-    job = store.jobs.create_job(
-        project_id=project["id"], kind="chat.route", payload={"prompt": "install package"}
-    )["job"]
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    headers = auth_headers(client)
-    client.post(
-        "/api/v1/agent-profiles",
-        json={
-            "id": profile_id,
-            "name": f"CLI {profile_id}",
-            "role": "implementer",
-            "runtimeMode": "cli",
-            "permissionProfile": "dev_safe",
-            "allowedTools": ["shell"],
-        },
-        headers=headers,
-    )
-    requested = client.post(
-        "/api/v1/agent-runs",
-        json={
-            "projectId": project["id"],
-            "jobId": job["id"],
-            "agentProfileId": profile_id,
-            "taskId": f"{profile_id}-request",
-            "input": {
-                "toolCalls": [
-                    {
-                        "tool": "shell",
-                        "command": command,
-                        "argv": argv or ["pnpm", "add", "left-pad"],
-                        "workspaceId": workspace["id"],
-                        "path": workspace_path,
-                        "workspacePath": workspace_path,
-                        "runtimeId": runtime_id,
-                        "sandbox": runtime_id,
-                        "dockerImage": "node:22-alpine",
-                        "execute": True,
-                        "evidenceRefs": evidence_refs or ["evidence-approval-context"],
-                        "diffRefs": diff_refs
-                        or [{"kind": "git_patch", "artifactId": "artifact-diff-context"}],
-                    }
-                ]
-            },
-        },
-        headers=headers,
-    )
-    assert requested.status_code == 202
-    overview = client.get("/api/v1/overview").json()
-    action = next(item for item in overview["actionRequests"] if item["jobId"] == job["id"])
-    return SimpleNamespace(
-        store=store,
-        client=client,
-        headers=headers,
-        project=project,
-        workspace=workspace,
-        workspace_path=workspace_path,
-        job=job,
-        profile_id=profile_id,
-        action=action,
-    )
+@pytest.fixture
+def create_sensitive_shell_approval():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path,
+            monkeypatch,
+            *,
+            profile_id: str = "cli_contextual_approval",
+            command: str = "pnpm add left-pad",
+            argv: list[str] | None = None,
+            runtime_id: str = "docker",
+            evidence_refs: list[str] | None = None,
+            diff_refs: list[dict[str, object]] | None = None,
+        ) -> SimpleNamespace:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            project_path = tmp_path / f"{profile_id}-project"
+            project = store.create_project(
+                name=f"Approval {profile_id}", path=project_path, template_id="other"
+            )
+            workspace = store.workspaces.allocate_workspace(
+                project_id=project["id"],
+                task_id=f"{profile_id}-task",
+                agent_id="implementer",
+            )
+            workspace_path = str(workspace["path"])
+            job = store.jobs.create_job(
+                project_id=project["id"], kind="chat.route", payload={"prompt": "install package"}
+            )["job"]
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            headers = auth_headers(client)
+            client.post(
+                "/api/v1/agent-profiles",
+                json={
+                    "id": profile_id,
+                    "name": f"CLI {profile_id}",
+                    "role": "implementer",
+                    "runtimeMode": "cli",
+                    "permissionProfile": "dev_safe",
+                    "allowedTools": ["shell"],
+                },
+                headers=headers,
+            )
+            requested = client.post(
+                "/api/v1/agent-runs",
+                json={
+                    "projectId": project["id"],
+                    "jobId": job["id"],
+                    "agentProfileId": profile_id,
+                    "taskId": f"{profile_id}-request",
+                    "input": {
+                        "toolCalls": [
+                            {
+                                "tool": "shell",
+                                "command": command,
+                                "argv": argv or ["pnpm", "add", "left-pad"],
+                                "workspaceId": workspace["id"],
+                                "path": workspace_path,
+                                "workspacePath": workspace_path,
+                                "runtimeId": runtime_id,
+                                "sandbox": runtime_id,
+                                "dockerImage": "node:22-alpine",
+                                "execute": True,
+                                "evidenceRefs": evidence_refs or ["evidence-approval-context"],
+                                "diffRefs": diff_refs
+                                or [{"kind": "git_patch", "artifactId": "artifact-diff-context"}],
+                            }
+                        ]
+                    },
+                },
+                headers=headers,
+            )
+            assert requested.status_code == 202
+            overview = client.get("/api/v1/overview").json()
+            action = next(item for item in overview["actionRequests"] if item["jobId"] == job["id"])
+            return SimpleNamespace(
+                store=store,
+                client=client,
+                headers=headers,
+                project=project,
+                workspace=workspace,
+                workspace_path=workspace_path,
+                job=job,
+                profile_id=profile_id,
+                action=action,
+            )
+
+        yield create_owned
 
 
 def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(tmp_path: Path) -> None:
@@ -215,13 +233,17 @@ def test_phase3_schema_upgrades_legacy_workspace_tables_before_indexes(tmp_path:
     assert "idx_workspaces_task_active" in indexes
 
 
-def test_command_classifier_and_policy_engine_gate_sensitive_actions(tmp_path: Path, monkeypatch) -> None:
+def test_command_classifier_and_policy_engine_gate_sensitive_actions(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Policy", path=tmp_path / "policy", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     destructive = classify_command("Remove-Item C:\\Users\\Rodd -Recurse -Force")
@@ -385,10 +407,12 @@ def test_plan_profile_denies_unscoped_execution_adapters_without_command(tool: s
 
 
 def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "runtime-project"
     project = store.create_project(name="Runtime", path=project_path, template_id="other")
@@ -396,7 +420,7 @@ def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(
         project_id=project["id"], kind="chat.route", payload={"prompt": "run install"}
     )["job"]
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     profile_response = client.post(
@@ -449,14 +473,18 @@ def test_cli_agent_tool_calls_go_through_policy_and_create_action_requests(
     )
 
 
-def test_allowed_cli_agent_tool_call_without_execution_does_not_complete(tmp_path: Path, monkeypatch) -> None:
+def test_allowed_cli_agent_tool_call_without_execution_does_not_complete(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "safe-runtime"
     project = store.create_project(name="Safe Runtime", path=project_path, template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -504,10 +532,12 @@ def test_allowed_cli_agent_tool_call_without_execution_does_not_complete(tmp_pat
 
 
 def test_allowed_cli_tool_call_executes_only_structured_argv_in_restricted_sandbox(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "sandbox-runtime"
     project = store.create_project(name="Sandbox Runtime", path=project_path, template_id="other")
@@ -518,7 +548,7 @@ def test_allowed_cli_tool_call_executes_only_structured_argv_in_restricted_sandb
     )
     workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -570,6 +600,7 @@ def test_allowed_cli_tool_call_executes_only_structured_argv_in_restricted_sandb
 
 
 def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -592,7 +623,9 @@ def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "docker-runtime"
     project = store.create_project(name="Docker Runtime", path=project_path, template_id="other")
@@ -603,7 +636,7 @@ def test_allowed_cli_tool_call_can_execute_in_docker_and_records_evidence(
     )
     workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -1629,6 +1662,7 @@ def test_tool_execution_fails_closed_when_required_stdout_capture_overflows(
 
 
 def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1651,7 +1685,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "approved-install"
     project = store.create_project(name="Approved Install", path=project_path, template_id="other")
@@ -1665,7 +1701,7 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
         project_id=project["id"], kind="chat.route", payload={"prompt": "install package"}
     )["job"]
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -1795,7 +1831,9 @@ def test_approved_sensitive_tool_call_requires_and_consumes_permission_grant(
     assert "already consumed" in reused_call["payload"]["grantValidation"]["reason"]
 
 
-def test_action_request_exposes_contextual_scope_and_expiration(tmp_path: Path, monkeypatch) -> None:
+def test_action_request_exposes_contextual_scope_and_expiration(
+    create_sensitive_shell_approval, tmp_path: Path, monkeypatch
+) -> None:
     context = create_sensitive_shell_approval(
         tmp_path,
         monkeypatch,
@@ -1820,7 +1858,9 @@ def test_action_request_exposes_contextual_scope_and_expiration(tmp_path: Path, 
     assert action["expiresAt"]
 
 
-def test_permission_grant_is_scoped_to_command_argv(tmp_path: Path, monkeypatch) -> None:
+def test_permission_grant_is_scoped_to_command_argv(
+    create_sensitive_shell_approval, tmp_path: Path, monkeypatch
+) -> None:
     docker_calls: list[dict[str, object]] = []
 
     def fake_docker_execute(self, **kwargs):
@@ -1888,7 +1928,9 @@ def test_permission_grant_is_scoped_to_command_argv(tmp_path: Path, monkeypatch)
     assert active_grant["status"] == "active"
 
 
-def test_permission_grant_is_scoped_to_exact_command(tmp_path: Path, monkeypatch) -> None:
+def test_permission_grant_is_scoped_to_exact_command(
+    create_sensitive_shell_approval, tmp_path: Path, monkeypatch
+) -> None:
     docker_calls: list[dict[str, object]] = []
 
     def fake_docker_execute(self, **kwargs):
@@ -1955,7 +1997,9 @@ def test_permission_grant_is_scoped_to_exact_command(tmp_path: Path, monkeypatch
     assert active_grant["status"] == "active"
 
 
-def test_permission_grant_expiration_blocks_execution(tmp_path: Path, monkeypatch) -> None:
+def test_permission_grant_expiration_blocks_execution(
+    create_sensitive_shell_approval, tmp_path: Path, monkeypatch
+) -> None:
     docker_calls: list[dict[str, object]] = []
 
     def fake_docker_execute(self, **kwargs):
@@ -2027,7 +2071,9 @@ def test_permission_grant_expiration_blocks_execution(tmp_path: Path, monkeypatc
     assert expired_grant["status"] == "expired"
 
 
-def test_rejected_action_blocks_later_approval_and_grant_creation(tmp_path: Path, monkeypatch) -> None:
+def test_rejected_action_blocks_later_approval_and_grant_creation(
+    create_sensitive_shell_approval, tmp_path: Path, monkeypatch
+) -> None:
     context = create_sensitive_shell_approval(tmp_path, monkeypatch, profile_id="cli_reject_blocks")
 
     blank = context.client.post(
@@ -2057,9 +2103,13 @@ def test_rejected_action_blocks_later_approval_and_grant_creation(tmp_path: Path
     assert not any(grant.get("actionRequestId") == context.action["id"] for grant in grants)
 
 
-def test_action_approval_requires_non_empty_reason(tmp_path: Path, monkeypatch) -> None:
+def test_action_approval_requires_non_empty_reason(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "approval-reason"
     project = store.create_project(name="Approval Reason", path=project_path, template_id="other")
@@ -2067,7 +2117,7 @@ def test_action_approval_requires_non_empty_reason(tmp_path: Path, monkeypatch) 
         "job"
     ]
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -2248,6 +2298,7 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
 
 
 def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -2268,7 +2319,9 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "grant-revoke"
     project = store.create_project(name="Grant Revoke", path=project_path, template_id="other")
@@ -2320,7 +2373,7 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
     grant = store.jobs.approve_action(job["id"], action["id"], reason="Allow once for audit.")[
         "permissionGrant"
     ]
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     blank = client.post(
@@ -2381,6 +2434,7 @@ def test_permission_grant_revocation_is_audited_and_blocks_later_execution(
 
 
 def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -2401,9 +2455,11 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     denied = client.post(
@@ -2474,11 +2530,14 @@ def test_sandbox_profile_revocation_is_audited_and_blocks_docker_execution(
 
 
 def test_cli_tool_call_execute_true_with_command_string_and_no_argv_is_denied_before_policy_execution(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project_path = tmp_path / "sandbox-denied"
     project = store.create_project(name="Sandbox Denied", path=project_path, template_id="other")
@@ -2489,7 +2548,7 @@ def test_cli_tool_call_execute_true_with_command_string_and_no_argv_is_denied_be
     )
     workspace_path = str(workspace["path"])
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -2658,12 +2717,16 @@ def test_docker_sandbox_execute_is_optional_and_captures_results(tmp_path: Path,
     assert calls and calls[0][:3] == ["docker", "run", "--rm"]
 
 
-def test_sandbox_status_endpoint_reports_docker_and_restricted_modes(tmp_path: Path, monkeypatch) -> None:
+def test_sandbox_status_endpoint_reports_docker_and_restricted_modes(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     response = client.get("/api/v1/sandbox/status")
     assert response.status_code == 200
@@ -2673,13 +2736,17 @@ def test_sandbox_status_endpoint_reports_docker_and_restricted_modes(tmp_path: P
     assert payload["restrictedSubprocess"]["shell"] is False
 
 
-def test_workspace_allocation_enforces_single_owner_and_archive(tmp_path: Path, monkeypatch) -> None:
+def test_workspace_allocation_enforces_single_owner_and_archive(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Workspace", path=tmp_path / "project", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     created = client.post(
@@ -2707,15 +2774,19 @@ def test_workspace_allocation_enforces_single_owner_and_archive(tmp_path: Path, 
     assert archived.json()["workspace"]["status"] == "archived"
 
 
-def test_workspace_archive_creates_evidence_snapshot(tmp_path: Path, monkeypatch) -> None:
+def test_workspace_archive_creates_evidence_snapshot(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Workspace Evidence", path=tmp_path / "project-evidence", template_id="other"
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     created = client.post(
@@ -2744,7 +2815,9 @@ def test_workspace_archive_creates_evidence_snapshot(tmp_path: Path, monkeypatch
     assert any(package["id"] == evidence["id"] for package in overview["evidencePackages"])
 
 
-def test_git_worktree_archive_captures_git_diff_before_cleanup(tmp_path: Path, monkeypatch) -> None:
+def test_git_worktree_archive_captures_git_diff_before_cleanup(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     if not git_available():
         pytest.skip("git CLI is not available")
 
@@ -2769,11 +2842,13 @@ def test_git_worktree_archive_captures_git_diff_before_cleanup(tmp_path: Path, m
     assert commit.returncode == 0, commit.stderr
 
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Git Workspace Evidence", path=repo_path, template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     created = client.post(
@@ -2807,7 +2882,9 @@ def test_git_worktree_archive_captures_git_diff_before_cleanup(tmp_path: Path, m
     assert not workspace_path.exists()
 
 
-def test_git_worktree_archive_promotes_large_patch_to_artifact(tmp_path: Path, monkeypatch) -> None:
+def test_git_worktree_archive_promotes_large_patch_to_artifact(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     if not git_available():
         pytest.skip("git CLI is not available")
 
@@ -2832,11 +2909,13 @@ def test_git_worktree_archive_promotes_large_patch_to_artifact(tmp_path: Path, m
     assert commit.returncode == 0, commit.stderr
 
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Large Patch Evidence", path=repo_path, template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     created = client.post(
@@ -2877,14 +2956,16 @@ def test_git_worktree_archive_promotes_large_patch_to_artifact(tmp_path: Path, m
 
 
 def test_agent_run_without_executable_adapter_does_not_record_synthetic_model_cost(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Agent", path=tmp_path / "agent", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     client.post(
@@ -2940,13 +3021,17 @@ def test_agent_run_without_executable_adapter_does_not_record_synthetic_model_co
     assert not any(item["metadata"].get("agentRunId") == agent_run["id"] for item in overview["costUsage"])
 
 
-def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Path, monkeypatch) -> None:
+def test_technical_review_agent_runs_require_evidence_package_refs(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Review", path=tmp_path / "review", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     profile_response = client.post(
@@ -3009,14 +3094,16 @@ def test_technical_review_agent_runs_require_evidence_package_refs(tmp_path: Pat
 
 
 def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requirement(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Devcontainer", path=tmp_path / "devcontainer", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     response = client.post(
@@ -3127,7 +3214,9 @@ def test_model_gateway_blocks_budget_overrun_and_redacts_secret_metadata(tmp_pat
         assert "[redacted]" in serialized
 
 
-def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch) -> None:
+def test_skills_sync_reads_versionable_local_skills(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     skill_dir = tmp_path / "skills" / "backend-api-contract"
     skill_dir.mkdir(parents=True)
@@ -3147,10 +3236,12 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
         ),
         encoding="utf-8",
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     synced = client.post(
@@ -3164,9 +3255,13 @@ def test_skills_sync_reads_versionable_local_skills(tmp_path: Path, monkeypatch)
     assert listed.json()["skills"][0]["name"] == "backend-api-contract"
 
 
-def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(tmp_path: Path, monkeypatch) -> None:
+def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Unknown Skill", path=tmp_path / "unknown-skill", template_id="other")
     workspace = store.workspaces.allocate_workspace(
@@ -3175,7 +3270,7 @@ def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(tmp_path
         agent_id="skill_agent",
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     client.post(
         "/api/v1/agent-profiles",
@@ -3225,7 +3320,7 @@ def test_agent_run_blocks_unknown_requested_skill_before_tool_execution(tmp_path
 
 
 def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     skill_dir = tmp_path / "skills" / "backend-api-contract"
@@ -3246,7 +3341,9 @@ def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
         ),
         encoding="utf-8",
     )
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Denied Skill", path=tmp_path / "denied-skill", template_id="other")
     workspace = store.workspaces.allocate_workspace(
@@ -3255,7 +3352,7 @@ def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
         agent_id="skill_agent",
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     synced = client.post(
         "/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers
@@ -3308,7 +3405,9 @@ def test_agent_run_blocks_skill_not_allowed_by_profile_before_tool_execution(
     assert [call for call in overview["agentToolCalls"] if call["agentRunId"] == agent_run["id"]] == []
 
 
-def test_agent_run_records_allowed_skill_version_in_execution_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_agent_run_records_allowed_skill_version_in_execution_evidence(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
     skill_dir = tmp_path / "skills" / "backend-api-contract"
     skill_dir.mkdir(parents=True)
@@ -3326,7 +3425,9 @@ def test_agent_run_records_allowed_skill_version_in_execution_evidence(tmp_path:
         ]
     )
     (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Allowed Skill", path=tmp_path / "allowed-skill", template_id="other")
     workspace = store.workspaces.allocate_workspace(
@@ -3335,7 +3436,7 @@ def test_agent_run_records_allowed_skill_version_in_execution_evidence(tmp_path:
         agent_id="skill_agent",
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     synced = client.post(
         "/api/v1/skills/sync", json={"skillsPath": str(tmp_path / "skills")}, headers=headers
@@ -3399,13 +3500,17 @@ def test_agent_run_records_allowed_skill_version_in_execution_evidence(tmp_path:
     assert binding["status"] == "resolved"
 
 
-def test_qa_cannot_pass_without_real_command_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_qa_cannot_pass_without_real_command_evidence(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="QA", path=tmp_path / "qa", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     rejected = client.post(
@@ -3437,16 +3542,18 @@ def test_qa_cannot_pass_without_real_command_evidence(tmp_path: Path, monkeypatc
 
 
 def test_create_evidence_promotes_large_logs_and_screenshots_to_artifacts(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Artifact Evidence", path=tmp_path / "artifact-evidence", template_id="other"
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     large_log = "\n".join(f"log line {index}" for index in range(2000))
     screenshot_bytes = b"\x89PNG\r\n\x1a\n" + (b"0" * 4096)
@@ -3487,15 +3594,19 @@ def test_create_evidence_promotes_large_logs_and_screenshots_to_artifacts(
         assert Path(artifact["path"]).exists()
 
 
-def test_artifact_download_requires_token_and_returns_owned_artifact(tmp_path: Path, monkeypatch) -> None:
+def test_artifact_download_requires_token_and_returns_owned_artifact(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Artifact Download", path=tmp_path / "artifact-download", template_id="other"
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     large_log = "\n".join(f"download line {index}" for index in range(2000))
 
@@ -3524,9 +3635,13 @@ def test_artifact_download_requires_token_and_returns_owned_artifact(tmp_path: P
     assert downloaded.headers["x-aido-artifact-id"] == artifact_id
 
 
-def test_artifact_download_rejects_paths_outside_artifact_root(tmp_path: Path, monkeypatch) -> None:
+def test_artifact_download_rejects_paths_outside_artifact_root(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Artifact Traversal", path=tmp_path / "artifact-traversal", template_id="other"
@@ -3552,19 +3667,23 @@ def test_artifact_download_rejects_paths_outside_artifact_root(tmp_path: Path, m
         metadata={"name": "outside-secret.txt"},
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
     response = client.get(f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=headers)
     assert response.status_code == 403
 
 
-def test_artifact_cleanup_dry_run_reports_orphans_without_deleting(tmp_path: Path, monkeypatch) -> None:
+def test_artifact_cleanup_dry_run_reports_orphans_without_deleting(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     artifact_root = tmp_path / ".tmp" / "evidence-artifacts"
     artifact_root.mkdir(parents=True)
@@ -3581,15 +3700,19 @@ def test_artifact_cleanup_dry_run_reports_orphans_without_deleting(tmp_path: Pat
     assert orphan.exists()
 
 
-def test_artifact_cleanup_deletes_orphans_but_keeps_referenced_artifacts(tmp_path: Path, monkeypatch) -> None:
+def test_artifact_cleanup_deletes_orphans_but_keeps_referenced_artifacts(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Artifact Cleanup", path=tmp_path / "artifact-cleanup", template_id="other"
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     large_log = "\n".join(f"cleanup line {index}" for index in range(2000))
     created = client.post(
@@ -3623,12 +3746,14 @@ def test_artifact_cleanup_deletes_orphans_but_keeps_referenced_artifacts(tmp_pat
     assert payload["keptReferencedFiles"] == 1
 
 
-def test_artifact_cleanup_requires_local_token(tmp_path: Path, monkeypatch) -> None:
+def test_artifact_cleanup_requires_local_token(owned_runtime_resources, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     response = client.post("/api/v1/evidence/artifacts/cleanup", json={"dryRun": True})
 
@@ -3636,14 +3761,17 @@ def test_artifact_cleanup_requires_local_token(tmp_path: Path, monkeypatch) -> N
 
 
 def test_artifact_retention_plan_surfaces_expired_referenced_artifacts_as_governance_risk(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Retention", path=tmp_path / "retention", template_id="other")
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     repo = EvidenceRepository(store.connection)
     evidence = repo.create_evidence_package(
@@ -3685,11 +3813,15 @@ def test_artifact_retention_plan_surfaces_expired_referenced_artifacts_as_govern
     assert any("Expired evidence artifacts" in risk["title"] for risk in risks)
 
 
-def test_optional_runtime_integrations_and_mcp_registration_are_explicit(tmp_path: Path, monkeypatch) -> None:
+def test_optional_runtime_integrations_and_mcp_registration_are_explicit(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     overview = client.get("/api/v1/integrations")

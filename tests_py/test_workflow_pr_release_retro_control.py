@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
+
+import pytest
 
 from local_control_center.app import create_app
 from local_control_center.shared.serialization import json_loads
@@ -14,12 +17,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_and_start_release_workflow(
@@ -63,7 +78,7 @@ def create_and_start_release_workflow(
 
 
 def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(
-    tmp_path: Path, monkeypatch
+    make_app, tmp_path: Path, monkeypatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Release Flow", path=tmp_path / "release-flow", template_id="other")
@@ -158,7 +173,9 @@ def test_workflow_declared_pr_release_retro_gates_create_auditable_controls(
     assert any(item["metadata"].get("sourceType") == "workflow_retro" for item in governance["nextSteps"])
 
 
-def test_workflow_creation_blocks_force_push_and_direct_main_edit(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_creation_blocks_force_push_and_direct_main_edit(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
         name="Unsafe Release Flow", path=tmp_path / "unsafe-release-flow", template_id="other"
@@ -199,7 +216,7 @@ def test_workflow_creation_blocks_force_push_and_direct_main_edit(tmp_path: Path
     assert "direct main" in direct_main.json()["detail"].lower()
 
 
-def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_pr_review_gate_advances_only_with_passed_qa_evidence(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
     workflow = started["workflow"]
@@ -254,7 +271,9 @@ def test_pr_review_gate_advances_only_with_passed_qa_evidence(tmp_path: Path, mo
     assert {"workflow.gate.pr_review.blocked", "workflow.gate.pr_review.advanced"} <= audit_actions
 
 
-def test_pr_review_rejects_passed_verdict_with_failed_test_results(tmp_path: Path, monkeypatch) -> None:
+def test_pr_review_rejects_passed_verdict_with_failed_test_results(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
     workflow = started["workflow"]
@@ -284,7 +303,7 @@ def test_pr_review_rejects_passed_verdict_with_failed_test_results(tmp_path: Pat
     assert blocked.json()["detail"] == "pr_review requires passed QA evidence for this workflow run."
 
 
-def test_release_gate_waits_for_human_approval_before_advance(tmp_path: Path, monkeypatch) -> None:
+def test_release_gate_waits_for_human_approval_before_advance(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
     workflow = started["workflow"]
@@ -323,7 +342,7 @@ def test_release_gate_waits_for_human_approval_before_advance(tmp_path: Path, mo
     assert {"workflow.gate.release_gate.blocked", "workflow.gate.release_gate.advanced"} <= audit_actions
 
 
-def test_retro_gate_advances_when_governance_records_exist(tmp_path: Path, monkeypatch) -> None:
+def test_retro_gate_advances_when_governance_records_exist(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project, started = create_and_start_release_workflow(store, client, headers, tmp_path)
     workflow = started["workflow"]

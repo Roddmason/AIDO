@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -34,12 +42,16 @@ def make_evidence(tmp_path: Path, store: ControlPlaneFixture) -> dict:
     )
 
 
-def test_ingest_text_artifact_after_evidence_creation(tmp_path: Path, monkeypatch) -> None:
+def test_ingest_text_artifact_after_evidence_creation(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     evidence = make_evidence(tmp_path, store)
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.post(
@@ -59,12 +71,16 @@ def test_ingest_text_artifact_after_evidence_creation(tmp_path: Path, monkeypatc
     assert any(event["action"] == "evidence.artifact.ingest" for event in store.events.list_audit_events())
 
 
-def test_ingest_binary_artifact_after_evidence_creation(tmp_path: Path, monkeypatch) -> None:
+def test_ingest_binary_artifact_after_evidence_creation(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     evidence = make_evidence(tmp_path, store)
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     payload = base64.b64encode(b"\x89PNG\r\n").decode("ascii")
 
@@ -82,14 +98,17 @@ def test_ingest_binary_artifact_after_evidence_creation(tmp_path: Path, monkeypa
 
 
 def test_ingest_artifact_rejects_unauthenticated_unsupported_or_oversized_payload(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     evidence = make_evidence(tmp_path, store)
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     unauthenticated = client.post(
@@ -113,9 +132,13 @@ def test_ingest_artifact_rejects_unauthenticated_unsupported_or_oversized_payloa
     assert oversized.status_code == 422
 
 
-def test_download_artifact_rejects_hash_mismatch(tmp_path: Path, monkeypatch) -> None:
+def test_download_artifact_rejects_hash_mismatch(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     evidence = make_evidence(tmp_path, store)
     artifact_file = write_text_artifact(
@@ -134,7 +157,7 @@ def test_download_artifact_rejects_hash_mismatch(tmp_path: Path, monkeypatch) ->
         metadata={"name": "hash-mismatch.txt", "mimeType": "text/plain"},
     )
     Path(artifact["path"]).write_text("tampered evidence", encoding="utf-8")
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
 
     response = client.get(
         f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client)
@@ -144,9 +167,13 @@ def test_download_artifact_rejects_hash_mismatch(tmp_path: Path, monkeypatch) ->
     assert "hash" in response.text.lower()
 
 
-def test_download_artifact_blocks_path_traversal(tmp_path: Path, monkeypatch) -> None:
+def test_download_artifact_blocks_path_traversal(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     evidence = make_evidence(tmp_path, store)
     outside_path = tmp_path / "outside-artifact.txt"
@@ -160,7 +187,7 @@ def test_download_artifact_blocks_path_traversal(tmp_path: Path, monkeypatch) ->
         content_hash=hashlib.sha256(outside_path.read_bytes()).hexdigest(),
         metadata={"name": "outside-artifact.txt", "mimeType": "text/plain"},
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
 
     response = client.get(
         f"/api/v1/evidence/{evidence['id']}/artifacts/{artifact['id']}", headers=auth_headers(client)

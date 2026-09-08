@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.model_gateway import ModelGateway
@@ -20,16 +21,27 @@ from local_control_center.shared.time import utc_now
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def test_http_requests_emit_redacted_telemetry_with_correlation_id(tmp_path: Path, monkeypatch) -> None:
+def test_http_requests_emit_redacted_telemetry_with_correlation_id(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    fixture = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    fixture = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     fixture.init()
-    client = TestClient(create_app(runtime=fixture, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=fixture, static_dir=None)))
 
     response = client.get(
         "/api/v1/overview",

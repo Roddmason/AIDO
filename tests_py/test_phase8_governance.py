@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
@@ -16,12 +17,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def test_governance_schema_adds_architecture_risks_and_next_steps(tmp_path: Path) -> None:
@@ -39,7 +52,9 @@ def test_governance_schema_adds_architecture_risks_and_next_steps(tmp_path: Path
     assert {"architecture_decisions", "risk_register", "next_steps"} <= tables
 
 
-def test_governance_api_persists_decisions_risks_and_next_steps(tmp_path: Path, monkeypatch) -> None:
+def test_governance_api_persists_decisions_risks_and_next_steps(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Governance", path=tmp_path / "governance", template_id="other")
 
@@ -121,7 +136,7 @@ def test_governance_api_persists_decisions_risks_and_next_steps(tmp_path: Path, 
     assert any(item["id"] == next_step_body["id"] for item in overview["nextSteps"])
 
 
-def test_risk_and_next_step_status_updates_are_audited(tmp_path: Path, monkeypatch) -> None:
+def test_risk_and_next_step_status_updates_are_audited(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
         name="Governance Updates", path=tmp_path / "governance-updates", template_id="other"
@@ -172,7 +187,7 @@ def test_risk_and_next_step_status_updates_are_audited(tmp_path: Path, monkeypat
 
 
 def test_governance_enums_reject_invalid_statuses_severities_and_priorities(
-    tmp_path: Path, monkeypatch
+    make_app, tmp_path: Path, monkeypatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
@@ -214,7 +229,9 @@ def test_governance_enums_reject_invalid_statuses_severities_and_priorities(
     assert invalid_decision.status_code == 422
 
 
-def test_policy_qa_and_workflow_failures_create_governance_risks(tmp_path: Path, monkeypatch) -> None:
+def test_policy_qa_and_workflow_failures_create_governance_risks(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(
         name="Governance Signals", path=tmp_path / "governance-signals", template_id="other"

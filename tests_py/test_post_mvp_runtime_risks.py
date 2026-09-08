@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
@@ -16,6 +19,13 @@ from local_control_center.security_policy.repository import SecurityPolicyReposi
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 class FakeRuntimeAdapter:
@@ -91,37 +101,45 @@ def mcp_server_command(script: Path) -> str:
     return subprocess.list2cmdline([sys.executable, str(script)])
 
 
-def make_agent_run(tmp_path: Path, *, allowed_tools: list[str], permission_profile: str = "dev_safe"):
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    project = store.create_project(
-        name="Runtime adapters", path=tmp_path / "runtime-adapters", template_id="other"
-    )
-    workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
-        project_id=project["id"],
-        task_id="adapter-call",
-        agent_id="implementer",
-    )
-    agents = AgentsRepository(store.connection)
-    profile = agents.upsert_agent_profile(
-        {
-            "id": "runtime-adapter-agent",
-            "name": "Runtime Adapter Agent",
-            "role": "implementer",
-            "runtimeMode": "hybrid",
-            "permissionProfile": permission_profile,
-            "allowedTools": allowed_tools,
-        }
-    )
-    run = agents.create_agent_run(
-        project_id=project["id"],
-        agent_profile_id=profile["id"],
-        task_id="adapter-call",
-        input_payload={},
-        output_payload={},
-        status="running",
-    )
-    return store, project, profile, run, workspace
+@pytest.fixture
+def make_agent_run():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path, *, allowed_tools: list[str], permission_profile: str = "dev_safe"):
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            project = store.create_project(
+                name="Runtime adapters", path=tmp_path / "runtime-adapters", template_id="other"
+            )
+            workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
+                project_id=project["id"],
+                task_id="adapter-call",
+                agent_id="implementer",
+            )
+            agents = AgentsRepository(store.connection)
+            profile = agents.upsert_agent_profile(
+                {
+                    "id": "runtime-adapter-agent",
+                    "name": "Runtime Adapter Agent",
+                    "role": "implementer",
+                    "runtimeMode": "hybrid",
+                    "permissionProfile": permission_profile,
+                    "allowedTools": allowed_tools,
+                }
+            )
+            run = agents.create_agent_run(
+                project_id=project["id"],
+                agent_profile_id=profile["id"],
+                task_id="adapter-call",
+                input_payload={},
+                output_payload={},
+                status="running",
+            )
+            return store, project, profile, run, workspace
+
+        yield create_owned
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -138,8 +156,12 @@ def test_mcp_gateway_status_does_not_claim_registry_only_available() -> None:
     assert status["reason"]
 
 
-def test_mcp_tools_list_executes_registered_stdio_server_and_records_evidence(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_mcp_tools_list_executes_registered_stdio_server_and_records_evidence(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     runtime.init()
     server_script = tmp_path / "test_mcp_server.py"
     write_test_mcp_server(server_script)
@@ -174,8 +196,10 @@ def test_mcp_tools_list_executes_registered_stdio_server_and_records_evidence(tm
     assert payload["operationResponse"]["result"]["tools"][0]["name"] == "echo"
 
 
-def test_mcp_server_command_blocks_dangerous_subprocess_args(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_mcp_server_command_blocks_dangerous_subprocess_args(owned_runtime_resources, tmp_path: Path) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     runtime.init()
     server_script = tmp_path / "test_mcp_server.py"
     write_test_mcp_server(server_script)
@@ -205,8 +229,12 @@ def test_mcp_server_command_blocks_dangerous_subprocess_args(tmp_path: Path) -> 
     assert call["status"] == "blocked"
 
 
-def test_mcp_registered_server_without_protocol_response_is_unavailable(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_mcp_registered_server_without_protocol_response_is_unavailable(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     runtime.init()
     server_script = tmp_path / "silent_mcp_server.py"
     write_test_mcp_server(server_script, respond_to_list=False)
@@ -235,8 +263,10 @@ def test_mcp_registered_server_without_protocol_response_is_unavailable(tmp_path
     assert call["status"] == "unavailable"
 
 
-def test_mcp_tools_list_agent_run_creates_execution_evidence(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_mcp_tools_list_agent_run_creates_execution_evidence(owned_runtime_resources, tmp_path: Path) -> None:
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="MCP Evidence", path=tmp_path / "mcp-evidence", template_id="other")
     workspace = store.workspaces.allocate_workspace(
@@ -248,7 +278,7 @@ def test_mcp_tools_list_agent_run_creates_execution_evidence(tmp_path: Path) -> 
     write_test_mcp_server(server_script)
     store.integrations.register_mcp_server(server_id="test-mcp", command=mcp_server_command(server_script))
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     client.post(
         "/api/v1/agent-profiles",
@@ -306,8 +336,12 @@ def test_mcp_tools_list_agent_run_creates_execution_evidence(tmp_path: Path) -> 
     assert package["testResults"][0]["status"] == "completed"
 
 
-def test_mcp_agent_run_is_runtime_unavailable_when_server_does_not_respond(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_mcp_agent_run_is_runtime_unavailable_when_server_does_not_respond(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="MCP Unavailable", path=tmp_path / "mcp-unavailable", template_id="other"
@@ -321,7 +355,7 @@ def test_mcp_agent_run_is_runtime_unavailable_when_server_does_not_respond(tmp_p
     write_test_mcp_server(server_script, respond_to_list=False)
     store.integrations.register_mcp_server(server_id="silent-mcp", command=mcp_server_command(server_script))
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
     client.post(
         "/api/v1/agent-profiles",
@@ -375,7 +409,9 @@ def test_mcp_agent_run_is_runtime_unavailable_when_server_does_not_respond(tmp_p
     assert package["testResults"][0]["metadata"]["runtimeStatus"] == "unavailable"
 
 
-def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(tmp_path: Path) -> None:
+def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -403,7 +439,9 @@ def test_runtime_adapter_execution_happens_only_after_broker_policy_allows(tmp_p
     assert result["toolCall"]["payload"]["executionResult"]["stdout"] == "adapter completed"
 
 
-def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(tmp_path: Path) -> None:
+def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -428,7 +466,9 @@ def test_mcp_non_read_only_operation_requires_approval_before_adapter_execution(
     assert result["toolCall"]["status"] == "approval_required"
 
 
-def test_mcp_request_method_tools_call_is_policy_gated_when_operation_is_omitted(tmp_path: Path) -> None:
+def test_mcp_request_method_tools_call_is_policy_gated_when_operation_is_omitted(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -458,7 +498,9 @@ def test_mcp_request_method_tools_call_is_policy_gated_when_operation_is_omitted
     assert result["toolCall"]["status"] == "approval_required"
 
 
-def test_mcp_tools_call_executes_only_with_consumable_permission_grant(tmp_path: Path) -> None:
+def test_mcp_tools_call_executes_only_with_consumable_permission_grant(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["mcp"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -512,7 +554,9 @@ def test_mcp_tools_call_executes_only_with_consumable_permission_grant(tmp_path:
     assert consumed_grant["consumedByAgentRunId"] == run["id"]
 
 
-def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(tmp_path: Path) -> None:
+def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["shell"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -538,7 +582,9 @@ def test_runtime_adapter_is_not_invoked_when_agent_profile_does_not_allow_tool(t
     assert "not allowed by the agent profile" in result["decision"]["reason"]
 
 
-def test_runtime_adapter_command_string_without_argv_is_denied_before_approval(tmp_path: Path) -> None:
+def test_runtime_adapter_command_string_without_argv_is_denied_before_approval(
+    make_agent_run, tmp_path: Path
+) -> None:
     store, project, profile, run, workspace = make_agent_run(tmp_path, allowed_tools=["openhands"])
     adapter = FakeRuntimeAdapter()
     workspace_path = str(workspace["path"])
@@ -564,10 +610,14 @@ def test_runtime_adapter_command_string_without_argv_is_denied_before_approval(t
     assert "structured argv" in result["decision"]["reason"]
 
 
-def test_agent_and_model_configuration_endpoints_reject_invalid_catalog_values(tmp_path: Path) -> None:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+def test_agent_and_model_configuration_endpoints_reject_invalid_catalog_values(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     bad_profile = client.post(

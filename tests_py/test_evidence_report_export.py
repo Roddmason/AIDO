@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
@@ -10,17 +12,27 @@ from local_control_center.evidence.repository import EvidenceRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
 def auth_headers(client: TestClient) -> dict[str, str]:
     token = client.get("/api/v1/security/handshake").json()["token"]
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
 def test_evidence_report_export_requires_token_and_returns_markdown_without_local_paths(
+    owned_runtime_resources,
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="QA Export", path=tmp_path / "qa-export", template_id="other")
     repo = EvidenceRepository(store.connection)
@@ -59,7 +71,7 @@ def test_evidence_report_export_requires_token_and_returns_markdown_without_loca
         content_hash=artifact_file["hash"],
         metadata={"name": "pytest.log", "sizeBytes": artifact_file["sizeBytes"]},
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
 
     unauthenticated = client.get(f"/api/v1/evidence/{evidence['id']}/report")
     assert unauthenticated.status_code == 403
@@ -82,11 +94,15 @@ def test_evidence_report_export_requires_token_and_returns_markdown_without_loca
     )
 
 
-def test_evidence_report_export_returns_404_for_missing_package(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_report_export_returns_404_for_missing_package(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
 
     response = client.get("/api/v1/evidence/evidence-missing/report", headers=auth_headers(client))
 

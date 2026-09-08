@@ -97,7 +97,9 @@ class _CannedRuntimeProductOwnerRunner(ProductOwnerAgentRunner):
         self._responses = list(responses)
         self._artifact_counter = 0
 
-    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+    def status(
+        self, *, preferred_runtime: str | None = None, project_id: str | None = None
+    ) -> dict[str, Any]:
         return {
             "executable": True,
             "status": "executable",

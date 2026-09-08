@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,7 @@ def test_execution_list_is_bounded_and_exposes_backend_cancel_permission(tmp_pat
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
     try:
         with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
-            with open_sqlite_connection(runtime.db_path) as connection:
+            with closing(open_sqlite_connection(runtime.db_path)) as connection, connection:
                 repository = ExecutionRepository(connection)
                 first = repository.enqueue(
                     operation="test.list",

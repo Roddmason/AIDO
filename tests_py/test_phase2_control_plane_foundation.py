@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.app import create_app
@@ -15,7 +16,7 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_phase2_schema_adds_control_plane_foundation_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]

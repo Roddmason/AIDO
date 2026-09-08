@@ -5,6 +5,7 @@ import hashlib
 import os
 import struct
 import zlib
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -87,7 +88,7 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def _create_project(database: Path, root: Path, *, name: str) -> dict[str, object]:
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         return ProjectsRepository(connection).create_project(
             name=name,
             path=root / name,
@@ -96,7 +97,7 @@ def _create_project(database: Path, root: Path, *, name: str) -> dict[str, objec
 
 
 def _enable_nvidia_policy(database: Path) -> None:
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         repository = RuntimeConfigRepository(connection)
         repository.set_runtime_setting("runtime.remote.enabled", True)
         repository.set_runtime_setting("runtime.nvidia.enabled", True)
@@ -381,7 +382,7 @@ def test_durable_image_store_enforces_project_ownership_root_hash_and_media(tmp_
     from local_control_center.shared.migrations import initialize_platform_schema
 
     database = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         initialize_platform_schema(connection)
         first = ProjectsRepository(connection).create_project(name="first", path=tmp_path / "first")
         second = ProjectsRepository(connection).create_project(name="second", path=tmp_path / "second")
@@ -425,7 +426,7 @@ def test_durable_image_store_rejects_missing_project_invalid_media_and_oversized
     from local_control_center.shared.migrations import initialize_platform_schema
 
     database = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(name="images", path=tmp_path / "images")
         store = DurableImageArtifactStore(connection, root=tmp_path)
@@ -498,7 +499,7 @@ def test_visual_api_persists_only_artifact_reference_and_downloads_by_project(
         },
     )
     _enable_nvidia_policy(database)
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         ProviderAccountStore(connection).upsert_model(
             {
                 "providerId": "nvidia-visual-local",
@@ -533,7 +534,7 @@ def test_visual_api_persists_only_artifact_reference_and_downloads_by_project(
         headers=headers,
     )
     unauthenticated = client.get(artifact["downloadPath"])
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         stored_artifact = EvidenceRepository(connection).get_artifact_by_id(artifact["artifactId"])
         audit_row = connection.execute(
             "SELECT payload FROM audit_events WHERE action = ? ORDER BY rowid DESC LIMIT 1",
@@ -583,7 +584,7 @@ def test_visual_profile_deployment_mismatch_fails_before_transport(
         calls.append(request)
         return ProviderHttpResponse(statusCode=500, jsonBody={})
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -863,7 +864,7 @@ def test_input_artifact_conflicts_are_detected_before_provider_transport(tmp_pat
         calls.append(request)
         return ProviderHttpResponse(statusCode=200, jsonBody={})
 
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(name="inputs", path=tmp_path / "inputs")
         outside = tmp_path / "outside.png"
@@ -912,7 +913,7 @@ def test_input_artifact_size_is_checked_before_reading(
     from local_control_center.shared.migrations import initialize_platform_schema
 
     database = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(name="large", path=tmp_path / "large")
         artifact_file = write_binary_artifact(
@@ -947,7 +948,7 @@ def test_artifact_insert_failure_removes_only_new_output_file(
     from local_control_center.shared.migrations import initialize_platform_schema
 
     database = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(name="rollback", path=tmp_path / "rollback")
         store = DurableImageArtifactStore(connection, root=tmp_path)
@@ -1023,7 +1024,7 @@ def test_visual_manifest_and_discovery_fail_closed_without_transport(
         "/api/v1/provider-accounts/nvidia-visual-manifest/sync-models",
         headers=headers,
     )
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         ProviderAccountStore(connection).upsert_model(
             {
                 "providerId": "nvidia-visual-manifest",
@@ -1039,7 +1040,7 @@ def test_visual_manifest_and_discovery_fail_closed_without_transport(
         headers=headers,
         json={"projectId": project["id"], "model": "qwen/image", "prompt": "safe"},
     )
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         ProviderAccountStore(connection).upsert_model(
             {
                 "providerId": "nvidia-visual-manifest",
@@ -1055,7 +1056,7 @@ def test_visual_manifest_and_discovery_fail_closed_without_transport(
         headers=headers,
         json={"projectId": project["id"], "model": "qwen/image", "prompt": "safe"},
     )
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         ProviderAccountStore(connection).upsert_model(
             {
                 "providerId": "nvidia-visual-manifest",
@@ -1171,7 +1172,7 @@ def test_project_image_download_rejects_tampering_external_paths_missing_hash_an
     outside = tmp_path / "outside-download.png"
     outside.write_bytes(PNG_BYTES)
 
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         repository = EvidenceRepository(connection)
 
         tampered_file = write_binary_artifact(
@@ -1320,7 +1321,7 @@ def test_visual_edit_api_uses_project_input_and_returns_only_output_reference(
         },
     )
     _enable_nvidia_policy(database)
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         input_artifact = DurableImageArtifactStore(connection, root=tmp_path).persist_image(
             project_id=project_id,
             provider_id="test-input",

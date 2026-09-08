@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -59,7 +60,7 @@ def _client(tmp_path: Path):
 def test_self_improvement_proposal_creates_dedicated_project_goal_story_workspace_and_pr_workflow(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         source = _source_project(connection, tmp_path)
         coordinator = SelfImprovementCoordinator(connection, root=tmp_path)
@@ -122,7 +123,7 @@ def test_self_improvement_proposal_creates_dedicated_project_goal_story_workspac
 
 
 def test_global_lesson_requires_evidence_and_approved_promotion_action(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         source = _source_project(connection, tmp_path)
         evidence = _evidence(connection, source["id"])
@@ -185,7 +186,7 @@ def test_global_lesson_requires_evidence_and_approved_promotion_action(tmp_path:
 
 
 def test_performance_record_requires_evidence_and_links_to_proposal(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         source = _source_project(connection, tmp_path)
         evidence = _evidence(connection, source["id"])

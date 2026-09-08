@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.model_gateway_models import RolePolicyRecord
@@ -13,7 +14,7 @@ from local_control_center.team_scheduler.scheduler import ALL_ROLES
 
 def test_a_runtime_singleton_no_longer_suppresses_its_base_profile(tmp_path: Path) -> None:
     """El guard por rol borraba del roster al perfil base cuyo rol ya ocupaba un singleton."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = AgentsRepository(connection)
         repository.upsert_agent_profile(
@@ -37,7 +38,7 @@ def test_a_runtime_singleton_no_longer_suppresses_its_base_profile(tmp_path: Pat
 
 def test_every_scheduler_role_gets_a_model_policy(tmp_path: Path) -> None:
     """Un rol sin política caía al fallback silencioso a developer, enrutando a otro perfil."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         bootstrap_base_team_if_needed(connection)
@@ -53,7 +54,7 @@ def test_seeded_policies_satisfy_the_api_response_contract(tmp_path: Path) -> No
     Promise.all, asi que la lista de cuentas tambien quedaba vacia y el wizard perdia la credencial
     guardada. Validar el contrato aqui es lo que convierte esa cascada en un rojo local.
     """
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         bootstrap_base_team_if_needed(connection)
@@ -65,7 +66,7 @@ def test_seeded_policies_satisfy_the_api_response_contract(tmp_path: Path) -> No
 
 
 def test_bootstrap_does_not_overwrite_an_operator_edited_policy(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = RoutingProfileStore(connection)
         store.upsert_role_policy({"role": "qa_engineer", "preferred": ["operator-choice"]})

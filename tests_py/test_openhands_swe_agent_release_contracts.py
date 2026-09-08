@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 
@@ -221,7 +222,7 @@ def test_optional_cli_configuration_exposes_command_and_explicit_argv_without_se
 
 
 def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         rows = connection.execute(
             """
@@ -236,7 +237,7 @@ def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities
 
 
 def test_seed_openhands_and_swe_agent_accounts_are_disabled_by_default(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         rows = connection.execute(
             """
@@ -262,7 +263,7 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
     monkeypatch.setenv("AIDO_OPENHANDS_COMMAND", sys.executable)
     monkeypatch.setenv("AIDO_SWE_AGENT_COMMAND", sys.executable)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')"

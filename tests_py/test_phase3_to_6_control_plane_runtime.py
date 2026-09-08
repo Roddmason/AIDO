@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -143,7 +144,7 @@ def create_sensitive_shell_approval(
 
 
 def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -172,7 +173,7 @@ def test_phase3_to_6_schema_adds_workspaces_runtime_skills_and_evidence_tables(t
 
 
 def test_phase3_schema_upgrades_legacy_workspace_tables_before_indexes(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE workspaces (
@@ -685,7 +686,7 @@ def test_large_tool_execution_output_is_promoted_to_evidence_artifacts(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project_path = tmp_path / "large-tool-output"
         project = ProjectsRepository(connection).create_project(
@@ -785,7 +786,7 @@ def test_tool_execution_can_force_complete_stdout_into_an_artifact(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         fake_execute,
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Forced Output Artifact",
@@ -930,7 +931,7 @@ def test_restricted_subprocess_timeout_terminates_descendant_tree(tmp_path: Path
 
 def test_generic_tool_call_cannot_claim_product_owner_internal_runtime_operation(tmp_path: Path) -> None:
     marker = tmp_path / "must-not-be-created.txt"
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Product owner internal boundary",
@@ -998,7 +999,7 @@ def test_generic_agent_run_cannot_use_product_owner_profile_model_adapters(tmp_p
             adapter_calls.append(kwargs)
             raise AssertionError("Generic ProductOwnerAgent tool calls must not reach model adapters.")
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Product owner generic adapter boundary",
@@ -1077,7 +1078,7 @@ def test_product_owner_runtime_must_match_persisted_resource_decision(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         fake_execute,
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Product owner resource binding",
@@ -1382,7 +1383,7 @@ def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         blocking_execute,
     )
-    with open_sqlite_connection(db_path) as setup_connection:
+    with closing(open_sqlite_connection(db_path)) as setup_connection, setup_connection:
         initialize_platform_schema(setup_connection)
         project = ProjectsRepository(setup_connection).create_project(
             name="Atomic Product Owner decision",
@@ -1466,8 +1467,10 @@ def test_product_owner_resource_decision_claim_is_atomic_across_agent_runs(
     }
 
     with (
-        open_sqlite_connection(db_path) as first_connection,
-        open_sqlite_connection(db_path) as second_connection,
+        closing(open_sqlite_connection(db_path)) as first_connection,
+        first_connection,
+        closing(open_sqlite_connection(db_path)) as second_connection,
+        second_connection,
         ThreadPoolExecutor(max_workers=1) as executor,
     ):
         first_future = executor.submit(
@@ -1573,7 +1576,7 @@ def test_tool_execution_fails_closed_when_required_stdout_capture_overflows(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         fake_execute,
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Overflowing Required Output",
@@ -2132,7 +2135,7 @@ def test_docker_execution_uses_configured_sandbox_policy_not_tool_broker_constan
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.DockerSandbox.execute", fake_docker_execute
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         policies = SecurityPolicyRepository(connection)
         policies.upsert_sandbox_profile(
@@ -2545,7 +2548,7 @@ def test_cli_tool_call_execute_true_with_command_string_and_no_argv_is_denied_be
 def test_action_request_does_not_derive_argv_from_command_string_for_executable_actions(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})[
@@ -2567,7 +2570,7 @@ def test_action_request_does_not_derive_argv_from_command_string_for_executable_
 
 
 def test_action_request_keeps_explicit_argv_for_executable_actions(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         job = jobs.create_job(project_id="project-action", kind="chat.route", payload={"prompt": "install"})[
@@ -3048,7 +3051,7 @@ def test_workspace_allocation_accepts_devcontainer_metadata_without_docker_requi
 
 
 def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Gateway", path=tmp_path / "gateway", template_id="other"
@@ -3087,7 +3090,7 @@ def test_model_gateway_plans_allowed_model_call_without_recording_cost_usage(tmp
 
 
 def test_model_gateway_blocks_budget_overrun_and_redacts_secret_metadata(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Gateway Budget",

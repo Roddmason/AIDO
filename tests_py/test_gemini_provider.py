@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -226,7 +227,7 @@ def test_gemini_credential_conflict_isolated_in_aggregate_status(
     assert "secret-b" not in str(configurations)
     assert "ollama" in configurations
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -265,7 +266,7 @@ def test_gemini_runtime_config_ignores_unrelated_google_api_key() -> None:
 
 def test_factory_resolves_named_gemini_family_to_dedicated_adapter(tmp_path: Path) -> None:
     database_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {

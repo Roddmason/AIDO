@@ -10,6 +10,7 @@ devolvía 500 ResponseValidationError en ``GET /role-policies`` y vaciaba el pan
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.routing_profiles import RoutingProfileStore
@@ -19,7 +20,7 @@ from local_control_center.shared.serialization import json_dumps
 
 
 def test_legacy_string_model_refs_are_normalized_to_dicts(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = RoutingProfileStore(connection)
         store.upsert_role_policy({"role": "aido_lead", "preferred": [], "fallback": []})

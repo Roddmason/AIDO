@@ -11,6 +11,7 @@ proveedor está sano o simplemente no configurado (no es un problema, solo no se
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -116,7 +117,7 @@ def test_quota_demotion_recomputes_blocker_type_for_a_previously_executable_prov
 ) -> None:
     # Regresión: _demote_exhausted_providers apagaba executable DESPUÉS de calcular el blockerType
     # (=> None), dejando la UI sin chip para un provider en cooldown. Ahora lo recomputa.
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         QuotaManager(connection).record_rate_limit(
             provider_id="codex_cli", model="*", retry_after_seconds=600

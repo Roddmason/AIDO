@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.agents.impact_question_engine import (
@@ -29,7 +30,7 @@ def _question(**overrides: object) -> dict[str, object]:
 
 
 def test_initiative_is_reused_across_turns_of_the_same_thread(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = ProductDiscoveryRepository(connection)
@@ -55,7 +56,7 @@ def test_initiative_is_reused_across_turns_of_the_same_thread(tmp_path: Path) ->
 
 def test_an_answered_question_is_never_asked_again(tmp_path: Path) -> None:
     """Una pregunta respondida es el hecho detectado más fuerte: debe suprimir la repregunta."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = ProductDiscoveryRepository(connection)
@@ -86,7 +87,7 @@ def test_an_answered_question_is_never_asked_again(tmp_path: Path) -> None:
 
 def test_the_answer_to_a_closed_question_reaches_the_next_prompt(tmp_path: Path) -> None:
     """El dedup por texto no sobrevive a una reformulacion; lo que la evita es ver la respuesta."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = ProductDiscoveryRepository(connection)
@@ -139,7 +140,7 @@ def test_the_answer_to_a_closed_question_reaches_the_next_prompt(tmp_path: Path)
 
 def test_a_closed_question_without_an_accepted_answer_contributes_no_fact(tmp_path: Path) -> None:
     """Una pregunta descartada no zanja nada: inyectarla como hecho seria inventar una decision."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = ProductDiscoveryRepository(connection)

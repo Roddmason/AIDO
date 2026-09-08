@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ BACKLOG_TABLES = {
 
 
 def test_backlog_schema_adds_all_entities_as_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -40,7 +41,7 @@ def test_backlog_schema_adds_all_entities_as_tables(tmp_path: Path) -> None:
 
 
 def test_backlog_schema_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         phase17_rows = connection.execute(
@@ -51,7 +52,7 @@ def test_backlog_schema_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)
@@ -209,7 +210,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
 def test_agent_assignment_creates_structured_artifact_handoff_and_review_contract(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)
@@ -294,7 +295,7 @@ def test_agent_assignment_creates_structured_artifact_handoff_and_review_contrac
 def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_resolved(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)

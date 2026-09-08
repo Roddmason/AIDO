@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +174,7 @@ def test_the_loop_does_not_re_ask_an_answered_question_across_two_turns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _mock_ollama_daemon(monkeypatch)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         _seed_ai_resource(connection)
         project = _workspace_project(connection, tmp_path, "spring-upgrade")

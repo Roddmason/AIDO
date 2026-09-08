@@ -11,6 +11,7 @@ expone por proyecto/historia.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +100,7 @@ def _seed_story_with_tasks(connection: sqlite3.Connection, tmp_path: Path) -> di
 
 
 def test_build_story_spec_assembles_epic_story_criteria_and_roles(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         seeded = _seed_story_with_tasks(connection, tmp_path)
         backlog = BacklogRepository(connection)
@@ -126,7 +127,7 @@ def test_build_story_spec_assembles_epic_story_criteria_and_roles(tmp_path: Path
 
 
 def test_build_story_spec_raises_for_unknown_story(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         backlog = BacklogRepository(connection)
         with pytest.raises(KeyError, match="User story not found"):
@@ -134,7 +135,7 @@ def test_build_story_spec_raises_for_unknown_story(tmp_path: Path) -> None:
 
 
 def test_render_story_spec_prompt_is_bounded_and_deterministic(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         seeded = _seed_story_with_tasks(connection, tmp_path)
         backlog = BacklogRepository(connection)

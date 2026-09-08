@@ -15,6 +15,7 @@ ancla la misma invariante por la ruta HTTP real (PATCH vacío por política semb
 from __future__ import annotations
 
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -27,7 +28,7 @@ from local_control_center.shared.migrations import initialize_platform_schema
 
 
 def test_seeded_role_policies_pass_gateway_validator(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         provider_ids = {
             item["providerId"] for item in ProviderAccountStore(connection).list_provider_accounts()

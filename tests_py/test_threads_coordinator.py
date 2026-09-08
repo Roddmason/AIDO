@@ -7,6 +7,7 @@ responde (aido_lead) o bloquea (decision_request), dejando artifacts y eventos e
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -47,7 +48,7 @@ def _thread(connection, tmp_path: Path) -> dict:
 
 
 def test_coordinator_queues_clear_intent_for_async_product_loop(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -71,7 +72,7 @@ def test_coordinator_queues_clear_intent_for_async_product_loop(tmp_path: Path) 
 
 
 def test_coordinator_queues_product_loop_with_message_run_metadata(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -119,7 +120,7 @@ def _queued_run_metadata(connection, coordinator: ThreadCoordinator, thread: dic
 
 def test_economy_mode_setting_governs_the_next_run(tmp_path: Path) -> None:
     """El modo elegido en Settings se sella en el run: deja de ser un control cosmético."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -136,7 +137,7 @@ def test_economy_mode_setting_governs_the_next_run(tmp_path: Path) -> None:
 
 def test_message_metadata_may_override_the_mode_but_never_relaxes_force_local(tmp_path: Path) -> None:
     """El modo por mensaje es legítimo; force local es un control de privacidad y no se puede relajar."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -157,7 +158,7 @@ def test_message_metadata_may_override_the_mode_but_never_relaxes_force_local(tm
 
 def test_invalid_message_mode_falls_back_to_the_project_setting(tmp_path: Path) -> None:
     """Un modo inválido por mensaje no gana: se usa la decisión persistida del operador."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -173,7 +174,7 @@ def test_invalid_message_mode_falls_back_to_the_project_setting(tmp_path: Path) 
 
 
 def test_coordinator_blocks_when_runtime_is_unavailable(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection)
@@ -215,7 +216,7 @@ def test_coordinator_blocks_when_runtime_is_unavailable(tmp_path: Path) -> None:
 
 
 def test_resolve_runtime_blocked_decision_queues_plan_only_run(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -246,7 +247,7 @@ def test_resolve_runtime_blocked_decision_queues_plan_only_run(tmp_path: Path) -
 
 
 def test_coordinator_blocks_on_low_confidence_prompt(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection)
@@ -290,7 +291,7 @@ def test_coordinator_blocks_on_low_confidence_prompt(tmp_path: Path) -> None:
 
 
 def test_coordinator_blocks_high_similarity_instead_of_queueing_duplicate(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="threads-similarity-coordinator",
@@ -379,7 +380,7 @@ def test_coordinator_blocks_high_similarity_instead_of_queueing_duplicate(tmp_pa
 def test_coordinator_metadata_mode_skips_similarity_gate_and_persists(tmp_path: Path) -> None:
     """Un `mode` de similitud en metadata registra la decisión ya tomada en el intake: el mensaje
     se persiste con esa metadata y el coordinator no vuelve a bloquear por duplicado."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="threads-similarity-metadata",
@@ -440,7 +441,7 @@ def test_coordinator_metadata_mode_skips_similarity_gate_and_persists(tmp_path: 
 
 
 def test_coordinator_attaches_intake_artifact_and_event(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -463,7 +464,7 @@ def test_coordinator_attaches_intake_artifact_and_event(tmp_path: Path) -> None:
 
 
 def test_coordinator_queues_research_job_and_keeps_research_event_internal(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -497,7 +498,7 @@ def test_coordinator_queues_research_job_and_keeps_research_event_internal(tmp_p
 
 
 def test_resolve_decision_queues_original_message_for_execution(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)
@@ -554,7 +555,7 @@ def test_resolving_functionality_blocker_decision_requeues_blocked_thread(tmp_pa
     """Reproduce el loop bloqueado sin salida: el gate de funcionalidad existente deja el hilo en
     'blocked' (la transición del run pisa 'waiting_decision') y resolver la decisión debe reencolar
     el run con la elección del usuario en vez de dejar el hilo bloqueado para siempre."""
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -604,7 +605,7 @@ def test_resolving_functionality_blocker_decision_requeues_blocked_thread(tmp_pa
 
 
 def test_resolve_decision_recovers_open_thread_with_source_message(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         repo = ThreadsRepository(connection)
@@ -636,7 +637,7 @@ def test_resolve_decision_recovers_open_thread_with_source_message(tmp_path: Pat
 
 
 def test_coordinator_redacts_secrets_in_thread_summary(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         thread = _thread(connection, tmp_path)
         coordinator = ThreadCoordinator(connection, root=tmp_path)

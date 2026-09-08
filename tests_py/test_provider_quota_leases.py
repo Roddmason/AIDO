@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from json import loads
@@ -59,7 +60,7 @@ def test_phase54_migrates_from_phase53_reenters_without_overwriting_policy(
     from local_control_center.shared import migrations
 
     database_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         monkeypatch.setattr(migrations, "init_phase54_schema", lambda _connection: None, raising=False)
         initialize_platform_schema(connection)
         connection.execute(
@@ -117,7 +118,7 @@ def test_specific_disabled_policy_is_unguarded_instead_of_falling_back_to_wildca
     database_path = tmp_path / "platform.sqlite"
     now = "2026-07-14T12:00:00+00:00"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         connection.execute(
@@ -155,7 +156,7 @@ def test_atomic_concurrency_admits_exactly_configured_capacity_across_connection
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -168,7 +169,7 @@ def test_atomic_concurrency_admits_exactly_configured_capacity_across_connection
     barrier = Barrier(2)
 
     def acquire_once(branch_id: str) -> str:
-        with open_sqlite_connection(database_path) as connection:
+        with closing(open_sqlite_connection(database_path)) as connection, connection:
             manager = QuotaManager(connection, clock=clock)
             barrier.wait()
             try:
@@ -186,7 +187,7 @@ def test_atomic_concurrency_admits_exactly_configured_capacity_across_connection
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(acquire_once, ("branch-a", "branch-b")))
 
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         active = connection.execute(
             "SELECT COUNT(*) AS total FROM provider_execution_leases WHERE state = 'active'"
         ).fetchone()["total"]
@@ -232,7 +233,7 @@ def test_request_and_token_guards_deny_without_adding_a_second_reservation(
         "monthly_requests",
         "monthly_tokens",
     }
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             f"UPDATE provider_limits SET {column} = ? WHERE id = 'nvidia_nim:*'",
@@ -272,7 +273,7 @@ def test_per_request_monthly_cost_cooldown_and_unknown_cost_strategy(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -351,7 +352,7 @@ def test_minute_day_and_month_windows_reset_on_iana_timezone_boundaries(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 1, 3, 59, 59, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -390,7 +391,7 @@ def test_commit_known_usage_converts_reservations_once_and_rejects_release(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection, clock=clock)
         lease = manager.acquire(
@@ -437,7 +438,7 @@ def test_commit_unknown_usage_preserves_unverified_reservation_instead_of_zero(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection, clock=clock)
         lease = manager.acquire(
@@ -488,7 +489,7 @@ def test_release_before_dispatch_restores_capacity_idempotently(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         manager = QuotaManager(connection, clock=clock)
@@ -526,7 +527,7 @@ def test_release_after_dispatch_keeps_attempt_and_unknown_settlement(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection, clock=clock)
         lease = manager.acquire(
@@ -567,7 +568,7 @@ def test_stale_lease_expiry_releases_exact_mapped_reservations_once(
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute("UPDATE provider_limits SET max_concurrency = 1 WHERE id = 'nvidia_nim:*'")
         manager = QuotaManager(connection, clock=clock)
@@ -606,7 +607,7 @@ def test_rate_limit_observations_parse_bounded_retry_after_without_overwriting_p
 ) -> None:
     database_path = tmp_path / "platform.sqlite"
     clock = MutableClock(datetime(2026, 7, 14, 12, tzinfo=UTC))
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             """
@@ -696,7 +697,7 @@ def test_nvidia_transport_records_provider_retry_after_before_raising(tmp_path: 
             jsonBody={"detail": "Bearer must-not-persist"},
         )
 
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         initialize_platform_schema(connection)
         provider = NvidiaNimProvider(
             provider_id="nvidia-local-rate-limit",
@@ -810,7 +811,7 @@ def test_provider_limit_api_create_update_validation_and_read_only_status(
     )
 
     database_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         clock = MutableClock(datetime.now(UTC))
         QuotaManager(connection, clock=clock).acquire(
             QuotaRequest(
@@ -838,7 +839,7 @@ def test_provider_limit_api_create_update_validation_and_read_only_status(
             "estimatedCostUsd": 0.1,
         },
     )
-    with open_sqlite_connection(database_path) as connection:
+    with closing(open_sqlite_connection(database_path)) as connection, connection:
         after = connection.execute(
             """
             SELECT id, committed_requests, reserved_requests, committed_tokens,

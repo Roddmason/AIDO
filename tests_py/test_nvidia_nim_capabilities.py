@@ -4,7 +4,7 @@ import json
 import os
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
 
 
 def enable_nvidia_remote_policy(database: Path) -> None:
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         repository = RuntimeConfigRepository(connection)
         repository.set_runtime_setting("runtime.remote.enabled", True)
         repository.set_runtime_setting("runtime.nvidia.enabled", True)
@@ -47,7 +47,7 @@ def register_capability_model(
     api_family: str,
 ) -> None:
     """Persist one operator-confirmed model manifest for typed execution tests."""
-    with open_sqlite_connection(database) as connection:
+    with closing(open_sqlite_connection(database)) as connection, connection:
         ProviderAccountStore(connection).upsert_model(
             {
                 "providerId": provider_id,
@@ -111,7 +111,7 @@ def test_phase53_adds_adapter_profile_and_backfills_auto(
 ) -> None:
     from local_control_center.shared import migrations
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         monkeypatch.setattr(migrations, "init_phase53_schema", lambda _connection: None)
         initialize_platform_schema(connection)
 
@@ -153,7 +153,7 @@ def test_phase53_adds_adapter_profile_and_backfills_auto(
 
 
 def test_provider_account_round_trips_explicit_adapter_profile(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
 
@@ -729,7 +729,10 @@ def test_model_gateway_requires_matching_manifest_capability_flag(
             },
         )
         enable_nvidia_remote_policy(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))
-        with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+        with (
+            closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+            connection,
+        ):
             ProviderAccountStore(connection).upsert_model(
                 {
                     "providerId": "nvidia-embedding-capability-disabled",
@@ -915,7 +918,7 @@ def test_visual_auto_profile_fails_closed_before_network(tmp_path: Path) -> None
         ProviderAdapterFactory,
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -1278,7 +1281,10 @@ def test_nvidia_provider_type_cannot_bypass_runtime_policy(
             "enabled": True,
         },
     )
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         connection.execute(
             "UPDATE provider_accounts SET provider_type = 'local' WHERE provider_id = ?",
             ("nvidia-policy-type-corrupted",),
@@ -1813,7 +1819,10 @@ def test_provider_error_body_and_bearer_are_not_returned_or_audited(
     assert secret not in response.text
     assert "raw body" not in response.text
     assert calls[0]["authorization"] == f"Bearer {secret}"
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         audit_text = "\n".join(
             str(row[0])
             for row in connection.execute(

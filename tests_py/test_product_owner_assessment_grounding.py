@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ def test_runner_creates_then_reuses_project_assessment_for_grounding(tmp_path: P
     project_root = tmp_path / "sample"
     build_sample_project(project_root)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = ProjectsRepository(connection)
         project = repository.create_project(name="Sample", path=project_root, template_id="other")
@@ -40,7 +41,7 @@ def test_runner_creates_then_reuses_project_assessment_for_grounding(tmp_path: P
 
 
 def test_runner_returns_none_when_no_assessment_can_be_produced(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         runner = ProductOwnerAgentRunner(connection, root=tmp_path)
         # An unknown project cannot be assessed; the agent degrades gracefully (no grounding).

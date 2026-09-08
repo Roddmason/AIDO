@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,12 @@ from local_control_center.workers.leadership import WorkerControlRepository, Wor
 
 def test_worker_leadership_takeover_increments_fencing_token(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as first, open_sqlite_connection(db_path) as second:
+    with (
+        closing(open_sqlite_connection(db_path)) as first,
+        first,
+        closing(open_sqlite_connection(db_path)) as second,
+        second,
+    ):
         initialize_platform_schema(first)
         initialize_platform_schema(second)
         leader = WorkerLeadershipRepository(first).acquire(
@@ -43,7 +49,7 @@ def test_worker_leadership_takeover_increments_fencing_token(tmp_path: Path) -> 
 
 def test_stale_leader_cannot_complete_job_after_takeover(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Fencing",
@@ -95,7 +101,7 @@ def test_worker_control_routes_only_write_durable_state(tmp_path: Path) -> None:
         resumed = client.post("/api/v1/workers/resume", headers=headers)
         run_once = client.post("/api/v1/workers/run-once", headers=headers)
 
-    with open_sqlite_connection(runtime.db_path) as connection:
+    with closing(open_sqlite_connection(runtime.db_path)) as connection, connection:
         initialize_platform_schema(connection)
         control = WorkerControlRepository(connection).get()
     runtime.close()
@@ -110,7 +116,7 @@ def test_worker_control_routes_only_write_durable_state(tmp_path: Path) -> None:
 
 
 def test_worker_leadership_migration_is_reentrant(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         versions = connection.execute(
@@ -131,7 +137,7 @@ def test_worker_status_does_not_treat_expired_heartbeat_as_connected(tmp_path: P
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     try:
         with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
-            with open_sqlite_connection(runtime.db_path) as connection:
+            with closing(open_sqlite_connection(runtime.db_path)) as connection, connection:
                 WorkerLeadershipRepository(connection).acquire(
                     owner_id="dead-worker", now="2000-01-01T00:00:00.000Z"
                 )
@@ -147,7 +153,7 @@ def test_worker_status_counts_durable_runs(tmp_path: Path) -> None:
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     try:
         with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
-            with open_sqlite_connection(runtime.db_path) as connection:
+            with closing(open_sqlite_connection(runtime.db_path)) as connection, connection:
                 jobs = JobsRepository(connection)
                 job = jobs.create_job(project_id="local-operations", kind="prompt.optimize")["job"]
                 claimed = jobs.claim_next_job(worker_id="worker-stats")

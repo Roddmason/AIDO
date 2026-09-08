@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,7 +89,10 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
         headers=headers,
     )
     assert response.status_code == 200
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         enable_runtime_policy(connection, remote=True, nvidia=provider_id == "nvidia_nim")
         ProviderAccountStore(connection).record_health_check(
             provider_id=provider_id,
@@ -210,7 +214,7 @@ def run_anthropic_gateway_server(
 
 
 def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -291,7 +295,7 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
 def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_cost(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE model_calls (
@@ -376,7 +380,7 @@ def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_
 def test_usage_token_migration_preserves_reported_values_and_nulls_unknown_zeros(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE usage_ledger (
@@ -442,7 +446,7 @@ def test_usage_token_migration_preserves_reported_values_and_nulls_unknown_zeros
 
 
 def test_schema_rebuild_rolls_back_ddl_and_data_on_failure(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         connection.execute("CREATE TABLE source_rows (id TEXT PRIMARY KEY)")
         connection.execute("INSERT INTO source_rows (id) VALUES ('preserved')")
 
@@ -489,7 +493,7 @@ def test_provider_test_prompt_keeps_missing_usage_unknown(
 
 
 def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -594,7 +598,7 @@ def test_provider_account_requests_cannot_write_health_state(
 
 
 def test_provider_account_config_change_resets_server_owned_health(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
         store.patch_provider_account(
@@ -619,7 +623,7 @@ def test_provider_account_config_change_resets_server_owned_health(tmp_path: Pat
 
 
 def test_prepare_model_call_preserves_unknown_estimated_cost(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         policy = AgentsRepository(connection).upsert_model_policy(
             {
@@ -702,7 +706,7 @@ def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
 def test_known_openai_compatible_provider_uses_default_base_url_without_manual_entry(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
         store.upsert_provider_account(
@@ -995,7 +999,7 @@ def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
             "enabled": True,
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         enable_runtime_policy(connection, remote=True)
     health = client.post(
         "/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers
@@ -1090,7 +1094,7 @@ def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     base_url, handler, server = run_json_gateway_server({"unexpected": True})
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
@@ -1129,7 +1133,7 @@ def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
     secret = "sk-redactgateway123456"
     monkeypatch.setenv("MODEL_GATEWAY_SECRET_KEY", secret)
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         enable_runtime_policy(connection, remote=True)
         ProviderAccountStore(connection).upsert_provider_account(
@@ -1171,7 +1175,7 @@ def test_model_gateway_budget_exceeded_blocks_before_provider_call(
     monkeypatch.setattr(OpenAICompatibleProvider, "chat_completion", fail_chat_completion)
     monkeypatch.setenv("MODEL_GATEWAY_BUDGET_KEY", "sk-budgetgateway123456")
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -1206,7 +1210,7 @@ def test_model_gateway_budget_exceeded_blocks_before_provider_call(
 def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path) -> None:
     base_url, _handler, server = run_json_gateway_server({})
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
@@ -1236,7 +1240,7 @@ def test_model_gateway_endpoint_scoped_ollama_requires_explicit_base_url(
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -1278,7 +1282,7 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         }
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             enable_runtime_policy(connection, remote=True)
             store = ProviderAccountStore(connection)
@@ -1389,7 +1393,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         models_payload={"data": []},
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
@@ -1476,7 +1480,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
         }
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             enable_runtime_policy(connection, remote=True, nvidia=True)
             store = ProviderAccountStore(connection)
@@ -2042,7 +2046,7 @@ def test_budget_rule_warn_keeps_selection_and_surfaces_warning(
 
 
 def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE model_catalog SET source = ?, updated_at = ? WHERE provider_id = ? AND model = ?",
@@ -2295,7 +2299,7 @@ def test_pricing_snapshot_api_records_redacted_append_only_snapshot_and_updates_
 
 
 def test_phase14_schema_adds_pricing_snapshots(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -2364,7 +2368,7 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
     headers = auth_headers(client)
     enable_provider(client, headers, "codex_cli")
     enable_provider(client, headers, "openhands")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         manager = QuotaManager(connection)
         manager.record_rate_limit(provider_id="openhands", model="auto", retry_after_seconds=120)
 
@@ -2487,7 +2491,7 @@ def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_p
         },
     )
     assert response.status_code == 200
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         enable_runtime_policy(connection, remote=True)
 
     health = client.post(
@@ -2541,7 +2545,7 @@ def test_provider_health_429_records_cooldown_and_redacts_last_error(
 
 
 def test_quota_manager_blocks_provider_in_cooldown(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection)
         manager.record_rate_limit(
@@ -2556,7 +2560,7 @@ def test_quota_manager_blocks_provider_in_cooldown(tmp_path: Path) -> None:
 
 
 def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ledger = UsageLedger(connection)
         estimated = ledger.record_usage(
@@ -2594,7 +2598,7 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
 
 
 def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ledger = UsageLedger(connection)
         ledger.record_usage(
@@ -2624,7 +2628,7 @@ def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> N
             raw_usage={"usage_source": "provider"},
         )
         mixed_summary = ledger.summary()
-    with open_sqlite_connection(tmp_path / "actual-only.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "actual-only.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ledger = UsageLedger(connection)
         ledger.record_usage(
@@ -2655,7 +2659,7 @@ def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> N
 def test_usage_ledger_summary_does_not_present_known_cost_subtotals_as_complete(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ledger = UsageLedger(connection)
         ledger.record_usage(
@@ -2962,7 +2966,7 @@ def test_failed_test_result_overrides_passed_verdict_in_benchmarks(
 
 
 def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         provider = NvidiaNimProvider(connection=connection)
         estimate = provider.estimate_cost(
@@ -3178,7 +3182,10 @@ def test_cli_detect_probe_without_version_degrades_instead_of_offline(
     response = client.post("/api/v1/model-gateway/cli-runtimes/codex_cli/detect", headers=headers)
     assert response.status_code == 200
 
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         row = connection.execute(
             "SELECT health_status, last_error FROM runtime_installations WHERE runtime_id = 'codex_cli'"
         ).fetchone()
@@ -3255,7 +3262,7 @@ def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(
         "local_control_center.agents.codex_compatibility.CodexCompatibilityService.status",
         lambda *args, **kwargs: {"status": "compatible"},
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
         command = build_product_owner_agent_argv(
@@ -3318,7 +3325,7 @@ def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(
 
 
 def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
 
@@ -3340,7 +3347,7 @@ def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Pa
 
 
 def test_product_owner_codex_command_rejects_stale_persisted_version(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
 
@@ -3362,7 +3369,7 @@ def test_product_owner_codex_command_rejects_stale_persisted_version(tmp_path: P
 
 
 def test_product_owner_claude_command_uses_plan_permission_mode(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
         command = build_product_owner_agent_argv(
@@ -3394,7 +3401,7 @@ def test_product_owner_claude_command_uses_plan_permission_mode(tmp_path: Path) 
 
 
 def test_product_owner_runtime_rejects_explicit_argv_override(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-product-owner", tmp_path)
 
@@ -3486,7 +3493,7 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
             "stderr": "",
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -3518,7 +3525,7 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
 
 def test_cli_session_store_writes_redacted_stdout_stderr_and_log_artifacts(tmp_path: Path) -> None:
     secret = "Bearer sk-test1234567890abcdef"
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         session = CliSessionStore(connection).record_result(
@@ -3573,7 +3580,7 @@ def test_cli_runtime_links_stdout_and_logs_artifacts_for_process_output(
             "stderr": "",
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -3606,7 +3613,7 @@ def test_cli_runtime_links_stdout_and_logs_artifacts_for_process_output(
 
 
 def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -3633,7 +3640,7 @@ def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_pat
 
 
 def test_cli_runtime_records_invalid_workspace_without_execution(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
 
@@ -3666,7 +3673,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -3849,7 +3856,10 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
     enable_provider(client, headers, "codex_cli")
     # Los transportes vienen habilitados por defecto; este tramo verifica el fail-closed, así que se
     # apaga runtime.cli.enabled explícitamente antes de exigir el 403.
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         RuntimeConfigRepository(connection).set_runtime_setting("runtime.cli.enabled", False)
 
     disabled = client.post(
@@ -3869,7 +3879,10 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
     assert disabled.status_code == 403
     assert "runtime.cli.enabled is false" in disabled.json()["detail"].lower()
 
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
         enable_runtime_policy(connection, cli=True)
     approval = client.post(
         "/api/v1/model-gateway/route/execute",

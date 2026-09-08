@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 
 def test_phase52_backfills_legacy_nvidia_account_and_model_defaults(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         provider_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(provider_accounts)").fetchall()
@@ -221,7 +222,7 @@ def test_endpoint_accounts_coexist_and_keep_health_server_owned(
     assert rejected.status_code == 422
 
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         store = ProviderAccountStore(connection)
         store.record_health_check(
             provider_id="nvidia-hosted-team-a",
@@ -320,7 +321,7 @@ def test_model_catalog_capabilities_remain_endpoint_scoped(
     assert partner.status_code == 201, partner.text
     assert partner.json()["model"]["id"] != hosted_model["id"]
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         rows = connection.execute(
             "SELECT provider_id, model FROM model_catalog WHERE model = ? ORDER BY provider_id",
             (shared_model,),
@@ -529,7 +530,7 @@ def test_provider_account_apis_reject_url_userinfo_without_persisting_or_echoing
     for response in (generic_post, generic_patch, catalog_post):
         assert secret not in response.text
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         persisted = connection.execute(
             "SELECT COUNT(*) FROM provider_accounts WHERE instr(base_url, ?) > 0",
             (secret,),
@@ -628,7 +629,7 @@ def test_noncanonical_account_sync_resolves_nvidia_preset_and_stays_endpoint_sco
     assert created.status_code == 201, created.text
     assert created.json()["provider"]["metadata"]["providerCatalogId"] == "nvidia_nim"
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         runtime_repo = RuntimeConfigRepository(connection)
         runtime_repo.set_runtime_setting("runtime.remote.enabled", True)
         runtime_repo.set_runtime_setting("runtime.nvidia.enabled", True)

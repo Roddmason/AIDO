@@ -23,6 +23,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psutil
+
 from .redaction import redact_secrets
 
 MAX_EVENT_BYTES = 8192
@@ -76,6 +78,7 @@ _FIELDS = {
     "sample",
     "diagnosticsDegraded",
     "droppedEvents",
+    "diagnosticFailure",
     "exceptionChain",
     "effectiveConfig",
     "debuggerPaused",
@@ -111,7 +114,7 @@ def clean(value):
         return [clean(v) for v in value[:40]]
     if isinstance(value, str):
         return re.sub(
-            r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret)\s*[=:]\s*[^\s,;]+",
+            r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret)\s*[=:]\s*[^\s,;]+",
             "[redacted]",
             str(redact_secrets(value)),
         )[: MAX_EVENT_BYTES * 2]
@@ -171,18 +174,44 @@ def context_fields(context=None) -> dict:
 
 
 @contextmanager
+def diagnostic_io(phase: str, path: Path):
+    """Attach safe operation metadata without another IO or diagnostic recursion."""
+    try:
+        yield
+    except OSError as error:
+        if not hasattr(error, "diagnostic_phase"):
+            error.diagnostic_phase = phase
+            error.diagnostic_path = str(path)
+        raise
+
+
+@contextmanager
 def budget_lock(root: Path):
-    """Lock OS no bloqueante; sólo el escritor toca disco. No se usa desde requests."""
-    with (root / ".diagnostic-budget.lock").open("a+b") as handle:
+    """Bounded native contention wait; producers never acquire this disk lock."""
+    path = root / ".diagnostic-budget.lock"
+    with diagnostic_io("budget_lock_open", path), path.open("a+b") as handle:
         handle.seek(0)
         if os.name == "nt":
             import msvcrt
-
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
-
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        deadline = time.monotonic() + 0.5
+        with diagnostic_io("budget_lock_acquire", path):
+            while True:
+                try:
+                    if os.name == "nt":
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    # EACCES is contention ONLY at the native lock operation, not open/write.
+                    if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(errno.ETIMEDOUT, "diagnostic budget lock deadline") from error
+                    time.sleep(min(0.01, remaining))
         try:
             yield
         finally:
@@ -223,6 +252,8 @@ class DiagnosticHandler(logging.Handler):
         self.guard, self.stopping = threading.Lock(), threading.Event()
         self.queued_bytes = self.sequence = self.dropped = self.segment = 0
         self.reason = ""
+        self.last_error = None
+        self.creation_time = psutil.Process().create_time()
         self.path = None
         self.writer = threading.Thread(target=self._drain, name="aido-diagnostics", daemon=True)
         self.writer.start()
@@ -235,6 +266,7 @@ class DiagnosticHandler(logging.Handler):
             "reason": self.reason,
             "queueBytes": self.queued_bytes,
             "globalBudgetBytes": self.global_bytes,
+            "diagnosticFailure": self.last_error,
         }
 
     def _drop(self, reason):
@@ -308,10 +340,12 @@ class DiagnosticHandler(logging.Handler):
             self.guard.release()
 
     def _write(self, data):
-        self.root.mkdir(parents=True, exist_ok=True)
+        with diagnostic_io("directory_create", self.root):
+            self.root.mkdir(parents=True, exist_ok=True)
         with budget_lock(self.root):
             if self.path is not None and self.path.stat().st_size + len(data) > self.file_bytes:
-                self.path.rename(self.path.with_suffix(".closed.jsonl"))
+                with diagnostic_io("segment_rotate", self.path):
+                    self.path.rename(self.path.with_suffix(".closed.jsonl"))
                 self.path = None
             files = list(self.root.glob("diag-*.jsonl"))
             total = sum(p.stat().st_size for p in files)
@@ -326,14 +360,20 @@ class DiagnosticHandler(logging.Handler):
                 if total + len(data) <= self.global_bytes:
                     break
                 total -= old.stat().st_size
-                old.unlink()
+                with diagnostic_io("segment_retire", old):
+                    old.unlink()
             if total + len(data) > self.global_bytes:
                 raise OSError(errno.ENOSPC, "diagnostic budget occupied by active/protected segments")
             if self.path is None:
                 self.segment += 1
                 self.path = self.root / f"diag-{self.instance}-{self.segment}.jsonl"
-            with self.path.open("ab") as output:
+            with (
+                diagnostic_io("segment_open", self.path),
+                self.path.open("ab") as output,
+                diagnostic_io("segment_write", self.path),
+            ):
                 output.write(data)
+                output.flush()
 
     def _drain(self):
         while not self.stopping.is_set() or not self.pending.empty():
@@ -344,6 +384,17 @@ class DiagnosticHandler(logging.Handler):
             try:
                 self._write(data)
             except OSError as error:
+                self.last_error = clean(
+                    {
+                        "phase": getattr(error, "diagnostic_phase", "writer"),
+                        "path": getattr(error, "diagnostic_path", None),
+                        "pid": os.getpid(),
+                        "processCreationTime": self.creation_time,
+                        "errno": error.errno,
+                        "win32Error": getattr(error, "winerror", None),
+                        "exceptionChain": exception_chain(error),
+                    }
+                )
                 self._drop(errno.errorcode.get(error.errno, "disk_error"))
             except Exception:
                 self._drop("writer_failed")

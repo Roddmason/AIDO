@@ -12,6 +12,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 
+test.use({ trace: 'retain-on-failure' });
+
 /**
  * Full-lifecycle journey against a REAL dashboard server, a REAL temporary git project and a
  * controlled (but real) Ollama-protocol runtime. It exists to keep the GUI honest: every pipeline
@@ -43,6 +45,7 @@ let dashboardProcess = null;
 let workerProcess = null;
 const dashboardLog = [];
 const mockCalls = { productOwner: 0, developer: 0, unknown: 0 };
+const operationTimeline = [];
 
 function runGit(args, cwd) {
 	const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -422,6 +425,16 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 	});
 
 	test.afterEach(async ({}, testInfo) => {
+		const python = pythonCommandForScript('');
+		const snapshot = spawnSync(python.command, [
+			...python.args.slice(0, -2), '-m', 'tests_web.fixtures.lifecycle_evidence',
+			path.join(scratchDir, 'platform.sqlite'), testInfo.outputPath('lifecycle.sqlite'),
+			String(dashboardProcess.pid), String(workerProcess.pid),
+		], { cwd: repoRoot, encoding: 'utf8', timeout: 130_000 });
+		await testInfo.attach('lifecycle-state.json', { body: snapshot.stdout || snapshot.stderr, contentType: 'application/json' });
+		await testInfo.attach('lifecycle-timeline.json', { body: JSON.stringify(operationTimeline), contentType: 'application/json' });
+		await testInfo.attach('lifecycle-processes.log', { body: dashboardLog.join(''), contentType: 'text/plain' });
+		expect(snapshot.status, snapshot.stderr).toBe(0);
 		if (testInfo.status !== testInfo.expectedStatus) {
 			console.log(`[lifecycle] mock calls: ${JSON.stringify(mockCalls)}`);
 			console.log(`[lifecycle] dashboard log tail:\n${dashboardLog.slice(-40).join('')}`);
@@ -446,10 +459,24 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		// The real external worker stays paused. Each accepted setup operation explicitly requests
 		// one batch; thread execution is still driven by the Run now controls asserted below.
 		page.on('response', async (response) => {
+			if (response.url().includes('/api/v1/executions/') || response.url().endsWith('/workers/run-once')) {
+				const state = await response.json();
+				operationTimeline.push({ at: new Date().toISOString(), url: new URL(response.url()).pathname,
+					status: response.status(), executionId: state.executionId, operation: state.operation,
+					state: state.status, reason: state.reason, inFlightJobs: state.inFlightJobs,
+					ownerId: state.ownerId, fencingToken: state.fencingToken, heartbeatAt: state.heartbeatAt });
+			}
 			if (response.status() !== 202) return;
 			const body = await response.json();
 			if (!body.operation || !body.executionId) return;
+			operationTimeline.push({ at: new Date().toISOString(), phase: 'accepted',
+				executionId: body.executionId, operation: body.operation, requestId: response.headers()['x-correlation-id'] });
 			const control = await page.request.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders });
+			const state = await control.json();
+			operationTimeline.push({ at: new Date().toISOString(), phase: 'run-once-accepted',
+				executionId: body.executionId, status: control.status(), ownerId: state.ownerId,
+				fencingToken: state.fencingToken, heartbeatAt: state.heartbeatAt,
+				runOnceRequestedAt: state.runOnceRequestedAt, desiredState: state.desiredState });
 			expect(control.status()).toBe(202);
 		});
 		let project;

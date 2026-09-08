@@ -1486,6 +1486,9 @@ class ProductOwnerAgentRunner:
         completitud, persiste discovery siempre tras validar y backlog solo si no quedan decisiones
         bloqueantes. Falla cerrado (runtime_unavailable/failed_validation) ante cualquier brecha.
         """
+        max_attempts = payload.get("maxRuntimeAttempts", PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS)
+        if type(max_attempts) is not int or not 1 <= max_attempts <= PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS:
+            raise ValueError("ProductOwnerAgent maxRuntimeAttempts must be an integer between 1 and 2.")
         project_id = str(payload["projectId"])
         task_id = str(payload.get("taskId") or "product_owner_agent")
         idea = str(payload.get("idea") or "")
@@ -1752,7 +1755,8 @@ class ProductOwnerAgentRunner:
         repair: dict[str, Any] | None = None
         attempt_payload = payload
         attempt_result: dict[str, Any] = {}
-        for _attempt in range(PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS):
+        max_attempts = payload.get("maxRuntimeAttempts", PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS)
+        for _attempt in range(max_attempts):
             attempt_result = self._execute_once(
                 payload=attempt_payload,
                 runtime=runtime,
@@ -1776,6 +1780,8 @@ class ProductOwnerAgentRunner:
                 result["status"] = "failed"
                 result["reason"] = attempt_result["reason"]
                 return result
+            if _attempt + 1 == max_attempts:
+                break
             repair = {
                 "error": attempt_result["reason"],
                 "previousOutput": attempt_result.get("outputText", ""),

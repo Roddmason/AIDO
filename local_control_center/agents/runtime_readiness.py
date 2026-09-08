@@ -10,15 +10,51 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlparse
+
+import psutil
 
 from local_control_center.host_resources.governor import HostResourceGovernor
 from local_control_center.host_resources.models import ResourceAdmissionRequest, WorkloadClass
+from local_control_center.host_resources.profiles import CAPTURE_SESSION_PARTS, workload_profile
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.shared.time import utc_now
 
 HEALTH_EVIDENCE_TTL_SECONDS = 300
+
+
+def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest:
+    """Preview the entire verified session, not a second reservation for its own child."""
+    context = CURRENT_EXECUTION.get()
+    workload = provider_workload_class(account)
+    execution_id = context.execution_id if context and context.execution_id else "readiness-preview"
+    if context:
+        from local_control_center.process_supervision.session_client import session_identity
+
+        database = connection.execute("PRAGMA database_list").fetchone()[2]
+        if database and Path(database).resolve() == Path(context.db_path).resolve():
+            identity = session_identity(context.db_path)
+            if identity is not None:
+                value, lease = identity
+                if context.resource_lease_id not in {
+                    None,
+                    lease.id,
+                } or context.aggregate_managed_process_id not in {None, value["aggregateId"]}:
+                    raise PermissionError("Readiness context differs from the verified launcher session")
+                profile = workload_profile(workload)
+                if (
+                    not profile.gpu_required
+                    and profile.memory_limit_bytes <= CAPTURE_SESSION_PARTS["execution"]["memoryBytes"]
+                    and profile.process_limit <= lease.process_limit
+                ):
+                    # Retain live host CPU, disk and the full 18 GiB + host-reserve check.
+                    # Session subbudgets and fencing remain enforced by the supervisor at spawn.
+                    workload, execution_id = "capture_session", lease.execution_id
+    return ResourceAdmissionRequest(
+        execution_id=execution_id, owner_id="readiness-preview", workload_class=workload
+    )
 
 
 def healthy_evidence(status: dict) -> bool:
@@ -86,19 +122,14 @@ def apply_effective_readiness(
             datetime.now(UTC) - datetime.fromisoformat(sample.sampled_at.replace("Z", "+00:00"))
         ).total_seconds()
         if 0 <= age <= 30:
-            context = CURRENT_EXECUTION.get()
-            decision = HostResourceGovernor(connection).preview(
-                ResourceAdmissionRequest(
-                    execution_id=context.execution_id
-                    if context and context.execution_id
-                    else "readiness-preview",
-                    owner_id="readiness-preview",
-                    workload_class=provider_workload_class(account),
-                ),
-                snapshot=sample.snapshot,
-            )
-            admissible = decision.status == "admitted"
-            resource_reason = decision.reason_code
+            try:
+                decision = HostResourceGovernor(connection).preview(
+                    _readiness_resource_request(connection, account), snapshot=sample.snapshot
+                )
+                admissible = decision.status == "admitted"
+                resource_reason = decision.reason_code
+            except (OSError, ValueError, RuntimeError, psutil.Error):
+                resource_reason = "resource_session_unverified"
         else:
             resource_reason = "resource_snapshot_stale"
     if not admissible:

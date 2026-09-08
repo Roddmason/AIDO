@@ -81,6 +81,7 @@ def product_owner_agent_contract() -> dict[str, Any]:
                 "assessment": {"type": "object"},
                 "preferredRuntime": {"type": ["string", "null"]},
                 "approvalGrantId": {"type": ["string", "null"]},
+                "maxRuntimeAttempts": {"type": "integer", "minimum": 1, "maximum": 2, "default": 2},
                 "model": {"type": ["string", "null"]},
                 "metadata": {"type": "object"},
             },

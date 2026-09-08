@@ -10,7 +10,10 @@ from typing import Any
 import pytest
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
-from local_control_center.agents.product_owner_agent import _execution_result_from_tool_call
+from local_control_center.agents.product_owner_agent import (
+    ProductOwnerAgentRunner,
+    _execution_result_from_tool_call,
+)
 from local_control_center.agents.product_owner_agent_contract import (
     PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
     product_owner_agent_contract,
@@ -1324,6 +1327,47 @@ def test_product_owner_repairs_invalid_output_on_second_attempt(
     assert body["status"] == "completed"
     assert ControlledProductOwnerProviderHandler.chat_post_count == 2
     assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"])
+
+
+def test_product_owner_single_attempt_preserves_invalid_output_without_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-single-attempt")
+    body = {**product_owner_request(project, workspace), "maxRuntimeAttempts": 1}
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(product_owner_output(blocking=False)),
+        contents=[json.dumps({"brief": {"title": "Partial"}})],
+        body=body,
+    )
+
+    assert response.status_code == 202
+    result = response.json()
+    assert result["status"] == "failed_validation"
+    assert result["output"] is None
+    assert ControlledProductOwnerProviderHandler.chat_post_count == 1
+    assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []
+    repairs = store.connection.execute(
+        "SELECT id FROM ai_routing_decisions WHERE decision_reason LIKE 'Repair attempt%'"
+    ).fetchall()
+    assert repairs == []
+
+
+@pytest.mark.parametrize("limit", [0, 3, -1, True, "1", 1.5, None])
+def test_product_owner_rejects_invalid_attempt_limit_before_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: object
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-invalid-attempt-limit")
+    body = {**product_owner_request(project, workspace), "maxRuntimeAttempts": limit}
+    response = client.post("/api/v1/agents/product-owner/runs", headers=headers, json=body)
+    assert response.status_code == 422
+    with pytest.raises(ValueError, match="maxRuntimeAttempts"):
+        ProductOwnerAgentRunner(store.connection, root=tmp_path).run(body)
+    assert store.connection.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0
 
 
 def test_product_owner_stops_after_repair_attempt_cap(

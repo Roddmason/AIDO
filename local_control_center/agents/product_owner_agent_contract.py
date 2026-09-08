@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from local_control_center.shared.redaction import redact_secrets
+
 from .autonomy_profiles import REVERSIBILITIES
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
 from .runtime_selection import is_ollama_runtime, runtime_provider_family
@@ -301,12 +303,18 @@ def product_owner_agent_contract() -> dict[str, Any]:
 
 
 def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
+    reasons = list(runtime.get("blockingReasons") or [])
+    reasons.extend((runtime.get("compatibility") or {}).get("blockingReasons") or [])
+    if reasons:
+        return str(redact_secrets("; ".join(dict.fromkeys(reasons))))
     runtime_id = str(runtime.get("id") or "")
     capabilities = set(runtime.get("capabilities") or [])
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and runtime.get("productOwnerExecutable") is False:
         return str(
-            runtime.get("reason")
-            or "CLI runtime has not passed the ProductOwnerAgent-specific safety contract."
+            redact_secrets(
+                runtime.get("reason")
+                or "CLI runtime has not passed the ProductOwnerAgent-specific safety contract."
+            )
         )
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and (
         "chat" not in capabilities or runtime.get("canRunPrompt") is False
@@ -314,7 +322,7 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
         return "CLI runtime does not advertise the chat prompt capability required by ProductOwnerAgent."
     if is_ollama_runtime(runtime) and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ProductOwnerAgent execution."
-    return str(runtime.get("reason") or "Runtime is not executable for ProductOwnerAgent.")
+    return str(redact_secrets(runtime.get("reason") or "Runtime is not executable for ProductOwnerAgent."))
 
 
 def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
@@ -339,12 +347,67 @@ def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
     return False
 
 
+def _runtime_resolution(
+    runtime_statuses: list[dict[str, Any]], preferred_runtime: str | None
+) -> dict[str, Any]:
+    """Project only non-secret evidence; readiness is neither authorization nor an observation of a run."""
+    from .codex_compatibility import contract_fingerprint
+
+    candidates = []
+    for runtime in runtime_statuses:
+        runtime_id = str(runtime.get("id") or "")
+        if (
+            runtime_id not in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
+            and runtime_provider_family(runtime) not in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+        ):
+            continue
+        compatibility = runtime.get("compatibility") or {}
+        eligible = is_product_owner_runtime(runtime)
+        candidates.append(
+            {
+                "runtimeId": runtime_id,
+                "eligible": eligible,
+                "detectedCommand": runtime.get("detectedCommand"),
+                "executableSource": runtime.get("executableSource"),
+                "version": runtime.get("version"),
+                "versionVerified": runtime.get("versionVerified"),
+                "binaryFingerprint": compatibility.get("binaryFingerprint"),
+                "contractFingerprint": contract_fingerprint() if runtime_id == "codex_cli" else None,
+                "capabilityVersion": compatibility.get("version"),
+                "compatibilityStatus": compatibility.get("status"),
+                "evidenceCheckedAt": compatibility.get("lastCheckedAt"),
+                "configured": runtime.get("configured"),
+                "authenticated": runtime.get("authenticated"),
+                "healthy": runtime.get("healthy"),
+                "policyAllowed": runtime.get("policyAllowed"),
+                "resourceAdmissible": runtime.get("resourceAdmissible"),
+                "reason": runtime.get("reason") if eligible else _product_owner_runtime_reason(runtime),
+            }
+        )
+    return redact_secrets(
+        {
+            "requestedRuntime": preferred_runtime,
+            "source": "request.preferredRuntime" if preferred_runtime else "eligible_cost_order",
+            "candidates": candidates,
+            "permissions": {
+                "permissionProfile": "plan",
+                "allowedTools": PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
+                "executionAuthorized": False,
+                "authority": "ToolBroker",
+            },
+            # No provider call has occurred. Local policy (including no_limit) is not provider quota.
+            "observedEffort": None,
+            "remainingQuota": None,
+        }
+    )
+
+
 def product_owner_agent_readiness(
     runtime_statuses: list[dict[str, Any]],
     *,
     preferred_runtime: str | None = None,
 ) -> dict[str, Any]:
-    """Selecciona el runtime del ProductOwnerAgent (preferido si es válido, si no el de mayor prioridad).
+    """Selecciona entre elegibles; una preferencia explícita no elegible falla sin fallback.
 
     Prioriza cuentas free-tier declaradas por el operador y modelos locales; los demás runtimes quedan
     disponibles como alternativas sujetas a la política de costo y aprobación.
@@ -352,6 +415,7 @@ def product_owner_agent_readiness(
     Returns:
         Estado de readiness con executable/status/reason, el runtime elegido, los candidatos y el contrato.
     """
+    resolution = _runtime_resolution(runtime_statuses, preferred_runtime)
     by_id = {str(runtime.get("id")): runtime for runtime in runtime_statuses}
     eligible = [runtime for runtime in runtime_statuses if is_product_owner_runtime(runtime)]
     ordered_eligible = sorted(
@@ -371,10 +435,11 @@ def product_owner_agent_readiness(
                 "id": PRODUCT_OWNER_AGENT_ID,
                 "executable": False,
                 "status": "runtime_unavailable",
-                "reason": f"Runtime provider is not catalogued: {preferred_runtime}",
+                "reason": redact_secrets(f"Runtime provider is not catalogued: {preferred_runtime}"),
                 "selectedRuntimeId": None,
                 "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],
                 "contract": product_owner_agent_contract(),
+                "resolution": resolution,
             }
         if not is_product_owner_runtime(selected):
             return {
@@ -387,6 +452,7 @@ def product_owner_agent_readiness(
                 "selectedRuntimeId": str(selected.get("id") or preferred_runtime),
                 "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],
                 "contract": product_owner_agent_contract(),
+                "resolution": resolution,
             }
     elif ordered_eligible:
         selected = ordered_eligible[0]
@@ -400,6 +466,7 @@ def product_owner_agent_readiness(
             "selectedRuntimeId": str(selected["id"]),
             "candidateRuntimeIds": [str(runtime["id"]) for runtime in ordered_eligible],
             "contract": product_owner_agent_contract(),
+            "resolution": resolution,
         }
     return {
         "id": PRODUCT_OWNER_AGENT_ID,
@@ -409,4 +476,5 @@ def product_owner_agent_readiness(
         "selectedRuntimeId": None,
         "candidateRuntimeIds": [],
         "contract": product_owner_agent_contract(),
+        "resolution": resolution,
     }

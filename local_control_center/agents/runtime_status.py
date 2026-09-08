@@ -529,6 +529,7 @@ def _cli_provider_status(
     if issue_to_patch_argv_error:
         payload["lastError"] = issue_to_patch_argv_error
     payload["versionVerified"] = bool(fresh_version and not detection.get("persisted"))
+    payload["executableSource"] = executable_source
     payload["productOwnerExecutable"] = bool(can_run_prompt and str(account["providerId"]) != "codex_cli")
     return payload
 

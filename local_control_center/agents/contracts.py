@@ -896,6 +896,7 @@ class ProductOwnerAgentStatus(BaseModel):
     selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
     candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
     contract: dict[str, Any]
+    resolution: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProductOwnerAgentStatusResponse(BaseModel):

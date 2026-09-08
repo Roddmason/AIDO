@@ -551,7 +551,7 @@ def run_with_controlled_provider(
         )
         monkeypatch.setattr(
             "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
-            lambda _service: executable_model_runtime_status(runtime_id),
+            lambda _service, *, project_id=None: executable_model_runtime_status(runtime_id),
         )
         attach_persisted_resource_decision(
             client.app.state.runtime.connection,
@@ -650,7 +650,7 @@ def test_product_owner_cli_runtime_uses_empty_ephemeral_workspace_without_repo_i
         runtime_status.update(version="codex-cli 0.142.2", versionVerified=True)
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
-        lambda _service: [runtime_status],
+        lambda _service, *, project_id=None: [runtime_status],
     )
 
     def controlled_sandbox_execute(_sandbox: Any, **kwargs: Any) -> dict[str, Any]:
@@ -820,7 +820,7 @@ def test_product_owner_cli_runtime_without_resource_decision_fails_closed(
     sandbox_requests: list[dict[str, Any]] = []
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
-        lambda _service: [
+        lambda _service, *, project_id=None: [
             {
                 "id": "codex_cli",
                 "kind": "cli",
@@ -930,7 +930,7 @@ def test_product_owner_agent_without_real_runtime_returns_unavailable(
 ) -> None:
     monkeypatch.setattr(
         "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
-        lambda _service: [],
+        lambda _service, *, project_id=None: [],
     )
     monkeypatch.setattr(
         "local_control_center.agents.product_owner_agent.ProjectAssessmentRunner.run",

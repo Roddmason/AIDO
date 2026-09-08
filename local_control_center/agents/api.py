@@ -14,7 +14,7 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.executions.router import ExecutionRouter, queued_operation
@@ -967,9 +967,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.get("/api/v1/agents/product-owner/status", response_model=ProductOwnerAgentStatusResponse)
-    async def product_owner_agent_status() -> dict[str, Any]:
+    async def product_owner_agent_status(
+        preferred_runtime: str | None = Query(default=None, alias="preferredRuntime"),
+        project_id: str | None = Query(default=None, alias="projectId"),
+    ) -> dict[str, Any]:
         """Devuelve el readiness del ProductOwnerAgent."""
-        return {"productOwnerAgent": ProductOwnerAgentRunner(platform.connection, root=platform.cwd).status()}
+        return {
+            "productOwnerAgent": ProductOwnerAgentRunner(platform.connection, root=platform.cwd).status(
+                preferred_runtime=preferred_runtime, project_id=project_id
+            )
+        }
 
     @router.post(
         "/api/v1/agents/product-owner/runs",

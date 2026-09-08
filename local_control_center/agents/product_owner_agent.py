@@ -932,15 +932,19 @@ class ProductOwnerAgentRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
         self.projects = ProjectsRepository(connection)
 
-    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+    def status(
+        self, *, preferred_runtime: str | None = None, project_id: str | None = None
+    ) -> dict[str, Any]:
         """Devuelve el readiness del ProductOwnerAgent según los runtimes CLI/modelo disponibles."""
-        statuses = RuntimeStatusService(self.connection).list_provider_statuses()
+        statuses = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
         return product_owner_agent_readiness(statuses, preferred_runtime=preferred_runtime)
 
-    def _runtime_by_id(self, runtime_id: str | None) -> dict[str, Any] | None:
+    def _runtime_by_id(
+        self, runtime_id: str | None, *, project_id: str | None = None
+    ) -> dict[str, Any] | None:
         if not runtime_id:
             return None
-        statuses = RuntimeStatusService(self.connection).list_provider_statuses()
+        statuses = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
     def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
@@ -1498,7 +1502,7 @@ class ProductOwnerAgentRunner:
                 idea = f"Expand the epic {epic['title']!r} into additional user stories."
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
-        readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
+        readiness = self.status(preferred_runtime=payload.get("preferredRuntime"), project_id=project_id)
         supplied_assessment = payload.get("assessment")
         assessment["projectAssessment"] = (
             redact_secrets(_supplied_assessment_signals(supplied_assessment))
@@ -1507,7 +1511,7 @@ class ProductOwnerAgentRunner:
             if readiness["executable"]
             else None
         )
-        runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {
+        runtime = self._runtime_by_id(readiness.get("selectedRuntimeId"), project_id=project_id) or {
             "id": readiness.get("selectedRuntimeId") or "unresolved",
             "kind": "unknown",
             "executable": False,

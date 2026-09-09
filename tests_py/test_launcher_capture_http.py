@@ -26,6 +26,7 @@ from local_control_center.quality.plans import QualityStep
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.diagnostics import activate_attempt
+from tests_py.fixtures.capture_runtime import SYNTHETIC_EXECUTION_BYTES, SYNTHETIC_SESSION_BYTES
 from tests_py.operational_acceptance_support import (
     evidence,
     identities_gone,
@@ -60,9 +61,9 @@ def _verify_live_jobs(rows, *, diagnostic):
         return {member["pid"] for member in result[row["managed_process_id"]]["members"]}
 
     for row, memory, cpu in [
-        (aggregate, 18, 6500),
-        (dispatcher, 8, 4000),
-        (target, 8, 10000),
+        (aggregate, SYNTHETIC_SESSION_BYTES / 1024**3, 6500),
+        (dispatcher, SYNTHETIC_EXECUTION_BYTES / 1024**3, 4000),
+        (target, SYNTHETIC_EXECUTION_BYTES / 1024**3, 10000),
         *((row, 2, 1000) for row in controls),
     ]:
         readback = result[row["managed_process_id"]]
@@ -168,6 +169,10 @@ def test_canonical_launcher_positive_http_capture(tmp_path, monkeypatch, offline
     monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(diagnostics))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=db)
     runtime.init()
+    # Local fixture settings only; no operational database or model profile is changed.
+    from local_control_center.settings.repository import SettingsRepository
+
+    SettingsRepository(runtime.connection).set_value("resources.minFreeMemoryGiB", "general", None, 12)
     register_workspace(runtime.connection, "offline-workspace", workspace)
     RuntimeConfigRepository(runtime.connection).upsert_installation(
         {"runtimeId": "codex_cli", "enabled": True, "executablePath": str(offline_native_cli)}
@@ -200,11 +205,17 @@ def test_canonical_launcher_positive_http_capture(tmp_path, monkeypatch, offline
         with urlopen(request, timeout=3) as response:
             return json.load(response)
 
-    # Same documented launcher and API/worker argv; no extra 2 GiB worker wrapper.
+    # The test startup scope calls the canonical launcher unchanged. No extra Job/worker wrapper.
     launcher = subprocess.Popen(
         [
             sys.executable,
-            "local-control-center/scripts/start_control_center.py",
+            "-m",
+            "tests_py.fixtures.capture_runtime",
+            "--fixture-db",
+            str(db),
+            "--mode",
+            "launcher",
+            "--",
             "--capture-session",
             "--no-build",
             "--dashboard-port",
@@ -223,6 +234,12 @@ def test_canonical_launcher_positive_http_capture(tmp_path, monkeypatch, offline
         "status": "FAIL",
         "condition": condition,
         "inference": False,
+        "validationBudget": {
+            "sessionBytes": SYNTHETIC_SESSION_BYTES,
+            "syntheticExecutionBytes": SYNTHETIC_EXECUTION_BYTES,
+            "hostMarginGiB": 12,
+            "scope": "test startup only; operational profiles unchanged",
+        },
         "qualityEnvelope": quality_envelope(),
     }
     receipt_name = f"launcher-http-{condition}-{uuid.uuid4().hex}"

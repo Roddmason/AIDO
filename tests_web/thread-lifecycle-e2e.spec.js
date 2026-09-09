@@ -180,7 +180,10 @@ function dashboardCommand() {
 	const pythonPath = process.platform === 'win32' ? windowsPython : posixPython;
 	const args = [
 		'-m',
-		'local_control_center',
+		'tests_web.fixtures.lifecycle_runtime',
+		'--endpoint', mockBaseUrl,
+		'--fixture-db', path.join(scratchDir, 'platform.sqlite'),
+		'--mode', 'api', '--',
 		'--dashboard-only',
 		'--dashboard-host',
 		'127.0.0.1',
@@ -390,7 +393,8 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		try {
 			await waitForDashboardHealth();
 			seedControlledAIResource();
-			const workerArgs = [...(dashboard.command === 'uv' ? ['run', 'python'] : []), '-m', 'local_control_center', '--worker', '--no-dashboard',
+			const workerArgs = [...(dashboard.command === 'uv' ? ['run', 'python'] : []), '-m', 'tests_web.fixtures.lifecycle_runtime',
+				'--endpoint', mockBaseUrl, '--fixture-db', path.join(scratchDir, 'platform.sqlite'), '--mode', 'worker', '--', '--worker', '--no-dashboard',
 				'--db-path', path.join(scratchDir, 'platform.sqlite'), '--workspace', scratchDir];
 			workerProcess = spawn(dashboard.command, workerArgs, { cwd: repoRoot, env });
 			workerProcess.aidoCreatedAt = ownedTreeCommand('identify', workerProcess).createdAt;

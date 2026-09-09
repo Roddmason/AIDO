@@ -204,6 +204,42 @@ def _argv_option(argv: Any, option: str) -> str | None:
     return str(argv[matches[0] + 1])
 
 
+def _architect_cli_boundary(
+    *,
+    operation: str | None,
+    trusted_operation: str | None,
+    profile: dict[str, Any],
+    tool_call: dict[str, Any],
+    workspace_path: str | None,
+) -> dict[str, Any] | None:
+    if operation != "architect_agent_runtime":
+        return None
+    valid = (
+        trusted_operation == operation
+        and profile.get("id") == "architect_agent"
+        and profile.get("permissionProfile") == "plan"
+        and profile.get("allowCli") is True
+        and "claude_code_cli" in (profile.get("allowedRuntimes") or [])
+        and tool_call.get("tool") == "shell"
+        and tool_call.get("runtimeId") == "claude_code_cli"
+        and tool_call.get("providerTransportRequired") is True
+        and tool_call.get("networkRequired") is False
+        and tool_call.get("secretsRequired") is False
+        and validate_product_owner_runtime_argv(
+            runtime_id="claude_code_cli", argv=tool_call.get("argv"), workspace_path=str(workspace_path or "")
+        )
+        is None
+    )
+    if valid:
+        return None
+    return {
+        "decision": "deny",
+        "riskLevel": "high",
+        "categories": ["architect_cli_contract_denied"],
+        "reason": "ArchitectAgent CLI requires its trusted, tool-isolated read-only Claude contract.",
+    }
+
+
 def default_runtime_adapters(
     connection: sqlite3.Connection,
     *,
@@ -611,6 +647,14 @@ class ToolBroker:
             workspace_path=str(workspace_path or "") or None,
             trusted_subprocess_environment=trusted_subprocess_environment,
         )
+        if internal_result is None:
+            internal_result = _architect_cli_boundary(
+                operation=operation,
+                trusted_operation=trusted_operation,
+                profile=agent_profile,
+                tool_call=tool_call,
+                workspace_path=workspace_path,
+            )
         resource_result = self._product_owner_resource_decision_boundary(
             operation=operation,
             project_id=project_id,

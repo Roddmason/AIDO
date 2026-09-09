@@ -25,6 +25,7 @@ from local_control_center.workspaces_projects.repository import WorkspacesReposi
 
 from .architect_agent_contract import (
     ARCHITECT_AGENT_ALLOWED_TOOLS,
+    ARCHITECT_AGENT_CLI_RUNTIMES,
     ARCHITECT_AGENT_ID,
     ARCHITECT_AGENT_MODEL_RUNTIMES,
     ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
@@ -33,6 +34,7 @@ from .architect_agent_contract import (
     architect_agent_readiness,
 )
 from .repository import AgentsRepository
+from .runtime_registry import build_architect_agent_argv
 from .runtime_selection import (
     RUNTIME_UNAVAILABLE_STATUS,
     runtime_provider_family,
@@ -55,6 +57,8 @@ class ArchitectOutputValidationError(ValueError):
 
 
 def _runtime_mode(runtime: dict[str, Any]) -> str:
+    if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
+        return "cli"
     return "ollama" if runtime_provider_family(runtime) == "ollama" else "api"
 
 
@@ -69,7 +73,8 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "timedOut": bool(execution_result.get("timedOut", False)),
         "blocked": bool(execution_result.get("blocked", False)),
         "reason": execution_result.get("reason") or payload.get("decisionReason"),
-        "outputArtifactId": execution_result.get("outputArtifactId"),
+        "outputArtifactId": execution_result.get("outputArtifactId")
+        or execution_result.get("stdoutArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
         "redacted": bool(execution_result.get("redacted", False)),
     }
@@ -409,6 +414,7 @@ class ArchitectAgentRunner:
         runtime_id = str(runtime.get("id") or "")
         provider_family = runtime_provider_family(runtime)
         model_runtime = provider_family in ARCHITECT_AGENT_MODEL_RUNTIMES
+        cli_runtime = runtime_id in ARCHITECT_AGENT_CLI_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
                 "id": ARCHITECT_AGENT_ID,
@@ -416,11 +422,11 @@ class ArchitectAgentRunner:
                 "role": "technical_lead",
                 "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "plan",
-                "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,
+                "allowedTools": ["shell"] if cli_runtime else ARCHITECT_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if model_runtime else [],
-                "allowedRuntimes": [runtime_id] if model_runtime else [],
+                "allowedRuntimes": [runtime_id] if model_runtime or cli_runtime else [],
                 "allowRemote": provider_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
-                "allowCli": False,
+                "allowCli": cli_runtime,
                 "allowApi": model_runtime,
                 "outputSchema": architect_agent_contract()["outputSchema"],
             }
@@ -484,6 +490,55 @@ class ArchitectAgentRunner:
                 "content": prompt_json_dumps(redact_secrets(review_context)),
             },
         ]
+
+    def _execute_cli_runtime(
+        self,
+        *,
+        payload: dict[str, Any],
+        runtime: dict[str, Any],
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        broker: ToolBroker,
+        diff_text: str,
+    ) -> dict[str, Any]:
+        prompt = "\n\n".join(
+            message["content"] for message in self._messages(payload=payload, diff_text=diff_text)
+        )
+        argv = build_architect_agent_argv(
+            runtime=runtime,
+            workspace_id=workspace["id"],
+            workspace_path=workspace["path"],
+            prompt=prompt,
+            model=payload.get("model"),
+            connection=self.connection,
+        )
+        result = broker.evaluate_tool_call(
+            project_id=payload["projectId"],
+            agent_run_id=agent_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            trusted_operation="architect_agent_runtime",
+            tool_call={
+                "tool": "shell",
+                "argv": argv,
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "operation": "architect_agent_runtime",
+                "runtimeId": "claude_code_cli",
+                "capability": "chat",
+                "providerTransportRequired": True,
+                "networkRequired": False,
+                "secretsRequired": False,
+                "approvalGrantId": payload.get("approvalGrantId"),
+                "execute": True,
+                "captureStdoutArtifact": True,
+                "timeoutSeconds": 900,
+            },
+        )
+        return _execution_result_from_tool_call(result["toolCall"])
 
     def _execute_model_runtime(
         self,
@@ -646,7 +701,12 @@ class ArchitectAgentRunner:
 
         if readiness["executable"]:
             broker = ToolBroker(self.connection, artifact_root=self.root)
-            runtime_result = self._execute_model_runtime(
+            execute = (
+                self._execute_cli_runtime
+                if runtime_id in ARCHITECT_AGENT_CLI_RUNTIMES
+                else self._execute_model_runtime
+            )
+            runtime_result = execute(
                 payload=payload,
                 runtime=runtime,
                 workspace=workspace,

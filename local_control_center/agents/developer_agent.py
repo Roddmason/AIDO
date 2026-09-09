@@ -361,6 +361,7 @@ class DeveloperAgentRunner:
             qa_commands=payload.get("qaCommands") or [],
             agent_id=DEVELOPER_AGENT_ID,
             connection=self.connection,
+            model=payload.get("model"),
             story_specs=payload.get("storySpecs"),
             constitution=payload.get("constitution"),
         )

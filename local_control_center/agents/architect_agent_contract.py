@@ -1,7 +1,7 @@
 """Contrato y readiness del ArchitectAgent: esquema I/O y selección de runtime de revisión.
 
 Declara los esquemas de entrada/salida del agente arquitecto, los runtimes de modelo elegibles
-(openai_compatible/ollama) y su orden de preferencia, y calcula si hay un runtime ejecutable para
+y Claude CLI de solo lectura, y calcula si hay un runtime ejecutable para
 emitir veredictos de arquitectura fundados en el diff y la evidencia.
 
 @author Rodrigo Mason
@@ -18,6 +18,7 @@ ARCHITECT_AGENT_ID = "architect_agent"
 ARCHITECT_AGENT_ALLOWED_TOOLS = sorted(MODEL_PROVIDER_FAMILIES)
 ARCHITECT_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
 ARCHITECT_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_CLI_RUNTIMES = {"claude_code_cli"}
 _LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
     "openrouter",
@@ -75,6 +76,12 @@ def architect_agent_contract() -> dict[str, Any]:
             },
         },
         "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,
+        "readOnlyCliTransport": {
+            "runtimeIds": sorted(ARCHITECT_AGENT_CLI_RUNTIMES),
+            "tool": "shell",
+            "genericShellAllowed": False,
+            "agentToolsEnabled": False,
+        },
         "requiredRuntimeCapabilities": ["chat"],
         "requiredWorkspace": True,
         "requiredEvidence": True,
@@ -91,6 +98,10 @@ def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
     runtime_family = runtime_provider_family(runtime)
+    if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
+        return bool(runtime.get("executable") and runtime.get("canRunPrompt")) and "chat" in set(
+            runtime.get("capabilities") or []
+        )
     if runtime_family not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])

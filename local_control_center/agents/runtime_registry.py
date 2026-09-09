@@ -550,6 +550,7 @@ def build_developer_agent_argv(
     qa_commands: list[list[str]],
     agent_id: str,
     connection: sqlite3.Connection,
+    model: str | None = None,
     story_specs: str | None = None,
     constitution: str | None = None,
 ) -> list[str]:
@@ -590,6 +591,7 @@ def build_developer_agent_argv(
                 story_specs=story_specs,
                 constitution=constitution,
             ),
+            "model": model,
             "envPolicy": {
                 "permissionProfile": "dev_safe",
                 "network": False,
@@ -610,6 +612,49 @@ def _matches_runtime_executable(runtime_id: str, executable: str) -> bool:
     executable_name = Path(executable).name.lower()
     required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
     return bool(required_tokens) and all(token in executable_name for token in required_tokens)
+
+
+def build_architect_agent_argv(
+    *,
+    runtime: dict[str, Any],
+    workspace_id: str,
+    workspace_path: str,
+    prompt: str,
+    model: str | None,
+    connection: sqlite3.Connection,
+) -> list[str]:
+    """Build the existing tool-isolated read-only Claude contract for a review.
+
+    The reviewer receives the bounded diff and evidence in its prompt, not shell/file tools.
+    This does not widen the ProductOwner contract or change the default API selection.
+    """
+    if runtime.get("id") != "claude_code_cli":
+        raise RuntimeCommandUnavailableError("ArchitectAgent CLI review requires Claude Code CLI.")
+    executable = str(runtime.get("detectedCommand") or "")
+    if not _matches_runtime_executable("claude_code_cli", executable):
+        raise RuntimeCommandUnavailableError("ArchitectAgent detected executable does not match Claude CLI.")
+    request = RuntimeRequest.model_validate(
+        {
+            "runtime": "claude_code_cli",
+            "workspaceId": workspace_id,
+            "workspacePath": workspace_path,
+            "prompt": prompt,
+            "model": model,
+            "role": "technical_lead",
+            "agentId": "architect_agent",
+            "envPolicy": {"permissionProfile": "plan", "network": False, "secrets": False},
+            "extraArgs": PRODUCT_OWNER_CLAUDE_EXTRA_ARGS,
+        }
+    )
+    argv = runtime_for("claude_code_cli", connection=connection, executable=executable).build_command(request)
+    error = validate_product_owner_runtime_argv(
+        runtime_id="claude_code_cli", argv=argv, workspace_path=workspace_path
+    )
+    if error:
+        raise RuntimeCommandUnavailableError(
+            "ArchitectAgent requires the canonical read-only Claude contract."
+        )
+    return argv
 
 
 def _canonical_product_owner_argv_error() -> str:

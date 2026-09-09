@@ -1089,7 +1089,7 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
                 "categories": [*categories, "developer_agent_qa_gated"],
             }
 
-    if operation == "architect_agent_model_call":
+    if operation in {"architect_agent_model_call", "architect_agent_runtime"}:
         if input_payload.get("agentId") != "architect_agent":
             categories.append("architect_agent_denied")
             return {
@@ -1106,12 +1106,17 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
                 "reason": "ArchitectAgent model execution requires the plan permission profile.",
                 "categories": categories,
             }
-        if not _model_runtime_binding_is_valid(input_payload, tool):
+        cli_review = operation == "architect_agent_runtime"
+        if (cli_review and (tool != "shell" or input_payload.get("runtimeId") != "claude_code_cli")) or (
+            not cli_review and not _model_runtime_binding_is_valid(input_payload, tool)
+        ):
             categories.append("architect_agent_model_runtime_denied")
             return {
                 "decision": "deny",
                 "riskLevel": "high",
-                "reason": f"ArchitectAgent model execution is limited to {MODEL_RUNTIME_REASON}.",
+                "reason": "ArchitectAgent CLI review requires Claude Code CLI."
+                if cli_review
+                else f"ArchitectAgent model execution is limited to {MODEL_RUNTIME_REASON}.",
                 "categories": categories,
             }
         if (
@@ -1134,11 +1139,22 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
                 "reason": "ArchitectAgent prompts cannot request secret-bearing execution.",
                 "categories": categories,
             }
+        if cli_review and (
+            input_payload.get("providerTransportRequired") is not True or input_payload.get("networkRequired")
+        ):
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "categories": ["architect_cli_transport_denied"],
+                "reason": "ArchitectAgent review permits provider transport only, not independent network access.",
+            }
         return {
             "decision": "allow",
             "riskLevel": "medium",
-            "reason": "ArchitectAgent model execution is allowed for a configured runtime adapter.",
-            "categories": [*categories, "architect_agent_model_call"],
+            "reason": "ArchitectAgent read-only CLI review is allowed through its trusted broker boundary."
+            if cli_review
+            else "ArchitectAgent model execution is allowed for a configured runtime adapter.",
+            "categories": [*categories, operation],
         }
 
     if operation in {"product_owner_runtime", "product_owner_model_call"}:

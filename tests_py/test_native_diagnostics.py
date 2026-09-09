@@ -5,6 +5,7 @@
 
 import hashlib
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -36,14 +37,8 @@ def test_job_limits_are_read_back_not_only_requested(tmp_path):
         service.complete(process, exit_code=process.process.poll(), termination_reason="test_complete")
 
 
-def test_native_collector_captures_one_exact_synthetic_exception(tmp_path, monkeypatch):
-    collector = Path(os.environ.get("AIDO_TEST_PROCDUMP", ""))
-    if not collector.is_file():
-        pytest.skip("ProcDump not explicitly configured for native validation")
-    assert hasattr(diagnostics, "native_capabilities"), "Missing bounded native capture integration"
-    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(tmp_path / "diagnostics"))
-    from local_control_center.process_supervision.native_diagnostics import inspect_minidump
-
+@pytest.fixture
+def native_csharp_target(tmp_path):
     source = Path(__file__).parent / "fixtures/watchdog/native_crash.cs"
     target = tmp_path / "crash sintético.exe"
     compiler = Path("C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe")
@@ -53,6 +48,32 @@ def test_native_collector_captures_one_exact_synthetic_exception(tmp_path, monke
         timeout=30,
     )
     assert compiled.returncode == 0, compiled.stdout
+    # CSC omits the PE checksum. Complete only this freshly built fixture's header;
+    # EDITBIN /RELEASE does not change IL, sections, sandbox or runtime settings.
+    before = target.read_bytes()
+    editor = Path(
+        "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/editbin.exe"
+    )
+    completed = subprocess.run(
+        [str(editor), "/NOLOGO", "/RELEASE", str(target)], capture_output=True, timeout=30
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert b"warning" not in (completed.stdout + completed.stderr).lower()
+    after = target.read_bytes()
+    offset = struct.unpack_from("<I", before, 60)[0] + 24 + 64
+    assert before[:offset] == after[:offset] and before[offset + 4 :] == after[offset + 4 :]
+    return target
+
+
+def test_native_collector_captures_one_exact_synthetic_exception(tmp_path, monkeypatch, native_csharp_target):
+    collector = Path(os.environ.get("AIDO_TEST_PROCDUMP", ""))
+    if not collector.is_file():
+        pytest.skip("ProcDump not explicitly configured for native validation")
+    assert hasattr(diagnostics, "native_capabilities"), "Missing bounded native capture integration"
+    monkeypatch.setenv("AIDO_DIAGNOSTICS_DIR", str(tmp_path / "diagnostics"))
+    from local_control_center.process_supervision.native_diagnostics import inspect_minidump
+
+    target = native_csharp_target
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     diagnostics.activate_attempt(
         tmp_path / "diagnostics",
@@ -112,6 +133,7 @@ def test_native_collector_captures_one_exact_synthetic_exception(tmp_path, monke
         assert analysis["returnCode"] == 0
         assert "c0000602" in analysis["stdout"].lower()
         assert "RaiseFailFastException" in analysis["stdout"]
+        assert "Unable to verify checksum" not in analysis["stdout"]
         # Only a sanitized summary goes into ordinary test evidence, never registers or memory.
         from tests_py.operational_acceptance_support import evidence
 
@@ -235,6 +257,8 @@ def native_failfast_targets(tmp_path_factory):
                 "/ENTRY:mainCRTStartup",
                 "/SUBSYSTEM:CONSOLE",
                 "/DEBUG",
+                "/INCREMENTAL:NO",
+                "/RELEASE",
                 f"/OUT:{target}",
                 str(obj),
                 str(kernel),
@@ -244,6 +268,7 @@ def native_failfast_targets(tmp_path_factory):
             timeout=30,
         )
         assert linked.returncode == 0, linked.stdout
+        assert b"warning" not in (linked.stdout + linked.stderr).lower()
         binaries[pressure] = target
     return binaries
 
@@ -391,6 +416,7 @@ def test_native_capture_lifecycle_under_bounded_pressure(
             assert analysis["returnCode"] == 0
             assert "c0000409" in analysis["stdout"].lower()
             assert "mainCRTStartup" in analysis["stdout"]
+            assert "Unable to verify checksum" not in analysis["stdout"]
             receipt.update(status="PASS", dumpStatus="PASS", symbolMatchedFrame="mainCRTStartup")
         else:
             receipt["dumpStatus"] = "FAIL"

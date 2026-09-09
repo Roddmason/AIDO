@@ -122,6 +122,8 @@ def offline_native_cli(tmp_path_factory):
             "/ENTRY:mainCRTStartup",
             "/SUBSYSTEM:CONSOLE",
             "/DEBUG",
+            "/INCREMENTAL:NO",
+            "/RELEASE",
             f"/OUT:{target}",
             str(folder / "codex.obj"),
             str(sdk / "Lib/10.0.26100.0/um/x64/kernel32.lib"),
@@ -130,6 +132,7 @@ def offline_native_cli(tmp_path_factory):
         timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert b"warning" not in (result.stdout + result.stderr).lower()
     return target
 
 
@@ -462,6 +465,7 @@ def test_canonical_launcher_positive_http_capture(tmp_path, monkeypatch, offline
             )
             assert analysis["returnCode"] == 0 and "c0000409" in analysis["stdout"].lower()
             assert "mainCRTStartup" in analysis["stdout"]
+            assert "Unable to verify checksum" not in analysis["stdout"]
             receipt["analysis"] = analysis
         receipt["status"] = "PASS"
     finally:

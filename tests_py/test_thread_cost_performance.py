@@ -12,6 +12,7 @@ datos reales por repositorio; no crea tablas nuevas.
 from __future__ import annotations
 
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -30,14 +31,22 @@ from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads.repository import ThreadsRepository
 
 
-def _client(tmp_path: Path):
-    sys.modules["faiss"] = None
-    from local_control_center.app import create_app
-    from local_control_center.control_plane.runtime import ControlCenterRuntime
+@pytest.fixture
+def _client():
+    with ExitStack() as resources:
 
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    app = create_app(runtime=runtime, static_dir=None)
-    return runtime, TestClient(app)
+        def create_owned(tmp_path: Path):
+            sys.modules["faiss"] = None
+            from local_control_center.app import create_app
+            from local_control_center.control_plane.runtime import ControlCenterRuntime
+
+            runtime = resources.enter_context(
+                closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            app = create_app(runtime=runtime, static_dir=None)
+            return runtime, resources.enter_context(TestClient(app))
+
+        yield create_owned
 
 
 def _project(runtime, tmp_path: Path) -> str:
@@ -81,7 +90,7 @@ def _task_id(loop_id: str) -> str:
     return f"product-loop-{loop_id.replace('product-loop-', '')[:12]}"
 
 
-def test_unknown_cost_never_renders_as_zero(tmp_path: Path) -> None:
+def test_unknown_cost_never_renders_as_zero(_client, tmp_path: Path) -> None:
     """Una fila con costo y tokens desconocidos deja el total en None y el estado en 'unknown', no en 0/$0."""
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
@@ -128,7 +137,7 @@ def test_unknown_cost_never_renders_as_zero(tmp_path: Path) -> None:
     assert snapshot["latency"]["unknownCalls"] == 1
 
 
-def test_partial_cost_never_renders_known_subtotal_as_total(tmp_path: Path) -> None:
+def test_partial_cost_never_renders_known_subtotal_as_total(_client, tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
     thread = _thread(runtime, project_id, "Partial cost run")
@@ -165,7 +174,7 @@ def test_partial_cost_never_renders_known_subtotal_as_total(tmp_path: Path) -> N
     assert snapshot["cost"]["actualCostUsd"] is None
 
 
-def test_sums_known_cost_and_scopes_by_thread(tmp_path: Path) -> None:
+def test_sums_known_cost_and_scopes_by_thread(_client, tmp_path: Path) -> None:
     """Prefiere el costo actual conocido, suma tokens y NO cuenta el gasto de otro loop/hilo."""
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
@@ -248,7 +257,7 @@ def test_sums_known_cost_and_scopes_by_thread(tmp_path: Path) -> None:
     assert snapshot["cheaperAlternative"]["deltaUsd"] == pytest.approx(0.02)
 
 
-def test_thread_without_runs_reports_no_data_without_fabrication(tmp_path: Path) -> None:
+def test_thread_without_runs_reports_no_data_without_fabrication(_client, tmp_path: Path) -> None:
     """Un hilo sin ejecución no inventa gasto: hasData False, totales None y estado 'none'."""
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
@@ -266,7 +275,7 @@ def test_thread_without_runs_reports_no_data_without_fabrication(tmp_path: Path)
     assert snapshot["cheaperAlternative"] is None
 
 
-def test_latency_reports_observed_calls_without_counting_unmeasured_ones(tmp_path: Path) -> None:
+def test_latency_reports_observed_calls_without_counting_unmeasured_ones(_client, tmp_path: Path) -> None:
     """Con latencia parcial, los agregados salen solo de las llamadas medidas; el resto queda desconocido."""
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
@@ -314,7 +323,7 @@ def test_latency_reports_observed_calls_without_counting_unmeasured_ones(tmp_pat
 
 
 def test_routing_view_reads_the_trail_the_product_loop_writes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    _client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """El Product Loop registra en ``ai_routing_decisions``: el snapshot lo lee en vez de quedar vacío.
 
@@ -391,7 +400,7 @@ def test_routing_view_reads_the_trail_the_product_loop_writes(
     assert snapshot["qualityRework"]["reworkRounds"] == 1
 
 
-def test_policy_block_reports_the_operator_standing_cost_decision(tmp_path: Path) -> None:
+def test_policy_block_reports_the_operator_standing_cost_decision(_client, tmp_path: Path) -> None:
     """``policy`` refleja los settings vigentes (modo, force local) y el umbral premium del rol."""
     runtime, client = _client(tmp_path)
     project_id = _project(runtime, tmp_path)
@@ -417,7 +426,7 @@ def test_policy_block_reports_the_operator_standing_cost_decision(tmp_path: Path
     assert policy["forceLocal"] is True
 
 
-def test_missing_thread_returns_404(tmp_path: Path) -> None:
+def test_missing_thread_returns_404(_client, tmp_path: Path) -> None:
     """Un hilo inexistente responde 404, no un snapshot vacío."""
     _, client = _client(tmp_path)
     assert client.get("/api/v1/threads/thread-does-not-exist/cost-performance").status_code == 404

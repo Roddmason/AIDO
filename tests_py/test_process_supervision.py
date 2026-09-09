@@ -406,8 +406,12 @@ def test_durable_cancel_is_seen_by_running_process_and_blocks_next_stage(tmp_pat
         with pytest.raises(ExecutionCancelled, match="operator stop"):
             service.start(argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="cancel-me")
     finally:
-        if not managed.released:
-            service.cancel(managed.managed_process_id, reason="test cleanup")
+        try:
+            if not managed.released:
+                service.cancel(managed.managed_process_id, reason="test cleanup")
+        finally:
+            managed.process.stdout.close()
+            managed.process.stderr.close()
 
 
 def test_hard_memory_floor_cancels_active_process_and_prevents_next_stage(tmp_path, monkeypatch):

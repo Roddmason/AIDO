@@ -94,6 +94,7 @@ def test_ollama_provider_sends_bearer_auth_when_credential_ref_configured(
         )
     finally:
         server.shutdown()
+        server.server_close()
 
     assert health.status == "available"
     assert [model.model for model in models] == ["llama3:latest"]
@@ -111,6 +112,7 @@ def test_ollama_provider_omits_auth_header_for_local_default() -> None:
         provider.list_models()
     finally:
         server.shutdown()
+        server.server_close()
 
     assert handler.seen
     assert all(item["authorization"] is None for item in handler.seen)
@@ -125,6 +127,7 @@ def test_ollama_status_probe_authenticates_remote_with_credential_ref(
         status = ollama_status(base_url=base_url, credential_ref="env:AIDO_OLLAMA_REMOTE_KEY")
     finally:
         server.shutdown()
+        server.server_close()
 
     assert status["available"] is True
     assert status["models"] == ["llama3:latest"]
@@ -137,6 +140,7 @@ def test_ollama_status_probe_omits_auth_header_when_no_credential() -> None:
         status = ollama_status(base_url=base_url)
     finally:
         server.shutdown()
+        server.server_close()
 
     assert status["available"] is True
     assert all(item["authorization"] is None for item in handler.seen)
@@ -191,6 +195,7 @@ def test_ollama_provider_fails_closed_when_credential_ref_is_unresolved(
             )
     finally:
         server.shutdown()
+        server.server_close()
 
     assert health.status != "available"
     assert health.health_status == "misconfigured"
@@ -209,6 +214,7 @@ def test_ollama_status_probe_fails_closed_when_credential_ref_is_unresolved(
         status = ollama_status(base_url=base_url, credential_ref="env:AIDO_OLLAMA_MISSING_KEY")
     finally:
         server.shutdown()
+        server.server_close()
 
     assert status["available"] is False
     assert status["models"] == []
@@ -226,6 +232,7 @@ def test_ollama_status_probe_defers_remote_secret_store_credential(
         status = ollama_status(base_url=base_url, credential_ref="openbao:secret/ollama#token")
     finally:
         server.shutdown()
+        server.server_close()
 
     assert status["available"] is False
     assert "health-check" in status["reason"].lower()

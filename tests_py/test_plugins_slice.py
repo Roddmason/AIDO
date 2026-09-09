@@ -3,14 +3,22 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.api import create_app
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.plugins.manifest import permission_risk_level
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -79,9 +87,13 @@ def plugin_rows(connection: sqlite3.Connection, table: str) -> list[sqlite3.Row]
     return connection.execute(f"SELECT * FROM {table}").fetchall()
 
 
-def test_valid_local_plugin_installs_and_persists_formal_contract(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    client = TestClient(create_app(runtime=runtime, static_dir=None))
+def test_valid_local_plugin_installs_and_persists_formal_contract(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=runtime, static_dir=None)))
     headers = auth_headers(client)
     plugin_dir = tmp_path / "plugins" / "example"
     manifest = write_manifest(plugin_dir)
@@ -130,9 +142,11 @@ def test_valid_local_plugin_installs_and_persists_formal_contract(tmp_path: Path
     assert plugin_rows(runtime.connection, "plugin_install_events")[0]["action"] == "install_local"
 
 
-def test_dangerous_plugin_permissions_are_blocked(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    client = TestClient(create_app(runtime=runtime, static_dir=None))
+def test_dangerous_plugin_permissions_are_blocked(owned_runtime_resources, tmp_path: Path) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=runtime, static_dir=None)))
     headers = auth_headers(client)
     plugin_dir = tmp_path / "plugins" / "dangerous"
     write_manifest(plugin_dir, {"permissions": ["filesystem.write:/"]})
@@ -151,9 +165,11 @@ def test_dangerous_plugin_permissions_are_blocked(tmp_path: Path) -> None:
     assert event["status"] == "blocked"
 
 
-def test_plugin_enable_generates_audit_event(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    client = TestClient(create_app(runtime=runtime, static_dir=None))
+def test_plugin_enable_generates_audit_event(owned_runtime_resources, tmp_path: Path) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=runtime, static_dir=None)))
     headers = auth_headers(client)
     plugin_dir = tmp_path / "plugins" / "example"
     write_manifest(plugin_dir)
@@ -172,9 +188,11 @@ def test_plugin_enable_generates_audit_event(tmp_path: Path) -> None:
     assert plugin_rows(runtime.connection, "plugin_install_events")[-1]["action"] == "enable"
 
 
-def test_executable_plugin_tool_is_blocked_without_policy(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    client = TestClient(create_app(runtime=runtime, static_dir=None))
+def test_executable_plugin_tool_is_blocked_without_policy(owned_runtime_resources, tmp_path: Path) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=runtime, static_dir=None)))
     headers = auth_headers(client)
     plugin_dir = tmp_path / "plugins" / "unsafe-tool"
     write_manifest(
@@ -236,9 +254,13 @@ def test_permission_risk_level_classifies_read_and_mutation_scopes() -> None:
     assert permission_risk_level("filesystem.write:/") == "high"
 
 
-def test_installed_permissions_persist_classified_risk_levels(tmp_path: Path) -> None:
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    client = TestClient(create_app(runtime=runtime, static_dir=None))
+def test_installed_permissions_persist_classified_risk_levels(
+    owned_runtime_resources, tmp_path: Path
+) -> None:
+    runtime = owned_runtime_resources.enter_context(
+        closing(ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=runtime, static_dir=None)))
     headers = auth_headers(client)
     plugin_dir = tmp_path / "plugins" / "elevated"
     # filesystem.write:reports is permitted (scoped) but mutation-capable, so it must

@@ -68,6 +68,48 @@ def test_local_inference_is_not_classified_as_a_remote_light_call():
     assert provider_workload_class({"baseUrl": "https://api.example.test"}) == "remote_llm_light"
 
 
+@pytest.mark.parametrize("already_blocked", [False, True])
+def test_resource_rejection_explains_effective_state_without_hiding_prior_blocker(tmp_path, already_blocked):
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
+    runtime.init()
+    try:
+        ResourceRepository(runtime.connection).record_sample(
+            ResourceSnapshot.test_snapshot(cpu_percent_1s=90.0)
+        )
+        status = {
+            "id": "codex_cli",
+            "kind": "cli",
+            "configured": True,
+            "installed": True,
+            "authenticated": not already_blocked,
+            "executable": not already_blocked,
+            "reason": "authentication_required" if already_blocked else "CLI is executable.",
+            "blockerType": "runtime_auth_missing" if already_blocked else None,
+            "healthStatus": "healthy",
+            "healthCheckedAt": utc_now(),
+        }
+        before = runtime.connection.total_changes
+        result = apply_effective_readiness(
+            runtime.connection,
+            status,
+            {"providerType": "cli"},
+            {
+                "allowed": True,
+                "policy": {"global": {"cliEnabled": True}, "project": {"cliEnabled": True}},
+            },
+        )
+        assert not result["executable"] and not result["canRunPrompt"]
+        assert "host_cpu_saturated" in result["blockingReasons"]
+        assert result["reason"] == ("authentication_required" if already_blocked else "host_cpu_saturated")
+        assert result["blockerType"] == (
+            "runtime_auth_missing" if already_blocked else "runtime_not_executable"
+        )
+        assert runtime.connection.total_changes == before
+        assert not ResourceRepository(runtime.connection).active_leases()
+    finally:
+        runtime.close()
+
+
 def test_disk_probe_accepts_a_database_file_on_windows(tmp_path):
     from local_control_center.host_resources.probes import HostResourceProbe
 

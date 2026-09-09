@@ -303,6 +303,7 @@ def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_
         )
     finally:
         server.shutdown()
+        server.server_close()
 
     assert created.status_code == 201
     assert "test-catalog-sync-token" not in created.text
@@ -365,6 +366,7 @@ def test_omniroute_sync_applies_catalog_exclusion_rule(
         synced = client.post("/api/v1/provider-accounts/omniroute/sync-models", headers=headers)
     finally:
         server.shutdown()
+        server.server_close()
 
     assert created.status_code == 201
     assert synced.status_code == 200
@@ -407,6 +409,7 @@ def test_azure_adapter_authenticates_with_api_key_header_not_bearer(
         )
     finally:
         server.shutdown()
+        server.server_close()
 
     assert health.status == "available"
     assert response.content == "ok"
@@ -444,6 +447,7 @@ def test_test_prompt_returns_ok_and_never_exposes_secret(
         )
     finally:
         server.shutdown()
+        server.server_close()
 
     assert response.status_code == 200
     result = response.json()["test"]

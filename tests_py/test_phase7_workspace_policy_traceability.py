@@ -147,7 +147,7 @@ def test_git_worktree_request_creates_branch_and_records_metadata(
     assert workspace["metadata"]["gitWorktree"]["status"] == "created"
     assert workspace["metadata"]["gitWorktree"]["branchName"].startswith("aido/story-git/")
 
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "platform.sqlite")) as connection, connection:
         connection.row_factory = sqlite3.Row
         branch = connection.execute(
             "SELECT * FROM git_branches WHERE workspace_id = ?",
@@ -197,7 +197,7 @@ def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(
     assert archived.json()["workspace"]["status"] == "archived"
     assert not workspace_path.exists()
 
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "platform.sqlite")) as connection, connection:
         connection.row_factory = sqlite3.Row
         branch = connection.execute(
             "SELECT * FROM git_branches WHERE workspace_id = ?",

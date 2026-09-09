@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from local_control_center.agents.runtime_status import RuntimeStatusService
-from tests_py.test_aido_real_runtime_slice import create_client, create_git_project
+from tests_py.test_aido_real_runtime_slice import create_client as create_client
+from tests_py.test_aido_real_runtime_slice import create_git_project
 
 ISSUE_TO_PR_STEP_NAMES = [
     "developer_agent",
@@ -57,6 +58,7 @@ def controlled_developer_runtime_status() -> list[dict[str, Any]]:
 
 @pytest.mark.usefixtures("controlled_domain_host")
 def test_issue_to_pr_executes_real_agents_and_blocks_without_architect_runtime(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1139,6 +1139,7 @@ def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
         assert handler.seen_requests == []
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
@@ -1245,6 +1246,7 @@ def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path
         assert health["models"] == ["llama3:latest"]
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_gateway_endpoint_scoped_ollama_requires_explicit_base_url(
@@ -1350,6 +1352,7 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         assert handler.seen_requests[0]["authorization"] == "Bearer sk-realgateway123456"
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_anthropic_provider_health_and_model_listing_use_real_endpoints(
@@ -1383,6 +1386,7 @@ def test_anthropic_provider_health_and_model_listing_use_real_endpoints(
         assert handler.seen_requests[0]["anthropic_version"] == "2023-06-01"
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
@@ -1462,6 +1466,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         assert message_request["body"]["messages"] == [{"role": "user", "content": "hello"}]
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_anthropic_provider_without_usage_marks_tokens_unknown() -> None:
@@ -1539,6 +1544,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
         assert result["modelCall"]["costUsd"] is None
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_catalog_crud_endpoints(create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -145,6 +145,10 @@ def apply_effective_readiness(
         and admissible
     )
     if not executable:
+        if status["executable"]:
+            # A later resource/health/policy projection must not retain a successful
+            # explanation. Earlier specific blockers (for example auth) keep precedence.
+            status.update(reason=", ".join(dict.fromkeys(reasons)), blockerType="runtime_not_executable")
         status.update(canRunPrompt=False, canEditWorkspace=False, productOwnerExecutable=False)
     status.update(
         globallyEnabled=global_enabled,

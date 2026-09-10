@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 
 from local_control_center.agents.developer_agent import DeveloperAgentRunner
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py import test_developer_agent_real_runtime as developer_fixtures
-from tests_py.control_plane_fixture import ControlPlaneFixture
 
 create_developer_client = developer_fixtures.create_client
 
@@ -157,15 +159,17 @@ def test_developer_cli_preserves_requested_model_without_changing_default(
         f"local_control_center.agents.cli_runtimes.{module}.resolve_model_alias",
         lambda *_args, **_kwargs: "profile-default-model",
     )
-    with closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")) as store:
-        store.init()
-        project = store.create_project(name="Model selection", path=tmp_path / "project", template_id="other")
-        workspace = WorkspacesRepository(store.connection, root=tmp_path).allocate_workspace(
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Model selection", path=tmp_path / "project"
+        )
+        workspace = WorkspacesRepository(connection, root=tmp_path).allocate_workspace(
             project_id=project["id"], task_id="selection", agent_id="developer_agent", reason="test"
         )
         binary = "codex.exe" if runtime_id == "codex_cli" else "claude.exe"
         broker = CapturedCliTransport()
-        result = DeveloperAgentRunner(store.connection, root=tmp_path)._execute_cli_runtime(
+        result = DeveloperAgentRunner(connection, root=tmp_path)._execute_cli_runtime(
             payload={"projectId": project["id"], "instruction": "Test command selection", "model": requested},
             runtime={"id": runtime_id, "detectedCommand": str(tmp_path / binary)},
             workspace=workspace,

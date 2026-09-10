@@ -314,6 +314,8 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 75
     except (Exception, KeyboardInterrupt) as error:
         report.update(status="failed", error=redact_secrets(str(error)))
+        if outcome := getattr(error, "supervision_outcome", None):
+            report["failedProcessOutcome"] = outcome
         _emit(report["error"], error=True)
     finally:
         stop.set()

@@ -38,10 +38,16 @@ def test_job_limits_are_read_back_not_only_requested(tmp_path):
 
 
 @pytest.fixture
-def native_csharp_target(tmp_path):
+def native_csharp_target(tmp_path, request):
     source = Path(__file__).parent / "fixtures/watchdog/native_crash.cs"
     target = tmp_path / "crash sintético.exe"
     compiler = Path("C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe")
+    request.node.user_properties.append(
+        (
+            "nativeToolRefs",
+            {"compiler": str(compiler), "source": str(source.resolve()), "target": str(target)},
+        )
+    )
     compiled = subprocess.run(
         [str(compiler), "/nologo", "/platform:x64", f"/out:{target}", str(source.resolve())],
         capture_output=True,

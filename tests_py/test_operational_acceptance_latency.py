@@ -21,8 +21,9 @@ from tests_py.operational_acceptance_support import evidence, identities_gone, n
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native load acceptance")
-def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path):
+def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path, low_impact_host_policy):
     db = tmp_path / "platform.sqlite"
+    policy = low_impact_host_policy(db)
     host = HostResourceProbe(relevant_paths=[tmp_path, Path.cwd()]).sample()
     assert not host.unreal_editor_running and not host.ollama_running
     with socket.socket() as reservation:
@@ -55,6 +56,7 @@ def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path):
     load = None
     report = {
         "status": "FAIL",
+        "fixturePolicy": policy,
         "preflight": host.model_dump(by_alias=True),
         "samples": [],
         "scope": "real loopback HTTP + Windows test writer, not browser paint or provider inference",

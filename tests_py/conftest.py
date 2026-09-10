@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Iterator
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,40 @@ from local_control_center.agents.runtime_registry import reset_detection_cache
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Retain a failed phase immediately, even if a later test kills the pytest owner."""
+    outcome = yield
+    report = outcome.get_result()
+    if not report.failed or call.excinfo is None or not os.environ.get("AIDO_ACCEPTANCE_EVIDENCE"):
+        return
+    from local_control_center.shared.redaction import redact_secrets
+    from tests_py.operational_acceptance_support import evidence
+
+    try:
+        evidence(
+            "pytest-failure",
+            redact_secrets(
+                {
+                    "nodeId": item.nodeid,
+                    "phase": report.when,
+                    "outcome": "failed",
+                    "durationSeconds": report.duration,
+                    "traceback": str(call.excinfo.getrepr(showlocals=False, style="long")),
+                    "toolRefs": {
+                        key: os.environ[key]
+                        for key in ("AIDO_TEST_PROCDUMP", "AIDO_TEST_CDB")
+                        if os.environ.get(key)
+                    },
+                    "fixtureToolRefs": dict(item.user_properties).get("nativeToolRefs", {}),
+                }
+            ),
+        )
+    except Exception as error:
+        # Do not replace the test's causal exception or recurse through diagnostic logging.
+        print(f"AIDO failure report unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
 
 
 @pytest.fixture
@@ -46,6 +81,14 @@ def controlled_domain_host(monkeypatch):
 def isolated_default_process_database(tmp_path, monkeypatch):
     """Evita que ejecuciones reales de sandbox en tests escriban la base del operador."""
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "default-runtime.sqlite"))
+
+
+@pytest.fixture
+def low_impact_host_policy(tmp_path):
+    from tests_py.operational_acceptance_support import low_impact_fixture_policy
+
+    with ExitStack() as stack:
+        yield lambda db: stack.enter_context(low_impact_fixture_policy(db, fixture_root=tmp_path))
 
 
 @pytest.fixture

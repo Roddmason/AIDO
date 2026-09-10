@@ -240,3 +240,29 @@ def test_quality_admission_wait_is_bounded_and_still_fails_closed(tmp_path, monk
     with pytest.raises(runner.ResourceWaitError):
         runner._run(QualityStep("check", ("check",)), root=tmp_path, db_path=tmp_path / "unused.sqlite")
     assert elapsed[0] == 120
+
+
+def test_quality_failed_finalization_keeps_native_exit_without_passing_gate(tmp_path, monkeypatch):
+    import json
+    import sqlite3
+
+    from local_control_center.quality import __main__ as runner
+    from local_control_center.quality.plans import QualityStep
+
+    error = sqlite3.OperationalError("synthetic finalization error")
+    error.supervision_outcome = {"returnCode": 0, "durableFinalization": "pending", "cancelled": False}
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runner, "_monitor", lambda *args: None)
+    monkeypatch.setattr(runner, "_prepare_paths", lambda *args: ({}, {}))
+    monkeypatch.setattr(runner, "build_plan", lambda *args, **kwargs: [QualityStep("fixture", ("unused",))])
+    monkeypatch.setattr(runner, "_run", fail)
+    assert runner.main(["--tier", "pr", "--db-path", str(tmp_path / "isolated.sqlite")]) == 1
+    (report_path,) = (tmp_path / ".tmp/operational-hardening-p0").glob("quality-pr-*.json")
+    report = json.loads(report_path.read_text(encoding="utf8"))
+    assert report["status"] == "failed" and report["steps"] == []
+    assert report["failedProcessOutcome"]["returnCode"] == 0
+    assert report["failedProcessOutcome"]["durableFinalization"] == "pending"

@@ -9,6 +9,7 @@ import ctypes
 import os
 import time
 import uuid
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import psutil
@@ -17,6 +18,33 @@ from local_control_center.shared.serialization import publish_json_exclusive
 from local_control_center.shared.time import utc_now
 
 _EVIDENCE_RUN_ID = uuid.uuid4().hex
+
+
+@contextmanager
+def low_impact_fixture_policy(db_path: Path, *, fixture_root: Path):
+    """Apply the authorized validation margin only inside an explicit disposable fixture."""
+    from local_control_center.settings.repository import UNSET, SettingsRepository
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    db = db_path.resolve()
+    if not db.is_relative_to(fixture_root.resolve()) or db == fixture_root.resolve():
+        raise ValueError("Database must be inside the disposable fixture root")
+    key = "resources.minFreeMemoryGiB"
+    with closing(open_sqlite_connection(db)) as connection:
+        initialize_platform_schema(connection)
+        repository = SettingsRepository(connection)
+        previous = repository.get_value(key, "general", None)
+        repository.set_value(key, "general", None, 12)
+    try:
+        yield {"database": str(db), "origin": "explicit_test_fixture", "minFreeMemoryGiB": 12}
+    finally:
+        with closing(open_sqlite_connection(db)) as connection:
+            repository = SettingsRepository(connection)
+            if previous is UNSET:
+                repository.clear_value(key, "general", None)
+            else:
+                repository.set_value(key, "general", None, previous)
 
 
 def save(path: Path, value: dict) -> None:

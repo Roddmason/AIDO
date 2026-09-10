@@ -635,21 +635,30 @@ class ProcessSupervisorService:
         with execution_scope(
             self.context or ProcessExecutionContext(db_path=self.db_path, execution_id=managed.execution_id)
         ):
-            self._watch_control_loop(managed)
+            phase = "connection_open"
+            try:
+                # WAL mode is persistent. One dedicated autocommit connection avoids
+                # reconfiguring it (and last-close/open contention) on every poll.
+                # Reads still observe fresh cancellation, leases and leadership.
+                with closing(open_sqlite_connection(self.db_path, busy_timeout_ms=250)) as connection:
+                    phase = "watch_loop"
+                    self._watch_control_loop(managed, connection)
+                    phase = "connection_close"
+            except Exception as error:
+                self._log_control_error(managed, error, phase, "stop")
+                self._stop_for_control(managed, "control_watch_failed")
 
-    def _watch_control_loop(self, managed: SupervisedProcess) -> None:
+    def _watch_control_loop(self, managed: SupervisedProcess, connection: sqlite3.Connection) -> None:
         next_heartbeat = time.monotonic() + 5
         next_memory_check = 0.0
         busy_since = None
         attempt = 0
         while not managed.stop_watcher.wait(0.2):
-            phase = "connection_open"
+            phase = "authority_read"
             attempt += 1
             started = time.monotonic()
-            connection = None
             try:
-                with closing(open_sqlite_connection(self.db_path, busy_timeout_ms=250)) as connection:
-                    phase = "authority_read"
+                with connection:
                     repository = ManagedProcessRepository(connection)
                     reason = repository.cancellation_reason(
                         managed.execution_id

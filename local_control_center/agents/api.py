@@ -1253,8 +1253,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return AgentRunResponse(agentRun=run)
 
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
-    async def list_runtime_providers(projectId: str | None = None) -> dict[str, Any]:
-        """Devuelve el estado agregado de los runtime providers."""
+    def list_runtime_providers(projectId: str | None = None) -> dict[str, Any]:
+        """Evalúa readiness síncrono en el pool de FastAPI sin bloquear el event loop."""
         return RuntimeStatusService(platform.connection).runtime_provider_status(project_id=projectId)
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)

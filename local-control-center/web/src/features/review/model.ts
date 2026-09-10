@@ -97,6 +97,8 @@ function referenceIds(action: ActionRequest): Set<string> {
 		const value = payload[key];
 		if (typeof value === 'string' && value.trim()) ids.add(value);
 	}
+	const patchArtifactId = asRecord(payload.diffSummary).patchArtifactId;
+	if (typeof patchArtifactId === 'string' && patchArtifactId.trim()) ids.add(patchArtifactId);
 	return ids;
 }
 

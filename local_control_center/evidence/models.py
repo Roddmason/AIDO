@@ -59,6 +59,7 @@ QAVerdict = Literal[
     "devops_risk",
     "devops_blocked",
     "security_passed",
+    "security_risk",
     "security_blocked",
     "skipped_with_reason",
     "backlog_generated",
@@ -67,6 +68,7 @@ QAVerdict = Literal[
 ]
 TestResultStatus = Literal[
     "passed",
+    "risk",
     "failed",
     "completed",
     "denied",

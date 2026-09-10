@@ -2178,6 +2178,99 @@ test('Review board approve patch is evidence-first blocked while reject stays op
 	await expect(incompleteReview.getByRole('button', { name: 'Reject' })).toBeEnabled();
 });
 
+test('Review board Developer shared patch cancels downloads on close', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = issueToPatchApprovalFixture(project.id, 'developer-close');
+	fixture.actionRequest.actionType = 'agent.developer.approve_patch';
+	await routeIssueToPatchApprovalOverview(page, [fixture]);
+	let releaseDownload;
+	const pending = new Promise((resolve) => { releaseDownload = resolve; });
+	let requested = false;
+	const artifactUrl = `/api/v1/evidence/${fixture.artifact.evidencePackageId}/artifacts/${fixture.artifact.id}`;
+	await page.route(artifactUrl, async (route) => {
+		requested = true;
+		await pending;
+		await route.abort();
+	});
+	try {
+		await page.goto('/#review-board');
+		const card = page.locator('.review-card').filter({ has: page.locator(`[id="review-card-action:${fixture.actionRequest.id}"]`) });
+		await card.locator('.review-card-cta').click();
+		await expect.poll(() => requested).toBe(true);
+		const cancelled = page.waitForEvent('requestfailed', { predicate: (request) => request.url().endsWith(artifactUrl) });
+		await page.keyboard.press('Escape');
+		expect((await cancelled).failure().errorText).toContain('ERR_ABORTED');
+		await expect(page.getByRole('dialog', { name: 'Action request review' })).toHaveCount(0);
+	} finally {
+		releaseDownload();
+	}
+});
+
+test('Review board Developer shared patch survives an unchanged overview refresh', async ({ page }) => {
+	const project = await getActiveProject(page);
+	const fixture = issueToPatchApprovalFixture(project.id, 'developer-refresh');
+	fixture.actionRequest.actionType = 'agent.developer.approve_patch';
+	await routeIssueToPatchApprovalOverview(page, [fixture]);
+	let overviewCount = 0;
+	let releaseDownloads;
+	const refreshed = new Promise((resolve) => { releaseDownloads = resolve; });
+	const downloads = { patch: 0, security: 0 };
+	await page.route('/api/v1/overview', async (route) => {
+		overviewCount += 1;
+		if (overviewCount > 1) releaseDownloads();
+		await route.fallback();
+	});
+	for (const [key, artifact, body] of [['patch', fixture.artifact, fixture.patchText], ['security', fixture.securityArtifact, fixture.securityText]]) {
+		await page.route(`/api/v1/evidence/${artifact.evidencePackageId}/artifacts/${artifact.id}`, async (route) => {
+			downloads[key] += 1;
+			await refreshed;
+			await route.fulfill({ status: 200, contentType: key === 'patch' ? 'text/x-patch' : 'application/json', body });
+		});
+	}
+	try {
+		await page.goto('/#review-board');
+		const card = page.locator('.review-card').filter({ has: page.locator(`[id="review-card-action:${fixture.actionRequest.id}"]`) });
+		await card.locator('.review-card-cta').click();
+		const review = page.getByRole('dialog', { name: 'Action request review' });
+		await review.getByLabel('Human decision reason').fill('Keep unchanged evidence downloads across overview refreshes.');
+		await expect(review.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
+		expect(overviewCount).toBeGreaterThan(1);
+		expect(downloads).toEqual({ patch: 1, security: 1 });
+	} finally {
+		releaseDownloads();
+	}
+});
+
+for (const referenced of [true, false]) {
+	test(`Review board Developer shared patch ${referenced ? 'retains its explicit reference' : 'rejects an unreferenced artifact'}`, async ({ page }) => {
+		const project = await getActiveProject(page);
+		const fixture = issueToPatchApprovalFixture(project.id, `developer-shared-${referenced}`);
+		fixture.artifact.evidencePackageId = `evidence-later-review-${referenced}`;
+		fixture.actionRequest.actionType = 'agent.developer.approve_patch';
+		fixture.actionRequest.diffRefs = [];
+		fixture.actionRequest.payload = {
+			evidencePackageId: fixture.evidencePackage.id,
+			diffSummary: { patchArtifactId: referenced ? fixture.artifact.id : null },
+		};
+		await routeIssueToPatchApprovalOverview(page, [fixture]);
+		await page.route(`/api/v1/evidence/${fixture.artifact.evidencePackageId}/artifacts/${fixture.artifact.id}`, async (route) => {
+			await route.fulfill({ status: 200, contentType: 'text/x-patch', body: fixture.patchText });
+		});
+		await page.goto('/#review-board');
+		const card = page.locator('.review-card').filter({ has: page.locator(`[id="review-card-action:${fixture.actionRequest.id}"]`) });
+		await card.locator('.review-card-cta').click();
+		const review = page.getByRole('dialog', { name: 'Action request review' });
+		await review.getByLabel('Human decision reason').fill('Review the referenced immutable patch, not an unrelated artifact.');
+		if (referenced) {
+			await expect(review.getByText('diff --git a/src/approval.ts b/src/approval.ts')).toBeVisible();
+			await expect(review.getByRole('button', { name: 'Approve patch' })).toBeEnabled();
+		} else {
+			await expect(review.getByText('evidence_incomplete')).toBeVisible();
+			await expect(review.getByRole('button', { name: 'Approve patch' })).toBeDisabled();
+		}
+	});
+}
+
 test('Review board executes issue-to-pr approval, promotion and PR through workflow endpoints', async ({ page }) => {
 	const project = await getActiveProject(page);
 	const complete = issueToPatchApprovalFixture(project.id, 'board-pr-complete', { completeEvidence: true, workflowKind: 'issue_to_pr' });

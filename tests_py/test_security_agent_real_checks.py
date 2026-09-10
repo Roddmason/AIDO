@@ -218,6 +218,62 @@ def test_security_agent_clean_workspace_passes_with_file_hashes(
     assert body["agentRun"]["status"] == "completed"
 
 
+@pytest.mark.parametrize(
+    ("decision", "verdict", "qa_verdict"),
+    [
+        (None, "passed", "security_passed"),
+        ("requires_approval", "risk", "security_risk"),
+        ("deny", "blocked", "security_blocked"),
+    ],
+)
+def test_security_verdict_remains_readable_in_overview(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str | None,
+    verdict: str,
+    qa_verdict: str,
+) -> None:
+    from local_control_center.security_policy.repository import SecurityPolicyRepository
+
+    # Deterministic policy fixture; external scanners are explicitly unavailable, not passed.
+    monkeypatch.setenv("PATH", str(tmp_path / "no-external-scanners"))
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="overview-security")
+    if decision:
+        SecurityPolicyRepository(store.connection).record_decision(
+            project_id=project["id"],
+            workspace_id=workspace["id"],
+            agent_id="qa_agent",
+            role="qa_reviewer",
+            tool="shell",
+            command="synthetic gated command",
+            path=workspace["path"],
+            decision=decision,
+            risk_level="medium",
+            reason="Test-only policy decision",
+            payload={},
+        )
+        store.connection.commit()
+    response = client.post(
+        "/api/v1/agents/security/runs",
+        headers=headers,
+        json=security_request(project, workspace, runModelAnalysis=False),
+    )
+    assert response.status_code == 202, response.text
+    result = response.json()
+    assert result["verdict"] == verdict
+    assert result["modelAnalysis"] is None
+    overview = client.get("/api/v1/overview")
+    assert overview.status_code == 200, overview.text
+    evidence = next(
+        e for e in overview.json()["evidencePackages"] if e["id"] == result["evidencePackage"]["id"]
+    )
+    assert evidence["qaVerdict"] == qa_verdict
+    records = [r for r in overview.json()["testResultRecords"] if r["evidencePackageId"] == evidence["id"]]
+    assert any(r["status"] == verdict for r in records)
+
+
 def test_security_agent_path_traversal_candidate_blocks(
     create_client,
     tmp_path: Path,

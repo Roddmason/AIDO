@@ -31,6 +31,22 @@ ARCHITECT_AGENT_RUNTIME_ORDER = [
     *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
 ]
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
+RISK_SEVERITIES = {"low", "medium", "high", "critical"}
+
+
+def _review_item_schema(*, risk: bool = False) -> dict[str, Any]:
+    """Expose the domain validator's item requirements to the model, without relaxing them."""
+    properties: dict[str, Any] = {
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "enum": sorted(RISK_SEVERITIES)},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    }
+    required = ["title", "description", "evidenceRefs"]
+    if risk:
+        properties["mitigation"] = {"type": "string", "minLength": 1}
+        required.append("mitigation")
+    return {"type": "object", "required": required, "properties": properties}
 
 
 def architect_agent_contract() -> dict[str, Any]:
@@ -68,11 +84,23 @@ def architect_agent_contract() -> dict[str, Any]:
             ],
             "properties": {
                 "verdict": {"type": "string", "enum": sorted(ARCHITECT_AGENT_VERDICTS)},
-                "architectureFindings": {"type": "array", "items": {"type": "object"}},
-                "risks": {"type": "array", "items": {"type": "object"}},
-                "requiredChanges": {"type": "array", "items": {"type": "object"}},
-                "approvalRecommendation": {"type": "object"},
-                "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+                "architectureFindings": {"type": "array", "items": _review_item_schema()},
+                "risks": {"type": "array", "items": _review_item_schema(risk=True)},
+                "requiredChanges": {"type": "array", "items": _review_item_schema()},
+                "approvalRecommendation": {
+                    "type": "object",
+                    "required": ["decision", "reason", "evidenceRefs"],
+                    "properties": {
+                        "decision": {"type": "string", "minLength": 1},
+                        "reason": {"type": "string", "minLength": 1},
+                        "evidenceRefs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                        },
+                    },
+                },
+                "evidenceRefs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
             },
         },
         "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,

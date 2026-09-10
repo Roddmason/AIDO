@@ -10,7 +10,10 @@ import pytest
 
 from local_control_center.agents.api import validate_architect_agent_run_body
 from local_control_center.agents.architect_agent import ArchitectAgentRunner
-from local_control_center.agents.architect_agent_contract import architect_agent_readiness
+from local_control_center.agents.architect_agent_contract import (
+    architect_agent_contract,
+    architect_agent_readiness,
+)
 from local_control_center.agents.contracts import ArchitectAgentRunRequest
 from tests_py import test_architect_agent_real_runtime as architect_fixtures
 from tests_py.control_plane_fixture import ControlPlaneFixture
@@ -21,6 +24,52 @@ from tests_py.test_architect_agent_real_runtime import (
 )
 
 create_client = architect_fixtures.create_client
+
+
+def test_review_prompt_schema_declares_fields_enforced_by_domain_validator():
+    from local_control_center.agents.architect_agent import RISK_SEVERITIES
+
+    schema = architect_agent_contract()["outputSchema"]
+    properties = schema["properties"]
+    for field in ("architectureFindings", "risks", "requiredChanges"):
+        item = properties[field]["items"]
+        assert {"title", "description", "evidenceRefs"} <= set(item["required"])
+        assert set(item["properties"]["severity"]["enum"]) == RISK_SEVERITIES
+        assert item["properties"]["evidenceRefs"]["minItems"] == 1
+    assert "mitigation" in properties["risks"]["items"]["required"]
+    recommendation = properties["approvalRecommendation"]
+    assert set(recommendation["required"]) == {"decision", "reason", "evidenceRefs"}
+    assert properties["evidenceRefs"]["minItems"] == 1
+
+
+@pytest.mark.parametrize("invalid", ["info_severity", "missing_title", "wrong_recommendation"])
+def test_historical_review_shape_errors_remain_rejected(invalid):
+    from local_control_center.agents.architect_agent import (
+        ArchitectOutputValidationError,
+        _validate_architect_output,
+    )
+
+    item = {"title": "Finding", "description": "Observed diff", "evidenceRefs": ["diff"]}
+    output = {
+        "verdict": "changes_required",
+        "architectureFindings": [item],
+        "risks": [],
+        "requiredChanges": [],
+        "approvalRecommendation": {"decision": "changes_required", "reason": "Fix", "evidenceRefs": ["diff"]},
+        "evidenceRefs": ["diff"],
+    }
+    if invalid == "info_severity":
+        item["severity"] = "info"
+    elif invalid == "missing_title":
+        item.pop("title")
+    else:
+        output["approvalRecommendation"] = {
+            "recommendation": "Fix",
+            "rationale": "Issue",
+            "evidenceRefs": ["diff"],
+        }
+    with pytest.raises(ArchitectOutputValidationError):
+        _validate_architect_output(output, allowed_refs={"diff"}, grounding_refs={"diff"})
 
 
 def test_architect_accepts_explicit_eligible_claude_without_api_fallback():

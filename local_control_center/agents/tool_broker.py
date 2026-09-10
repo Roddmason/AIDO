@@ -42,6 +42,7 @@ from .runtime_adapters import (
 )
 from .runtime_failover import looks_like_quota_exhaustion
 from .runtime_registry import (
+    developer_codex_extra_args,
     validate_product_owner_codex_environment,
     validate_product_owner_runtime_argv,
 )
@@ -237,6 +238,56 @@ def _architect_cli_boundary(
         "riskLevel": "high",
         "categories": ["architect_cli_contract_denied"],
         "reason": "ArchitectAgent CLI requires its trusted, tool-isolated read-only Claude contract.",
+    }
+
+
+def _developer_codex_boundary(
+    *, operation, trusted_operation, profile, tool_call, workspace_path, environment
+):
+    """Only the native developer transport receives an isolated home, never generic shell."""
+    argv = tool_call.get("argv") or []
+    native_codex = bool(argv and "codex" in Path(str(argv[0])).name.lower())
+    if operation != "developer_agent_runtime" or (not native_codex and environment is None):
+        return None
+    model = _argv_option(argv, "--model")
+    expected = (
+        [
+            argv[0],
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--sandbox",
+            "workspace-write",
+            "--cd",
+            str(Path(workspace_path or "").resolve(strict=False)),
+            "--model",
+            model,
+            *developer_codex_extra_args(),
+            "--",
+            argv[-1],
+        ]
+        if argv
+        else []
+    )
+    valid = (
+        trusted_operation == operation
+        and profile.get("id") == "developer_agent"
+        and profile.get("permissionProfile") == "dev_safe"
+        and tool_call.get("tool") == "shell"
+        and tool_call.get("runtimeId") == "codex_cli"
+        and model
+        and not model.startswith("-")
+        and argv == expected
+        and validate_product_owner_codex_environment(environment, workspace_path=str(workspace_path or ""))
+        is None
+    )
+    if valid:
+        return None
+    return {
+        "decision": "deny",
+        "riskLevel": "high",
+        "categories": ["developer_codex_contract_denied"],
+        "reason": "DeveloperAgent Codex requires its trusted isolated workspace-write contract.",
     }
 
 
@@ -655,6 +706,15 @@ class ToolBroker:
                 tool_call=tool_call,
                 workspace_path=workspace_path,
             )
+        if internal_result is None:
+            internal_result = _developer_codex_boundary(
+                operation=operation,
+                trusted_operation=trusted_operation,
+                profile=agent_profile,
+                tool_call=tool_call,
+                workspace_path=workspace_path,
+                environment=trusted_subprocess_environment,
+            )
         resource_result = self._product_owner_resource_decision_boundary(
             operation=operation,
             project_id=project_id,
@@ -915,7 +975,9 @@ class ToolBroker:
                     timeout_seconds=int(tool_call.get("timeoutSeconds") or 30),
                     truncate_output=not capture_stdout_artifact,
                     environment=(
-                        trusted_subprocess_environment if operation == "product_owner_runtime" else None
+                        trusted_subprocess_environment
+                        if operation in {"product_owner_runtime", "developer_agent_runtime"}
+                        else None
                     ),
                 )
             if execution_result.get("blocked"):

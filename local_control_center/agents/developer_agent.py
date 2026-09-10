@@ -13,6 +13,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ from .runtime_registry import (
     RuntimeCommandUnavailableError,
     build_developer_agent_argv,
     developer_agent_prompt,
+    isolated_product_owner_codex_environment,
 )
 from .runtime_selection import (
     RUNTIME_UNAVAILABLE_STATUS,
@@ -365,25 +367,31 @@ class DeveloperAgentRunner:
             story_specs=payload.get("storySpecs"),
             constitution=payload.get("constitution"),
         )
-        runtime_eval = broker.evaluate_tool_call(
-            project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": "shell",
-                "command": display_command(runtime_argv),
-                "argv": runtime_argv,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "developer_agent_runtime",
-                "runtimeId": runtime["id"],
-                "capability": "code_edit",
-                "execute": True,
-                "timeoutSeconds": 900,
-            },
-        )
+        isolated_codex = runtime["id"] == "codex_cli" and not runtime.get("developerAgentArgv")
+        with (
+            isolated_product_owner_codex_environment() if isolated_codex else nullcontext(None) as environment
+        ):
+            runtime_eval = broker.evaluate_tool_call(
+                project_id=payload["projectId"],
+                agent_run_id=agent_run["id"],
+                agent_profile=profile,
+                job_id=job["id"],
+                trusted_operation="developer_agent_runtime" if isolated_codex else None,
+                trusted_subprocess_environment=environment,
+                tool_call={
+                    "tool": "shell",
+                    "command": display_command(runtime_argv),
+                    "argv": runtime_argv,
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "path": workspace["path"],
+                    "operation": "developer_agent_runtime",
+                    "runtimeId": runtime["id"],
+                    "capability": "code_edit",
+                    "execute": True,
+                    "timeoutSeconds": 900,
+                },
+            )
         return _execution_result_from_tool_call(runtime_eval["toolCall"])
 
     def _execute_model_runtime(

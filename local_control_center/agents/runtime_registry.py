@@ -110,6 +110,51 @@ PRODUCT_OWNER_CLAUDE_EXTRA_ARGS = [
     "--tools=",
 ]
 
+
+def developer_codex_extra_args() -> list[str]:
+    """Isolate customizations while retaining native workspace tools and managed policy."""
+    args = ["--ephemeral", "--ignore-user-config", "--strict-config"]
+    for setting in (
+        "tools.web_search=false",
+        "mcp_servers={}",
+        "skills.config=[]",
+        "skills.include_instructions=false",
+        "project_doc_max_bytes=0",
+        "project_root_markers=[]",
+        'shell_environment_policy.inherit="core"',
+        "shell_environment_policy.experimental_use_profile=false",
+        "allow_login_shell=false",
+        "sandbox_workspace_write.network_access=false",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+    ):
+        args.extend(["--config", setting])
+    if sys.platform == "win32":
+        # Codex otherwise downgrades workspace-write to read-only on Windows.
+        # Restricted-token backend: no elevation or machine-wide sandbox setup.
+        args.extend(["--config", 'windows.sandbox="unelevated"'])
+    for feature in (
+        "apps",
+        "browser_use",
+        "computer_use",
+        "image_generation",
+        "in_app_browser",
+        "goals",
+        "hooks",
+        "memories",
+        "multi_agent",
+        "plugins",
+        "plugin_sharing",
+        "shell_snapshot",
+        "skill_mcp_dependency_install",
+        "tool_call_mcp_elicitation",
+        "tool_suggest",
+        "workspace_dependencies",
+    ):
+        args.extend(["--disable", feature])
+    return args
+
+
 PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS = frozenset(
     {
         "APPDATA",
@@ -597,7 +642,7 @@ def build_developer_agent_argv(
                 "network": False,
                 "secrets": False,
             },
-            "extraArgs": [],
+            "extraArgs": developer_codex_extra_args() if runtime_id == "codex_cli" else [],
             "role": "developer",
             "agentId": agent_id,
         }

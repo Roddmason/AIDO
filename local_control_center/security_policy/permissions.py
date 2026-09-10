@@ -193,7 +193,7 @@ def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
     if (
         parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"}
         and len(parsed.args) >= 2
-        and parsed.args[:2] == ("-m", "pytest")
+        and parsed.args[:2] in {("-m", "pytest"), ("-m", "unittest")}
     ):
         return "test"
     if parsed.executable in {"python", "python.exe", "python3", "py", "py.exe"} and parsed.args == (

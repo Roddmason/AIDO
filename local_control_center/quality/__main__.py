@@ -112,7 +112,12 @@ def _run(
                 db_path=db_path,
                 workload_class=step.workload_class,
                 timeout_seconds=step.timeout_seconds,
-                environment={**environment, "AIDO_QUALITY_DB_PATH": str(db_path.resolve())},
+                environment={
+                    **environment,
+                    "AIDO_QUALITY_DB_PATH": str(db_path.resolve()),
+                    # Nested tools also use the general runtime resolver, not only the quality CLI.
+                    "LOCAL_CONTROL_CENTER_DB": str(db_path.resolve()),
+                },
             )
             break
         except ResourceWaitError as error:

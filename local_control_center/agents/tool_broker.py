@@ -249,6 +249,21 @@ def _developer_codex_boundary(
     native_codex = bool(argv and "codex" in Path(str(argv[0])).name.lower())
     if operation != "developer_agent_runtime" or (not native_codex and environment is None):
         return None
+    # The existing streaming service owns drainage through its restricted opener;
+    # it requests authorization only, not the isolated Developer command builder.
+    # This authority is an internal argument, never accepted from tool-call metadata.
+    if (
+        trusted_operation == "cli_session_stream"
+        and profile.get("id") == "developer_agent"
+        and profile.get("permissionProfile") == "dev_safe"
+        and profile.get("allowCli") is True
+        and tool_call.get("tool") == "shell"
+        and tool_call.get("runtimeId") == "codex_cli"
+        and tool_call.get("capability") == "cli_session_stream"
+        and tool_call.get("authorizeOnly") is True
+        and environment is None
+    ):
+        return None
     model = _argv_option(argv, "--model")
     expected = (
         [

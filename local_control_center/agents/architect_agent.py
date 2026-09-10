@@ -30,6 +30,7 @@ from .architect_agent_contract import (
     ARCHITECT_AGENT_MODEL_RUNTIMES,
     ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
     ARCHITECT_AGENT_VERDICTS,
+    RISK_SEVERITIES,
     architect_agent_contract,
     architect_agent_readiness,
 )
@@ -45,7 +46,6 @@ from .tool_broker import ToolBroker
 
 FAILED_VALIDATION_STATUS = "failed_validation"
 ARCHITECT_TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, FAILED_VALIDATION_STATUS, "failed"}
-RISK_SEVERITIES = {"low", "medium", "high", "critical"}
 MODEL_OUTPUT_LIMIT_CHARS = 120_000
 PROMPT_DIFF_LIMIT_CHARS = 40_000
 PROMPT_COLLECTION_LIMIT = 20

@@ -60,6 +60,8 @@ class SupervisedProcess:
     capture_failure: threading.Event = field(default_factory=threading.Event, repr=False)
     containment_evidence: dict[str, Any] = field(default_factory=dict)
     native_capture: Any = field(default=None, repr=False)
+    root_create_time: float = 0
+    terminal_outcome: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

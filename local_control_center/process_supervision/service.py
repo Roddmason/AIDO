@@ -32,7 +32,7 @@ from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.profiles import workload_profile
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.shared.db import immediate_transaction, open_sqlite_connection
-from local_control_center.shared.diagnostics import diagnostic_event, ensure_diagnostics
+from local_control_center.shared.diagnostics import diagnostic_event, ensure_diagnostics, exception_chain
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.settings import default_db_path
@@ -373,12 +373,13 @@ class ProcessSupervisorService:
             )
             managed.resource_lease_id = lease.id
             managed.owns_resource_lease = inherited_id is None
+            managed.root_create_time = process_create_time(managed.process.pid)
             phase = "identity_persist"
             with closing(open_sqlite_connection(self.db_path)) as connection:
                 initialize_platform_schema(connection)
                 connection.execute(
                     "UPDATE managed_processes SET root_pid=?, root_create_time=? WHERE managed_process_id=?",
-                    (int(managed.process.pid), process_create_time(managed.process.pid), managed_process_id),
+                    (int(managed.process.pid), managed.root_create_time, managed_process_id),
                 )
             phase = "capture_register"
             for stream_name in ("stdout", "stderr"):
@@ -479,6 +480,23 @@ class ProcessSupervisorService:
                 stats.cancelled |= cancelled
                 stats.termination_reason = stats.termination_reason or termination_reason
                 managed.terminal_stats = stats
+                # SQL and handle closure can fail after the native exit was already observed.
+                # This independent receipt is evidence, never authority to release a durable lease.
+                managed.terminal_outcome = {
+                    "managedProcessId": managed.managed_process_id,
+                    "executionId": managed.execution_id,
+                    "resourceLeaseId": managed.resource_lease_id,
+                    "pid": managed.process.pid,
+                    "processCreationTime": managed.root_create_time or None,
+                    "returnCode": stats.exit_code,
+                    "timedOut": stats.timed_out,
+                    "cancelled": stats.cancelled,
+                    "terminationReason": stats.termination_reason,
+                    "remainingDescendantCount": stats.remaining_descendant_count,
+                    "durableFinalization": "pending",
+                    "causeStatus": "UNKNOWN",
+                }
+                self._publish_completion(managed, "process-outcome")
                 artifact_ids = self._finish_captures(managed)
                 if managed.native_capture is not None:
                     try:
@@ -524,9 +542,31 @@ class ProcessSupervisorService:
                             managed.resource_lease_id, reason=stats.termination_reason or "process_finished"
                         )
                 return record
+            except Exception as error:
+                managed.terminal_outcome.update(exceptionChain=exception_chain(error))
+                self._publish_completion(managed, "process-finalization-error")
+                error.supervision_outcome = dict(managed.terminal_outcome)
+                diagnostic_event(
+                    "process.finalization.error",
+                    component="supervisor",
+                    error=error,
+                    **managed.terminal_outcome,
+                )
+                raise
             finally:
                 # Una falla de evidencia no puede mantener un árbol ejecutando sin control.
                 # Su registro y lease permanecen recuperables, sin inventar un resultado terminal.
+                if managed.native_capture is not None and not managed.native_capture.closed:
+                    try:
+                        managed.native_capture.finish()
+                    except Exception as cleanup_error:
+                        diagnostic_event(
+                            "native.cleanup.error",
+                            component="supervisor",
+                            error=cleanup_error,
+                            executionId=managed.execution_id,
+                            managedProcessId=managed.managed_process_id,
+                        )
                 if not managed.released:
                     try:
                         self.backend.release(managed)
@@ -536,6 +576,28 @@ class ProcessSupervisorService:
                 for capture in managed.captures.values():
                     with suppress(OSError):
                         capture.finish()
+
+    def _publish_completion(self, managed: SupervisedProcess, kind: str) -> None:
+        """Publish outside SQLite; a second evidence error must not mask the first failure."""
+        from local_control_center.evidence.artifacts import evidence_artifact_root
+        from local_control_center.shared.redaction import redact_secrets
+        from local_control_center.shared.serialization import publish_json_exclusive
+        from local_control_center.shared.time import utc_now
+
+        path = evidence_artifact_root(self.db_path.parent) / f"artifact-{uuid.uuid4()}.{kind}.json"
+        try:
+            publish_json_exclusive(
+                path, redact_secrets({"timestampUtc": utc_now(), **managed.terminal_outcome})
+            )
+            managed.terminal_outcome.setdefault("evidenceRefs", []).append(str(path))
+        except Exception as publication_error:
+            managed.terminal_outcome["receiptPublication"] = "failed"
+            diagnostic_event(
+                "process.finalization.receipt_error",
+                component="supervisor",
+                error=publication_error,
+                managedProcessId=managed.managed_process_id,
+            )
 
     def _reserve_native_root(self, spec: ProcessLaunchSpec, lease_id: str) -> None:
         """Reserva antes del spawn; sólo un descendiente nativo puede compartir un presupuesto vivo."""

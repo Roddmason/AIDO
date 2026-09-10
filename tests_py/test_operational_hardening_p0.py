@@ -176,7 +176,10 @@ def test_codex_profile_does_not_pin_an_obsolete_model(tmp_path: Path) -> None:
         )
 
 
-def test_productive_sandbox_execution_returns_managed_process_evidence(tmp_path: Path) -> None:
+def test_productive_sandbox_execution_returns_managed_process_evidence(
+    tmp_path: Path, low_impact_host_policy
+) -> None:
+    low_impact_host_policy(tmp_path / "default-runtime.sqlite")
     result = RestrictedSubprocessSandbox().execute(
         argv=[sys.executable, "-c", "print('managed')"],
         cwd=str(tmp_path),

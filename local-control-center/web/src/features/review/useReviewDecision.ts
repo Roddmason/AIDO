@@ -28,6 +28,13 @@ import {
 
 type Mutate = <T>(operation: (token: string) => Promise<T>) => Promise<T>;
 
+function useArtifactIdentity(artifact: Artifact | null) {
+	const id = artifact?.id ?? '';
+	const evidencePackageId = artifact?.evidencePackageId ?? '';
+	const hash = artifact?.hash ?? '';
+	return useMemo(() => ({ id, evidencePackageId, hash }), [id, evidencePackageId, hash]);
+}
+
 export type ReviewDecision = {
 	artifacts: Artifact[];
 	evidence: Overview['evidencePackages'];
@@ -82,6 +89,10 @@ export function useReviewDecision(
 	);
 	const patchArtifact = useMemo(() => findPatchArtifact(artifacts), [artifacts]);
 	const securityArtifact = useMemo(() => findSecurityFindingsArtifact(artifacts), [artifacts]);
+	const patchIdentity = useArtifactIdentity(patchArtifact);
+	const securityIdentity = useArtifactIdentity(securityArtifact);
+	const actionId = action?.id ?? '';
+	const requiresGate = Boolean(action && requiresPatchEvidenceGate(action));
 
 	const patchGate = useMemo(
 		() =>
@@ -116,23 +127,23 @@ export function useReviewDecision(
 		setDecisionError('');
 	}, [action?.id]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setPatchPayload(null);
 		setPatchError('');
-		if (!action || !patchArtifact || !requiresPatchEvidenceGate(action)) {
+		if (!actionId || !patchIdentity.id || !requiresGate) {
 			setPatchLoadingId('');
 			return undefined;
 		}
-		const artifactId = String(patchArtifact.id ?? '');
-		const evidenceId = String(patchArtifact.evidencePackageId ?? '');
+		const artifactId = patchIdentity.id;
+		const evidenceId = patchIdentity.evidencePackageId;
 		if (!artifactId || !evidenceId) {
 			setPatchError(t('app.review.error.patchMetadata', 'Patch artifact metadata is incomplete.'));
 			return undefined;
 		}
 		let cancelled = false;
+		const controller = new AbortController();
 		setPatchLoadingId(artifactId);
-		void fetchEvidenceArtifact(token, evidenceId, artifactId)
+		void fetchEvidenceArtifact(token, evidenceId, artifactId, controller.signal)
 			.then((payload) => {
 				if (!cancelled) setPatchPayload(payload);
 			})
@@ -149,19 +160,19 @@ export function useReviewDecision(
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
-	}, [action, patchArtifact, token]);
+	}, [actionId, requiresGate, patchIdentity, token, t]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: t only formats a rarely-shown error; re-fetching the artifact on a language switch would be wasteful.
 	useEffect(() => {
 		setSecurityPayload(null);
 		setSecurityError('');
-		if (!action || !securityArtifact || !requiresPatchEvidenceGate(action)) {
+		if (!actionId || !securityIdentity.id || !requiresGate) {
 			setSecurityLoadingId('');
 			return undefined;
 		}
-		const artifactId = String(securityArtifact.id ?? '');
-		const evidenceId = String(securityArtifact.evidencePackageId ?? '');
+		const artifactId = securityIdentity.id;
+		const evidenceId = securityIdentity.evidencePackageId;
 		if (!artifactId || !evidenceId) {
 			setSecurityError(
 				t(
@@ -172,8 +183,9 @@ export function useReviewDecision(
 			return undefined;
 		}
 		let cancelled = false;
+		const controller = new AbortController();
 		setSecurityLoadingId(artifactId);
-		void fetchEvidenceArtifact(token, evidenceId, artifactId)
+		void fetchEvidenceArtifact(token, evidenceId, artifactId, controller.signal)
 			.then((payload) => {
 				if (!cancelled) setSecurityPayload(payload);
 			})
@@ -190,8 +202,9 @@ export function useReviewDecision(
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
-	}, [action, securityArtifact, token]);
+	}, [actionId, requiresGate, securityIdentity, token, t]);
 
 	const trimmedReason = decisionReason.trim();
 	const decisionBlocked = !trimmedReason;

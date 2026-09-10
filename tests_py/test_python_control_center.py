@@ -95,6 +95,49 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
         assert all(job["status"] == "queued" for job in jobs.list_jobs() if job["id"] in claimed_ids)
 
 
+def test_runtime_provider_status_does_not_block_control_plane(tmp_path: Path, monkeypatch) -> None:
+    from fastapi.testclient import TestClient as NativeTestClient
+
+    from local_control_center.agents.runtime_status import RuntimeStatusService
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+    entered, release = threading.Event(), threading.Event()
+    observed = {}
+
+    def waiting_status(service, *, project_id=None):
+        context = CURRENT_EXECUTION.get()
+        observed.update(requestId=context.request_id, dbPath=context.db_path)
+        assert service.connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        entered.set()
+        assert release.wait(8), "The test must release the deterministic status operation"
+        raise ValueError("synthetic readiness failure")
+
+    monkeypatch.setattr(RuntimeStatusService, "runtime_provider_status", waiting_status)
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "status.sqlite")
+    runtime.init()
+    try:
+        with (
+            NativeTestClient(create_app(runtime=runtime), raise_server_exceptions=False) as client,
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            pending = pool.submit(
+                client.get, "/api/v1/runtime/providers", headers={"X-Correlation-ID": "readiness-held"}
+            )
+            try:
+                assert entered.wait(3)
+                health = pool.submit(client.get, "/healthz").result(timeout=2)
+                assert health.status_code == 200
+                assert not pending.done()
+            finally:
+                release.set()
+            result = pending.result(timeout=3)
+            assert result.status_code == 500
+            assert result.headers["X-Correlation-ID"] == "readiness-held"
+            assert observed == {"requestId": "readiness-held", "dbPath": runtime.db_path}
+    finally:
+        runtime.close()
+
+
 def test_schema_initialization_keeps_credentials_view_safe_for_concurrent_workers(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
     with closing(open_sqlite_connection(db_path)) as connection, connection:

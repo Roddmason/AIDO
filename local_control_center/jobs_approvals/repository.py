@@ -468,6 +468,10 @@ class JobsRepository:
                 (utc_now(), "system", action_id),
             )
             raise ValueError("Action request is expired.")
+        if action["actionType"] == "agent.developer.approve_patch":
+            return self._decide_developer_patch(
+                job_id, action_id, reason=clean_reason, actor=actor, accepted=True
+            )
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -517,6 +521,110 @@ class JobsRepository:
             "auditEvent": audit,
         }
 
+    def _decide_developer_patch(
+        self, job_id: str, action_id: str, *, reason: str, actor: str, accepted: bool
+    ) -> dict[str, Any]:
+        """Decide an already executed patch atomically, without granting another execution."""
+        from contextlib import nullcontext
+
+        from local_control_center.agents.repository import AgentsRepository
+        from local_control_center.evidence.quality import (
+            evidence_package_contract_errors,
+            real_qa_command_errors,
+        )
+        from local_control_center.evidence.repository import EvidenceRepository
+        from local_control_center.shared.db import immediate_transaction
+
+        transaction = (
+            nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
+        )
+        with transaction:
+            action = self.get_action_request(action_id)
+            job = self.get_job(job_id)
+            if action["jobId"] != job_id or action["status"] != "pending":
+                raise ValueError("Patch approval is no longer pending for this job.")
+            if job["kind"] != "agent.developer" or job["status"] != "approval_required":
+                raise ValueError("Patch approval requires an existing DeveloperAgent delivery.")
+            if accepted and len(self._pending_actions(job_id)) != 1:
+                raise ValueError("Other pending actions must be resolved before accepting this patch.")
+            payload = action.get("payload") or {}
+            agents = AgentsRepository(self.connection)
+            evidence_repo = EvidenceRepository(self.connection)
+            try:
+                run = agents.get_agent_run(str(payload.get("agentRunId") or ""))
+                evidence = evidence_repo.get_evidence_package(str(payload.get("evidencePackageId") or ""))
+            except KeyError as error:
+                raise ValueError("Patch approval is missing its execution or evidence.") from error
+            if (
+                run["jobId"] != job_id
+                or run["projectId"] != job["projectId"]
+                or run["status"] != "awaiting_permission"
+                or evidence["jobId"] != job_id
+                or evidence["agentRunId"] != run["id"]
+                or evidence["projectId"] != job["projectId"]
+                or evidence["workspaceId"] != payload.get("workspaceId")
+            ):
+                raise ValueError("Patch approval execution/evidence scope does not match.")
+            if accepted:
+                runtime = run["output"].get("runtimeResult") or {}
+                if runtime.get("status") != "completed" or runtime.get("returnCode") != 0:
+                    raise ValueError("Patch approval requires successful native execution.")
+                errors = evidence_package_contract_errors(
+                    evidence,
+                    require_runtime_links=True,
+                    require_workflow_run=bool(evidence.get("workflowRunId")),
+                ) + real_qa_command_errors(evidence)
+                patch_id = (payload.get("diffSummary") or {}).get("patchArtifactId")
+                if not patch_id or patch_id not in (evidence.get("hashes") or {}):
+                    errors.append("Patch approval requires its hashed diff artifact.")
+                if errors:
+                    raise ValueError("Patch acceptance evidence is invalid: " + " ".join(errors))
+            now = utc_now()
+            status = "completed" if accepted else "cancelled"
+            decision = "approved" if accepted else "denied"
+            self.connection.execute(
+                "UPDATE action_requests SET status=?,reason=?,decided_at=?,decided_by=? WHERE id=?",
+                (decision, reason, now, actor, action_id),
+            )
+            approval = {
+                "actionRequestId": action_id,
+                "actor": actor,
+                "reason": reason,
+                "decidedAt": now,
+                "status": decision,
+            }
+            agents.update_agent_run_status(
+                run["id"],
+                status=status,
+                output_payload={**run["output"], "verdict": status, "approval": approval},
+            )
+            evidence_repo.update_evidence_links(
+                evidence["id"],
+                qa_verdict="passed" if accepted else None,
+                evidence_source="verified_completion" if accepted else None,
+                approvals=[*(evidence.get("approvals") or []), self.get_action_request(action_id)],
+            )
+            self.update_job_status(job_id, status=status, metadata={"status": status, "approval": approval})
+            self.record_event(
+                project_id=job["projectId"], job_id=job_id, event_type=f"action.{decision}", payload=approval
+            )
+            audit = self.record_audit(
+                project_id=job["projectId"],
+                action="action.approve" if accepted else "action.deny",
+                actor=actor,
+                target=action_id,
+                payload={
+                    "jobId": job_id,
+                    "reason": reason,
+                    "effect": "decide_existing_patch_without_reexecution",
+                },
+            )
+            return {
+                "job": self.get_job(job_id),
+                "actionRequest": self.get_action_request(action_id),
+                "auditEvent": audit,
+            }
+
     def deny_action(
         self,
         job_id: str,
@@ -542,6 +650,10 @@ class JobsRepository:
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Rejection reason is required.")
+        if action["actionType"] == "agent.developer.approve_patch":
+            return self._decide_developer_patch(
+                job_id, action_id, reason=clean_reason, actor=actor, accepted=False
+            )
         timestamp = utc_now()
         self.connection.execute(
             """

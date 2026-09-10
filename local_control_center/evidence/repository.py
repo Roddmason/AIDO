@@ -266,6 +266,7 @@ class EvidenceRepository:
         artifacts: list[dict[str, Any]] | None = None,
         hashes: dict[str, str] | None = None,
         qa_verdict: str | None = None,
+        evidence_source: str | None = None,
         risk_notes: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Aplica un UPDATE parcial sobre un paquete: los argumentos None conservan el valor actual.
@@ -289,13 +290,14 @@ class EvidenceRepository:
         next_artifacts = artifacts if artifacts is not None else current.get("artifacts", [])
         next_hashes = hashes if hashes is not None else current.get("hashes", {})
         next_qa_verdict = qa_verdict if qa_verdict is not None else current.get("qaVerdict", "not_started")
+        next_evidence_source = evidence_source if evidence_source is not None else current["evidenceSource"]
         next_risk_notes = risk_notes if risk_notes is not None else current.get("riskNotes", [])
         self.connection.execute(
             """
             UPDATE evidence_packages
             SET agent_run_id = ?, artifact_ids = ?, diff_summary = ?, runtime_health = ?,
                 model_calls = ?, tool_calls = ?, policy_decisions = ?, approvals = ?,
-                artifact_refs = ?, hashes = ?, qa_verdict = ?, risk_notes = ?
+                artifact_refs = ?, hashes = ?, qa_verdict = ?, risk_notes = ?, evidence_source = ?
             WHERE id = ?
             """,
             (
@@ -317,6 +319,7 @@ class EvidenceRepository:
                 ),
                 next_qa_verdict,
                 json_dumps(redact_secrets(next_risk_notes or [])),
+                next_evidence_source,
                 evidence_id,
             ),
         )

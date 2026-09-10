@@ -10,7 +10,118 @@ import pytest
 
 from local_control_center.agents.developer_agent import DeveloperAgentRunner
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
+from tests_py import test_developer_agent_real_runtime as developer_fixtures
 from tests_py.control_plane_fixture import ControlPlaneFixture
+
+create_developer_client = developer_fixtures.create_client
+
+
+@pytest.mark.usefixtures("controlled_domain_host")
+@pytest.mark.parametrize(
+    "mode", ["accept", "missing_patch", "failed_qa", "wrong_scope", "audit_failure", "deny"]
+)
+def test_patch_acceptance_completes_existing_run_without_requeue_or_new_runtime(
+    create_developer_client, tmp_path, monkeypatch, mode
+):
+    import sys
+
+    store, client, headers = create_developer_client(tmp_path, monkeypatch)
+    project = developer_fixtures.create_git_project(store, tmp_path, name="Patch Acceptance")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="acceptance",
+        agent_id="developer_agent",
+        reason="test",
+        isolation_type="git_worktree",
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: developer_fixtures.controlled_developer_runtime_status(),
+    )
+    run = client.post(
+        "/api/v1/agents/developer/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": workspace["id"],
+            "taskId": "acceptance",
+            "instruction": "Synthetic fixture only",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": True,
+        },
+    ).json()
+    assert run["status"] == "evidence_ready"
+    action = next(
+        a
+        for a in store.jobs.list_action_requests(run["job"]["id"])
+        if a["actionType"] == "agent.developer.approve_patch"
+    )
+    count = len(store.agents.list_agent_tool_calls())
+    evidence_id = run["evidencePackage"]["id"]
+    if mode == "missing_patch":
+        store.evidence.update_evidence_links(evidence_id, hashes={})
+    elif mode == "failed_qa":
+        results = run["evidencePackage"]["testResults"]
+        results[0]["exitCode"] = 1
+        store.connection.execute(
+            "UPDATE evidence_packages SET test_results=? WHERE id=?", (json.dumps(results), evidence_id)
+        )
+    elif mode == "wrong_scope":
+        store.connection.execute("UPDATE evidence_packages SET workspace_id=NULL WHERE id=?", (evidence_id,))
+    elif mode == "audit_failure":
+
+        def fail_audit(*_args, **_kwargs):
+            raise RuntimeError("injected durable audit failure")
+
+        monkeypatch.setattr(
+            "local_control_center.jobs_approvals.repository.JobsRepository.record_audit", fail_audit
+        )
+        with pytest.raises(RuntimeError, match="injected durable audit failure"):
+            store.jobs.approve_action(run["job"]["id"], action["id"], reason="Fixture acceptance")
+        assert store.jobs.get_action_request(action["id"])["status"] == "pending"
+        assert store.jobs.get_job(run["job"]["id"])["status"] == "approval_required"
+        assert store.agents.get_agent_run(run["agentRun"]["id"])["status"] == "awaiting_permission"
+        assert store.evidence.get_evidence_package(evidence_id)["qaVerdict"] == "needs_human_review"
+        return
+    if mode == "deny":
+        rejected = client.post(
+            f"/api/v1/jobs/{run['job']['id']}/actions/{action['id']}/deny",
+            headers=headers,
+            json={"reason": "Fixture patch rejected"},
+        )
+        assert rejected.status_code == 202
+        assert rejected.json()["job"]["status"] == "cancelled"
+        assert store.agents.get_agent_run(run["agentRun"]["id"])["status"] == "cancelled"
+        assert len(store.agents.list_agent_tool_calls()) == count
+        return
+    response = client.post(
+        f"/api/v1/jobs/{run['job']['id']}/actions/{action['id']}/approve",
+        headers=headers,
+        json={"reason": "Accept inspected fixture patch and real QA"},
+    )
+    if mode != "accept":
+        assert response.status_code == 409
+        assert store.jobs.get_action_request(action["id"])["status"] == "pending"
+        assert store.jobs.get_job(run["job"]["id"])["status"] == "approval_required"
+        assert len(store.agents.list_agent_tool_calls()) == count
+        return
+    assert response.status_code == 202
+    assert response.json()["job"]["status"] == "completed"
+    assert store.agents.get_agent_run(run["agentRun"]["id"])["status"] == "completed"
+    assert len(store.agents.list_agent_tool_calls()) == count
+    assert not store.jobs._pending_actions(run["job"]["id"])
+    from local_control_center.evidence.quality import evidence_has_real_qa_pass
+
+    assert evidence_has_real_qa_pass(store.evidence.get_evidence_package(evidence_id))
+    assert response.json()["permissionGrant"] is None  # accepting output grants no future execution
+    duplicate = client.post(
+        f"/api/v1/jobs/{run['job']['id']}/actions/{action['id']}/approve",
+        headers=headers,
+        json={"reason": "Duplicate fixture acceptance"},
+    )
+    assert duplicate.status_code == 409
+    assert store.jobs.get_job(run["job"]["id"])["status"] == "completed"
 
 
 class CapturedCliTransport:

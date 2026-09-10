@@ -1128,6 +1128,7 @@ def _authorize_streaming_execution(
         project_id=project_id,
         agent_run_id=agent_run_id,
         agent_profile=profile,
+        trusted_operation="cli_session_stream",
         tool_call={
             "tool": "shell",
             "command": " ".join(argv),

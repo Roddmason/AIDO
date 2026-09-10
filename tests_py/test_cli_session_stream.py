@@ -264,6 +264,60 @@ def _row(connection, session_id: str):
     return connection.execute("SELECT * FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "untrusted",
+        "forged_payload",
+        "executes",
+        "wrong_capability",
+        "plan",
+        "other_role",
+        "environment",
+    ],
+)
+def test_streaming_authority_is_separate_from_native_developer_transport(tmp_path, change):
+    from local_control_center.agents.tool_broker import _developer_codex_boundary
+
+    profile = {"id": "developer_agent", "permissionProfile": "dev_safe", "allowCli": True}
+    call = {
+        "tool": "shell",
+        "runtimeId": "codex_cli",
+        "argv": ["codex", "exec"],
+        "authorizeOnly": True,
+        "capability": "cli_session_stream",
+    }
+    trusted = "cli_session_stream"
+    environment = None
+    if change in {"untrusted", "forged_payload"}:
+        trusted = None
+    if change == "forged_payload":
+        call["trustedOperation"] = "cli_session_stream"
+    if change == "executes":
+        call["authorizeOnly"] = False
+    if change == "wrong_capability":
+        call["capability"] = "developer_agent_runtime"
+    if change == "plan":
+        profile["permissionProfile"] = "plan"
+    if change == "other_role":
+        profile["id"] = "product_owner_agent"
+    if change == "environment":
+        environment = {"CODEX_HOME": str(tmp_path)}
+    decision = _developer_codex_boundary(
+        operation="developer_agent_runtime",
+        trusted_operation=trusted,
+        profile=profile,
+        tool_call=call,
+        workspace_path=str(tmp_path),
+        environment=environment,
+    )
+    if change == "none":
+        assert decision is None
+    else:
+        assert decision["decision"] == "deny"
+
+
 def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path, session_completion) -> None:
     connection = _connection(tmp_path)
     try:

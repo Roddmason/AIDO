@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 from urllib.error import HTTPError
 
 import pytest
@@ -12,6 +13,10 @@ from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_adapters import ProviderFactoryAdapter
+from local_control_center.agents.runtime_registry import (
+    build_developer_agent_argv,
+    isolated_product_owner_codex_environment,
+)
 from local_control_center.agents.tool_broker import ToolBroker
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -170,6 +175,7 @@ def _failing_shell_run():
             stderr: str,
             tool_call: dict[str, Any],
             return_code: int = 1,
+            contract_case: str = "valid",
         ) -> tuple[ControlPlaneFixture, dict[str, Any]]:
             """Ejecuta una corrida real por el ToolBroker con el sandbox simulado y salida fallida.
 
@@ -208,15 +214,42 @@ def _failing_shell_run():
                 output_payload={},
                 status="running",
             )
-            monkeypatch.setattr(
-                "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
-                lambda *_args, **_kwargs: {
+            execute = Mock(
+                return_value={
                     "stdout": "",
                     "stderr": stderr,
                     "returnCode": return_code,
                     "blocked": False,
                 },
             )
+            monkeypatch.setattr(
+                "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", execute
+            )
+            transport = {}
+            if tool_call.get("operation") == "developer_agent_runtime":
+                monkeypatch.setenv("CODEX_HOME", str(tmp_path / "synthetic-source"))
+                monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "synthetic-local"))
+                monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+                environment = _owned_fixture_resources.enter_context(
+                    isolated_product_owner_codex_environment()
+                )
+                argv = build_developer_agent_argv(
+                    runtime={"id": "codex_cli", "detectedCommand": str(tmp_path / "codex-quota-fixture.exe")},
+                    workspace_id=workspace["id"],
+                    workspace_path=workspace["path"],
+                    instruction="Synthetic quota response only",
+                    qa_commands=[],
+                    agent_id=profile["id"],
+                    connection=None,
+                    model="fixture-model",
+                )
+                if contract_case == "incomplete":
+                    argv = argv[:4]
+                tool_call = {**tool_call, "argv": argv}
+                transport = {
+                    "trusted_operation": None if contract_case == "untrusted" else "developer_agent_runtime",
+                    "trusted_subprocess_environment": environment,
+                }
             result = ToolBroker(store.connection).evaluate_tool_call(
                 project_id=project["id"],
                 agent_run_id=agent_run["id"],
@@ -228,7 +261,9 @@ def _failing_shell_run():
                     "execute": True,
                     **tool_call,
                 },
+                **transport,
             )
+            assert execute.call_count == (1 if contract_case == "valid" else 0)
             return store, result
 
         yield create_owned
@@ -240,16 +275,16 @@ def _run_developer_cli(
     monkeypatch: pytest.MonkeyPatch,
     *,
     stderr: str,
+    contract_case: str = "valid",
 ) -> tuple[ControlPlaneFixture, dict[str, Any]]:
     """Corre el runtime CLI del DeveloperAgent (la ruta real del loop) hasta fallar."""
     return _failing_shell_run(
         tmp_path,
         monkeypatch,
         stderr=stderr,
+        contract_case=contract_case,
         tool_call={
             "tool": "shell",
-            "command": "codex --ask-for-approval never exec",
-            "argv": ["codex", "--ask-for-approval", "never", "exec"],
             "operation": "developer_agent_runtime",
             "runtimeId": "codex_cli",
             "capability": "code_edit",
@@ -291,6 +326,22 @@ def test_an_ordinary_cli_failure_keeps_the_provider_selectable(
     )
 
     assert result["toolCall"]["status"] == "failed"
+    assert QuotaManager(store.connection).providers_in_cooldown() == set()
+
+
+@pytest.mark.parametrize("contract_case", ["incomplete", "untrusted"])
+def test_denied_developer_transport_does_not_execute_or_change_quota(
+    _failing_shell_run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contract_case: str
+) -> None:
+    store, result = _run_developer_cli(
+        _failing_shell_run,
+        tmp_path,
+        monkeypatch,
+        stderr="You've hit your usage limit. Try again later.",
+        contract_case=contract_case,
+    )
+
+    assert result["toolCall"]["status"] == "denied"
     assert QuotaManager(store.connection).providers_in_cooldown() == set()
 
 

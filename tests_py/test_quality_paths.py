@@ -3,14 +3,77 @@
 @author Rodrigo Mason
 """
 
+import hashlib
 import json
 import os
+import sqlite3
 import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from local_control_center.quality.__main__ import _write_report
+
+
+@pytest.mark.parametrize("source", ["omitted", "conflicting", "inherited"])
+def test_explicit_runner_database_reaches_child_and_grandchild(tmp_path, monkeypatch, source):
+    from local_control_center.quality.__main__ import _run
+    from local_control_center.quality.plans import QualityStep
+
+    home = tmp_path / "señuelo home"
+    decoy = home / ".claude" / "local-control-center" / "platform.sqlite"
+    decoy.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(decoy)) as connection:
+        connection.execute("CREATE TABLE preserved (value TEXT)")
+        connection.execute("INSERT INTO preserved VALUES ('unchanged')")
+        connection.commit()
+    before = hashlib.sha256(decoy.read_bytes()).hexdigest()
+    database = tmp_path / "explicit-quality.sqlite"
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(decoy))
+    environment = dict(os.environ)
+    if source == "omitted":
+        environment.pop("LOCAL_CONTROL_CENTER_DB")
+    parent_environment = dict(os.environ)
+    program = tmp_path / "database_scope.py"
+    program.write_text(
+        "import json, os, sqlite3, subprocess, sys\n"
+        "from contextlib import closing\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
+        "from local_control_center.shared.settings import default_db_path\n"
+        "database = default_db_path().resolve()\n"
+        "with closing(sqlite3.connect(database)) as connection:\n"
+        "    connection.execute('CREATE TABLE IF NOT EXISTS scope_probe (role TEXT)')\n"
+        "    connection.execute('INSERT INTO scope_probe VALUES (?)', (sys.argv[1],))\n"
+        "    connection.commit()\n"
+        "print(json.dumps({'role': sys.argv[1], 'database': str(database), 'pid': os.getpid(),\n"
+        "                  'qualityDatabase': os.environ.get('AIDO_QUALITY_DB_PATH')}), flush=True)\n"
+        "if sys.argv[1] == 'child':\n"
+        "    raise SystemExit(subprocess.run([sys.executable, __file__, 'grandchild'], timeout=20).returncode)\n",
+        encoding="utf-8",
+    )
+    result = _run(
+        QualityStep("database-scope", (sys.executable, str(program), "child"), "qa_light", 30),
+        root=tmp_path,
+        db_path=database,
+        environment=None if source == "inherited" else environment,
+        display_output=False,
+    )
+    assert result["returnCode"] == 0, result
+    records = [json.loads(line) for line in result["stdout"].splitlines()]
+    assert [row["role"] for row in records] == ["child", "grandchild"], records
+    assert all(Path(row["database"]) == database.resolve() for row in records), records
+    assert all(Path(row["qualityDatabase"]) == database.resolve() for row in records), records
+    assert hashlib.sha256(decoy.read_bytes()).hexdigest() == before
+    assert dict(os.environ) == parent_environment
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT role FROM scope_probe ORDER BY rowid").fetchall() == [
+            ("child",),
+            ("grandchild",),
+        ]
 
 
 @pytest.mark.parametrize(

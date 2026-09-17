@@ -14,6 +14,7 @@ from typing import Any
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.time import add_millis
 
+from .briefing import DEFAULT_BRIEFING_BUDGET_CHARS, MemoryBriefingService
 from .conflicts import DEFAULT_MAD_MULTIPLIER, MemoryConflictDetector
 from .index import RetrievalIndex
 from .models import MEMORY_FORGET_JOB_KIND
@@ -90,6 +91,17 @@ def detect_memory_conflicts(detector: MemoryConflictDetector, body: dict[str, An
 def list_memory_conflicts(memory: MemoryRepository, project_id: str | None = None) -> dict[str, Any]:
     """Devuelve los conflictos registrados del proyecto bajo la clave de contrato."""
     return {"conflicts": memory.list_memory_conflicts(project_id=project_id)}
+
+
+def build_memory_briefing(briefing: MemoryBriefingService, body: dict[str, Any]) -> dict[str, Any]:
+    """Ensambla el bloque de contexto del scope pedido con el presupuesto del contrato."""
+    return briefing.build(
+        project_id=body["projectId"],
+        scope=body.get("scope") or "project",
+        scope_id=body.get("scopeId"),
+        query=body.get("query", ""),
+        budget_chars=int(body.get("budgetChars") or DEFAULT_BRIEFING_BUDGET_CHARS),
+    )
 
 
 def retrieval_status(index: RetrievalIndex, project_id: str | None = None) -> dict[str, Any]:

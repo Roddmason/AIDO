@@ -88,7 +88,7 @@ class MemoryConflictDetector:
         ``threshold`` explícito sobreescribe el umbral derivado del corpus; ``multiplier`` ajusta
         cuán lejos de la mediana debe estar un par para considerarse outlier.
         """
-        rows = self.memory.list_conflict_candidates(project_id)
+        rows = self.memory.list_embedded_memory_items(project_id)
         vectors = self._vectors(rows)
         if isinstance(vectors, dict):
             return vectors

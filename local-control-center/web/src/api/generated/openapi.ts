@@ -183,6 +183,9 @@ export type LowLevelEvents = { "modelCalls"?: Array<ModelCallSummary>; "toolCall
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
 export type McpServerResponse = { "mcpServer": McpServerRecord };
+export type MemoryBriefingEntryRecord = { "content": string; "cosine": number; "createdAt": string; "id": string; "kind": string; "scope": string; "scopeId": string };
+export type MemoryBriefingRequest = { "budgetChars"?: number; "projectId": string; "query"?: string; "scope"?: string; "scopeId"?: null | string };
+export type MemoryBriefingResponse = { "budgetChars": number; "context": string; "entries": Array<MemoryBriefingEntryRecord>; "includedCount": number; "omittedCount": number; "reason": string; "status": string; "usedChars": number };
 export type MemoryConflictDetectRequest = { "multiplier"?: number; "projectId": string; "threshold"?: null | number };
 export type MemoryConflictDetectResponse = { "comparedPairs": number; "conflicts": Array<MemoryConflictRecord>; "detector": string; "reason": string; "status": string; "threshold": number; "thresholdSource": string };
 export type MemoryConflictListResponse = { "conflicts": Array<MemoryConflictRecord> };
@@ -638,6 +641,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	{"method": "POST", "operationId": "memory_briefing_api_v1_memory_briefing_post", "path": "/api/v1/memory/briefing", "summary": "Memory Briefing"},
 	{"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
 	{"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
 	{"method": "POST", "operationId": "forget_expired_memory_api_v1_memory_forget_post", "path": "/api/v1/memory/forget", "summary": "Forget Expired Memory"},
@@ -1001,6 +1005,7 @@ export type OperationRequestBodies = {
 	"list_workspaces_api_v1_workspaces_get": never,
 	"local_preflight_api_v1_nvidia_nim_preflight_get": never,
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": ThreadSimilarityMarkRequest,
+	"memory_briefing_api_v1_memory_briefing_post": MemoryBriefingRequest,
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrateRequest | null,
 	"open_design_api_v1_open_design_get": never,
 	"overview_api_v1_model_gateway_overview_get": never,
@@ -1267,6 +1272,7 @@ export type OperationResponseBodies = {
 	"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse,
 	"local_preflight_api_v1_nvidia_nim_preflight_get": NvidiaNimPreflightResponse,
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": ThreadSimilarityMarkResponse,
+	"memory_briefing_api_v1_memory_briefing_post": MemoryBriefingResponse,
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
 	"open_design_api_v1_open_design_get": OpenDesignResponse,
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
@@ -1537,6 +1543,7 @@ export type OperationResultBodies = {
 	"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse,
 	"local_preflight_api_v1_nvidia_nim_preflight_get": NvidiaNimPreflightResponse,
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": ThreadSimilarityMarkResponse,
+	"memory_briefing_api_v1_memory_briefing_post": MemoryBriefingResponse,
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
 	"open_design_api_v1_open_design_get": OpenDesignResponse,
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
@@ -1716,6 +1723,7 @@ export const OPERATIONS_BY_ID = {
 	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	"memory_briefing_api_v1_memory_briefing_post": {"method": "POST", "operationId": "memory_briefing_api_v1_memory_briefing_post", "path": "/api/v1/memory/briefing", "summary": "Memory Briefing"},
 	"list_memory_conflicts_api_v1_memory_conflicts_get": {"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
 	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": {"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
 	"forget_expired_memory_api_v1_memory_forget_post": {"method": "POST", "operationId": "forget_expired_memory_api_v1_memory_forget_post", "path": "/api/v1/memory/forget", "summary": "Forget Expired Memory"},

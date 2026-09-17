@@ -315,17 +315,18 @@ class MemoryRepository:
         )
         return [row_to_embedding(row) for row in rows]
 
-    def list_conflict_candidates(self, project_id: str) -> list[dict[str, Any]]:
-        """Devuelve items vivos con embedding indexable más los campos que agrupan un conflicto.
+    def list_embedded_memory_items(self, project_id: str) -> list[dict[str, Any]]:
+        """Devuelve items vivos con embedding indexable, con su contenido y su clave de agrupación.
 
-        ``list_indexable_embeddings`` no proyecta scope, scope_id, kind ni hash, que son
-        justamente la clave de agrupación y el criterio de "contenido distinto" del detector de
-        contradicciones. El orden es determinista por ``created_at`` e ``id`` para que dos
-        corridas enumeren los mismos pares en la misma secuencia.
+        ``list_indexable_embeddings`` no proyecta scope, scope_id, kind, hash ni content: sirve
+        para reconstruir el índice, no para razonar sobre los items. El detector de conflictos
+        necesita la clave de agrupación y el hash, y el briefing necesita además el contenido.
+        El orden es determinista por ``created_at`` e ``id`` para que dos corridas enumeren lo
+        mismo en la misma secuencia; ``created_at`` tiene resolución de milisegundos y empata.
         """
         rows = self._query(
             """
-            SELECT m.id, m.scope, m.scope_id, m.kind, m.hash, m.created_at,
+            SELECT m.id, m.scope, m.scope_id, m.kind, m.hash, m.content, m.created_at,
                    e.provider, e.model, e.dimensions, e.embedding_json
             FROM memory_embeddings e
             JOIN memory_items m ON m.id = e.memory_item_id
@@ -345,6 +346,7 @@ class MemoryRepository:
                 "scopeId": row["scope_id"],
                 "kind": row["kind"],
                 "hash": row["hash"],
+                "content": row["content"],
                 "createdAt": row["created_at"],
                 "provider": row["provider"],
                 "model": row["model"],

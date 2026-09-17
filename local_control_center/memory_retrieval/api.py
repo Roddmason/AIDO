@@ -21,9 +21,12 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
 
 from . import commands
+from .briefing import MemoryBriefingService
 from .conflicts import MemoryConflictDetector
 from .index import RetrievalIndex
 from .models import (
+    MemoryBriefingRequest,
+    MemoryBriefingResponse,
     MemoryConflictDetectRequest,
     MemoryConflictDetectResponse,
     MemoryConflictListResponse,
@@ -99,6 +102,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             JobsRepository(platform.connection), body.model_dump(by_alias=True)
         )
         return MemoryForgetResponse(job=payload["job"])
+
+    @router.post("/api/v1/memory/briefing", response_model=MemoryBriefingResponse)
+    async def memory_briefing(body: MemoryBriefingRequest) -> dict[str, Any]:
+        return commands.build_memory_briefing(
+            MemoryBriefingService(memory_repository(), retrieval_index()),
+            body.model_dump(by_alias=True),
+        )
 
     @router.post("/api/v1/memory/conflicts/detect", response_model=MemoryConflictDetectResponse)
     async def detect_memory_conflicts(

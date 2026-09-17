@@ -471,13 +471,7 @@ def _cli_provider_status(
     elif not account_enabled:
         reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
     elif not authenticated:
-        native_probe_message = str(
-            ((runtime_account or {}).get("metadata") or {}).get("lastNativeAuthProbe") or ""
-        ).strip()
-        reason = (
-            native_probe_message
-            or "CLI runtime version check passed but native CLI authentication has not been validated."
-        )
+        reason = _unauthenticated_cli_reason(runtime_account)
     elif not policy_allowed:
         reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
     elif not has_prompt_capability:
@@ -650,6 +644,27 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
         capabilities=capabilities or ["approval"],
         required_configuration=["operator"],
         requires_approval=True,
+    )
+
+
+def _unauthenticated_cli_reason(runtime_account: dict[str, Any] | None) -> str:
+    """Explica por qué la auth nativa no cuenta, sin contradecirse con un sondeo exitoso vencido.
+
+    Una validación que fue exitosa y venció NO es evidencia de que falte login: repetir su mensaje
+    ("la sesión está iniciada") como causa del bloqueo deja al operador sin saber qué hacer, porque
+    la acción correcta es revalidar, no pedir credenciales nuevas. Cuando el último sondeo sí dijo
+    que no hay sesión, ese mensaje sigue siendo la explicación correcta y se conserva.
+    """
+    account = runtime_account or {}
+    if account.get("healthStatus") == "healthy" and account.get("lastValidationAt"):
+        return (
+            "Native CLI authentication was validated earlier and that validation expired; the "
+            "runtime needs to be revalidated, not re-authenticated."
+        )
+    probe_message = str((account.get("metadata") or {}).get("lastNativeAuthProbe") or "").strip()
+    return (
+        probe_message
+        or "CLI runtime version check passed but native CLI authentication has not been validated."
     )
 
 

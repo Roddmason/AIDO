@@ -183,6 +183,10 @@ export type LowLevelEvents = { "modelCalls"?: Array<ModelCallSummary>; "toolCall
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
 export type McpServerResponse = { "mcpServer": McpServerRecord };
+export type MemoryConflictDetectRequest = { "multiplier"?: number; "projectId": string; "threshold"?: null | number };
+export type MemoryConflictDetectResponse = { "comparedPairs": number; "conflicts": Array<MemoryConflictRecord>; "detector": string; "reason": string; "status": string; "threshold": number; "thresholdSource": string };
+export type MemoryConflictListResponse = { "conflicts": Array<MemoryConflictRecord> };
+export type MemoryConflictRecord = { "detectedAt": string; "detector": string; "id": string; "kind": string; "leftMemoryItemId": string; "projectId": string; "rightMemoryItemId": string; "scope": string; "scopeId": string; "score": number; "status": string; "threshold": number; "updatedAt": string };
 export type MemoryCreateRequest = { "content": string; "expiresAt"?: null | string; "kind"?: "note" | "lesson"; "metadata"?: JsonObject; "projectId": string; "scope"?: string; "scopeId"?: null | string; "sourceRef"?: string; "ttlSeconds"?: null | number };
 export type MemoryDeleteRequest = { "reason"?: string };
 export type MemoryItemRecord = { "content": string; "createdAt": string; "createdByRunId"?: null | string; "deletedAt"?: null | string; "expiresAt"?: null | string; "hash": string; "id": string; "kind": "note" | "lesson"; "metadata": JsonObject; "projectId": string; "scope": string; "scopeId"?: null | string; "sourceRef": string; "supersedesId"?: null | string; "updatedAt": string; "validFrom": string; "version": number };
@@ -631,6 +635,8 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	{"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
+	{"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
 	{"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	{"method": "POST", "operationId": "execute_ai_execution_api_v1_model_gateway_ai_executions_post", "path": "/api/v1/model-gateway/ai-executions", "summary": "Execute Ai Execution"},
 	{"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
@@ -893,6 +899,7 @@ export type OperationRequestBodies = {
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteRequest | null,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": ApprovalReasonRequest,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": unknown,
+	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": MemoryConflictDetectRequest,
 	"developer_agent_status_api_v1_agents_developer_status_get": never,
 	"devops_agent_status_api_v1_agents_devops_status_get": never,
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": unknown,
@@ -963,6 +970,7 @@ export type OperationRequestBodies = {
 	"list_integrations_api_v1_integrations_get": never,
 	"list_jobs_api_v1_jobs_get": never,
 	"list_memory_api_v1_memory_get": never,
+	"list_memory_conflicts_api_v1_memory_conflicts_get": never,
 	"list_models_api_v1_model_gateway_models_get": never,
 	"list_next_steps_api_v1_next_steps_get": never,
 	"list_pipelines_api_v1_legacy_pipelines_get": never,
@@ -1156,6 +1164,7 @@ export type OperationResponseBodies = {
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": ExecutionAccepted,
+	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": MemoryConflictDetectResponse,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
 	"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse,
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
@@ -1226,6 +1235,7 @@ export type OperationResponseBodies = {
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
 	"list_jobs_api_v1_jobs_get": JobsListResponse,
 	"list_memory_api_v1_memory_get": MemoryListResponse,
+	"list_memory_conflicts_api_v1_memory_conflicts_get": MemoryConflictListResponse,
 	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
 	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
 	"list_pipelines_api_v1_legacy_pipelines_get": PipelinesListResponse,
@@ -1423,6 +1433,7 @@ export type OperationResultBodies = {
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
 	"deny_action_api_v1_jobs__job_id__actions__action_id__deny_post": JobMutationResponse,
 	"detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": RuntimeDetectionResponse,
+	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": MemoryConflictDetectResponse,
 	"developer_agent_status_api_v1_agents_developer_status_get": DeveloperAgentStatusResponse,
 	"devops_agent_status_api_v1_agents_devops_status_get": DevOpsAgentStatusResponse,
 	"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse,
@@ -1493,6 +1504,7 @@ export type OperationResultBodies = {
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
 	"list_jobs_api_v1_jobs_get": JobsListResponse,
 	"list_memory_api_v1_memory_get": MemoryListResponse,
+	"list_memory_conflicts_api_v1_memory_conflicts_get": MemoryConflictListResponse,
 	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
 	"list_next_steps_api_v1_next_steps_get": NextStepsListResponse,
 	"list_pipelines_api_v1_legacy_pipelines_get": PipelinesListResponse,
@@ -1697,6 +1709,8 @@ export const OPERATIONS_BY_ID = {
 	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
+	"list_memory_conflicts_api_v1_memory_conflicts_get": {"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
+	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": {"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
 	"delete_memory_api_v1_memory__memory_id__delete": {"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": {"method": "POST", "operationId": "execute_ai_execution_api_v1_model_gateway_ai_executions_post", "path": "/api/v1/model-gateway/ai-executions", "summary": "Execute Ai Execution"},
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": {"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},

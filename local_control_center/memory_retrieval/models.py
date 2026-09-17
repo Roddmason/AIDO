@@ -79,6 +79,50 @@ class MemoryListResponse(BaseModel):
     memory_items: list[MemoryItemRecord] = Field(alias="memoryItems")
 
 
+class MemoryConflictRecord(BaseModel):
+    """Un conflicto detectado entre dos memorias del mismo scope, con su puntaje y umbral vigente."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    left_memory_item_id: str = Field(alias="leftMemoryItemId")
+    right_memory_item_id: str = Field(alias="rightMemoryItemId")
+    scope: str
+    scope_id: str = Field(alias="scopeId")
+    kind: str
+    score: float
+    threshold: float
+    detector: str
+    status: str
+    detected_at: str = Field(alias="detectedAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class MemoryConflictDetectRequest(BaseModel):
+    """Petición de detección; el umbral explícito sobreescribe el derivado del corpus."""
+
+    project_id: str = Field(alias="projectId")
+    multiplier: float = Field(default=5.0, gt=0.0)
+    threshold: float | None = Field(default=None, ge=-1.0, le=1.0)
+
+
+class MemoryConflictDetectResponse(BaseModel):
+    """Resultado de la detección: status/reason explican por qué viene vacía si lo está."""
+
+    status: str
+    reason: str
+    detector: str
+    threshold: float
+    threshold_source: str = Field(alias="thresholdSource")
+    compared_pairs: int = Field(alias="comparedPairs")
+    conflicts: list[MemoryConflictRecord]
+
+
+class MemoryConflictListResponse(BaseModel):
+    """Listado de conflictos registrados para un proyecto."""
+
+    conflicts: list[MemoryConflictRecord]
+
+
 class RetrievalSearchRequest(BaseModel):
     """Consulta de búsqueda semántica acotada a un proyecto, con tope de resultados."""
 

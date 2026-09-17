@@ -9,9 +9,20 @@ Aíslan las claves del transporte de los nombres internos snake_case.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+MemoryKind = Literal["note", "lesson"]
+"""Conjunto cerrado de clases de memoria.
+
+``note`` es el default y la única clase que escribe hoy la API; ``lesson`` es la que consume el
+panel de memoria de threads (``threads/memory_recall.py``). La migración de la fase 68 normaliza a
+``note`` cualquier valor fuera del conjunto, conservando el original en ``metadata.legacyKind``.
+Ver ``docs/adr/ADR-002-memory-item-kind-taxonomy.md``.
+"""
+
+DEFAULT_MEMORY_KIND: MemoryKind = "note"
 
 
 class MemoryCreateRequest(BaseModel):
@@ -20,7 +31,7 @@ class MemoryCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     scope: str = "project"
     scope_id: str | None = Field(default=None, alias="scopeId")
-    kind: str = "note"
+    kind: MemoryKind = DEFAULT_MEMORY_KIND
     content: str
     source_ref: str = Field(default="api", alias="sourceRef")
     expires_at: str | None = Field(default=None, alias="expiresAt")
@@ -41,7 +52,7 @@ class MemoryItemRecord(BaseModel):
     project_id: str = Field(alias="projectId")
     scope: str
     scope_id: str | None = Field(default=None, alias="scopeId")
-    kind: str
+    kind: MemoryKind
     content: str
     source_ref: str = Field(alias="sourceRef")
     version: int

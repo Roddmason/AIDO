@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 67
+CURRENT_SCHEMA_VERSION = 68
 
 
 def _execute_atomic_statements(
@@ -126,6 +126,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase65_schema(connection)
     init_phase66_schema(connection)
     init_phase67_schema(connection)
+    init_phase68_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6333,6 +6334,37 @@ def init_phase67_schema(connection: sqlite3.Connection) -> None:
             connection.execute("INSERT INTO codex_smoke_receipts SELECT * FROM codex_smoke_receipts_legacy")
             connection.execute("DROP TABLE codex_smoke_receipts_legacy")
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (67, ?)", (utc_now(),))
+
+
+def init_phase68_schema(connection: sqlite3.Connection) -> None:
+    """Fase 68: cierra la taxonomía de ``memory_items.kind`` sin perder ninguna fila.
+
+    Normaliza a ``note`` cualquier kind fuera del conjunto declarado por el contrato y conserva el
+    valor original en ``metadata.legacyKind``, para que una fila escrita por una versión anterior
+    siga siendo legible a través del modelo de salida tipado. No borra filas ni agrega un CHECK:
+    SQLite no admite CHECK nuevo por ALTER TABLE y el único escritor ya valida en el borde.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 68").fetchone():
+        return
+    from typing import get_args
+
+    from local_control_center.memory_retrieval.models import DEFAULT_MEMORY_KIND, MemoryKind
+
+    allowed = set(get_args(MemoryKind))
+    with immediate_transaction(connection):
+        rows = connection.execute("SELECT id, kind, metadata FROM memory_items").fetchall()
+        for row in rows:
+            if row["kind"] in allowed:
+                continue
+            metadata = json_loads(row["metadata"], {})
+            if not isinstance(metadata, dict):
+                metadata = {"legacyMetadata": metadata}
+            metadata["legacyKind"] = row["kind"]
+            connection.execute(
+                "UPDATE memory_items SET kind = ?, metadata = ? WHERE id = ?",
+                (DEFAULT_MEMORY_KIND, json_dumps(metadata), row["id"]),
+            )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (68, ?)", (utc_now(),))
 
 
 def _legacy_thread_id(record_id: str) -> str:

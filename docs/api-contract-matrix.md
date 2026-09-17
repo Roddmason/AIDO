@@ -330,6 +330,12 @@ local token and a non-empty `reason`, and records event/audit entries.
 `POST /api/v1/retrieval/reindex` requires `projectId`; without persisted real
 embeddings it returns `configuration_required` with `indexed=0`.
 
+`MemoryItemRecord.kind` and `MemoryCreateRequest.kind` are the closed union
+`"note" | "lesson"`; any other value fails with 422. Rows written before the
+taxonomy was closed are normalized to `note` by schema phase 68, which keeps the
+original value under `metadata.legacyKind`. See
+[ADR-002](adr/ADR-002-memory-item-kind-taxonomy.md).
+
 | Method | Path | Summary |
 | --- | --- | --- |
 | `GET` | `/api/v1/memory` | List Memory |

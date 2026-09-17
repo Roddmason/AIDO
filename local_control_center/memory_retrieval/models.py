@@ -104,6 +104,41 @@ class MemoryForgetResponse(BaseModel):
     job: MemoryForgetJobRecord
 
 
+class MemoryBriefingRequest(BaseModel):
+    """Consulta del briefing: proyecto, scope y texto, con presupuesto explícito de caracteres."""
+
+    project_id: str = Field(alias="projectId")
+    scope: str = "project"
+    scope_id: str | None = Field(default=None, alias="scopeId")
+    query: str = ""
+    budget_chars: int = Field(default=4000, alias="budgetChars", ge=0, le=40000)
+
+
+class MemoryBriefingEntryRecord(BaseModel):
+    """Una entrada incluida en el briefing, con su similitud y su contenido ya redactado."""
+
+    id: str
+    kind: str
+    scope: str
+    scope_id: str = Field(alias="scopeId")
+    content: str
+    cosine: float
+    created_at: str = Field(alias="createdAt")
+
+
+class MemoryBriefingResponse(BaseModel):
+    """Bloque de contexto ensamblado; status/reason explican por qué viene vacío si lo está."""
+
+    status: str
+    reason: str
+    context: str
+    entries: list[MemoryBriefingEntryRecord]
+    budget_chars: int = Field(alias="budgetChars")
+    used_chars: int = Field(alias="usedChars")
+    included_count: int = Field(alias="includedCount")
+    omitted_count: int = Field(alias="omittedCount")
+
+
 class MemoryConflictRecord(BaseModel):
     """Un conflicto detectado entre dos memorias del mismo scope, con su puntaje y umbral vigente."""
 

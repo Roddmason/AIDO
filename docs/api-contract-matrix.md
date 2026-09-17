@@ -10,7 +10,7 @@ The matrix below is regenerated from the generated frontend client
 `pnpm run openapi:generate`
 (`local-control-center/scripts/generate_openapi_client.py`). Do not edit the
 route tables by hand: re-parse `API_ENDPOINTS` after backend changes. Current
-total: 263 operations (262 under `/api/v1` plus `GET /healthz`), counted from
+total: 264 operations (263 under `/api/v1` plus `GET /healthz`), counted from
 `API_ENDPOINTS` in the regenerated client. No test asserts this count, so it can
 drift silently between edits.
 
@@ -338,6 +338,15 @@ taxonomy was closed are normalized to `note` by schema phase 68, which keeps the
 original value under `metadata.legacyKind`. See
 [ADR-002](adr/ADR-002-memory-item-kind-taxonomy.md).
 
+`POST /api/v1/memory/briefing` assembles a bounded context block. It is a read,
+so it does not require write access. Ordering is `kind` rank (`lesson` before
+`note`), then cosine descending, then `createdAt` descending, then `id`
+descending as a total tiebreak. Items are included whole: the first one that
+does not fit stops assembly, so the result is monotone in the budget. Content is
+redacted before it is measured, and the budget counts code points of the
+redacted string. Without a real embedding provider it returns the degraded
+status instead of a partial briefing.
+
 `POST /api/v1/memory/forget` enqueues the `memory.forget.expired` job and
 returns 202; the worker performs the soft delete. Expiry is only honoured for
 `expires_at` in the canonical `...Z` form, because the comparison is
@@ -355,6 +364,7 @@ rewrites content or sets `supersedes_id`. Without real embeddings it returns
 | `GET` | `/api/v1/memory` | List Memory |
 | `POST` | `/api/v1/memory` | Create Memory |
 | `DELETE` | `/api/v1/memory/{memory_id}` | Delete Memory |
+| `POST` | `/api/v1/memory/briefing` | Memory Briefing |
 | `POST` | `/api/v1/memory/forget` | Forget Expired Memory |
 | `POST` | `/api/v1/memory/conflicts/detect` | Detect Memory Conflicts |
 | `GET` | `/api/v1/memory/conflicts` | List Memory Conflicts |

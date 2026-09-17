@@ -10,7 +10,9 @@ The matrix below is regenerated from the generated frontend client
 `pnpm run openapi:generate`
 (`local-control-center/scripts/generate_openapi_client.py`). Do not edit the
 route tables by hand: re-parse `API_ENDPOINTS` after backend changes. Current
-total: 238 operations (237 under `/api/v1` plus `GET /healthz`).
+total: 263 operations (262 under `/api/v1` plus `GET /healthz`), counted from
+`API_ENDPOINTS` in the regenerated client. No test asserts this count, so it can
+drift silently between edits.
 
 ## Strict Schemas
 
@@ -336,6 +338,12 @@ taxonomy was closed are normalized to `note` by schema phase 68, which keeps the
 original value under `metadata.legacyKind`. See
 [ADR-002](adr/ADR-002-memory-item-kind-taxonomy.md).
 
+`POST /api/v1/memory/forget` enqueues the `memory.forget.expired` job and
+returns 202; the worker performs the soft delete. Expiry is only honoured for
+`expires_at` in the canonical `...Z` form, because the comparison is
+lexicographic over text and an offset form would be judged wrong; non-canonical
+rows are reported as `skippedNonCanonicalExpiry` and left untouched.
+
 `POST /api/v1/memory/conflicts/detect` records contradictory pairs and never
 rewrites content or sets `supersedes_id`. Without real embeddings it returns
 `configuration_required`; with fewer than 15 comparable pairs,
@@ -347,6 +355,7 @@ rewrites content or sets `supersedes_id`. Without real embeddings it returns
 | `GET` | `/api/v1/memory` | List Memory |
 | `POST` | `/api/v1/memory` | Create Memory |
 | `DELETE` | `/api/v1/memory/{memory_id}` | Delete Memory |
+| `POST` | `/api/v1/memory/forget` | Forget Expired Memory |
 | `POST` | `/api/v1/memory/conflicts/detect` | Detect Memory Conflicts |
 | `GET` | `/api/v1/memory/conflicts` | List Memory Conflicts |
 | `GET` | `/api/v1/retrieval/status` | Retrieval Status |

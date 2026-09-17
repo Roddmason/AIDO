@@ -24,6 +24,9 @@ Ver ``docs/adr/ADR-002-memory-item-kind-taxonomy.md``.
 
 DEFAULT_MEMORY_KIND: MemoryKind = "note"
 
+MEMORY_FORGET_JOB_KIND = "memory.forget.expired"
+"""Job kind que aplica la política de olvido; lo despacha ``jobs_approvals/worker.py``."""
+
 
 class MemoryCreateRequest(BaseModel):
     """Datos para crear un memory item; admite TTL relativo o expiración absoluta."""
@@ -77,6 +80,28 @@ class MemoryListResponse(BaseModel):
     """Listado de memory items activos de un proyecto."""
 
     memory_items: list[MemoryItemRecord] = Field(alias="memoryItems")
+
+
+class MemoryForgetRequest(BaseModel):
+    """Petición para encolar la ejecución de la política de olvido de un proyecto."""
+
+    project_id: str = Field(alias="projectId")
+
+
+class MemoryForgetJobRecord(BaseModel):
+    """Identidad mínima del job encolado que ejecutará el olvido."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    kind: str
+    status: str
+    created_at: str = Field(alias="createdAt")
+
+
+class MemoryForgetResponse(BaseModel):
+    """Envoltura de respuesta con el job de olvido aceptado."""
+
+    job: MemoryForgetJobRecord
 
 
 class MemoryConflictRecord(BaseModel):

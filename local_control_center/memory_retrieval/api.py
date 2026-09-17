@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Query, Request
 
 from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
 
@@ -28,6 +29,8 @@ from .models import (
     MemoryConflictListResponse,
     MemoryCreateRequest,
     MemoryDeleteRequest,
+    MemoryForgetRequest,
+    MemoryForgetResponse,
     MemoryListResponse,
     MemoryResponse,
     RetrievalReindexRequest,
@@ -88,6 +91,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             body.model_dump(by_alias=True),
         )
         return MemoryResponse(memoryItem=payload["memoryItem"])
+
+    @router.post("/api/v1/memory/forget", status_code=202, response_model=MemoryForgetResponse)
+    async def forget_expired_memory(body: MemoryForgetRequest, request: Request) -> MemoryForgetResponse:
+        require_write(request)
+        payload = commands.enqueue_memory_forget(
+            JobsRepository(platform.connection), body.model_dump(by_alias=True)
+        )
+        return MemoryForgetResponse(job=payload["job"])
 
     @router.post("/api/v1/memory/conflicts/detect", response_model=MemoryConflictDetectResponse)
     async def detect_memory_conflicts(

@@ -26,6 +26,7 @@ from local_control_center.host_resources.models import (
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository, StaleWorkerFenceError
+from local_control_center.memory_retrieval.models import MEMORY_FORGET_JOB_KIND
 from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
 from local_control_center.process_supervision.repository import ManagedProcessRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
@@ -320,6 +321,9 @@ def _workload_class_for_job(job: dict[str, Any]) -> WorkloadClass:
     kind = str(job.get("kind") or "")
     if kind == "operation.execute":
         return job["payload"]["workloadClass"]
+    if kind == MEMORY_FORGET_JOB_KIND:
+        # Borrado lógico en SQLite más un rebuild de índice: no merece el perfil pesado por defecto.
+        return "control_plane"
     if kind == THREAD_RESEARCH_JOB_KIND or kind in {"prompt.optimize", "chat.route"}:
         return "remote_llm_light"
     if kind.startswith("pipeline."):
@@ -401,6 +405,21 @@ def execute_job(
             return _execute_thread_product_loop_job(job, connection=local_connection, worker_id=worker_id)
         finally:
             local_connection.close()
+    if kind == MEMORY_FORGET_JOB_KIND:
+        if connection is not None:
+            return _execute_memory_forget_job(job, connection=connection, db_path=db_path)
+        if db_path is None:
+            raise JobExecutionUnavailable(
+                status="configuration_required",
+                summary="Memory forget jobs require a SQLite connection or db_path.",
+                metadata={"kind": kind},
+            )
+        local_connection = open_sqlite_connection(db_path)
+        try:
+            initialize_platform_schema(local_connection)
+            return _execute_memory_forget_job(job, connection=local_connection, db_path=db_path)
+        finally:
+            local_connection.close()
     if kind in {
         "prompt.optimize",
         "chat.route",
@@ -419,6 +438,57 @@ def execute_job(
         summary=f"Unsupported job kind: {kind}.",
         metadata={"kind": kind},
     )
+
+
+def _execute_memory_forget_job(job: dict, *, connection: Any, db_path: str | Path | None) -> dict:
+    """Aplica la política de olvido: borra lógicamente los items vencidos y los saca del índice.
+
+    A diferencia de los otros executors, recibe ``db_path`` en vez de ``worker_id``: el índice
+    vectorial vive en ``db_path.parent / "faiss-index"`` (la misma ruta que arma el router en
+    ``memory_retrieval/api.py``) y sin ella el retrieval seguiría devolviendo lo ya olvidado.
+
+    La idempotencia sale del predicado, no de ``idempotency_key`` (que hoy no deduplica nada): la
+    selección excluye lo ya borrado, así que una segunda corrida no encuentra filas ni emite
+    eventos. El índice sólo se reconstruye si efectivamente se olvidó algo.
+    """
+    from local_control_center.memory_retrieval.index import RetrievalIndex
+    from local_control_center.memory_retrieval.repository import MemoryRepository
+    from local_control_center.shared.event_bus import EventBus
+
+    project_id = str(job["payload"].get("projectId") or job["projectId"] or "")
+    if not project_id:
+        raise JobExecutionUnavailable(
+            status="configuration_required",
+            summary="Memory forget jobs require a projectId.",
+            metadata={"kind": job["kind"]},
+        )
+    memory = MemoryRepository(connection)
+    events = EventBus(connection)
+    expired = memory.list_expired_memory_items(project_id)
+    skipped = memory.count_non_canonical_expiry(project_id)
+    for item in expired:
+        memory.delete_memory_item(item["id"], reason="expired_by_retention_policy")
+        events.record_event(
+            project_id=project_id,
+            event_type="memory.expired",
+            payload={"memoryItemId": item["id"], "expiresAt": item["expiresAt"]},
+        )
+    reindexed = False
+    if expired and db_path is not None:
+        RetrievalIndex(memory=memory, index_dir=Path(db_path).parent / "faiss-index").rebuild(
+            project_id=project_id
+        )
+        reindexed = True
+    return {
+        "summary": f"Forgot {len(expired)} expired memory items for project {project_id}.",
+        "metadata": {
+            "kind": job["kind"],
+            "projectId": project_id,
+            "forgotten": len(expired),
+            "skippedNonCanonicalExpiry": skipped,
+            "reindexed": reindexed,
+        },
+    }
 
 
 def _execute_thread_product_loop_job(

@@ -48,6 +48,9 @@ def test_external_worker_preserves_thread_runtime_preflight(monkeypatch, tmp_pat
         client.post("/api/v1/workers/run-once", headers=_headers(runtime))
         monkeypatch.setattr(worker, "_govern_resources_if_due", lambda: True)
         monkeypatch.setattr(worker, "_ensure_leadership_watcher", lambda: None)
+        # El gate bajo prueba es el de conversacion: el refresco de salud encolaria operaciones de
+        # reparacion, que ese mismo gate deja pasar a proposito, y ocultaria lo que se verifica aca.
+        monkeypatch.setattr(worker, "_refresh_runtime_health_if_due", lambda: None)
 
         def deny():
             calls.append("preflight")

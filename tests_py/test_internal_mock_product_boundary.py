@@ -85,7 +85,14 @@ def test_issue_to_patch_rejects_internal_mock_runtime(tmp_path: Path, mock_bound
 
     assert response.status_code == 422
     assert "not in the product catalog" in str(response.json()["detail"])
-    assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
+    # Acotado al proyecto de la peticion rechazada: es la propiedad que importa, y es mas precisa
+    # que el conteo global, que ademas cuenta el refresco de salud del arranque (project_id NULL).
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM operational_executions WHERE project_id = ?", (project["id"],)
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path, mock_boundary_client) -> None:
@@ -108,7 +115,14 @@ def test_issue_to_pr_rejects_internal_mock_runtime(tmp_path: Path, mock_boundary
 
     assert response.status_code == 422
     assert "not in the product catalog" in str(response.json()["detail"])
-    assert store.connection.execute("SELECT COUNT(*) FROM operational_executions").fetchone()[0] == 0
+    # Acotado al proyecto de la peticion rechazada: es la propiedad que importa, y es mas precisa
+    # que el conteo global, que ademas cuenta el refresco de salud del arranque (project_id NULL).
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM operational_executions WHERE project_id = ?", (project["id"],)
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_product_seeds_do_not_create_internal_mock_runtime_records(mock_boundary_client) -> None:

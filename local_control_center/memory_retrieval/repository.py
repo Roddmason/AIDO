@@ -19,6 +19,9 @@ from typing import Any
 from local_control_center.shared.serialization import json_dumps, json_loads, stable_hash
 from local_control_center.shared.time import utc_now
 
+CANONICAL_EXPIRY_PATTERN = "____-__-__T__:__:__.___Z"
+"""Forma canónica de ``shared.time.utc_now``: única comparable lexicográficamente sin ambigüedad."""
+
 
 def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
     """Proyecta una fila de memory_items al dict camelCase del contrato HTTP."""
@@ -219,6 +222,52 @@ class MemoryRepository:
             (timestamp, json_dumps(metadata), timestamp, memory_id),
         )
         return self.get_memory_item(memory_id, include_inactive=True)
+
+    def list_expired_memory_items(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los items vivos cuya expiración ya venció, en orden determinista.
+
+        Sólo considera ``expires_at`` en el formato canónico de ``shared.time`` (milisegundos y
+        sufijo ``Z``). Todas las comparaciones de tiempo del repositorio son lexicográficas sobre
+        texto, y un valor con offset (``...+00:00``, ``...-03:00``) se ordena mal contra la forma
+        ``Z``: para un filtro de lectura eso es cosmético, pero para un borrado sería pérdida de
+        datos. Lo no canónico se cuenta aparte con ``count_non_canonical_expiry`` y no se borra.
+
+        Excluir los ya borrados es lo que hace idempotente al olvido: una segunda corrida no
+        selecciona nada.
+        """
+        clauses = [
+            "deleted_at IS NULL",
+            "expires_at IS NOT NULL",
+            "expires_at != ''",
+            f"expires_at LIKE '{CANONICAL_EXPIRY_PATTERN}'",
+            "expires_at <= ?",
+        ]
+        params: list[Any] = [utc_now()]
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        rows = self._query(
+            f"SELECT * FROM memory_items WHERE {' AND '.join(clauses)} ORDER BY created_at ASC, id ASC",
+            params,
+        )
+        return [row_to_memory(row) for row in rows]
+
+    def count_non_canonical_expiry(self, project_id: str | None = None) -> int:
+        """Cuenta items vivos con una expiración que el predicado lexicográfico no puede juzgar."""
+        clauses = [
+            "deleted_at IS NULL",
+            "expires_at IS NOT NULL",
+            "expires_at != ''",
+            f"expires_at NOT LIKE '{CANONICAL_EXPIRY_PATTERN}'",
+        ]
+        params: list[Any] = []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        row = self._query_one(
+            f"SELECT COUNT(*) AS total FROM memory_items WHERE {' AND '.join(clauses)}", params
+        )
+        return int(row["total"]) if row else 0
 
     def upsert_memory_embedding(
         self,

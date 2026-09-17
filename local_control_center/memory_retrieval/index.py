@@ -231,7 +231,10 @@ class RetrievalIndex:
         """Rankea memory items por producto interno contra un vector de consulta dado.
 
         Devuelve lista vacía si el índice no está cargado o la dimensión del
-        vector no coincide; descarta coincidencias con puntaje cero.
+        vector no coincide; descarta coincidencias con puntaje cero. Un id del
+        manifiesto que ya no resuelve a un item visible se omite: el manifiesto
+        es un artefacto reconstruible y puede quedar rancio cuando un item vence
+        por reloj o se borra, y eso no puede tumbar la búsqueda.
         """
         manifest, vectors = self._load(project_id=project_id)
         if vectors is None or len(vectors) == 0:
@@ -247,7 +250,10 @@ class RetrievalIndex:
             score = float(scores[index])
             if math.isclose(score, 0.0):
                 continue
-            memory_item = self.memory.get_memory_item(ids[int(index)])
+            try:
+                memory_item = self.memory.get_memory_item(ids[int(index)])
+            except KeyError:
+                continue
             results.append({"score": score, "memoryItem": memory_item})
         return results
 

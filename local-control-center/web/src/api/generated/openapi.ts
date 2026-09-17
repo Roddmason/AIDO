@@ -189,6 +189,9 @@ export type MemoryConflictListResponse = { "conflicts": Array<MemoryConflictReco
 export type MemoryConflictRecord = { "detectedAt": string; "detector": string; "id": string; "kind": string; "leftMemoryItemId": string; "projectId": string; "rightMemoryItemId": string; "scope": string; "scopeId": string; "score": number; "status": string; "threshold": number; "updatedAt": string };
 export type MemoryCreateRequest = { "content": string; "expiresAt"?: null | string; "kind"?: "note" | "lesson"; "metadata"?: JsonObject; "projectId": string; "scope"?: string; "scopeId"?: null | string; "sourceRef"?: string; "ttlSeconds"?: null | number };
 export type MemoryDeleteRequest = { "reason"?: string };
+export type MemoryForgetJobRecord = { "createdAt": string; "id": string; "kind": string; "projectId": string; "status": string };
+export type MemoryForgetRequest = { "projectId": string };
+export type MemoryForgetResponse = { "job": MemoryForgetJobRecord };
 export type MemoryItemRecord = { "content": string; "createdAt": string; "createdByRunId"?: null | string; "deletedAt"?: null | string; "expiresAt"?: null | string; "hash": string; "id": string; "kind": "note" | "lesson"; "metadata": JsonObject; "projectId": string; "scope": string; "scopeId"?: null | string; "sourceRef": string; "supersedesId"?: null | string; "updatedAt": string; "validFrom": string; "version": number };
 export type MemoryListResponse = { "memoryItems": Array<MemoryItemRecord> };
 export type MemoryResponse = { "memoryItem": MemoryItemRecord };
@@ -637,6 +640,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
 	{"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
 	{"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
+	{"method": "POST", "operationId": "forget_expired_memory_api_v1_memory_forget_post", "path": "/api/v1/memory/forget", "summary": "Forget Expired Memory"},
 	{"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	{"method": "POST", "operationId": "execute_ai_execution_api_v1_model_gateway_ai_executions_post", "path": "/api/v1/model-gateway/ai-executions", "summary": "Execute Ai Execution"},
 	{"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},
@@ -923,6 +927,7 @@ export type OperationRequestBodies = {
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": never,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": never,
+	"forget_expired_memory_api_v1_memory_forget_post": MemoryForgetRequest,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": never,
 	"get_evidence_api_v1_evidence__evidence_id__get": never,
@@ -1188,6 +1193,7 @@ export type OperationResponseBodies = {
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": ThreadSimilarityResponse,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": ThreadSimilarityResponse,
+	"forget_expired_memory_api_v1_memory_forget_post": MemoryForgetResponse,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": CliSessionResponse,
 	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
@@ -1457,6 +1463,7 @@ export type OperationResultBodies = {
 	"export_evidence_report_api_v1_evidence__evidence_id__report_get": never,
 	"find_similar_threads_api_v1_threads_similar_get": ThreadSimilarityResponse,
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": ThreadSimilarityResponse,
+	"forget_expired_memory_api_v1_memory_forget_post": MemoryForgetResponse,
 	"get_artifact_api_v1_evidence__evidence_id__artifacts__artifact_id__get": never,
 	"get_cli_session_api_v1_model_gateway_cli_sessions__session_id__get": CliSessionResponse,
 	"get_evidence_api_v1_evidence__evidence_id__get": EvidenceDetailResponse,
@@ -1711,6 +1718,7 @@ export const OPERATIONS_BY_ID = {
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
 	"list_memory_conflicts_api_v1_memory_conflicts_get": {"method": "GET", "operationId": "list_memory_conflicts_api_v1_memory_conflicts_get", "path": "/api/v1/memory/conflicts", "summary": "List Memory Conflicts"},
 	"detect_memory_conflicts_api_v1_memory_conflicts_detect_post": {"method": "POST", "operationId": "detect_memory_conflicts_api_v1_memory_conflicts_detect_post", "path": "/api/v1/memory/conflicts/detect", "summary": "Detect Memory Conflicts"},
+	"forget_expired_memory_api_v1_memory_forget_post": {"method": "POST", "operationId": "forget_expired_memory_api_v1_memory_forget_post", "path": "/api/v1/memory/forget", "summary": "Forget Expired Memory"},
 	"delete_memory_api_v1_memory__memory_id__delete": {"method": "DELETE", "operationId": "delete_memory_api_v1_memory__memory_id__delete", "path": "/api/v1/memory/{memory_id}", "summary": "Delete Memory"},
 	"execute_ai_execution_api_v1_model_gateway_ai_executions_post": {"method": "POST", "operationId": "execute_ai_execution_api_v1_model_gateway_ai_executions_post", "path": "/api/v1/model-gateway/ai-executions", "summary": "Execute Ai Execution"},
 	"list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get": {"method": "GET", "operationId": "list_benchmark_outcomes_api_v1_model_gateway_benchmark_outcomes_get", "path": "/api/v1/model-gateway/benchmark-outcomes", "summary": "List Benchmark Outcomes"},

@@ -16,6 +16,7 @@ from local_control_center.shared.time import add_millis
 
 from .conflicts import DEFAULT_MAD_MULTIPLIER, MemoryConflictDetector
 from .index import RetrievalIndex
+from .models import MEMORY_FORGET_JOB_KIND
 from .repository import MemoryRepository
 
 
@@ -62,6 +63,19 @@ def delete_memory(
         payload={"memoryItemId": memory_item["id"], "reason": body.get("reason") or ""},
     )
     return {"memoryItem": memory_item}
+
+
+def enqueue_memory_forget(jobs: Any, body: dict[str, Any]) -> dict[str, Any]:
+    """Encola el job que aplica la política de olvido y devuelve su identidad.
+
+    El trabajo real corre en el worker: este caso de uso sólo publica la intención.
+    """
+    created = jobs.create_job(
+        project_id=body["projectId"],
+        kind=MEMORY_FORGET_JOB_KIND,
+        payload={"projectId": body["projectId"]},
+    )
+    return {"job": created["job"]}
 
 
 def detect_memory_conflicts(detector: MemoryConflictDetector, body: dict[str, Any]) -> dict[str, Any]:

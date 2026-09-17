@@ -46,9 +46,11 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
     ).fetchone()
     if schema_exists:
-        current = connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = ?", (CURRENT_SCHEMA_VERSION,)
-        ).fetchone()
+        # Completitud, no sólo la versión tope: una base a la que le falta una fase intermedia
+        # debe repararse. Mirar sólo el tope dejaba el hueco sin aplicar para siempre, y ese es
+        # justamente el escenario de recuperación que cubre test_operational_recovery.
+        applied = {int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations")}
+        current = applied.issuperset(range(1, CURRENT_SCHEMA_VERSION + 1))
         provider_catalog_exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'"
         ).fetchone()

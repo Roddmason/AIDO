@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 68
+CURRENT_SCHEMA_VERSION = 69
 
 
 def _execute_atomic_statements(
@@ -127,6 +127,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase66_schema(connection)
     init_phase67_schema(connection)
     init_phase68_schema(connection)
+    init_phase69_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6365,6 +6366,42 @@ def init_phase68_schema(connection: sqlite3.Connection) -> None:
                 (DEFAULT_MEMORY_KIND, json_dumps(metadata), row["id"]),
             )
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (68, ?)", (utc_now(),))
+
+
+def init_phase69_schema(connection: sqlite3.Connection) -> None:
+    """Fase 69: registro consultable de memorias contradictorias detectadas.
+
+    Sigue el patrón de ``thread_similarity_events``: la detección se persiste como hallazgo con su
+    puntaje y el umbral vigente, y la resolución queda para una decisión explícita posterior. La
+    clave única por par normalizado evita duplicar el mismo conflicto entre corridas.
+    """
+    connection.executescript(
+        """
+            CREATE TABLE IF NOT EXISTS memory_conflicts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                left_memory_item_id TEXT NOT NULL,
+                right_memory_item_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                score REAL NOT NULL,
+                threshold REAL NOT NULL,
+                detector TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'detected'
+                    CHECK (status IN ('detected', 'acknowledged', 'resolved')),
+                detected_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (project_id, left_memory_item_id, right_memory_item_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_conflicts_project
+                ON memory_conflicts(project_id, detected_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (69, utc_now()),
+    )
 
 
 def _legacy_thread_id(record_id: str) -> str:

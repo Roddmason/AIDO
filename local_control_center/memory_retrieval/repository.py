@@ -57,6 +57,25 @@ def row_to_embedding(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_memory_conflict(row: sqlite3.Row) -> dict[str, Any]:
+    """Proyecta una fila de memory_conflicts al dict camelCase del contrato HTTP."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "leftMemoryItemId": row["left_memory_item_id"],
+        "rightMemoryItemId": row["right_memory_item_id"],
+        "scope": row["scope"],
+        "scopeId": row["scope_id"],
+        "kind": row["kind"],
+        "score": float(row["score"]),
+        "threshold": float(row["threshold"]),
+        "detector": row["detector"],
+        "status": row["status"],
+        "detectedAt": row["detected_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 class MemoryRepository:
     """Acceso a memory_items y memory_embeddings sobre la conexión SQLite del caller.
 
@@ -241,8 +260,117 @@ class MemoryRepository:
               AND m.deleted_at IS NULL
               AND (m.expires_at IS NULL OR m.expires_at = '' OR m.expires_at > ?)
               AND p.provider_type IN ('api', 'gateway')
-            ORDER BY m.created_at ASC
+            ORDER BY m.created_at ASC, m.id ASC
             """,
             (project_id, utc_now()),
         )
         return [row_to_embedding(row) for row in rows]
+
+    def list_conflict_candidates(self, project_id: str) -> list[dict[str, Any]]:
+        """Devuelve items vivos con embedding indexable más los campos que agrupan un conflicto.
+
+        ``list_indexable_embeddings`` no proyecta scope, scope_id, kind ni hash, que son
+        justamente la clave de agrupación y el criterio de "contenido distinto" del detector de
+        contradicciones. El orden es determinista por ``created_at`` e ``id`` para que dos
+        corridas enumeren los mismos pares en la misma secuencia.
+        """
+        rows = self._query(
+            """
+            SELECT m.id, m.scope, m.scope_id, m.kind, m.hash, m.created_at,
+                   e.provider, e.model, e.dimensions, e.embedding_json
+            FROM memory_embeddings e
+            JOIN memory_items m ON m.id = e.memory_item_id
+            JOIN provider_accounts p ON p.provider_id = e.provider
+            WHERE m.project_id = ?
+              AND m.deleted_at IS NULL
+              AND (m.expires_at IS NULL OR m.expires_at = '' OR m.expires_at > ?)
+              AND p.provider_type IN ('api', 'gateway')
+            ORDER BY m.created_at ASC, m.id ASC
+            """,
+            (project_id, utc_now()),
+        )
+        return [
+            {
+                "memoryItemId": row["id"],
+                "scope": row["scope"],
+                "scopeId": row["scope_id"],
+                "kind": row["kind"],
+                "hash": row["hash"],
+                "createdAt": row["created_at"],
+                "provider": row["provider"],
+                "model": row["model"],
+                "dimensions": int(row["dimensions"]),
+                "embedding": json_loads(row["embedding_json"], []),
+            }
+            for row in rows
+        ]
+
+    def record_memory_conflict(
+        self,
+        *,
+        project_id: str,
+        left_memory_item_id: str,
+        right_memory_item_id: str,
+        scope: str,
+        scope_id: str,
+        kind: str,
+        score: float,
+        threshold: float,
+        detector: str,
+    ) -> dict[str, Any]:
+        """Registra un conflicto detectado, o refresca el existente para ese mismo par.
+
+        El par se normaliza (id menor primero) y la clave única impide duplicar el mismo conflicto
+        entre corridas. No toca los memory items: registrar una detección nunca supersede nada.
+        """
+        left, right = sorted((left_memory_item_id, right_memory_item_id))
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO memory_conflicts
+                (id, project_id, left_memory_item_id, right_memory_item_id, scope, scope_id, kind,
+                 score, threshold, detector, status, detected_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'detected', ?, ?)
+            ON CONFLICT(project_id, left_memory_item_id, right_memory_item_id) DO UPDATE SET
+                score = excluded.score,
+                threshold = excluded.threshold,
+                detector = excluded.detector,
+                updated_at = excluded.updated_at
+            """,
+            (
+                f"memory-conflict-{uuid.uuid4()}",
+                project_id,
+                left,
+                right,
+                scope,
+                scope_id,
+                kind,
+                float(score),
+                float(threshold),
+                detector,
+                timestamp,
+                timestamp,
+            ),
+        )
+        row = self._query_one(
+            """
+            SELECT * FROM memory_conflicts
+            WHERE project_id = ? AND left_memory_item_id = ? AND right_memory_item_id = ?
+            """,
+            (project_id, left, right),
+        )
+        return row_to_memory_conflict(row)
+
+    def list_memory_conflicts(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista los conflictos registrados, del más reciente al más antiguo de forma determinista."""
+        if project_id:
+            rows = self._query(
+                """
+                SELECT * FROM memory_conflicts WHERE project_id = ?
+                ORDER BY detected_at DESC, rowid DESC
+                """,
+                (project_id,),
+            )
+        else:
+            rows = self._query("SELECT * FROM memory_conflicts ORDER BY detected_at DESC, rowid DESC")
+        return [row_to_memory_conflict(row) for row in rows]

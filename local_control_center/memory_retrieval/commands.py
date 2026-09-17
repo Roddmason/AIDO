@@ -14,6 +14,7 @@ from typing import Any
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.time import add_millis
 
+from .conflicts import DEFAULT_MAD_MULTIPLIER, MemoryConflictDetector
 from .index import RetrievalIndex
 from .repository import MemoryRepository
 
@@ -61,6 +62,20 @@ def delete_memory(
         payload={"memoryItemId": memory_item["id"], "reason": body.get("reason") or ""},
     )
     return {"memoryItem": memory_item}
+
+
+def detect_memory_conflicts(detector: MemoryConflictDetector, body: dict[str, Any]) -> dict[str, Any]:
+    """Corre la detección de contradicciones del proyecto con los parámetros del contrato."""
+    return detector.detect(
+        project_id=body["projectId"],
+        multiplier=float(body.get("multiplier") or DEFAULT_MAD_MULTIPLIER),
+        threshold=body.get("threshold"),
+    )
+
+
+def list_memory_conflicts(memory: MemoryRepository, project_id: str | None = None) -> dict[str, Any]:
+    """Devuelve los conflictos registrados del proyecto bajo la clave de contrato."""
+    return {"conflicts": memory.list_memory_conflicts(project_id=project_id)}
 
 
 def retrieval_status(index: RetrievalIndex, project_id: str | None = None) -> dict[str, Any]:

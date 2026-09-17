@@ -20,8 +20,12 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
 
 from . import commands
+from .conflicts import MemoryConflictDetector
 from .index import RetrievalIndex
 from .models import (
+    MemoryConflictDetectRequest,
+    MemoryConflictDetectResponse,
+    MemoryConflictListResponse,
     MemoryCreateRequest,
     MemoryDeleteRequest,
     MemoryListResponse,
@@ -84,6 +88,31 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             body.model_dump(by_alias=True),
         )
         return MemoryResponse(memoryItem=payload["memoryItem"])
+
+    @router.post("/api/v1/memory/conflicts/detect", response_model=MemoryConflictDetectResponse)
+    async def detect_memory_conflicts(
+        body: MemoryConflictDetectRequest, request: Request
+    ) -> MemoryConflictDetectResponse:
+        require_write(request)
+        payload = commands.detect_memory_conflicts(
+            MemoryConflictDetector(memory_repository(), event_bus()),
+            body.model_dump(by_alias=True),
+        )
+        return MemoryConflictDetectResponse(
+            status=payload["status"],
+            reason=payload["reason"],
+            detector=payload["detector"],
+            threshold=payload["threshold"],
+            thresholdSource=payload["thresholdSource"],
+            comparedPairs=payload["comparedPairs"],
+            conflicts=payload["conflicts"],
+        )
+
+    @router.get("/api/v1/memory/conflicts", response_model=MemoryConflictListResponse)
+    async def list_memory_conflicts(
+        project_id: str | None = Query(default=None, alias="projectId"),
+    ) -> dict[str, Any]:
+        return commands.list_memory_conflicts(memory_repository(), project_id=project_id)
 
     @router.get("/api/v1/retrieval/status", response_model=RetrievalStatusResponse)
     async def retrieval_status(

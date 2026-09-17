@@ -336,11 +336,19 @@ taxonomy was closed are normalized to `note` by schema phase 68, which keeps the
 original value under `metadata.legacyKind`. See
 [ADR-002](adr/ADR-002-memory-item-kind-taxonomy.md).
 
+`POST /api/v1/memory/conflicts/detect` records contradictory pairs and never
+rewrites content or sets `supersedes_id`. Without real embeddings it returns
+`configuration_required`; with fewer than 15 comparable pairs,
+`insufficient_corpus`; below 128 embedding dimensions, `low_dimensionality`. See
+[ADR-003](adr/ADR-003-memory-conflict-detection.md).
+
 | Method | Path | Summary |
 | --- | --- | --- |
 | `GET` | `/api/v1/memory` | List Memory |
 | `POST` | `/api/v1/memory` | Create Memory |
 | `DELETE` | `/api/v1/memory/{memory_id}` | Delete Memory |
+| `POST` | `/api/v1/memory/conflicts/detect` | Detect Memory Conflicts |
+| `GET` | `/api/v1/memory/conflicts` | List Memory Conflicts |
 | `GET` | `/api/v1/retrieval/status` | Retrieval Status |
 | `POST` | `/api/v1/retrieval/search` | Retrieval Search |
 | `POST` | `/api/v1/retrieval/reindex` | Retrieval Reindex |

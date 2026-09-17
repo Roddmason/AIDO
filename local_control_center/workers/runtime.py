@@ -109,6 +109,7 @@ class LocalWorkerRuntime:
     ) -> None:
         self.db_path = Path(db_path)
         self.cwd = Path(cwd)
+        self._health_refresh_due_at = 0.0
         self.settings = settings or WorkerSettings()
         self.worker_id = f"local-worker-{uuid.uuid4()}"
         self._stop_event = threading.Event()
@@ -211,6 +212,36 @@ class LocalWorkerRuntime:
         self._reason = reason
         return self.status()
 
+    def _refresh_runtime_health_if_due(self) -> None:
+        """Renueva la evidencia de salud antes de que venza, sólo cuando toca.
+
+        ``runtime_readiness`` exige evidencia de menos de ``HEALTH_EVIDENCE_TTL_SECONDS`` y su único
+        productor es una operación encolada: sin este ciclo, un sistema bien configurado se reporta
+        bloqueado a los pocos minutos y después de cada reinicio. El líder es quien lo hace, para no
+        duplicar encolados entre procesos.
+        """
+        import time as _time
+
+        from local_control_center.agents.runtime_health_refresh import (
+            REFRESH_INTERVAL_SECONDS,
+            refresh_from_worker,
+        )
+
+        now = _time.monotonic()
+        if now < self._health_refresh_due_at:
+            return
+        self._health_refresh_due_at = now + REFRESH_INTERVAL_SECONDS
+        result = refresh_from_worker(self.db_path, self.cwd)
+        if result["enqueued"]:
+            from local_control_center.shared.diagnostics import diagnostic_event
+
+            diagnostic_event(
+                "runtime.health_refresh",
+                component="worker",
+                workerId=self.worker_id,
+                outcome=f"queued:{result['enqueued']}",
+            )
+
     def run_forever(self) -> None:
         """Ejecuta el scheduler en primer plano como proceso worker independiente.
 
@@ -248,6 +279,7 @@ class LocalWorkerRuntime:
                 self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
                 continue
             self._ensure_leadership_watcher()
+            self._refresh_runtime_health_if_due()
             try:
                 from local_control_center.process_supervision.recovery import recover_managed_processes
 

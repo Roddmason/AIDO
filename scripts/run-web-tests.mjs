@@ -13,7 +13,21 @@ const posixPython = fileURLToPath(new URL('../.venv/bin/python', import.meta.url
 // (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
 const defaultDashboardPort = String(8600 + (process.pid % 900));
 const dashboardPort = process.env.PLAYWRIGHT_DASHBOARD_PORT || defaultDashboardPort;
-const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(os.tmpdir(), `playwright-control-center-${process.pid}.sqlite`);
+// The domain fixtures refuse any database whose isolation they cannot prove: they require
+// AIDO_QUALITY_SCRATCH + AIDO_QUALITY_RETAINED and a PLAYWRIGHT_DB_PATH that resolves under that
+// scratch root. `pnpm run quality` injects them from the supervised runner; a standalone run has to
+// own an equivalent identity or those specs cannot execute at all. The proof is not weakened: the
+// fixture still validates the scratch parent and the database location itself.
+// Both halves are injected together or not at all: half an identity is not a supervised run.
+const supervised = Boolean(process.env.AIDO_QUALITY_SCRATCH && process.env.AIDO_QUALITY_RETAINED);
+const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-tests-${process.pid}`);
+const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
+const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.join(ownedQualityRoot, 'evidence');
+if (ownedQualityRoot) {
+	mkdirSync(qualityScratch, { recursive: true });
+	mkdirSync(qualityRetained, { recursive: true });
+}
+const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `playwright-control-center-${process.pid}.sqlite`);
 const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
@@ -243,6 +257,8 @@ if (status === 0) {
 		const projectDbPath = process.env.PLAYWRIGHT_DB_PATH || dbPath.replace(/\.sqlite$/, `-${project}.sqlite`);
 		const projectEnv = {
 			...process.env,
+			AIDO_QUALITY_SCRATCH: qualityScratch,
+			AIDO_QUALITY_RETAINED: qualityRetained,
 			PLAYWRIGHT_DASHBOARD_PORT: dashboardPort,
 			PLAYWRIGHT_DB_PATH: projectDbPath,
 		};

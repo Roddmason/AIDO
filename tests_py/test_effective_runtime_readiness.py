@@ -101,9 +101,10 @@ def test_resource_rejection_explains_effective_state_without_hiding_prior_blocke
         assert not result["executable"] and not result["canRunPrompt"]
         assert "host_cpu_saturated" in result["blockingReasons"]
         assert result["reason"] == ("authentication_required" if already_blocked else "host_cpu_saturated")
-        assert result["blockerType"] == (
-            "runtime_auth_missing" if already_blocked else "runtime_not_executable"
-        )
+        # Con una causa real (auth) la alerta se conserva; si lo unico que falta es capacidad del
+        # host, no hay alerta: es transitorio y no se corrige desde el panel del proveedor. El
+        # motivo sigue publicado arriba, asi que no se oculta nada, solo se deja de pedir accion.
+        assert result["blockerType"] == ("runtime_auth_missing" if already_blocked else None)
         assert runtime.connection.total_changes == before
         assert not ResourceRepository(runtime.connection).active_leases()
     finally:
@@ -207,3 +208,102 @@ def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, c
         assert len(ResourceRepository(runtime.connection).active_leases()) == 1
     finally:
         runtime.close()
+
+
+def _capacity_status() -> dict:
+    """Proveedor sano en todo lo que el operador controla: sólo el host está ocupado."""
+    return {
+        "id": "omniroute",
+        "kind": "gateway",
+        "configured": True,
+        "authenticated": True,
+        "installed": True,
+        "executable": True,
+        "reason": "Ready",
+        "healthStatus": "healthy",
+        "healthCheckedAt": utc_now(),
+    }
+
+
+def _policy() -> dict:
+    return {
+        "allowed": True,
+        "policy": {"global": {"remoteEnabled": True}, "project": {"remoteEnabled": True}},
+    }
+
+
+def test_a_busy_host_is_not_reported_as_an_ai_that_needs_configuring(tmp_path):
+    """Que el host esté ocupado no es un problema del runtime ni se arregla con credenciales.
+
+    Es lo que hacía reconfigurar el mismo proveedor una y otra vez: configurado, autenticado y sano,
+    pero la UI lo listaba en "necesitan atención" con un deep-link al panel de credenciales, donde no
+    hay nada que corregir. La causa sigue publicada en `reason`/`blockingReasons`; lo que se corta es
+    la alerta accionable falsa.
+    """
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    runtime.init()
+    try:
+        gib = 1024**3
+        ResourceRepository(runtime.connection).record_sample(
+            ResourceSnapshot.test_snapshot(
+                cpu_percent_1s=95,
+                cpu_percent_30s=95,
+                available_memory_bytes=32 * gib,
+                disk_free_bytes={"C:": 500 * gib},
+            )
+        )
+        result = apply_effective_readiness(
+            runtime.connection, _capacity_status(), {"baseUrl": "https://example.test"}, _policy()
+        )
+
+        assert result["executable"] is False
+        assert result["effectiveStatus"] == "blocked"
+        assert "host_cpu_saturated" in result["blockingReasons"], result["blockingReasons"]
+        assert "host_cpu_saturated" in result["reason"], result["reason"]
+        assert result["blockerType"] is None, result["blockerType"]
+    finally:
+        runtime.close()
+
+
+def test_a_real_runtime_fault_still_raises_the_operator_alert(tmp_path):
+    """La contrapartida: con el host ocupado Y una causa real, la alerta se mantiene."""
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    runtime.init()
+    try:
+        gib = 1024**3
+        ResourceRepository(runtime.connection).record_sample(
+            ResourceSnapshot.test_snapshot(
+                cpu_percent_1s=95,
+                cpu_percent_30s=95,
+                available_memory_bytes=32 * gib,
+                disk_free_bytes={"C:": 500 * gib},
+            )
+        )
+        broken = _capacity_status() | {"authenticated": False}
+        result = apply_effective_readiness(
+            runtime.connection, broken, {"baseUrl": "https://example.test"}, _policy()
+        )
+
+        assert result["blockerType"] == "runtime_auth_missing", result
+        assert "authentication_required" in result["blockingReasons"]
+
+    finally:
+        runtime.close()
+
+
+def test_every_governor_wait_code_is_classified_as_host_capacity_or_not(tmp_path):
+    """Si el gobernador agrega un motivo nuevo, este set tiene que decidir explícitamente qué es.
+
+    Sin este ancla el set se queda atrás en silencio y un motivo transitorio nuevo vuelve a
+    presentarse como "configura esta IA".
+    """
+    import re
+    from pathlib import Path as _Path
+
+    from local_control_center.agents.runtime_readiness import HOST_CAPACITY_BLOCKERS
+
+    source = _Path("local_control_center/host_resources/governor.py").read_text(encoding="utf-8")
+    codes = set(re.findall(r'wait\(\s*"([a-z_]+)"', source))
+
+    assert codes, "no se encontró ningún motivo del gobernador; el patrón quedó obsoleto"
+    assert codes <= HOST_CAPACITY_BLOCKERS, sorted(codes - HOST_CAPACITY_BLOCKERS)

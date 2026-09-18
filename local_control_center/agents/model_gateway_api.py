@@ -557,7 +557,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"provider": provider}
 
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
-    @queued_operation("models.provider_health_check", workload_class="remote_llm_light")
+    # Diagnostico del propio control plane, no carga de inferencia: una request HTTP corta.
+    # Si el gobernador lo frena por CPU/memoria/disco, la evidencia de salud (TTL 300 s) no se
+    # renueva nunca, todo runtime configurado cae en health_check_required y la UI termina
+    # pidiendo reconfigurar lo que ya esta configurado. `control_plane` es esencial, asi que
+    # sigue respetando el presupuesto agregado de CPU pero ignora los umbrales transitorios.
+    @queued_operation("models.provider_health_check", workload_class="control_plane")
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check del proveedor, registra el resultado y activa cooldown si hubo 429."""
         require_write(request)
@@ -1229,7 +1234,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"detection": detection}
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
-    @queued_operation("models.health_cli_runtime", workload_class="qa_light")
+    # Diagnostico del propio control plane, no carga de inferencia: un `--version` en subproceso.
+    # Si el gobernador lo frena por CPU/memoria/disco, la evidencia de salud (TTL 300 s) no se
+    # renueva nunca, todo runtime configurado cae en health_check_required y la UI termina
+    # pidiendo reconfigurar lo que ya esta configurado. `control_plane` es esencial, asi que
+    # sigue respetando el presupuesto agregado de CPU pero ignora los umbrales transitorios.
+    @queued_operation("models.health_cli_runtime", workload_class="control_plane")
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""
         require_write(request)

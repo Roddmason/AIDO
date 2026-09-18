@@ -29,8 +29,18 @@ from .repository import process_create_time
 from .service import ResourceWaitError, run_supervised_capture
 
 
-def run_docker_capture(args: list[str], *, cwd: Path, timeout_seconds: int) -> dict[str, Any]:
-    """Admite el contenedor y conserva su lease incluso si el cliente Docker es cancelado."""
+def run_docker_capture(
+    args: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int,
+    workload_class: str = "build_heavy",
+) -> dict[str, Any]:
+    """Admite el contenedor y conserva su lease incluso si el cliente Docker es cancelado.
+
+    El llamador declara el perfil porque solo el conoce el cap real del contenedor: `--memory` es
+    un limite duro de cgroup, y reservar mucho mas que eso bloquea trabajo que si cabria.
+    """
     assert_external_boundary()
     context = CURRENT_EXECUTION.get() or ProcessExecutionContext(db_path=default_db_path())
     name = f"aido-p0-{uuid.uuid4().hex}"
@@ -43,7 +53,7 @@ def run_docker_capture(args: list[str], *, cwd: Path, timeout_seconds: int) -> d
             decision = HostResourceGovernor(connection).admit(
                 ResourceAdmissionRequest(
                     execution_id=context.execution_id or name,
-                    workload_class="build_heavy",
+                    workload_class=workload_class,
                     owner_id=name,
                     lease_seconds=timeout_seconds + 60,
                 ),
@@ -72,8 +82,13 @@ def run_docker_capture(args: list[str], *, cwd: Path, timeout_seconds: int) -> d
         with execution_scope(
             replace(context, execution_id=context.execution_id or name, resource_lease_id=lease_id)
         ):
+            # La etapa supervisada declara el MISMO perfil que la lease: si no coinciden, el
+            # guard de "etapa pesada requiere reserva pesada" rechaza el contenedor entero.
             return run_supervised_capture(
-                command, cwd=cwd, timeout_seconds=timeout_seconds, workload_class="build_heavy"
+                command,
+                cwd=cwd,
+                timeout_seconds=timeout_seconds,
+                workload_class=workload_class,
             )
     finally:
         cleanup_container(context.db_path, name=name, cwd=cwd)

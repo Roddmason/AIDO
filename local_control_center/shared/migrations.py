@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 69
+CURRENT_SCHEMA_VERSION = 70
 
 
 def _execute_atomic_statements(
@@ -130,6 +130,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase67_schema(connection)
     init_phase68_schema(connection)
     init_phase69_schema(connection)
+    init_phase70_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6403,6 +6404,54 @@ def init_phase69_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (69, utc_now()),
+    )
+
+
+def init_phase70_schema(connection: sqlite3.Connection) -> None:
+    """Fase 70: perfil de sandbox para correr un proyecto en la imagen de su propia toolchain.
+
+    `default_docker` es un perfil de **analisis**: red `none` y 2 GiB, con el workspace montado de
+    solo lectura por `DockerSandbox`. Un build real necesita lo contrario — escribir sus
+    artefactos y resolver dependencias por red — asi que necesita su propio perfil en vez de
+    relajar el que usa todo lo demas.
+
+    Las imagenes son las mismas que declara `projects/toolchain.py`, para que el operador no
+    pueda apuntar el runtime a una imagen arbitraria desde la politica.
+    """
+    timestamp = utc_now()
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO sandbox_profiles
+            (id, name, allowed_images, allowed_networks, default_network, memory,
+             cpus, timeout_seconds, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "project_build",
+            "Project Build Container",
+            json_dumps(
+                [
+                    "maven:3.9-eclipse-temurin-21",
+                    "gradle:8.10-jdk21",
+                    "node:22-bookworm",
+                    "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
+                    "golang:1.23-bookworm",
+                    "rust:1.83-bookworm",
+                ]
+            ),
+            json_dumps(["bridge", "none"]),
+            "bridge",
+            "4g",
+            "2",
+            600,
+            "active",
+            timestamp,
+            timestamp,
+        ),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (70, utc_now()),
     )
 
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,25 @@ NODE_SCRIPT_CANDIDATES: dict[str, tuple[str, ...]] = {
 Deliberadamente genéricos y acotados: un script de `package.json` ejecuta código arbitrario, así
 que ampliarlos a cualquier nombre sería un agujero. Los scripts propios de un proyecto se habilitan
 por el ajuste `project.quality.gateCommands`, bajo control explícito del operador.
+"""
+
+TOOLCHAIN_IMAGES: dict[str, str] = {
+    "java-maven": "maven:3.9-eclipse-temurin-21",
+    "java-gradle": "gradle:8.10-jdk21",
+    "node": "node:22-bookworm",
+    "python": "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
+    "go": "golang:1.23-bookworm",
+    "rust": "rust:1.83-bookworm",
+}
+"""Imagen oficial por toolchain, para correr el proyecto cuando el host no tiene sus herramientas.
+
+Cada una trae el ejecutable que el planificador emite: la de Node incluye npm y corepack (de ahi
+salen pnpm y yarn), y la de Python es la de Astral porque el plan usa `uv run pytest`, que no
+existe en `python:slim`. Se fijan a major.minor y no a `latest`: reproducible sin congelar
+parches de seguridad. Verificadas contra su registry el 2026-09-18.
+
+Es tambien la allowlist: `ProjectBuildContainer` rechaza cualquier imagen fuera de este catalogo,
+porque la imagen entra al argv de `docker run`.
 """
 
 PNPM_VERSION = "10.24.0"
@@ -73,8 +93,28 @@ class ToolchainCommand:
     executable: str
     """Binario que debe existir en el host para que este comando pueda correr."""
 
+    container_argv: list[str] = field(default_factory=list)
+    """El mismo comando, pero con la herramienta del contenedor en vez de la ruta del host.
+
+    `argv` trae la ruta resuelta en este equipo (`C:/.../mvn.cmd`, o el wrapper del repo), que
+    dentro del contenedor no existe. Y en contenedor no se usa el wrapper del repo aunque exista:
+    la imagen **es** la toolchain fijada, y `mvnw.cmd` es un batch de Windows que ahi no corre.
+    """
+
     critical: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def is_available_on_host(self) -> bool:
+        """Indica si este comando puede correr en el host tal como esta planificado.
+
+        Se mira ``argv[0]``, no el nombre del ejecutable: el wrapper del repo (`mvnw.cmd`,
+        `gradlew.bat`) vive dentro del proyecto y **nunca** esta en el PATH, asi que buscarlo con
+        `which` lo declaraba ausente y le pedia al operador instalar algo que ya tenia.
+        """
+        head = self.argv[0] if self.argv else self.executable
+        if "/" in head or "\\" in head:
+            return Path(head).is_file()
+        return executable_is_available(head)
 
     def as_command_spec(self) -> dict[str, Any]:
         """Proyecta el comando al dict que consume el runner de QA."""
@@ -142,10 +182,12 @@ def _node_commands(workspace: Path) -> list[ToolchainCommand]:
             argv = [resolve_executable("corepack"), f"pnpm@{PNPM_VERSION}", "run", script]
             policy = f"corepack pnpm@{PNPM_VERSION} run {script}"
             executable = "corepack"
+            container = ["corepack", f"pnpm@{PNPM_VERSION}", "run", script]
         else:
             argv = [resolve_executable(manager), "run", script]
             policy = f"{manager} run {script}"
             executable = manager
+            container = [manager, "run", script]
         commands.append(
             ToolchainCommand(
                 purpose=purpose,
@@ -154,6 +196,7 @@ def _node_commands(workspace: Path) -> list[ToolchainCommand]:
                 policy_command=policy,
                 toolchain="node",
                 executable=executable,
+                container_argv=container,
                 metadata={"script": script, "packageManager": manager},
             )
         )
@@ -174,6 +217,7 @@ def _maven_commands(workspace: Path) -> list[ToolchainCommand]:
             policy_command=f"{executable} -B test",
             toolchain="java-maven",
             executable=executable,
+            container_argv=["mvn", "-B", "test"],
         ),
         ToolchainCommand(
             purpose="build",
@@ -182,6 +226,7 @@ def _maven_commands(workspace: Path) -> list[ToolchainCommand]:
             policy_command=f"{executable} -B verify -DskipTests",
             toolchain="java-maven",
             executable=executable,
+            container_argv=["mvn", "-B", "verify", "-DskipTests"],
         ),
     ]
 
@@ -198,6 +243,7 @@ def _gradle_commands(workspace: Path) -> list[ToolchainCommand]:
             policy_command=f"{executable} --console=plain test",
             toolchain="java-gradle",
             executable=executable,
+            container_argv=["gradle", "--console=plain", "test"],
         ),
         ToolchainCommand(
             purpose="build",
@@ -206,6 +252,7 @@ def _gradle_commands(workspace: Path) -> list[ToolchainCommand]:
             policy_command=f"{executable} --console=plain assemble",
             toolchain="java-gradle",
             executable=executable,
+            container_argv=["gradle", "--console=plain", "assemble"],
         ),
     ]
 
@@ -225,6 +272,7 @@ def _python_commands(workspace: Path) -> list[ToolchainCommand]:
             policy_command=f"uv run pytest {directory} -q",
             toolchain="python",
             executable="uv",
+            container_argv=["uv", "run", "pytest", directory, "-q"],
             metadata={"directory": directory},
         )
     ]
@@ -240,6 +288,7 @@ def _go_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
             policy_command="go test ./...",
             toolchain="go",
             executable="go",
+            container_argv=["go", "test", "./..."],
         ),
         ToolchainCommand(
             purpose="build",
@@ -248,6 +297,7 @@ def _go_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
             policy_command="go build ./...",
             toolchain="go",
             executable="go",
+            container_argv=["go", "build", "./..."],
         ),
     ]
 
@@ -262,6 +312,7 @@ def _rust_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
             policy_command="cargo test",
             toolchain="rust",
             executable="cargo",
+            container_argv=["cargo", "test"],
         ),
         ToolchainCommand(
             purpose="build",
@@ -270,6 +321,7 @@ def _rust_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
             policy_command="cargo build",
             toolchain="rust",
             executable="cargo",
+            container_argv=["cargo", "build"],
         ),
     ]
 
@@ -317,6 +369,45 @@ def missing_toolchains(commands: list[ToolchainCommand]) -> list[str]:
     for command in commands:
         if command.toolchain in missing:
             continue
-        if not executable_is_available(command.executable):
+        if not command.is_available_on_host():
             missing.append(command.toolchain)
     return missing
+
+
+def container_image_for(toolchain: str) -> str | None:
+    """Imagen del catalogo para esa toolchain, o ``None`` si no hay ninguna declarada."""
+    return TOOLCHAIN_IMAGES.get(toolchain)
+
+
+def _command_is_available(command: ToolchainCommand) -> bool:
+    """Indireccion por defecto, para que los tests puedan simular un host sin la toolchain."""
+    return command.is_available_on_host()
+
+
+CONTAINERIZED_SETTING_KEY = "project.runtime.containerized"
+"""Preferencia por proyecto que habilita el runtime contenerizado. Apagada por defecto."""
+
+
+def container_image_for_command(
+    connection: Any,
+    *,
+    project_id: str,
+    command: ToolchainCommand,
+    available: Callable[[ToolchainCommand], bool] = _command_is_available,
+) -> str | None:
+    """Imagen en la que correr ese comando, o ``None`` si corre en el host.
+
+    La toolchain local **siempre gana**: es la que el proyecto usa de verdad y no paga el costo
+    de un contenedor. Solo cuando falta, y solo si el operador opto explicitamente por
+    contenerizar ese proyecto, se resuelve la imagen del catalogo.
+    """
+    from local_control_center.settings.resolver import resolve_setting_value
+
+    if available(command):
+        return None
+    enabled = resolve_setting_value(
+        connection=connection, key=CONTAINERIZED_SETTING_KEY, project_id=project_id
+    )
+    if not enabled:
+        return None
+    return container_image_for(command.toolchain)

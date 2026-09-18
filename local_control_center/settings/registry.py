@@ -353,6 +353,14 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.quality.gateCommands",
     ),
     SettingDescriptor(
+        key="project.runtime.containerized",
+        section="quality",
+        project_section="quality",
+        type="boolean",
+        default=False,
+        label_key="app.settings.quality.containerizedRuntime",
+    ),
+    SettingDescriptor(
         key="project.quality.devopsChecksEnabled",
         section="quality",
         project_section="quality",

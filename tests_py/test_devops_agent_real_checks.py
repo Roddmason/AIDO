@@ -340,3 +340,59 @@ def test_devops_agent_validates_a_project_with_its_own_toolchain(
             command["status"] == "skipped_with_reason" and "not installed" in command["reason"]
             for command in toolchain_commands
         ), toolchain_commands
+
+
+def test_devops_agent_runs_the_toolchain_in_a_container_when_the_project_opted_in(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con la toolchain ausente y el runtime contenerizado activado, el build corre igual.
+
+    Se usa Go a proposito: es una toolchain que este equipo no tiene, asi que el camino del
+    contenedor se ejercita de verdad en vez de saltarse. La ejecucion pasa por el broker, no por
+    el sandbox directo: contenerizar no saca la ejecucion de la politica ni de la evidencia.
+    """
+    from local_control_center.projects.toolchain import CONTAINERIZED_SETTING_KEY, TOOLCHAIN_IMAGES
+    from local_control_center.settings.repository import SettingsRepository
+
+    if shutil.which("go"):
+        pytest.skip("este host tiene Go: la toolchain local gana, que es lo correcto")
+
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-container")
+    Path(workspace["path"], "go.mod").write_text("module example.com/demo\n\ngo 1.22\n", encoding="utf-8")
+    with store.connection:
+        SettingsRepository(store.connection).set_value(
+            CONTAINERIZED_SETTING_KEY, "project", project["id"], True
+        )
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=[]),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    toolchain_commands = [
+        command
+        for command in body["commands"]
+        if command.get("metadata", {}).get("validationType") == "project_toolchain"
+    ]
+    assert toolchain_commands, body["commands"]
+    assert all(command["metadata"].get("executionMode") == "container" for command in toolchain_commands), (
+        toolchain_commands
+    )
+    assert {command["metadata"].get("image") for command in toolchain_commands} == {TOOLCHAIN_IMAGES["go"]}
+    # La evidencia sale del broker: cada comando trae su decision de politica registrada.
+    assert all(command["metadata"].get("decision") for command in toolchain_commands), toolchain_commands
+    # Y el contenedor tiene que haber corrido de verdad. `denied` significaria que la politica aprobo
+    # la ruta y el sandbox la corto igual, que es justo el modo de falla que este trabajo elimina.
+    outcomes = {
+        (command["status"], command["metadata"].get("decision"), str(command.get("reason") or ""))
+        for command in toolchain_commands
+    }
+    assert all(status in {"passed", "failed"} for status, _decision, _reason in outcomes), outcomes
+    findings = {finding["checkId"] for finding in body["configFindings"]}
+    assert "toolchain_not_installed" not in findings, body["configFindings"]

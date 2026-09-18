@@ -15,46 +15,166 @@
     }
   ],
   "translations": {
-    "app.workspace.error.existingDirectory": {"en": "The selected path is not an existing directory.", "es": "La ruta seleccionada no es un directorio existente."},
-    "settings.credentials.safeError": {"en": "The operation could not be completed. Check the backend availability; secret input has been cleared.", "es": "No se pudo completar la operación. Revisa la disponibilidad del backend; el campo secreto se vació."},
-    "settings.credentials.boundaries": {"en": "Global credential references · saving does not authenticate a provider, choose a model or run inference. CLI subscription sessions are managed separately under Providers & CLI.", "es": "Referencias globales de credenciales · guardar no autentica un proveedor, elige un modelo ni ejecuta inferencia. Las sesiones de suscripción CLI se gestionan por separado en Proveedores y CLI."},
-    "settings.credentials.confirmDelete": {"en": "Delete reference", "es": "Eliminar referencia"},
-    "settings.credentials.advanced": {"en": "Advanced · rotation and audit", "es": "Avanzado · rotación y auditoría"},
-    "app.workspace.registrationHint": {"en": "Register a project from an existing folder or explicitly create a new one. Execution workspaces are allocated separately. This action does not start agents, initialize Git or run a smoke.", "es": "Registra un proyecto desde una carpeta existente o crea una nueva de forma explícita. Los workspaces de ejecución se asignan por separado. Esta acción no inicia agentes, inicializa Git ni ejecuta un smoke."},
-    "app.workspace.registering": {"en": "Registering the project. Wait for confirmation before closing.", "es": "Registrando el proyecto. Espera la confirmación antes de cerrar."},
-    "app.providers.wizard.saveFailedSafe": {"en": "Configuration could not be saved. Check the credential backend and endpoint. Secret input was cleared; no inference was run.", "es": "No se pudo guardar la configuración. Revisa el backend de credenciales y el endpoint. El campo secreto se vació; no se ejecutó inferencia."},
-    "app.providers.wizard.close": {"en": "Close provider setup", "es": "Cerrar configuración del proveedor"},
-    "app.providers.wizard.accessBoundary": {"en": "API / local endpoint configuration. This is not a CLI subscription session. Saving does not run inference; API usage may be billable. No automatic switch of access method.", "es": "Configuración de API o endpoint local. No es una sesión de suscripción CLI. Guardar no ejecuta inferencia; el uso de API puede ser facturable. No se cambia el método de acceso automáticamente."},
-    "app.providers.wizard.checkBoundary": {"en": "Checks configuration and authentication only. A model smoke is a separate action requiring authorization and quota. Without authorization, do not run it.", "es": "Comprueba solo configuración y autenticación. El smoke de un modelo es una acción separada que exige autorización y cuota. Sin autorización, no lo ejecutes."},
-    "app.providers.wizard.checkConfiguration": {"en": "Check configuration / auth", "es": "Comprobar configuración / autenticación"},
-    "app.operations.title": {"en": "Operations", "es": "Operaciones"},
-    "app.operations.summary": {"en": "Worker, host capacity and managed executions", "es": "Worker, capacidad del host y ejecuciones administradas"},
-    "app.operations.disconnected": {"en": "Operational snapshot unavailable; the last reading may be stale.", "es": "Estado operacional no disponible; la última lectura puede estar desactualizada."},
-    "app.operations.connected": {"en": "API connected", "es": "API conectada"},
-    "app.operations.loading": {"en": "Reading operational state…", "es": "Consultando estado operacional…"},
-    "app.operations.worker": {"en": "Worker", "es": "Proceso de trabajo"},
-    "app.operations.gpu": {"en": "GPU / VRAM", "es": "GPU / memoria gráfica"},
-    "app.operations.unreal": {"en": "UnrealEditor", "es": "Editor de Unreal"},
-    "app.operations.pause": {"en": "Pause", "es": "Pausar"},
-    "app.operations.resume": {"en": "Resume", "es": "Reanudar"},
-    "app.operations.drain": {"en": "Drain", "es": "Finalizar trabajos y detener"},
-    "app.operations.emergency": {"en": "Emergency stop", "es": "Detención de emergencia"},
-    "app.operations.waiting": {"en": "Waiting for resources", "es": "En espera de recursos"},
-    "app.operations.sample": {"en": "Sample host resources", "es": "Medir recursos del host"},
-    "app.operations.sampleAt": {"en": "Sample timestamp", "es": "Fecha de la medición"},
-    "app.operations.memory": {"en": "Available RAM", "es": "RAM disponible"},
-    "app.operations.commit": {"en": "Committed / limit / pagefile", "es": "Memoria comprometida / límite / paginación"},
-    "app.operations.disk": {"en": "Free disk", "es": "Disco disponible"},
-    "app.operations.noSample": {"en": "No host sample available.", "es": "No hay mediciones del host disponibles."},
-    "app.operations.workloads": {"en": "Active workloads", "es": "Cargas de trabajo activas"},
-    "app.operations.executions": {"en": "Recent executions", "es": "Ejecuciones recientes"},
-    "app.operations.cancel": {"en": "Cancel execution", "es": "Cancelar ejecución"},
-    "app.operations.processes": {"en": "Managed processes · peak RAM", "es": "Procesos administrados · RAM máxima"},
-    "app.operations.readiness": {"en": "Effective runtime readiness", "es": "Disponibilidad efectiva de runtimes"},
-    "app.operations.stopTitle": {"en": "Confirm stop request", "es": "Confirmar solicitud de detención"},
-    "app.operations.stopHelp": {"en": "The request is durable. Termination is confirmed only after backend cleanup; Pause does not cancel active work.", "es": "La solicitud queda persistida. La terminación se confirma tras la limpieza del backend; pausar no cancela el trabajo activo."},
-    "app.operations.reason": {"en": "Human reason", "es": "Motivo del operador"},
-    "app.operations.confirm": {"en": "Request termination", "es": "Solicitar terminación"},
+    "app.workspace.error.existingDirectory": {
+      "en": "The selected path is not an existing directory.",
+      "es": "La ruta seleccionada no es un directorio existente."
+    },
+    "settings.credentials.safeError": {
+      "en": "The operation could not be completed. Check the backend availability; secret input has been cleared.",
+      "es": "No se pudo completar la operación. Revisa la disponibilidad del backend; el campo secreto se vació."
+    },
+    "settings.credentials.boundaries": {
+      "en": "Global credential references · saving does not authenticate a provider, choose a model or run inference. CLI subscription sessions are managed separately under Providers & CLI.",
+      "es": "Referencias globales de credenciales · guardar no autentica un proveedor, elige un modelo ni ejecuta inferencia. Las sesiones de suscripción CLI se gestionan por separado en Proveedores y CLI."
+    },
+    "settings.credentials.confirmDelete": {
+      "en": "Delete reference",
+      "es": "Eliminar referencia"
+    },
+    "settings.credentials.advanced": {
+      "en": "Advanced · rotation and audit",
+      "es": "Avanzado · rotación y auditoría"
+    },
+    "app.workspace.registrationHint": {
+      "en": "Register a project from an existing folder or explicitly create a new one. Execution workspaces are allocated separately. This action does not start agents, initialize Git or run a smoke.",
+      "es": "Registra un proyecto desde una carpeta existente o crea una nueva de forma explícita. Los workspaces de ejecución se asignan por separado. Esta acción no inicia agentes, inicializa Git ni ejecuta un smoke."
+    },
+    "app.workspace.registering": {
+      "en": "Registering the project. Wait for confirmation before closing.",
+      "es": "Registrando el proyecto. Espera la confirmación antes de cerrar."
+    },
+    "app.providers.wizard.saveFailedSafe": {
+      "en": "Configuration could not be saved. Check the credential backend and endpoint. Secret input was cleared; no inference was run.",
+      "es": "No se pudo guardar la configuración. Revisa el backend de credenciales y el endpoint. El campo secreto se vació; no se ejecutó inferencia."
+    },
+    "app.providers.wizard.close": {
+      "en": "Close provider setup",
+      "es": "Cerrar configuración del proveedor"
+    },
+    "app.providers.wizard.accessBoundary": {
+      "en": "API / local endpoint configuration. This is not a CLI subscription session. Saving does not run inference; API usage may be billable. No automatic switch of access method.",
+      "es": "Configuración de API o endpoint local. No es una sesión de suscripción CLI. Guardar no ejecuta inferencia; el uso de API puede ser facturable. No se cambia el método de acceso automáticamente."
+    },
+    "app.providers.wizard.checkBoundary": {
+      "en": "Checks configuration and authentication only. A model smoke is a separate action requiring authorization and quota. Without authorization, do not run it.",
+      "es": "Comprueba solo configuración y autenticación. El smoke de un modelo es una acción separada que exige autorización y cuota. Sin autorización, no lo ejecutes."
+    },
+    "app.providers.wizard.checkConfiguration": {
+      "en": "Check configuration / auth",
+      "es": "Comprobar configuración / autenticación"
+    },
+    "app.operations.title": {
+      "en": "Operations",
+      "es": "Operaciones"
+    },
+    "app.operations.summary": {
+      "en": "Worker, host capacity and managed executions",
+      "es": "Worker, capacidad del host y ejecuciones administradas"
+    },
+    "app.operations.disconnected": {
+      "en": "Operational snapshot unavailable; the last reading may be stale.",
+      "es": "Estado operacional no disponible; la última lectura puede estar desactualizada."
+    },
+    "app.operations.connected": {
+      "en": "API connected",
+      "es": "API conectada"
+    },
+    "app.operations.loading": {
+      "en": "Reading operational state…",
+      "es": "Consultando estado operacional…"
+    },
+    "app.operations.worker": {
+      "en": "Worker",
+      "es": "Proceso de trabajo"
+    },
+    "app.operations.gpu": {
+      "en": "GPU / VRAM",
+      "es": "GPU / memoria gráfica"
+    },
+    "app.operations.unreal": {
+      "en": "UnrealEditor",
+      "es": "Editor de Unreal"
+    },
+    "app.operations.pause": {
+      "en": "Pause",
+      "es": "Pausar"
+    },
+    "app.operations.resume": {
+      "en": "Resume",
+      "es": "Reanudar"
+    },
+    "app.operations.drain": {
+      "en": "Drain",
+      "es": "Finalizar trabajos y detener"
+    },
+    "app.operations.emergency": {
+      "en": "Emergency stop",
+      "es": "Detención de emergencia"
+    },
+    "app.operations.waiting": {
+      "en": "Waiting for resources",
+      "es": "En espera de recursos"
+    },
+    "app.operations.sample": {
+      "en": "Sample host resources",
+      "es": "Medir recursos del host"
+    },
+    "app.operations.sampleAt": {
+      "en": "Sample timestamp",
+      "es": "Fecha de la medición"
+    },
+    "app.operations.memory": {
+      "en": "Available RAM",
+      "es": "RAM disponible"
+    },
+    "app.operations.commit": {
+      "en": "Committed / limit / pagefile",
+      "es": "Memoria comprometida / límite / paginación"
+    },
+    "app.operations.disk": {
+      "en": "Free disk",
+      "es": "Disco disponible"
+    },
+    "app.operations.noSample": {
+      "en": "No host sample available.",
+      "es": "No hay mediciones del host disponibles."
+    },
+    "app.operations.workloads": {
+      "en": "Active workloads",
+      "es": "Cargas de trabajo activas"
+    },
+    "app.operations.executions": {
+      "en": "Recent executions",
+      "es": "Ejecuciones recientes"
+    },
+    "app.operations.cancel": {
+      "en": "Cancel execution",
+      "es": "Cancelar ejecución"
+    },
+    "app.operations.processes": {
+      "en": "Managed processes · peak RAM",
+      "es": "Procesos administrados · RAM máxima"
+    },
+    "app.operations.readiness": {
+      "en": "Effective runtime readiness",
+      "es": "Disponibilidad efectiva de runtimes"
+    },
+    "app.operations.stopTitle": {
+      "en": "Confirm stop request",
+      "es": "Confirmar solicitud de detención"
+    },
+    "app.operations.stopHelp": {
+      "en": "The request is durable. Termination is confirmed only after backend cleanup; Pause does not cancel active work.",
+      "es": "La solicitud queda persistida. La terminación se confirma tras la limpieza del backend; pausar no cancela el trabajo activo."
+    },
+    "app.operations.reason": {
+      "en": "Human reason",
+      "es": "Motivo del operador"
+    },
+    "app.operations.confirm": {
+      "en": "Request termination",
+      "es": "Solicitar terminación"
+    },
     "app.runtime.instructions.ollama_remote": {
       "en": "Point to your remote Ollama server URL and, if it requires auth, add a bearer token.",
       "es": "Apunta a la URL de tu servidor Ollama remoto y, si requiere autenticación, agrega un token bearer."
@@ -13194,6 +13314,18 @@
     "app.pages.memoryExpiresLabel": {
       "en": "expires {date}",
       "es": "vence {date}"
+    },
+    "app.settings.quality.runtimeGroup": {
+      "en": "Project runtime",
+      "es": "Runtime del proyecto"
+    },
+    "app.settings.quality.runtimeHint": {
+      "en": "AIDO validates this project with its own toolchain. If a tool is missing on this machine, enable this to run it inside a container image matching the project instead.",
+      "es": "AIDO valida este proyecto con su propia toolchain. Si falta una herramienta en este equipo, activa esto para ejecutarla dentro de una imagen de contenedor acorde al proyecto."
+    },
+    "app.settings.quality.containerizedRuntime": {
+      "en": "Run the project toolchain in a container when it is missing",
+      "es": "Ejecutar la toolchain del proyecto en un contenedor cuando falte"
     }
   }
 }

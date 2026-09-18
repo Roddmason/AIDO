@@ -26,7 +26,11 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.process_supervision.context import connection_execution_scope
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.security_policy.repository import SecurityPolicyRepository
-from local_control_center.security_policy.sandbox import DockerSandbox, RestrictedSubprocessSandbox
+from local_control_center.security_policy.sandbox import (
+    DockerSandbox,
+    ProjectBuildContainer,
+    RestrictedSubprocessSandbox,
+)
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.telemetry import record_tool_call
@@ -348,6 +352,14 @@ def default_runtime_adapters(
     }
 
 
+WRITABLE_WORKSPACE_SANDBOX_PROFILES = frozenset({"project_build"})
+"""Perfiles cuyo contenedor monta el workspace con escritura.
+
+Se enumera aca, y no se deriva de la red o la memoria del perfil, porque montar el repo del
+usuario con escritura es una decision de postura que debe leerse explicita en el codigo.
+"""
+
+
 class ToolBroker:
     """Evaluates, gates, executes, and audits agent tool calls under security policy."""
 
@@ -365,6 +377,7 @@ class ToolBroker:
         self.jobs = JobsRepository(connection)
         self.sandbox = RestrictedSubprocessSandbox()
         self.docker_sandbox = DockerSandbox()
+        self.project_build_container = ProjectBuildContainer()
         self.runtime_adapters = (
             runtime_adapters
             if runtime_adapters is not None
@@ -972,7 +985,16 @@ class ToolBroker:
                             "reason": "Docker sandbox requires a structured argv list.",
                         }
                     else:
-                        execution_result = self.docker_sandbox.execute(
+                        # El perfil elige la postura: `project_build` monta el workspace con
+                        # escritura porque un build genera artefactos; `default_docker` lo deja
+                        # de solo lectura porque es un sandbox de analisis. Son posturas
+                        # distintas, no un parametro del mismo sandbox.
+                        sandbox_runtime = (
+                            self.project_build_container
+                            if profile_id in WRITABLE_WORKSPACE_SANDBOX_PROFILES
+                            else self.docker_sandbox
+                        )
+                        execution_result = sandbox_runtime.execute(
                             image=image,
                             argv=argv,
                             workspace_path=policy_input.get("workspacePath") or path or ".",

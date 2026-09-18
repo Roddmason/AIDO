@@ -32,7 +32,7 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.toolchain import (
     ToolchainCommand,
-    executable_is_available,
+    container_image_for_command,
     plan_workspace_commands,
 )
 from local_control_center.security_policy.repository import SecurityPolicyRepository
@@ -75,6 +75,9 @@ CONFIG_FILENAMES = {
 }
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 2000
+PROJECT_BUILD_SANDBOX_PROFILE = "project_build"
+"""Perfil de sandbox que monta el workspace con escritura y permite red para dependencias."""
+
 DEFAULT_BUILD_SCRIPT_CANDIDATES = ("build:control-center", "build:web", "build")
 DEFAULT_QUALITY_SCRIPTS = ("quality",)
 TOOL_VERSION_TIMEOUT_SECONDS = 20
@@ -141,17 +144,22 @@ def toolchain_validation_commands(workspace_path: str | Path) -> list[ToolchainC
 def missing_toolchain_findings(
     workspace_path: str | Path,
     *,
-    available: Callable[[str], bool] = executable_is_available,
+    available: Callable[[ToolchainCommand], bool] = lambda command: command.is_available_on_host(),
+    containerized: bool = False,
 ) -> list[dict[str, Any]]:
     """Reporta cada toolchain que el proyecto necesita y el host no tiene instalada.
 
     Es la senal que habilita ofrecer un runtime contenerizado. Sin ella el comando fallaria con
     el error crudo del sistema operativo, que no le dice al operador cual es su decision.
     """
+    if containerized:
+        # El operador ya decidio: el contenedor cubre la toolchain ausente, no hay nada que
+        # reportarle. Seguir emitiendo el hallazgo seria pedirle una accion ya tomada.
+        return []
     findings: list[dict[str, Any]] = []
     seen: set[str] = set()
     for command in toolchain_validation_commands(workspace_path):
-        if command.toolchain in seen or available(command.executable):
+        if command.toolchain in seen or available(command):
             continue
         seen.add(command.toolchain)
         findings.append(
@@ -160,8 +168,9 @@ def missing_toolchain_findings(
                 severity="medium",
                 message=(
                     f"The project needs the '{command.toolchain}' toolchain but "
-                    f"'{command.executable}' is not installed on this host. Install it or run "
-                    "this project in a container."
+                    f"'{command.executable}' is not installed on this host. Install it, or "
+                    "enable the containerized runtime for this project "
+                    "(project.runtime.containerized)."
                 ),
                 evidence={"toolchain": command.toolchain, "executable": command.executable},
             )
@@ -731,7 +740,17 @@ class DevOpsAgentRunner:
         critical: bool,
         timeout_seconds: int,
         result_metadata: dict[str, Any] | None = None,
+        container_image: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
+        container = (
+            {
+                "sandbox": "docker",
+                "dockerImage": container_image,
+                "sandboxProfileId": PROJECT_BUILD_SANDBOX_PROFILE,
+            }
+            if container_image
+            else {}
+        )
         tool_result = broker.evaluate_tool_call(
             project_id=project_id,
             agent_run_id=agent_run["id"],
@@ -747,6 +766,7 @@ class DevOpsAgentRunner:
                 "operation": "devops_agent_command",
                 "execute": True,
                 "timeoutSeconds": timeout_seconds,
+                **container,
             },
         )
         return self._result_from_tool_call(
@@ -1005,7 +1025,35 @@ class DevOpsAgentRunner:
                 "toolchain": planned.toolchain,
                 "purpose": planned.purpose,
             }
-            if not executable_is_available(planned.executable):
+            image = container_image_for_command(self.connection, project_id=project_id, command=planned)
+            if image is not None:
+                # Contenerizar no saca la ejecucion del broker: la politica y la evidencia se
+                # evaluan igual. Se usa `container_argv` porque el `argv` del host trae la ruta
+                # resuelta en este equipo, que dentro del contenedor no existe.
+                result, container_artifacts = self._execute_broker_command(
+                    broker=broker,
+                    project_id=project_id,
+                    workspace=workspace,
+                    agent_run=agent_run,
+                    job=job,
+                    profile=profile,
+                    index=index,
+                    label=f"{planned.label} [container]",
+                    command=planned.policy_command,
+                    argv=list(planned.container_argv or planned.argv),
+                    critical=planned.critical,
+                    timeout_seconds=QUALITY_TIMEOUT_SECONDS,
+                    result_metadata={
+                        **metadata,
+                        "executionMode": "container",
+                        "image": image,
+                    },
+                    container_image=image,
+                )
+                results.append(result)
+                artifact_ids.extend(container_artifacts)
+                continue
+            if not planned.is_available_on_host():
                 result, skipped_artifacts = self._skipped_command_result(
                     project_id=project_id,
                     index=index,
@@ -1277,7 +1325,17 @@ class DevOpsAgentRunner:
             prerequisite_reason=quality_prerequisite,
         )
         toolchain_commands = toolchain_validation_commands(workspace["path"])
-        findings.extend(missing_toolchain_findings(workspace["path"]))
+        from local_control_center.projects.toolchain import CONTAINERIZED_SETTING_KEY
+        from local_control_center.settings.resolver import resolve_setting_value
+
+        containerized = bool(
+            resolve_setting_value(
+                connection=self.connection,
+                key=CONTAINERIZED_SETTING_KEY,
+                project_id=project_id,
+            )
+        )
+        findings.extend(missing_toolchain_findings(workspace["path"], containerized=containerized))
         toolchain_results, toolchain_artifacts = self._execute_toolchain_commands(
             project_id=project_id,
             workspace=workspace,

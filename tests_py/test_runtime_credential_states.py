@@ -98,3 +98,25 @@ def test_disabled_account_is_blocked_not_unconfigured(tmp_path: Path) -> None:
 
     assert readiness["status"] == "blocked", readiness
     assert "disabled" in readiness["reason"].lower()
+
+
+def test_a_cli_that_needs_a_browser_login_publishes_the_exact_command() -> None:
+    """El login de Claude y ChatGPT sólo puede hacerlo el usuario en su navegador.
+
+    Anthropic prohíbe que un tercero intermedie tokens de sesión de claude.ai, así que la vía
+    permitida es que el operador inicie sesión en el binario oficial y AIDO lo consuma. Lo único
+    que AIDO puede hacer por él es darle el comando exacto, como dato estructurado y no enterrado
+    dentro de una frase, para que la UI lo ofrezca copiable en vez de pedirle leerlo.
+    """
+    from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
+    from local_control_center.agents.cli_runtimes.codex_cli import CodexCliRuntime
+
+    assert ClaudeCodeCliRuntime.login_command == "claude auth login"
+    assert CodexCliRuntime.login_command == "codex login"
+
+
+def test_a_runtime_without_an_interactive_login_publishes_nothing() -> None:
+    """Prometer un comando que no existe manda al operador a un callejón sin salida."""
+    from local_control_center.agents.cli_runtimes.base import CliRuntime
+
+    assert CliRuntime.login_command == ""

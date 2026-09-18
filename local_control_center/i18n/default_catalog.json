@@ -13326,6 +13326,10 @@
     "app.settings.quality.containerizedRuntime": {
       "en": "Run the project toolchain in a container when it is missing",
       "es": "Ejecutar la toolchain del proyecto en un contenedor cuando falte"
+    },
+    "app.runtime.health.loginCommand": {
+      "en": "Sign in from your terminal",
+      "es": "Inicia sesion desde tu terminal"
     }
   }
 }

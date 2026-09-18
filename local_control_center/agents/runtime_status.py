@@ -178,6 +178,7 @@ def _status_payload(
     health_status: str = "unknown",
     last_error: str = "",
     configuration_warnings: list[str] | None = None,
+    login_command: str = "",
 ) -> dict[str, Any]:
     sanitized_last_error = str(redact_secrets(last_error or ""))
     return {
@@ -198,6 +199,7 @@ def _status_payload(
             authenticated=authenticated,
             requires_approval=requires_approval,
         ),
+        "loginCommand": login_command,
         "canRunVersionCheck": can_run_version_check,
         "canRunPrompt": can_run_prompt,
         "canEditWorkspace": can_edit_workspace,
@@ -409,6 +411,21 @@ def _api_provider_status(
     return payload
 
 
+def _cli_login_command(runtime_id: str) -> str:
+    """Comando de login interactivo de ese CLI, o vacio si no expone uno.
+
+    Se resuelve desde la clase del runtime y no se duplica aca: el `login_hint` en prosa y el
+    comando son el mismo dato, y tenerlos en dos lugares los deja divergir.
+    """
+    from .runtime_registry import runtime_for
+
+    try:
+        runtime = runtime_for(runtime_id)
+    except KeyError:
+        return ""
+    return str(getattr(runtime, "login_command", "") or "")
+
+
 def _cli_provider_status(
     account: dict[str, Any],
     runtime_installation: dict[str, Any] | None,
@@ -513,6 +530,7 @@ def _cli_provider_status(
         health_checked_at=(runtime_account or {}).get("lastValidationAt"),
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
+        login_command="" if authenticated else _cli_login_command(str(account["providerId"])),
         required_configuration=["command", "authentication"],
         configuration_warnings=_configuration_warnings(
             configuration,

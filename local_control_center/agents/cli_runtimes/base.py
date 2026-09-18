@@ -131,6 +131,10 @@ class CliRuntime(ABC):
     auth_status_argv: tuple[str, ...] | None = None
     # Instrucción accionable que se muestra cuando el CLI no está autenticado.
     login_hint: str = ""
+    # Comando exacto de login, como dato y no dentro de una frase, para que la UI lo ofrezca
+    # copiable. Vacío cuando el runtime no tiene un login interactivo: prometer un comando que
+    # no existe manda al operador a un callejón sin salida.
+    login_command: str = ""
 
     def __init__(self, *, executable: str, connection: sqlite3.Connection | None = None):
         self.executable = executable

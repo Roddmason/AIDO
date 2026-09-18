@@ -884,6 +884,7 @@ class ThreadCoordinator:
             self.connection,
             project_id=thread["projectId"],
             metadata=redact_secrets(run_metadata or {}),
+            thread_id=thread["id"],
         )
         plan_only = bool(clean_run_metadata.get("planOnly") or clean_run_metadata.get("plan_only"))
         payload = {

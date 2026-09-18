@@ -11,6 +11,7 @@ archivos arbitrariamente grandes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import tomllib
 import xml.etree.ElementTree as ET
@@ -18,6 +19,25 @@ from pathlib import Path
 from typing import Any
 
 MAX_MANIFEST_BYTES = 512 * 1024
+MAX_TERRAFORM_FILES = 8
+MAX_DIRECTORIES_SCANNED = 2000
+PRUNED_DIRECTORIES = frozenset(
+    {
+        "node_modules",
+        "vendor",
+        "target",
+        "build",
+        "dist",
+        "out",
+        "__pycache__",
+        "venv",
+        "site-packages",
+    }
+)
+"""Directorios que no contienen infraestructura del proyecto, y si dependencias y artefactos.
+
+Los ocultos (``.git``, ``.venv``, ``.tmp``) se podan por su prefijo, no por nombre.
+"""
 
 
 def _read_text(path: Path) -> str:
@@ -210,16 +230,45 @@ def _dedupe_runtimes_by_id(runtimes: list[dict[str, Any]]) -> list[dict[str, Any
     return unique
 
 
+def _terraform_files(root: Path) -> list[Path]:
+    """Busca ``*.tf`` podando dependencias y artefactos, en orden estable.
+
+    ``rglob`` recorria el arbol completo, incluidos ``node_modules``, ``.git`` y ``.venv``:
+    medido en 7,9 s sobre este repo. La deteccion corre en cada ejecucion de QA y DevOps, asi
+    que ese costo es un camino caliente. Un ``.tf`` dentro de una dependencia tampoco es
+    infraestructura del proyecto, asi que podar no pierde informacion util.
+    """
+    found: list[Path] = []
+    for visited, (current, directories, filenames) in enumerate(os.walk(root)):
+        if visited >= MAX_DIRECTORIES_SCANNED:
+            break
+        directories[:] = sorted(
+            name for name in directories if name not in PRUNED_DIRECTORIES and not name.startswith(".")
+        )
+        for filename in sorted(filenames):
+            if filename.endswith(".tf"):
+                found.append(Path(current, filename))
+                if len(found) >= MAX_TERRAFORM_FILES:
+                    return found
+    return found
+
+
 def _detect_terraform(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     sources: list[dict[str, Any]] = []
     runtimes: list[dict[str, Any]] = []
-    for manifest in sorted(root.rglob("*.tf"))[:8]:
+    for manifest in _terraform_files(root):
         relative = manifest.relative_to(root).as_posix()
         sources.append(_source(relative, kind="infra"))
         if not any(runtime["id"] == "terraform" for runtime in runtimes):
             runtime_path = "." if manifest.parent == root else manifest.parent.relative_to(root).as_posix()
             runtimes.append(
-                _runtime("terraform", kind="infra", label="Terraform", manifest=relative, path=runtime_path)
+                _runtime(
+                    "terraform",
+                    kind="infra",
+                    label="Terraform",
+                    manifest=relative,
+                    path=runtime_path,
+                )
             )
     return sources, runtimes
 

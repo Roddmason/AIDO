@@ -242,3 +242,38 @@ def test_an_installed_toolchain_produces_no_finding(tmp_path: Path) -> None:
     (tmp_path / "pom.xml").write_text(POM, encoding="utf-8")
 
     assert missing_toolchain_findings(tmp_path, available=lambda _executable: True) == []
+
+
+def test_discovery_does_not_walk_into_dependency_directories(tmp_path: Path) -> None:
+    """El planificador corre en cada ejecución de QA y DevOps: no puede recorrer node_modules.
+
+    Medido antes del arreglo: 7,9 s sobre el repo de AIDO, porque la detección de Terraform hacía
+    `rglob("*.tf")` sobre todo el árbol, incluidos `node_modules`, `.git` y `.venv`.
+    """
+    from local_control_center.projects.discovery import discover_project_path
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"build": "x"}}), encoding="utf-8")
+    buried = tmp_path / "node_modules" / "some-package" / "fixtures"
+    buried.mkdir(parents=True)
+    (buried / "main.tf").write_text("# no es del proyecto\n", encoding="utf-8")
+    (tmp_path / "infra").mkdir()
+    (tmp_path / "infra" / "main.tf").write_text('resource "null_resource" "a" {}\n', encoding="utf-8")
+
+    discovery = discover_project_path(tmp_path)
+    manifests = {str(source["manifest"]) for source in discovery["manifestSources"]}
+
+    assert "infra/main.tf" in manifests, manifests
+    assert not any("node_modules" in manifest for manifest in manifests), manifests
+
+
+def test_discovery_stays_fast_on_a_large_repository() -> None:
+    """Ancla de rendimiento sobre el repo real: es el caso que motivó el arreglo."""
+    import time
+
+    from local_control_center.projects.discovery import discover_project_path
+
+    started = time.perf_counter()
+    discover_project_path(Path(__file__).resolve().parents[1])
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0, f"la detección tardó {elapsed:.1f}s; antes del arreglo eran ~7,9s"

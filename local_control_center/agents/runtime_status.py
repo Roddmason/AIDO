@@ -38,6 +38,7 @@ from .runtime_provider_config import (
     RuntimeProviderConfiguration,
     runtime_provider_configuration,
 )
+from .runtime_readiness import CREDENTIAL_PROVIDER_KINDS
 from .runtime_registry import RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
@@ -127,9 +128,6 @@ def _configuration_warnings(
     return warnings
 
 
-_CREDENTIAL_PROVIDER_KINDS = {"cli", "api", "gateway"}
-
-
 def _runtime_blocker_type(
     *,
     kind: str,
@@ -151,7 +149,7 @@ def _runtime_blocker_type(
         return None
     if not (detected or configured):
         return None
-    if authenticated is False and kind in _CREDENTIAL_PROVIDER_KINDS:
+    if authenticated is False and kind in CREDENTIAL_PROVIDER_KINDS:
         return "runtime_auth_missing"
     return "runtime_not_executable"
 

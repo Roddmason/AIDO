@@ -24,6 +24,38 @@ from local_control_center.shared.time import utc_now
 
 HEALTH_EVIDENCE_TTL_SECONDS = 300
 
+CREDENTIAL_PROVIDER_KINDS = frozenset({"cli", "api", "gateway"})
+"""Tipos de proveedor cuyo bloqueo se corrige con credenciales y no con otra cosa."""
+
+HOST_CAPACITY_BLOCKERS = frozenset(
+    {
+        # Motivos del gobernador: el host esta ocupado, el runtime no tiene nada malo.
+        "aggregate_cpu_budget",
+        "aggregate_memory_budget",
+        "browser_build_conflict",
+        "hard_memory_floor",
+        "heavy_workload_capacity",
+        "host_cpu_saturated",
+        "light_workload_capacity",
+        "minimum_free_disk",
+        "minimum_free_memory",
+        "unreal_cook_active",
+        "unreal_cook_exclusive",
+        "unreal_local_gpu_conflict",
+        # Motivos de este modulo cuando la muestra de recursos no sirve para decidir.
+        "resource_session_unverified",
+        "resource_snapshot_required",
+        "resource_snapshot_stale",
+    }
+)
+"""Bloqueos transitorios de capacidad del host, no fallas del runtime.
+
+Se separan porque son la unica causa que el operador NO puede corregir desde el panel del
+proveedor: reingresar una API key no baja la CPU. Presentarlos como "esta IA necesita atencion"
+mandaba a reconfigurar algo que ya estaba bien. Siguen publicados en `reason` y
+`blockingReasons`; lo que no hacen es levantar una alerta accionable falsa.
+"""
+
 
 def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest:
     """Preview the entire verified session, not a second reservation for its own child."""
@@ -148,7 +180,17 @@ def apply_effective_readiness(
         if status["executable"]:
             # A later resource/health/policy projection must not retain a successful
             # explanation. Earlier specific blockers (for example auth) keep precedence.
-            status.update(reason=", ".join(dict.fromkeys(reasons)), blockerType="runtime_not_executable")
+            ordered = list(dict.fromkeys(reasons))
+            actionable = [reason for reason in ordered if reason not in HOST_CAPACITY_BLOCKERS]
+            if not actionable:
+                # Solo falta capacidad del host: es transitorio y se resuelve solo. Reportarlo
+                # como runtime roto llenaba la cola de "necesitan atencion" con IAs sanas.
+                blocker = None
+            elif "authentication_required" in actionable and kind in CREDENTIAL_PROVIDER_KINDS:
+                blocker = "runtime_auth_missing"
+            else:
+                blocker = "runtime_not_executable"
+            status.update(reason=", ".join(ordered), blockerType=blocker)
         status.update(canRunPrompt=False, canEditWorkspace=False, productOwnerExecutable=False)
     status.update(
         globallyEnabled=global_enabled,

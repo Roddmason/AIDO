@@ -229,3 +229,64 @@ def test_refresh_never_piles_up_while_the_previous_one_is_pending(tmp_path: Path
         assert len(ExecutionRepository(runtime.connection).list_recent()) == 2
     finally:
         runtime.close()
+
+
+def test_health_checks_are_admitted_while_the_host_is_busy(tmp_path: Path) -> None:
+    """Un host ocupado no puede impedir el diagnóstico que repara al propio host.
+
+    La evidencia de salud caduca a los 300 s y su único productor es esta operación encolada. Si el
+    gobernador la rechaza por CPU/memoria/disco, la evidencia nunca se renueva, todo runtime
+    configurado cae en ``health_check_required`` y la UI termina pidiendo reconfigurar lo que ya
+    está configurado. Es el mismo callejón sin salida del TTL, un nivel más abajo.
+    """
+    from local_control_center.executions.workloads import operation_workload
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import (
+        ResourceAdmissionRequest,
+        ResourceSnapshot,
+    )
+    from local_control_center.host_resources.repository import ResourceRepository
+
+    gib = 1024**3
+    busy = ResourceSnapshot.test_snapshot(
+        cpu_percent_1s=95,
+        cpu_percent_30s=95,
+        available_memory_bytes=1 * gib,
+        disk_free_bytes={"C:": 1 * gib},
+    )
+    runtime = _platform(tmp_path)
+    try:
+        specs = {
+            operation: runtime.execution_handlers[operation][0]
+            for operation in (CLI_HEALTH_OPERATION, PROVIDER_HEALTH_OPERATION)
+        }
+        governor = HostResourceGovernor(runtime.connection)
+        repository = ResourceRepository(runtime.connection)
+
+        for index, (operation, spec) in enumerate(specs.items()):
+            workload = operation_workload(runtime.connection, spec, {})
+            decision = governor.admit(
+                ResourceAdmissionRequest(
+                    execution_id=f"health-{index}",
+                    workload_class=workload,
+                    owner_id="worker-one",
+                ),
+                snapshot=busy,
+            )
+            assert decision.status == "admitted", (operation, workload, decision.reason_code)
+            if decision.lease is not None:
+                repository.release(decision.lease.id, reason="test cleanup")
+
+        # La contrapartida: el mismo host ocupado sigue frenando la inferencia real, que es cara.
+        inference = runtime.execution_handlers["models.test_prompt"][0]
+        blocked = governor.admit(
+            ResourceAdmissionRequest(
+                execution_id="inference-1",
+                workload_class=operation_workload(runtime.connection, inference, {}),
+                owner_id="worker-one",
+            ),
+            snapshot=busy,
+        )
+        assert blocked.status == "resource_wait", blocked.reason_code
+    finally:
+        runtime.close()

@@ -218,7 +218,13 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
             receipt["workerPid"] = os_worker.pid
         else:
             thread.start()
-        wait_until(lambda: len(list(workspace.glob("writer-*.log"))) == 2, 30)
+        # 60 s y no 30: esta espera cubre el arranque en frio COMPLETO del worker canonico
+        # (spawn del launcher, imports, schema, liderazgo, admision de recursos) hasta que el
+        # binario de IA y su hijo escriben. Medido en 30 muestras sobre este equipo: 25,6-26,2 s,
+        # o sea el 87% del presupuesto de 30 s. Ese margen de ~4 s es lo que hacia fallar el test
+        # de forma intermitente y en un parametro distinto cada corrida. Ninguna otra espera del
+        # archivo pasa del 61% de su presupuesto.
+        wait_until(lambda: len(list(workspace.glob("writer-*.log"))) == 2, 60)
         http("/api/v1/workers/pause", {}, token)
         with closing(open_sqlite_connection(db)) as reader:
             rows = reader.execute("SELECT * FROM managed_processes WHERE execution_id=?", (job,)).fetchall()

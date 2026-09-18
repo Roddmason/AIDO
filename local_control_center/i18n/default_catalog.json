@@ -13330,6 +13330,14 @@
     "app.runtime.health.loginCommand": {
       "en": "Sign in from your terminal",
       "es": "Inicia sesion desde tu terminal"
+    },
+    "app.settings.chip.autoAssigned": {
+      "en": "Auto-assigned",
+      "es": "Asignado automaticamente"
+    },
+    "app.settings.chip.source.detected": {
+      "en": "Detected from the project",
+      "es": "Detectado del proyecto"
     }
   }
 }

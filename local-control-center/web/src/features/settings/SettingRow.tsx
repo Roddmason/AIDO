@@ -78,6 +78,19 @@ export function ChipLabel({
 				</span>
 			);
 		}
+		if (setting.assignedBy === 'auto') {
+			// Distinguir lo que puso la deteccion de lo que puso la persona: sin esta marca la
+			// auto-asignacion es magia y el operador no puede revisar lo que no logra diferenciar.
+			return (
+				<span className="setting-chip" data-origin="auto">
+					{t('app.settings.chip.autoAssigned', 'Auto-assigned')}
+					{' · '}
+					<span className="setting-chip-source">
+						{t('app.settings.chip.source.detected', 'Detected from the project')}
+					</span>
+				</span>
+			);
+		}
 		return (
 			<span className="setting-chip" data-origin="project">
 				{t('app.settings.chip.overridden', 'Overridden')}

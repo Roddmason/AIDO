@@ -43,23 +43,23 @@ class SettingsRepository:
         scope_id: str | None,
         value: Any,
         *,
-        origin: str = "operator",
+        assigned_by: str = "operator",
     ) -> None:
         """Persist ``value`` for ``(key, scope, scope_id)``, upserting if a row already exists.
 
-        ``origin`` distingue un valor que puso una persona de uno que dedujo la deteccion. El
+        ``assigned_by`` distingue un valor que puso una persona de uno que dedujo la deteccion. El
         default es ``operator`` porque toda escritura que no se declare automatica lo es, y
         porque una fila anterior a este campo tiene que contar como del operador para no
         volverse pisable.
         """
         self.connection.execute(
             """
-            INSERT INTO settings_value (key, scope, scope_id, value_json, updated_at, origin)
+            INSERT INTO settings_value (key, scope, scope_id, value_json, updated_at, assigned_by)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(key, scope, scope_id) DO UPDATE SET
                 value_json = excluded.value_json,
                 updated_at = excluded.updated_at,
-                origin = excluded.origin
+                assigned_by = excluded.assigned_by
             """,
             (
                 key,
@@ -67,17 +67,17 @@ class SettingsRepository:
                 self._encode_scope_id(scope_id),
                 json.dumps(value, ensure_ascii=False),
                 utc_now(),
-                origin,
+                assigned_by,
             ),
         )
 
-    def get_origin(self, key: str, scope: str, scope_id: str | None) -> str:
+    def get_assigned_by(self, key: str, scope: str, scope_id: str | None) -> str:
         """Quien fijo ese valor: ``operator`` o ``auto``; ``operator`` si no hay fila."""
         row = self.connection.execute(
-            "SELECT origin FROM settings_value WHERE key=? AND scope=? AND scope_id=?",
+            "SELECT assigned_by FROM settings_value WHERE key=? AND scope=? AND scope_id=?",
             (key, scope, self._encode_scope_id(scope_id)),
         ).fetchone()
-        return str(row["origin"]) if row is not None else "operator"
+        return str(row["assigned_by"]) if row is not None else "operator"
 
     def get_value(self, key: str, scope: str, scope_id: str | None) -> Any:
         """Return the stored value for ``(key, scope, scope_id)``, or ``UNSET`` when absent."""

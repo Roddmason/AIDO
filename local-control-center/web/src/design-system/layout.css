@@ -4050,6 +4050,14 @@
 	color: var(--color-text-secondary);
 }
 
+/* Lo asignó la detección, no la persona. Se distingue del override manual con el acento
+   secundario completo, no con una franja lateral. */
+.setting-chip[data-origin="auto"] {
+	border-color: color-mix(in oklch, var(--color-accent-secondary) 45%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent-secondary) 6%, var(--color-surface-inset));
+	color: var(--color-text-secondary);
+}
+
 .setting-chip[data-origin="custom"] {
 	border-color: color-mix(in oklch, var(--color-accent-secondary) 55%, var(--color-border-subtle));
 	background: color-mix(in oklch, var(--color-accent-secondary) 8%, var(--color-surface-inset));

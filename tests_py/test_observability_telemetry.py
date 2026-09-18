@@ -301,7 +301,7 @@ def test_http_request_telemetry_is_pruned_by_retention(tmp_path: Path) -> None:
         seed_event("event-old-domain", "job.created", "2020-01-01T00:00:00.000Z")
         seed_event("event-new-http", "telemetry.http.request", utc_now())
 
-        deleted = telemetry.prune_http_request_telemetry(connection)
+        deleted = telemetry.prune_high_volume_events(connection)
 
         assert deleted == 1
         remaining = {

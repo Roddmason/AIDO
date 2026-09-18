@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 71
+CURRENT_SCHEMA_VERSION = 72
 
 
 def _execute_atomic_statements(
@@ -132,6 +132,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase69_schema(connection)
     init_phase70_schema(connection)
     init_phase71_schema(connection)
+    init_phase72_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6487,6 +6488,23 @@ def init_phase71_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (71, utc_now()),
+    )
+
+
+def init_phase72_schema(connection: sqlite3.Connection) -> None:
+    """Fase 72: procedencia de cada preferencia, para poder auto-asignar sin pisar al operador.
+
+    Sin este dato, auto-configurar un proyecto es destructivo: al volver a detectar no hay forma
+    de saber si el valor guardado lo puso la maquina o la persona, y la unica opcion segura seria
+    no escribir nunca. El default es `operator` a proposito: **toda fila que ya existia cuenta
+    como del operador**, porque asumir lo contrario la haria pisable de golpe.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "origin" not in columns:
+        connection.execute("ALTER TABLE settings_value ADD COLUMN origin TEXT NOT NULL DEFAULT 'operator'")
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (72, utc_now()),
     )
 
 

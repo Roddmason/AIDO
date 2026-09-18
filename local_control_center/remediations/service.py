@@ -1015,7 +1015,16 @@ class BlockerRemediationService:
                 resealed[key] = caller_value
             else:
                 resealed.pop(key, None)
-        return seal_operator_cost_decision(self.connection, project_id=project_id, metadata=resealed)
+        # El hilo se pasa para que el retry se comporte como un mensaje mas de ese hilo: si el
+        # mensaje original no eligio modo, hereda el que el hilo recuerda, no el del proyecto.
+        return seal_operator_cost_decision(
+            self.connection,
+            project_id=project_id,
+            metadata=resealed,
+            thread_id=str(caller_meta.get("threadId") or "")
+            or (str(source_message.get("threadId") or "") if isinstance(source_message, dict) else "")
+            or None,
+        )
 
     def _retry_loop(self, *, action: dict[str, Any]) -> dict[str, Any]:
         loop_id = str(action.get("loopId") or "").strip()

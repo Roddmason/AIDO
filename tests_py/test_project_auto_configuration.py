@@ -92,7 +92,7 @@ def test_applying_writes_the_settings_with_automatic_provenance(tmp_path: Path, 
     )
     assert stored and all(command.startswith("mvn") for command in stored)
     repository = SettingsRepository(connection)
-    assert repository.get_origin("project.quality.gateCommands", "project", PROJECT) == "auto"
+    assert repository.get_assigned_by("project.quality.gateCommands", "project", PROJECT) == "auto"
 
 
 def test_a_value_the_operator_set_is_never_overwritten(tmp_path: Path, connection) -> None:
@@ -130,15 +130,15 @@ def test_an_operator_write_always_claims_its_own_provenance(connection) -> None:
     """Cualquier escritura del endpoint es del operador, aunque antes hubiera un valor automático."""
     repository = SettingsRepository(connection)
     with connection:
-        repository.set_value("project.goal.statement", "project", PROJECT, "auto", origin="auto")
-        assert repository.get_origin("project.goal.statement", "project", PROJECT) == "auto"
+        repository.set_value("project.goal.statement", "project", PROJECT, "auto", assigned_by="auto")
+        assert repository.get_assigned_by("project.goal.statement", "project", PROJECT) == "auto"
         repository.set_value("project.goal.statement", "project", PROJECT, "mío")
 
-    assert repository.get_origin("project.goal.statement", "project", PROJECT) == "operator"
+    assert repository.get_assigned_by("project.goal.statement", "project", PROJECT) == "operator"
 
 
 def test_settings_written_before_this_feature_count_as_the_operators(connection) -> None:
-    """Una fila existente sin procedencia es del operador: asumir lo contrario la haría pisable."""
+    """Una fila existente sin marca es del operador: asumir lo contrario la haría pisable."""
     with connection:
         connection.execute(
             "INSERT INTO settings_value (key, scope, scope_id, value_json, updated_at) "
@@ -147,7 +147,8 @@ def test_settings_written_before_this_feature_count_as_the_operators(connection)
         )
 
     assert (
-        SettingsRepository(connection).get_origin("project.goal.statement", "project", PROJECT) == "operator"
+        SettingsRepository(connection).get_assigned_by("project.goal.statement", "project", PROJECT)
+        == "operator"
     )
 
 
@@ -212,3 +213,46 @@ def test_what_was_auto_assigned_is_auditable(tmp_path: Path, connection) -> None
     assert len(rows) == 1, rows
     assert rows[0]["actor"] == "system"
     assert "gateCommands" in str(rows[0]["payload"])
+
+
+def test_the_resolved_setting_says_who_assigned_it(tmp_path: Path, connection) -> None:
+    """Sin verlo, la auto-asignación es magia: el operador no puede revisar lo que no distingue.
+
+    Es el patrón de VS Code, que marca visualmente lo que difiere del default. Acá el dato que hace
+    falta es distinto — no "modificado" sino **quién** lo puso — y va aparte de `origin`, que ya
+    significa de qué ámbito salió el valor.
+    """
+    from local_control_center.settings.resolver import resolve_settings
+
+    apply_project_auto_configuration(connection, project_id=PROJECT, project_path=_maven(tmp_path))
+    with connection:
+        SettingsRepository(connection).set_value("project.goal.statement", "project", PROJECT, "objetivo mío")
+
+    resolved = {
+        setting["key"]: setting
+        for setting in resolve_settings(connection=connection, project_id=PROJECT)["project"]
+    }
+
+    automatic = resolved["project.quality.gateCommands"]
+    assert automatic["assignedBy"] == "auto", automatic
+    assert automatic["origin"] == "project", "`origin` sigue siendo el ámbito, no quién lo puso"
+
+    manual = resolved["project.goal.statement"]
+    assert manual["assignedBy"] == "operator", manual
+
+
+def test_an_inherited_value_is_never_credited_to_the_detection(connection) -> None:
+    """Un valor heredado del ámbito general no lo asignó la detección de ESTE proyecto."""
+    from local_control_center.settings.resolver import resolve_settings
+
+    with connection:
+        SettingsRepository(connection).set_value("project.goal.statement", "general", None, "objetivo global")
+
+    resolved = {
+        setting["key"]: setting
+        for setting in resolve_settings(connection=connection, project_id=PROJECT)["project"]
+    }
+    heredado = resolved["project.goal.statement"]
+
+    assert heredado["inherited"] is True
+    assert heredado["assignedBy"] == "operator"

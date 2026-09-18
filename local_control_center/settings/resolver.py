@@ -8,6 +8,9 @@ consumed directly by Pydantic models and the API layer. Precedence rules are:
 - **general** value (scope='general') → origin='general', inherited=True (project scope) / False (general scope)
 - **descriptor default** → origin='default', inherited=True (project scope) / False (general scope)
 
+``assignedBy`` es un eje aparte: dice si el valor efectivo lo puso una persona (``operator``) o
+la deteccion automatica (``auto``). ``origin`` sigue diciendo de que ambito salio.
+
 @author Rodrigo Mason
 """
 
@@ -52,6 +55,14 @@ def _resolve_one(
                 value, origin, inherited = general_val, "general", True
             else:
                 value, origin, inherited = descriptor.default, "default", True
+    # Quien asigno el valor EFECTIVO, que es distinto de `origin` (de que ambito salio). Un
+    # default o un valor heredado no los asigno la deteccion de este proyecto, asi que cuentan
+    # como del operador: es el mismo criterio conservador del default de la columna.
+    assigned_by = (
+        repo.get_assigned_by(descriptor.key, origin, project_id if origin == "project" else None)
+        if origin != "default"
+        else "operator"
+    )
 
     return {
         "key": descriptor.key,
@@ -66,6 +77,7 @@ def _resolve_one(
         "origin": origin,
         "inherited": inherited,
         "source": origin,
+        "assignedBy": assigned_by,
         "editableScopes": editable_scopes,
     }
 

@@ -8,7 +8,7 @@ en vez de calcularlo el servidor.
 
 El invariante de este modulo no es "auto-asignar": es **no pisar nunca al operador**. Un valor que
 la persona puso gana siempre, incluso frente a una deteccion mejor, y se distingue de uno que puso
-la maquina por su procedencia (`origin`). Volver a detectar solo puede corregir lo que la maquina
+la maquina por quien lo asigno (`assigned_by`). Volver a detectar solo puede corregir lo que la maquina
 misma habia supuesto.
 
 Es de solo lectura sobre el proyecto: lee manifiestos, nunca ejecuta nada.
@@ -27,8 +27,8 @@ from local_control_center.settings.repository import UNSET, SettingsRepository
 
 from .toolchain import plan_workspace_commands
 
-AUTOMATIC_ORIGIN = "auto"
-"""Marca de procedencia de un valor que puso la deteccion y no una persona."""
+ASSIGNED_BY_DETECTION = "auto"
+"""Quien asigno el valor cuando lo puso la deteccion y no una persona."""
 
 GATE_COMMANDS_KEY = "project.quality.gateCommands"
 
@@ -66,9 +66,12 @@ def apply_project_auto_configuration(
         if descriptor_for(key) is None:  # pragma: no cover - el registry es la fuente de verdad
             continue
         stored = repository.get_value(key, "project", project_id)
-        if stored is not UNSET and repository.get_origin(key, "project", project_id) != AUTOMATIC_ORIGIN:
+        if (
+            stored is not UNSET
+            and repository.get_assigned_by(key, "project", project_id) != ASSIGNED_BY_DETECTION
+        ):
             preserved.append(key)
             continue
-        repository.set_value(key, "project", project_id, value, origin=AUTOMATIC_ORIGIN)
+        repository.set_value(key, "project", project_id, value, assigned_by=ASSIGNED_BY_DETECTION)
         assigned[key] = value
     return {"assigned": assigned, "preserved": preserved, "detected": derived}

@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 72
+CURRENT_SCHEMA_VERSION = 73
 
 
 def _execute_atomic_statements(
@@ -133,6 +133,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase70_schema(connection)
     init_phase71_schema(connection)
     init_phase72_schema(connection)
+    init_phase73_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6505,6 +6506,29 @@ def init_phase72_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (72, utc_now()),
+    )
+
+
+def init_phase73_schema(connection: sqlite3.Connection) -> None:
+    """Fase 73: `settings_value.origin` pasa a `assigned_by`, porque `origin` ya significa otra cosa.
+
+    `ResolvedSetting.origin` es un `Literal["default","general","project"]` que dice de que
+    **ambito** salio el valor. La columna que agrego la fase 72 dice **quien** lo puso
+    (`operator` / `auto`). Son dos conceptos distintos con el mismo nombre, y estaban a punto de
+    convivir en el mismo payload cuando la procedencia se exponga en la UI. Se renombra ahora,
+    antes de que el nombre ambiguo entre al contrato.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "assigned_by" not in columns:
+        if "origin" in columns:
+            connection.execute("ALTER TABLE settings_value RENAME COLUMN origin TO assigned_by")
+        else:
+            connection.execute(
+                "ALTER TABLE settings_value ADD COLUMN assigned_by TEXT NOT NULL DEFAULT 'operator'"
+            )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (73, utc_now()),
     )
 
 

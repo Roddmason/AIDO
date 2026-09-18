@@ -223,14 +223,14 @@ class LocalWorkerRuntime:
         import time as _time
 
         from local_control_center.agents.runtime_health_refresh import (
-            REFRESH_INTERVAL_SECONDS,
+            REFRESH_POLL_SECONDS,
             refresh_from_worker,
         )
 
         now = _time.monotonic()
         if now < self._health_refresh_due_at:
             return
-        self._health_refresh_due_at = now + REFRESH_INTERVAL_SECONDS
+        self._health_refresh_due_at = now + REFRESH_POLL_SECONDS
         result = refresh_from_worker(self.db_path, self.cwd)
         if result["enqueued"]:
             from local_control_center.shared.diagnostics import diagnostic_event

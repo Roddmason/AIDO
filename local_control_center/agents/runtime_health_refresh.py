@@ -24,14 +24,24 @@ from typing import Any
 
 from .runtime_readiness import HEALTH_EVIDENCE_TTL_SECONDS
 
-REFRESH_MARGIN_SECONDS = 60
+REFRESH_MARGIN_SECONDS = 120
 CLI_HEALTH_OPERATION = "models.health_cli_runtime"
 PROVIDER_HEALTH_OPERATION = "models.provider_health_check"
 CLI_ARGUMENT = "runtime_id"
 PROVIDER_ARGUMENT = "provider_id"
 SKIPPED_KINDS = frozenset({"manual"})
-REFRESH_INTERVAL_SECONDS = max(30, HEALTH_EVIDENCE_TTL_SECONDS - REFRESH_MARGIN_SECONDS)
-"""Cadencia del refresco: siempre menor que el TTL, para que nunca exista una ventana vencida."""
+REFRESH_STALENESS_SECONDS = max(30, HEALTH_EVIDENCE_TTL_SECONDS - REFRESH_MARGIN_SECONDS)
+"""Edad a partir de la cual una evidencia se considera rancia y entra al proximo ciclo."""
+
+REFRESH_POLL_SECONDS = 30
+"""Cada cuanto MIRA el worker si hay evidencia rancia. Es distinto del umbral, a proposito.
+
+Cuando ambos valian 240 s, un runtime cuya evidencia cruzaba el umbral justo despues de un ciclo
+esperaba otros 240 s: llegaba a 480 s y vencia (TTL 300). Medido en la instalacion real con
+gemini en 365 s, nvidia_nim en 357 s y omniroute en 318 s, los tres reportando
+`health_check_required` con la configuracion intacta. Mirar seguido y refrescar solo lo rancio
+deja presupuesto para encolar, admitir y ejecutar antes del vencimiento.
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +69,7 @@ def needs_refresh(status: dict[str, Any], *, now: datetime | None = None) -> boo
     age = _evidence_age_seconds(status, now or datetime.now(UTC))
     if age is None or age < 0:
         return True
-    return age >= max(0, HEALTH_EVIDENCE_TTL_SECONDS - REFRESH_MARGIN_SECONDS)
+    return age >= REFRESH_STALENESS_SECONDS
 
 
 def stale_health_targets(

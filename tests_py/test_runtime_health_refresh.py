@@ -290,3 +290,36 @@ def test_health_checks_are_admitted_while_the_host_is_busy(tmp_path: Path) -> No
         assert blocked.status == "resource_wait", blocked.reason_code
     finally:
         runtime.close()
+
+
+def test_the_refresh_cadence_cannot_let_evidence_expire() -> None:
+    """La cadencia del ciclo y el umbral de vencimiento no pueden ser el mismo numero.
+
+    Medido en la instalacion real: con ambos en 240 s, un runtime cuya evidencia cruza el umbral
+    justo despues de un ciclo espera otros 240 s, llega a 480 s y vence (TTL 300). Se observaron
+    gemini 365 s, nvidia_nim 357 s y omniroute 318 s, todos reportando `health_check_required`
+    con la configuracion intacta. La invariante es aritmetica: umbral + espera del ciclo + tiempo
+    de ejecucion tiene que caber dentro del TTL.
+    """
+    from local_control_center.agents.runtime_health_refresh import (
+        REFRESH_POLL_SECONDS,
+        REFRESH_STALENESS_SECONDS,
+    )
+
+    budget = HEALTH_EVIDENCE_TTL_SECONDS - (REFRESH_STALENESS_SECONDS + REFRESH_POLL_SECONDS)
+
+    assert budget >= 60, (
+        f"solo quedan {budget}s para encolar, admitir y ejecutar el health-check antes de que "
+        f"la evidencia venza (umbral={REFRESH_STALENESS_SECONDS}s, ciclo={REFRESH_POLL_SECONDS}s)"
+    )
+    assert REFRESH_POLL_SECONDS < REFRESH_STALENESS_SECONDS, (
+        "el ciclo tiene que mirar mas seguido de lo que tarda la evidencia en ponerse rancia"
+    )
+
+
+def test_evidence_just_past_the_threshold_is_selected() -> None:
+    """Cruzar el umbral basta para entrar al proximo ciclo, sin esperar al vencimiento."""
+    from local_control_center.agents.runtime_health_refresh import REFRESH_STALENESS_SECONDS
+
+    assert needs_refresh(_status(healthCheckedAt=_iso(REFRESH_STALENESS_SECONDS + 1))) is True
+    assert needs_refresh(_status(healthCheckedAt=_iso(REFRESH_STALENESS_SECONDS - 30))) is False

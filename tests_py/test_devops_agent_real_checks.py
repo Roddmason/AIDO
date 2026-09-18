@@ -293,3 +293,50 @@ def test_devops_agent_existing_build_command_executes_through_broker_with_artifa
     assert command["toolCallId"]
     assert command["artifactHashes"]["outputArtifactHash"]
     assert body["configArtifact"]["id"].startswith("artifact-")
+
+
+def test_devops_agent_validates_a_project_with_its_own_toolchain(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un proyecto sin `package.json` no corría NINGÚN comando y el reporte salía como saltado.
+
+    Saltado parece verificado y no lo está. Ahora el DevOpsAgent planea la validación desde los
+    manifiestos del propio proyecto, y si la toolchain no está instalada en el host lo dice con una
+    causa accionable en vez de dejar el hueco en silencio.
+    """
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-maven-toolchain")
+    Path(workspace["path"], "pom.xml").write_text(
+        '<?xml version="1.0"?><project><artifactId>demo</artifactId></project>', encoding="utf-8"
+    )
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=[]),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    toolchain_commands = [
+        command
+        for command in body["commands"]
+        if command.get("metadata", {}).get("validationType") == "project_toolchain"
+    ]
+    assert toolchain_commands, body["commands"]
+    assert {command["metadata"]["toolchain"] for command in toolchain_commands} == {"java-maven"}
+    assert any("mvn" in str(command["command"]) for command in toolchain_commands)
+
+    maven_installed = shutil.which("mvn") or shutil.which("mvn.cmd")
+    findings = {finding["checkId"] for finding in body["configFindings"]}
+    if maven_installed:
+        assert "toolchain_not_installed" not in findings
+    else:
+        # El host no tiene Maven: la salida tiene que nombrar la decisión, no un error del SO.
+        assert "toolchain_not_installed" in findings, body["configFindings"]
+        assert all(
+            command["status"] == "skipped_with_reason" and "not installed" in command["reason"]
+            for command in toolchain_commands
+        ), toolchain_commands

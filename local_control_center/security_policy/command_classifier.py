@@ -15,9 +15,9 @@ from typing import Any
 
 from .permissions import (
     low_risk_shell_category,
+    node_script_category,
     package_manager_category,
     parse_command,
-    pnpm_script_category,
 )
 
 CRITICAL_RULES: list[tuple[str, re.Pattern[str]]] = [
@@ -60,9 +60,9 @@ def classify_command(command: str | None) -> dict[str, Any]:
         package_category = package_manager_category(parsed)
         if package_category:
             categories.append(package_category)
-        pnpm_category = pnpm_script_category(parsed)
-        if pnpm_category in {"package_script_hook", "package_script"}:
-            categories.append(pnpm_category)
+        node_category = node_script_category(parsed)
+        if node_category in {"package_script_hook", "package_script"}:
+            categories.append(node_category)
         if categories:
             return {"riskLevel": "medium", "categories": categories}
     for name, pattern in MEDIUM_RULES:

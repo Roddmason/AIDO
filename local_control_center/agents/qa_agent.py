@@ -12,7 +12,6 @@ is incomplete it downgrades the run to `blocked`.
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import uuid
 from pathlib import Path
@@ -27,6 +26,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.projects.toolchain import plan_workspace_commands
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -152,47 +152,14 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
 
 
 def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
-    """Infer QA commands from a workspace's test dirs and package.json scripts.
+    """Infiere los comandos de QA desde la toolchain que el proyecto realmente usa.
 
-    Detects Python tests (tests_py/tests) and the first matching web test/build/typecheck/
-    lint script, returning structured-argv command specs the runner can execute.
+    Delega en ``projects.toolchain``: antes esta funcion sabia de pytest y pnpm y nada mas, asi
+    que un proyecto Maven, Gradle, Go o Rust no producia ningun comando y QA se declaraba sin
+    nada que correr. El plan sale de los manifiestos del propio proyecto y prefiere su wrapper
+    versionado (`mvnw`, `gradlew`) por sobre el binario global del host.
     """
-    workspace = Path(workspace_path)
-    commands: list[dict[str, Any]] = []
-    tests_py = workspace / "tests_py"
-    tests = workspace / "tests"
-    if tests_py.exists() and tests_py.is_dir():
-        commands.append(
-            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests_py", "-q"], "critical": True}
-        )
-    elif tests.exists() and tests.is_dir():
-        commands.append(
-            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests", "-q"], "critical": True}
-        )
-
-    package_json = workspace / "package.json"
-    if package_json.exists() and package_json.is_file():
-        try:
-            scripts = (json.loads(package_json.read_text(encoding="utf-8")).get("scripts") or {}).keys()
-        except (OSError, json.JSONDecodeError):
-            scripts = []
-        script_names = {str(item) for item in scripts}
-        for label, candidates in (
-            ("Web tests", ("test:web", "test")),
-            ("Build", ("build:control-center", "build:web", "build")),
-            ("Typecheck", ("typecheck:web", "typecheck")),
-            ("Lint", ("lint:py", "lint:web", "lint")),
-        ):
-            script = next((candidate for candidate in candidates if candidate in script_names), None)
-            if script:
-                commands.append(
-                    {
-                        "label": label,
-                        "argv": ["corepack", "pnpm@10.24.0", "run", script],
-                        "critical": True,
-                    }
-                )
-    return commands
+    return [command.as_command_spec() for command in plan_workspace_commands(workspace_path)]
 
 
 def qa_verdict_allows_completion(verdict: str, results: list[dict[str, Any]]) -> bool:

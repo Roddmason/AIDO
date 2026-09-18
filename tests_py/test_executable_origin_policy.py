@@ -156,11 +156,23 @@ def test_running_interpreter_still_runs(tmp_path: Path) -> None:
     assert decision["decision"] == "allow"
 
 
-def test_a_sibling_of_the_interpreter_is_not_trusted(tmp_path: Path) -> None:
-    """Se confia en el archivo del interprete, no en su directorio: el venv no es un PATH extra."""
-    sibling = str(Path(sys.executable).with_name("node.exe"))
+def test_a_sibling_of_the_interpreter_is_not_trusted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Se confia en el archivo del interprete, no en su directorio: el venv no es un PATH extra.
 
-    assert executable_origin_is_trusted([sibling, "--version"], workspace_path=str(tmp_path)) is False
+    El interprete se reubica a un directorio temporal a proposito. Apuntando al venv real, este
+    test dependia del entorno: bajo `uv run` el `Scripts/` del venv **si** esta en el PATH, asi
+    que el veredicto lo daba la regla del PATH y no la del interprete, y el invariante que este
+    test existe para fijar quedaba sin cubrir.
+    """
+    interpreter_home = tmp_path / "fake-venv" / "Scripts"
+    interpreter_home.mkdir(parents=True)
+    interpreter = interpreter_home / "python.exe"
+    interpreter.write_bytes(b"")
+    monkeypatch.setattr(sys, "executable", str(interpreter))
+    sibling = str(interpreter.with_name("node.exe"))
+
+    assert executable_origin_is_trusted([str(interpreter), "--version"], workspace_path=None) is True
+    assert executable_origin_is_trusted([sibling, "--version"], workspace_path=None) is False
 
 
 def test_traversal_out_of_the_workspace_is_denied(tmp_path: Path) -> None:

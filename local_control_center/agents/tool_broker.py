@@ -768,6 +768,7 @@ class ToolBroker:
             "tool": tool_name,
             "command": command,
             "commandArgv": command_argv,
+            "execute": tool_call.get("execute") is True,
             "path": path,
             "workspacePath": workspace_path,
             "gitOperation": tool_call.get("gitOperation"),

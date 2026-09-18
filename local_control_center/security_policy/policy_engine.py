@@ -2,7 +2,8 @@
 
 Combina el perfil de permisos del rol, la clasificacion de riesgo del comando y el confinamiento
 al workspace para emitir la decision y su razon auditada. Invariantes que garantiza: ninguna
-ruta fuera del workspace asignado se permite sin aprobacion; los deploys a prod, force-push y
+ruta fuera del workspace asignado se permite sin aprobacion; ningun ejecutable corre si su
+``argv[0]`` no viene del PATH o del workspace; los deploys a prod, force-push y
 acciones criticas escalan a revision humana; cada operacion de agente exige su propio agentId,
 tool, perfil y contexto (workspace + agent run) o se deniega. Funcion pura: no ejecuta ni
 persiste, solo devuelve la decision; no lanza.
@@ -17,6 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .command_classifier import classify_command
+from .executable_origin import executable_origin_is_trusted, is_path_inside
 
 PROFILE_DEFAULTS: dict[str, str] = {
     "product_owner": "plan",
@@ -70,6 +72,19 @@ PLAN_EXECUTION_ADAPTER_TOOLS = {
     "swe_agent",
     "workspace_patch",
 }
+RUNTIME_CLI_OPERATIONS = {
+    "architect_agent_runtime",
+    "codex_compatibility_smoke",
+    "developer_agent_runtime",
+    "product_owner_runtime",
+}
+"""Operaciones que ejecutan la CLI de IA que el operador registro en la instalacion del runtime.
+
+Su ``argv[0]`` sale de esa configuracion, no del PATH, y ya lo valida el contrato del runtime
+(`runtime_registry.validate_product_owner_runtime_argv`). Exigirles ademas un origen del PATH
+romperia una CLI instalada a proposito en una ruta propia, asi que quedan fuera de la guarda de
+origen. Es una lista de exclusion, no de inclusion: una operacion de shell nueva nace protegida.
+"""
 
 
 def _model_runtime_binding_is_valid(input_payload: dict[str, Any], tool: str) -> bool:
@@ -104,24 +119,6 @@ def _remote_url_embeds_credentials(value: str | None) -> bool:
     if parsed.scheme == "ssh":
         return bool(parsed.password)
     return False
-
-
-def is_path_inside(path: str | None, root: str | None) -> bool:
-    """Confirma que ``path`` resuelve dentro de ``root`` tras normalizar ``..`` y symlinks.
-
-    Considera dentro cuando falta path o root (no hay restriccion declarada). Resuelve ambas
-    rutas para evitar escapes via traversal; ante rutas invalidas devuelve ``False`` (fuera),
-    fallando hacia el lado seguro en vez de lanzar.
-    """
-    if not path or not root:
-        return True
-    try:
-        candidate = Path(path).resolve(strict=False)
-        workspace_root = Path(root).resolve(strict=False)
-        candidate.relative_to(workspace_root)
-        return True
-    except (OSError, ValueError):
-        return False
 
 
 def permission_profile_for(input_payload: dict[str, Any]) -> str:
@@ -726,6 +723,22 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
             "decision": "requires_approval",
             "riskLevel": "medium",
             "reason": "Action path is outside the allocated workspace.",
+            "categories": categories,
+        }
+
+    if (
+        input_payload.get("execute") is True
+        and tool == "shell"
+        and operation not in RUNTIME_CLI_OPERATIONS
+        and not executable_origin_is_trusted(
+            input_payload.get("commandArgv"), workspace_path=input_payload.get("workspacePath")
+        )
+    ):
+        categories.append("executable_origin_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Executable must resolve from PATH or the allocated workspace; its argv[0] does not.",
             "categories": categories,
         }
 

@@ -70,7 +70,7 @@ from .shared.telemetry import (
     elapsed_ms,
     external_telemetry_status,
     monotonic_ms,
-    prune_http_request_telemetry,
+    prune_high_volume_events,
     record_http_request,
     resolve_correlation_id,
 )
@@ -166,7 +166,7 @@ def create_app(
 
             def prune_stale_http_telemetry() -> int:
                 with _operation_connection_scope(platform) as connection:
-                    return prune_http_request_telemetry(connection)
+                    return prune_high_volume_events(connection)
 
             deleted = await anyio.to_thread.run_sync(prune_stale_http_telemetry)
             if deleted:

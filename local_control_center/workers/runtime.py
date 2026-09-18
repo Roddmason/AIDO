@@ -31,7 +31,7 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.telemetry import prune_http_request_telemetry
+from local_control_center.shared.telemetry import prune_high_volume_events
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
@@ -652,7 +652,7 @@ class LocalWorkerRuntime:
             connection = open_sqlite_connection(self.db_path)
             try:
                 initialize_platform_schema(connection)
-                prune_http_request_telemetry(connection)
+                prune_high_volume_events(connection)
             finally:
                 connection.close()
         except Exception:  # pragma: no cover - la retencion nunca debe interrumpir el batch

@@ -37,6 +37,7 @@ class ClaudeCodeCliRuntime(CliRuntime):
     display_name = "Claude Code CLI"
     auth_status_argv = ("auth", "status", "--json")
     login_hint = "Claude Code CLI is not logged in; run `claude auth login` and retry."
+    login_command = "claude auth login"
 
     def __init__(
         self,

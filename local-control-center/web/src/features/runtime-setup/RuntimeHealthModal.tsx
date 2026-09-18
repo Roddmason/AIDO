@@ -67,6 +67,16 @@ export function RuntimeHealthModal({
 										</div>
 									) : null}
 								</dl>
+								{alert.loginCommand ? (
+									<div className="thread-remediation-facts">
+										<div>
+											<dt>{t('app.runtime.health.loginCommand', 'Sign in from your terminal')}</dt>
+											<dd>
+												<code className="mono">{alert.loginCommand}</code>
+											</dd>
+										</div>
+									</div>
+								) : null}
 								{alert.lastError ? (
 									<details className="thread-remediation-detail">
 										<summary>{t('app.runtime.health.technical', 'Technical detail')}</summary>

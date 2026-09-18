@@ -25,6 +25,14 @@ export type RuntimeHealthAlert = {
 	lastError: string;
 	/** Settings section whose deep-link fixes this provider. */
 	settingsSection: string;
+	/**
+	 * Exact interactive login command, empty when the runtime has none.
+	 *
+	 * The browser sign-in for Claude and ChatGPT can only be done by the operator in their own
+	 * session — a third party may not intermediate those tokens — so the most AIDO can do is hand
+	 * over the command to copy instead of burying it in a sentence.
+	 */
+	loginCommand: string;
 };
 
 /** Settings section that repairs a provider of the given kind (deep-linked with its providerId). */
@@ -53,6 +61,7 @@ export function deriveRuntimeAlerts(
 			reason: provider.reason ?? '',
 			lastError: provider.lastError ?? '',
 			settingsSection: settingsSectionForKind(provider.kind),
+			loginCommand: provider.loginCommand ?? '',
 		});
 	}
 	return alerts;

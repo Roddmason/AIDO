@@ -421,6 +421,10 @@ class RuntimeProviderStatus(BaseModel):
     #: ``runtime_auth_missing`` / ``runtime_not_executable``); ``None`` si está sano o no configurado.
     #: Deja que la UI muestre el mismo chip accionable que un bloqueo de loop sin duplicar la causa.
     blocker_type: str | None = Field(default=None, alias="blockerType")
+    #: Comando exacto de login interactivo del runtime, vacio si no tiene uno. La UI lo ofrece
+    #: copiable: el login de Claude y ChatGPT lo hace el operador en su navegador, y un tercero
+    #: no puede intermediar esos tokens de sesion.
+    login_command: str = Field(default="", alias="loginCommand")
     can_run_version_check: bool = Field(default=False, alias="canRunVersionCheck")
     can_run_prompt: bool = Field(default=False, alias="canRunPrompt")
     can_edit_workspace: bool = Field(default=False, alias="canEditWorkspace")

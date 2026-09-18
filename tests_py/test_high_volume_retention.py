@@ -141,3 +141,111 @@ def test_pruning_the_resource_history_covers_both_tables(connection) -> None:
         prune_resource_history(repository)
 
     assert connection.execute("SELECT COUNT(*) FROM resource_admission_decisions").fetchone()[0] == 0
+
+
+def _admit(repository, connection, *, execution: str, job: str, reason: str, status: str = "resource_wait"):
+    """Registra una decisión de admisión como lo hace el gobernador."""
+    from local_control_center.host_resources.models import (
+        ResourceAdmissionDecision,
+        ResourceAdmissionRequest,
+        ResourceSnapshot,
+    )
+
+    with connection:
+        repository.record_admission(
+            request=ResourceAdmissionRequest(
+                execution_id=execution, workload_class="qa_light", owner_id="w", job_id=job
+            ),
+            decision=ResourceAdmissionDecision(
+                status=status,
+                reason_code=reason,
+                reason="",
+                lease=None,
+                snapshot=ResourceSnapshot.test_snapshot(),
+            ),
+        )
+
+
+def test_repeating_the_same_verdict_does_not_grow_the_table(connection) -> None:
+    """98% de esa tabla eran rechazos identicos repetidos, y ningun lector los consume.
+
+    Medido en la instalación real: 130.781 filas para 2.986 ejecuciones — 44 intentos promedio, y
+    un job con **9.023 intentos en 58 minutos**. Los dos lectores que existen piden sólo la fila más
+    reciente (`ORDER BY rowid DESC LIMIT 1` y `MAX(rowid)`), así que el intento 9.023 no le servía a
+    nadie y se escribía con el snapshot completo del host, bajo el candado global, justo cuando el
+    equipo ya estaba en apuros.
+    """
+    repository = ResourceRepository(connection)
+    for _ in range(50):
+        _admit(repository, connection, execution="exec-1", job="job-1", reason="host_cpu_saturated")
+
+    rows = connection.execute(
+        "SELECT attempts FROM resource_admission_decisions WHERE execution_id='exec-1'"
+    ).fetchall()
+
+    assert len(rows) == 1, f"50 veredictos identicos dejaron {len(rows)} filas"
+    assert rows[0]["attempts"] == 50
+
+
+def test_a_different_verdict_is_recorded_as_its_own_row(connection) -> None:
+    """Cambiar de motivo SÍ es información nueva: la cronología del bloqueo no se pierde."""
+    repository = ResourceRepository(connection)
+    _admit(repository, connection, execution="exec-1", job="job-1", reason="host_cpu_saturated")
+    _admit(repository, connection, execution="exec-1", job="job-1", reason="minimum_free_memory")
+    _admit(repository, connection, execution="exec-1", job="job-1", reason="host_cpu_saturated")
+
+    reasons = [
+        row["reason_code"]
+        for row in connection.execute(
+            "SELECT reason_code FROM resource_admission_decisions WHERE execution_id='exec-1' ORDER BY rowid"
+        )
+    ]
+
+    assert reasons == ["host_cpu_saturated", "minimum_free_memory", "host_cpu_saturated"]
+
+
+def test_the_wait_keeps_the_time_it_started_not_the_last_retry(connection) -> None:
+    """`waiting_requests` ordena por `created_at ASC` para atender primero al que mas espera.
+
+    Con una fila nueva por reintento, ese campo era la hora del ÚLTIMO intento, así que el que más
+    esperaba se iba al final justo por seguir esperando. Conservarlo hace que el orden signifique
+    lo que dice.
+    """
+    repository = ResourceRepository(connection)
+    _admit(repository, connection, execution="exec-1", job="job-1", reason="host_cpu_saturated")
+    primero = connection.execute(
+        "SELECT created_at FROM resource_admission_decisions WHERE execution_id='exec-1'"
+    ).fetchone()["created_at"]
+
+    for _ in range(5):
+        _admit(repository, connection, execution="exec-1", job="job-1", reason="host_cpu_saturated")
+
+    row = connection.execute(
+        "SELECT created_at, last_seen_at FROM resource_admission_decisions WHERE execution_id='exec-1'"
+    ).fetchone()
+
+    assert row["created_at"] == primero, "la espera no puede reiniciar su reloj por reintentar"
+    assert row["last_seen_at"] >= primero
+
+
+def test_the_only_two_readers_still_see_the_latest_verdict(connection) -> None:
+    """El cambio no puede romper a quien consulta: ambos lectores piden la fila mas reciente."""
+    repository = ResourceRepository(connection)
+    with connection:
+        connection.execute(
+            "INSERT INTO projects (id, name, path, template_id, source, status, metadata, "
+            "created_at, updated_at) VALUES ('p-1', 'demo', '/tmp/demo', 'other', 'api', "
+            "'active', '{}', ?, ?)",
+            (_iso(0), _iso(0)),
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, project_id, kind, status, payload, created_at, updated_at) "
+            "VALUES ('job-1', 'p-1', 'operation.execute', 'resource_wait', '{}', ?, ?)",
+            (_iso(0), _iso(0)),
+        )
+    for _ in range(20):
+        _admit(repository, connection, execution="exec-1", job="job-1", reason="minimum_free_disk")
+
+    waiting = repository.waiting_requests()
+
+    assert [request.execution_id for request in waiting] == ["exec-1"]

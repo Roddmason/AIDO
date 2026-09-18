@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 70
+CURRENT_SCHEMA_VERSION = 71
 
 
 def _execute_atomic_statements(
@@ -131,6 +131,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase68_schema(connection)
     init_phase69_schema(connection)
     init_phase70_schema(connection)
+    init_phase71_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6452,6 +6453,40 @@ def init_phase70_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (70, utc_now()),
+    )
+
+
+def init_phase71_schema(connection: sqlite3.Connection) -> None:
+    """Fase 71: cuenta los reintentos de admision en vez de guardar una fila por cada uno.
+
+    Medido en la instalacion real: 130.781 filas para 2.986 ejecuciones (44 intentos promedio, y
+    un job con 9.023 en 58 minutos), de las cuales el 98% eran `resource_wait` repetido. Los dos
+    unicos lectores piden la fila mas reciente, asi que ninguna de esas repeticiones tenia
+    consumidor: eran 119,3 MB de escritura bajo el candado global, justo durante los episodios en
+    que el equipo ya estaba saturado.
+
+    `attempts` conserva cuantas veces se repitio el veredicto y `last_seen_at` cuando fue la
+    ultima, de modo que `created_at` pueda quedarse en el PRIMER intento. Eso ademas arregla el
+    orden de `waiting_requests`, que pide `created_at ASC` para atender primero al que mas
+    espera: con una fila por reintento ese campo era la hora del ultimo intento, asi que el que
+    mas esperaba se iba al final por seguir esperando.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(resource_admission_decisions)")}
+    if "attempts" not in columns:
+        connection.execute(
+            "ALTER TABLE resource_admission_decisions ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1"
+        )
+    if "last_seen_at" not in columns:
+        connection.execute("ALTER TABLE resource_admission_decisions ADD COLUMN last_seen_at TEXT")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_resource_admission_execution
+            ON resource_admission_decisions(execution_id)
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (71, utc_now()),
     )
 
 

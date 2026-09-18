@@ -247,12 +247,44 @@ class ResourceRepository:
                 "hostCpuPercent1s": decision.snapshot.cpu_percent_1s,
             },
         )
+        moment = utc_now()
+        snapshot_json = json_dumps(decision.snapshot.model_dump(by_alias=True))
+        # Un veredicto identico repetido no es informacion nueva: los dos lectores que existen
+        # piden la fila mas reciente, asi que insertar otra solo escribe. Se actualiza la que ya
+        # esta, conservando `created_at` para no reiniciar el reloj de la espera.
+        latest = self.connection.execute(
+            """
+            SELECT rowid, status, reason_code FROM resource_admission_decisions
+            WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1
+            """,
+            (request.execution_id,),
+        ).fetchone()
+        if (
+            latest is not None
+            and latest["status"] == decision.status
+            and latest["reason_code"] == decision.reason_code
+        ):
+            self.connection.execute(
+                """
+                UPDATE resource_admission_decisions
+                SET attempts = attempts + 1, last_seen_at = ?, snapshot_json = ?, lease_id = ?
+                WHERE rowid = ?
+                """,
+                (
+                    moment,
+                    snapshot_json,
+                    decision.lease.id if decision.lease else None,
+                    latest["rowid"],
+                ),
+            )
+            return
         self.connection.execute(
             """
             INSERT INTO resource_admission_decisions
                 (id, execution_id, job_id, workload_class, owner_id, status, reason_code,
-                 reason, request_json, snapshot_json, lease_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 reason, request_json, snapshot_json, lease_id, created_at, attempts,
+                 last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             """,
             (
                 f"resource-admission-{uuid.uuid4()}",
@@ -264,9 +296,10 @@ class ResourceRepository:
                 decision.reason_code,
                 decision.reason,
                 json_dumps(request.model_dump(by_alias=True)),
-                json_dumps(decision.snapshot.model_dump(by_alias=True)),
+                snapshot_json,
                 decision.lease.id if decision.lease else None,
-                utc_now(),
+                moment,
+                moment,
             ),
         )
 

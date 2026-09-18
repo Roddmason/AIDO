@@ -13,6 +13,7 @@ from contextlib import closing
 import pytest
 
 from local_control_center.evidence.artifacts import evidence_artifact_root
+from local_control_center.host_resources.models import ResourceSnapshot
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.process_supervision import service as module
 from local_control_center.process_supervision.repository import ManagedProcessRepository
@@ -21,7 +22,16 @@ from local_control_center.shared.db import open_sqlite_connection
 
 @pytest.mark.parametrize("exit_code", [0, 23])
 def test_observed_native_exit_precedes_sqlite_finalization_and_handle_close(tmp_path, monkeypatch, exit_code):
-    service = module.ProcessSupervisorService(db_path=tmp_path / "native.sqlite")
+    # Snapshot fijo: sin el, `service.start` sondea el host real y el gobernador rechaza la
+    # admision con `host_cpu_saturated` en cuanto el equipo esta cargado. Este test mide
+    # supervision de procesos, no admision de recursos. Reproducido bajo carga sintetica: 5 de 7
+    # casos fallaban por eso, y cuales fallaban cambiaba en cada corrida. Las otras dos
+    # construcciones de este archivo ya usaban la costura; estas dos se habian olvidado, y son
+    # justo las que lanzan procesos de verdad.
+    service = module.ProcessSupervisorService(
+        db_path=tmp_path / "native.sqlite",
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
     managed = service.start(
         argv=[sys.executable, "-c", f"print('synthetic'); raise SystemExit({exit_code})"],
         cwd=tmp_path,
@@ -68,7 +78,6 @@ def test_observed_native_exit_precedes_sqlite_finalization_and_handle_close(tmp_
 
 
 def test_secondary_receipt_failure_does_not_replace_sqlite_error(tmp_path, monkeypatch):
-    from local_control_center.host_resources.models import ResourceSnapshot
     from local_control_center.shared import serialization
     from tests_py.test_process_supervision import FakeSupervisor
 
@@ -111,7 +120,16 @@ def test_secondary_receipt_failure_does_not_replace_sqlite_error(tmp_path, monke
 
 @pytest.mark.parametrize("ending", ["normal", "cancel", "child-death"])
 def test_native_close_preserves_borrowed_connection_wal_and_foreign_keys(tmp_path, ending):
-    service = module.ProcessSupervisorService(db_path=tmp_path / "lifecycle.sqlite")
+    # Snapshot fijo: sin el, `service.start` sondea el host real y el gobernador rechaza la
+    # admision con `host_cpu_saturated` en cuanto el equipo esta cargado. Este test mide
+    # supervision de procesos, no admision de recursos. Reproducido bajo carga sintetica: 5 de 7
+    # casos fallaban por eso, y cuales fallaban cambiaba en cada corrida. Las otras dos
+    # construcciones de este archivo ya usaban la costura; estas dos se habian olvidado, y son
+    # justo las que lanzan procesos de verdad.
+    service = module.ProcessSupervisorService(
+        db_path=tmp_path / "lifecycle.sqlite",
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
     command = (
         "from pathlib import Path; import time; "
         "Path('ready').write_text('ready'); "
@@ -162,7 +180,6 @@ def test_native_close_preserves_borrowed_connection_wal_and_foreign_keys(tmp_pat
 def test_capture_cleanup_still_runs_when_capture_sql_persistence_fails(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    from local_control_center.host_resources.models import ResourceSnapshot
     from tests_py.test_process_supervision import FakeSupervisor
 
     service = module.ProcessSupervisorService(
@@ -192,3 +209,31 @@ def test_capture_cleanup_still_runs_when_capture_sql_persistence_fails(tmp_path,
             managed.managed_process_id, stats=ProcessStats(exit_code=0)
         )
         ResourceRepository(connection).release(managed.resource_lease_id, reason="unit fixture cleanup")
+
+
+def test_a_saturated_host_defers_the_spawn_instead_of_running_it(tmp_path) -> None:
+    """El contrapeso de fijar el snapshot: con el host saturado, supervisar DEBE diferir.
+
+    Los tests de arriba pinnean un host sano para medir supervision y no admision. Eso deja sin
+    cubrir la mitad que importa en produccion, y es un comportamiento que se descubrio por
+    accidente —como fallos intermitentes— en vez de estar fijado. Aca queda fijado.
+    """
+    gib = 1024**3
+    saturated = ResourceSnapshot.test_snapshot(
+        cpu_percent_1s=99,
+        cpu_percent_30s=99,
+        available_memory_bytes=32 * gib,
+        disk_free_bytes={"C:": 500 * gib},
+    )
+    service = module.ProcessSupervisorService(
+        db_path=tmp_path / "saturated.sqlite", resource_snapshot=saturated
+    )
+
+    with pytest.raises(module.ResourceWaitError, match="host_cpu_saturated"):
+        service.start(
+            argv=[sys.executable, "-c", "pass"],
+            cwd=tmp_path,
+            workload_class="qa_light",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )

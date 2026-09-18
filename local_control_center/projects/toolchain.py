@@ -132,14 +132,11 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
-def resolve_executable(name: str) -> str:
-    """Resuelve un binario en el host probando las extensiones de Windows antes del nombre pelado."""
-    candidates = (f"{name}.cmd", f"{name}.bat", f"{name}.exe", name) if "." not in name else (name,)
-    for candidate in candidates:
-        found = shutil.which(candidate)
-        if found:
-            return found
-    return name
+# El argv se emite con el nombre pelado del binario, sin resolverlo a una ruta absoluta.
+# `sandbox._resolved_subprocess_argv` ya lo resuelve al ejecutar, contra su propia allowlist.
+# Resolverlo aca duplicaba esa logica, producia `corepack.cmd` donde el resto del sistema espera
+# `corepack`, y metia una ruta absoluta justo donde la politica solo ve el basename.
+# El wrapper del repo es la excepcion: ahi la ruta ES el dato, porque no esta en el PATH.
 
 
 def executable_is_available(name: str) -> bool:
@@ -179,12 +176,12 @@ def _node_commands(workspace: Path) -> list[ToolchainCommand]:
         if script is None:
             continue
         if manager == "pnpm":
-            argv = [resolve_executable("corepack"), f"pnpm@{PNPM_VERSION}", "run", script]
+            argv = ["corepack", f"pnpm@{PNPM_VERSION}", "run", script]
             policy = f"corepack pnpm@{PNPM_VERSION} run {script}"
             executable = "corepack"
             container = ["corepack", f"pnpm@{PNPM_VERSION}", "run", script]
         else:
-            argv = [resolve_executable(manager), "run", script]
+            argv = [manager, "run", script]
             policy = f"{manager} run {script}"
             executable = manager
             container = [manager, "run", script]
@@ -206,7 +203,7 @@ def _node_commands(workspace: Path) -> list[ToolchainCommand]:
 def _maven_commands(workspace: Path) -> list[ToolchainCommand]:
     wrapper = _wrapper_path(workspace, "mvnw.cmd", "mvnw.bat", "mvnw")
     executable = wrapper.name if wrapper else "mvn"
-    argv_head = str(wrapper) if wrapper else resolve_executable("mvn")
+    argv_head = str(wrapper) if wrapper else "mvn"
     # `-B` (batch) evita que Maven pida entrada interactiva, que colgaría el subproceso.
     # `verify` corre tests y empaqueta sin publicar nada fuera de la máquina.
     return [
@@ -234,7 +231,7 @@ def _maven_commands(workspace: Path) -> list[ToolchainCommand]:
 def _gradle_commands(workspace: Path) -> list[ToolchainCommand]:
     wrapper = _wrapper_path(workspace, "gradlew.bat", "gradlew")
     executable = wrapper.name if wrapper else "gradle"
-    argv_head = str(wrapper) if wrapper else resolve_executable("gradle")
+    argv_head = str(wrapper) if wrapper else "gradle"
     return [
         ToolchainCommand(
             purpose="test",
@@ -268,7 +265,7 @@ def _python_commands(workspace: Path) -> list[ToolchainCommand]:
         ToolchainCommand(
             purpose="test",
             label=f"Test (pytest {directory})",
-            argv=[resolve_executable("uv"), "run", "pytest", directory, "-q"],
+            argv=["uv", "run", "pytest", directory, "-q"],
             policy_command=f"uv run pytest {directory} -q",
             toolchain="python",
             executable="uv",
@@ -284,7 +281,7 @@ def _go_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
         ToolchainCommand(
             purpose="test",
             label="Test (go)",
-            argv=[resolve_executable("go"), "test", "./..."],
+            argv=["go", "test", "./..."],
             policy_command="go test ./...",
             toolchain="go",
             executable="go",
@@ -293,7 +290,7 @@ def _go_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
         ToolchainCommand(
             purpose="build",
             label="Build (go)",
-            argv=[resolve_executable("go"), "build", "./..."],
+            argv=["go", "build", "./..."],
             policy_command="go build ./...",
             toolchain="go",
             executable="go",
@@ -308,7 +305,7 @@ def _rust_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
         ToolchainCommand(
             purpose="test",
             label="Test (cargo)",
-            argv=[resolve_executable("cargo"), "test"],
+            argv=["cargo", "test"],
             policy_command="cargo test",
             toolchain="rust",
             executable="cargo",
@@ -317,7 +314,7 @@ def _rust_commands(workspace: Path) -> list[ToolchainCommand]:  # noqa: ARG001
         ToolchainCommand(
             purpose="build",
             label="Build (cargo)",
-            argv=[resolve_executable("cargo"), "build"],
+            argv=["cargo", "build"],
             policy_command="cargo build",
             toolchain="rust",
             executable="cargo",

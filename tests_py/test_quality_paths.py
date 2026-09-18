@@ -211,7 +211,12 @@ def test_browser_receipts_never_use_checkout_or_fixed_screenshot_destinations():
         assert screenshots, filename
         assert all(".outputPath(" in line for line in screenshots), filename
     runner = (root / "scripts/run-web-tests.mjs").read_text(encoding="utf-8")
-    assert "path.join(os.tmpdir(), `playwright-control-center-${process.pid}.sqlite`)" in runner
+    # La invariante es donde vive la base, no el literal: fuera del checkout y con identidad
+    # propia por corrida. Antes se anclaba a `os.tmpdir()` directo; ahora cuelga del scratch de
+    # calidad, que es el mismo destino aislado y ademas se limpia con la sesion.
+    assert "path.join(qualityScratch, `playwright-control-center-${process.pid}.sqlite`)" in runner
+    assert "`aido-web-tests-${process.pid}`" in runner
+    assert "path.join(__dirname" not in runner
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Native NTFS junction validation; other OS NOT_RUN")

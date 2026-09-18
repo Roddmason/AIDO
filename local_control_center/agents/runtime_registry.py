@@ -867,6 +867,24 @@ def runtime_for(
     return runtimes[runtime_id]
 
 
+def login_command_for(runtime_id: str) -> str:
+    """Comando de login interactivo de ese runtime, o vacio si no expone uno.
+
+    Vive en el registry porque es quien conoce la clase de cada runtime: resolverlo desde fuera
+    obligaria a instanciar runtimes en codigo de producto, que es justo lo que
+    ``test_product_workflows_do_not_call_runtime_registry_directly`` prohibe.
+    """
+    classes = {
+        "codex_cli": CodexCliRuntime,
+        "claude_code_cli": ClaudeCodeCliRuntime,
+        "openhands": OpenHandsRuntime,
+        "swe_agent": SweAgentRuntime,
+        "manual": ManualRuntime,
+    }
+    runtime_class = classes.get(runtime_id)
+    return str(getattr(runtime_class, "login_command", "") or "") if runtime_class else ""
+
+
 # La detección de un runtime CLI ejecuta `<binario> --version` por subprocess (~4 s en frío para
 # el set completo en Windows) y su resultado —presencia y versión de un binario— es estable en
 # ventanas cortas. Se cachea por `(runtime_id, executable)` con TTL para que el polling del shell

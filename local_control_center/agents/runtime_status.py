@@ -414,16 +414,12 @@ def _api_provider_status(
 def _cli_login_command(runtime_id: str) -> str:
     """Comando de login interactivo de ese CLI, o vacio si no expone uno.
 
-    Se resuelve desde la clase del runtime y no se duplica aca: el `login_hint` en prosa y el
-    comando son el mismo dato, y tenerlos en dos lugares los deja divergir.
+    Se delega al registry en vez de duplicarlo: el `login_hint` en prosa y el comando son el
+    mismo dato, y tenerlos en dos lugares los deja divergir.
     """
-    from .runtime_registry import runtime_for
+    from .runtime_registry import login_command_for
 
-    try:
-        runtime = runtime_for(runtime_id)
-    except KeyError:
-        return ""
-    return str(getattr(runtime, "login_command", "") or "")
+    return login_command_for(runtime_id)
 
 
 def _cli_provider_status(

@@ -50,10 +50,6 @@ _TERMINAL_WORKFLOW_STATUSES = {
 _CLEANUP_TASK_ID = "workspace-cleanup"
 
 
-def _workspaces_root(root: Path) -> Path:
-    return legacy_workspaces_root(root)
-
-
 def _workspace_roots(root: Path, project_path: Path | None) -> list[Path]:
     """Fronteras validas: la raiz del proyecto y la legacy del sistema, mientras quede algo alli.
 
@@ -156,7 +152,7 @@ def _classify_workspace(
     connection: sqlite3.Connection,
     workspace: dict[str, Any],
     *,
-    workspaces_root: Path,
+    workspace_roots: list[Path],
     fresh_cutoff: str,
     thread_index: dict[str, list[dict[str, Any]]],
     loop_suffixes: set[str],
@@ -165,7 +161,7 @@ def _classify_workspace(
     if str(workspace["updatedAt"]) >= fresh_cutoff:
         return None
     workspace_path = Path(workspace["path"]).resolve(strict=False)
-    if not _is_under(workspace_path, workspaces_root):
+    if not _is_under_any(workspace_path, workspace_roots):
         # Protege los control workspaces (su path es la raíz del repo real) y cualquier fila rara.
         return None
 
@@ -214,7 +210,11 @@ def _collect_state(connection: sqlite3.Connection, *, root: Path, project_id: st
     """Estado compartido de plan/aplicación: candidatos, huérfanos físicos y contexto del repo."""
     project = _project_row(connection, project_id)
     repo_path = Path(project["path"]).resolve(strict=False)
-    workspaces_root = _workspaces_root(root)
+    # Dos fronteras: la del propio proyecto (donde viven los workspaces desde `aab5bab2`) y la
+    # legacy del sistema, para poder retirar lo que quedo de la ubicacion anterior. Mirar solo
+    # la legacy dejaba fuera a TODO workspace nuevo: la limpieza no encontraba un solo
+    # candidato y los huerfanos se acumulaban sin techo.
+    workspace_roots = _workspace_roots(root, repo_path)
     fresh_cutoff = iso_after_seconds(utc_now(), -FRESH_WORKSPACE_GRACE_HOURS * 3600)
     placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
     rows = connection.execute(
@@ -234,7 +234,7 @@ def _collect_state(connection: sqlite3.Connection, *, root: Path, project_id: st
         candidate = _classify_workspace(
             connection,
             workspace,
-            workspaces_root=workspaces_root,
+            workspace_roots=workspace_roots,
             fresh_cutoff=fresh_cutoff,
             thread_index=thread_index,
             loop_suffixes=loop_suffixes,
@@ -246,7 +246,7 @@ def _collect_state(connection: sqlite3.Connection, *, root: Path, project_id: st
     orphans: list[dict[str, Any]] = []
     for entry in _list_repo_worktrees(connection, root=root, project_id=project_id, repo_path=repo_path):
         entry_path = Path(str(entry["path"])).resolve(strict=False)
-        if not _is_under(entry_path, workspaces_root):
+        if not _is_under_any(entry_path, workspace_roots):
             continue
         if str(entry_path) in active_paths:
             continue
@@ -262,7 +262,7 @@ def _collect_state(connection: sqlite3.Connection, *, root: Path, project_id: st
     return {
         "project": {"id": project["id"], "name": project["name"], "path": str(repo_path)},
         "repoPath": repo_path,
-        "workspacesRoot": workspaces_root,
+        "workspaceRoots": workspace_roots,
         "activeCount": len(active_workspaces),
         "candidates": candidates,
         "orphans": orphans,
@@ -336,7 +336,7 @@ def apply_cleanup(
     """
     state = _collect_state(connection, root=root, project_id=project_id)
     repo_path: Path = state["repoPath"]
-    workspaces_root: Path = state["workspacesRoot"]
+    workspace_roots: list[Path] = state["workspaceRoots"]
     candidates_by_id = {item["workspaceId"]: item for item in state["candidates"]}
     orphans_by_path = {item["path"]: item for item in state["orphans"]}
     cleanup_reason = reason.strip() or "Workspace cleanup confirmed by the operator."
@@ -397,7 +397,7 @@ def apply_cleanup(
         if normalized in seen_paths:
             continue
         seen_paths.add(normalized)
-        if not _is_under(Path(normalized), workspaces_root):
+        if not _is_under_any(Path(normalized), workspace_roots):
             orphan_results.append(
                 {
                     "path": normalized,

@@ -86,6 +86,21 @@ def stale_health_targets(
     return targets
 
 
+def _pending_health_checks(platform: Any) -> int:
+    """Cuenta health-checks ya encolados que todavia no llegaron a un estado terminal."""
+    from local_control_center.executions.models import TERMINAL_STATUSES
+
+    placeholders = ",".join("?" for _ in TERMINAL_STATUSES)
+    row = platform.connection.execute(
+        f"""
+        SELECT COUNT(*) AS total FROM operational_executions
+        WHERE operation IN (?, ?) AND status NOT IN ({placeholders})
+        """,
+        (CLI_HEALTH_OPERATION, PROVIDER_HEALTH_OPERATION, *sorted(TERMINAL_STATUSES)),
+    ).fetchone()
+    return int(row["total"] if row else 0)
+
+
 def _current_statuses(platform: Any) -> list[dict[str, Any]]:
     """Lee los estados por la misma vía que la UI, sin sondear procesos ni habilitar probes."""
     from .runtime_status import RuntimeStatusService
@@ -110,7 +125,14 @@ def enqueue_stale_health_checks(
         resolved = _current_statuses(platform) if statuses is None else statuses
     except Exception as error:  # pragma: no cover - el refresco nunca impide el arranque
         logger.warning("Runtime health refresh could not read provider statuses: %s", error)
-        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": []}
+        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": [], "pending": 0}
+
+    pending = _pending_health_checks(platform)
+    if pending:
+        # Encolar otro refresco mientras el anterior no corrio solo hace crecer la cola sin techo:
+        # con el worker frenado (recursos, pausa) se acumulan cientos de ejecuciones identicas.
+        logger.info("Runtime health refresh skipped: %d health checks are still pending.", pending)
+        return {"considered": len(resolved), "enqueued": 0, "failed": 0, "runtimes": [], "pending": pending}
 
     targets = stale_health_targets(resolved, now=now)
     handlers = getattr(platform, "execution_handlers", {}) or {}
@@ -135,6 +157,7 @@ def enqueue_stale_health_checks(
         "enqueued": len(enqueued),
         "failed": failed,
         "runtimes": enqueued,
+        "pending": 0,
     }
 
 
@@ -156,13 +179,13 @@ def refresh_from_worker(db_path: Any, cwd: Any) -> dict[str, Any]:
         platform = ControlCenterRuntime(cwd=cwd, db_path=db_path)
     except Exception as error:  # pragma: no cover - el worker sobrevive a un refresco fallido
         logger.warning("Runtime health refresh could not open its platform: %s", error)
-        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": []}
+        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": [], "pending": 0}
     try:
         for operation in (CLI_HEALTH_OPERATION, PROVIDER_HEALTH_OPERATION):
             register_operation(platform, operation)
         return enqueue_stale_health_checks(platform)
     except Exception as error:  # pragma: no cover - idem
         logger.warning("Runtime health refresh failed inside the worker: %s", error)
-        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": []}
+        return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": [], "pending": 0}
     finally:
         platform.close()

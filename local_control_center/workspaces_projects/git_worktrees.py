@@ -22,6 +22,8 @@ from local_control_center.security_policy.git_command_runner import git_availabl
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 
+from .locations import project_workspaces_root
+
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_COMMAND_TIMEOUT_SECONDS = 30
 
@@ -737,7 +739,7 @@ def merge_work_branch_into_base(
 
     landing_suffix = uuid.uuid4().hex[:8]
     landing_branch = f"aido/landing/{landing_suffix}"
-    landing_path = root / ".tmp" / "workspaces" / f"landing-{landing_suffix}"
+    landing_path = project_workspaces_root(repo_path) / f"landing-{landing_suffix}"
     created = create_git_worktree(
         repo_path=repo_path,
         worktree_path=landing_path,

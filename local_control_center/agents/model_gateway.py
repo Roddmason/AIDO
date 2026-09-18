@@ -456,7 +456,12 @@ class ModelGateway:
                 "reason": f"Provider account not found: {provider_id}",
             }
         if not account.get("enabled"):
-            return {"status": "configuration_required", "reason": "Provider account is disabled."}
+            # Deshabilitada != sin configurar: la accion del operador es habilitarla, y decirle
+            # "configuration_required" lo manda a reingresar credenciales que ya existen.
+            return {
+                "status": "blocked",
+                "reason": "Provider account is disabled; enable it to execute.",
+            }
         resolved_runtime = runtime_type or _runtime_type(account)
         provider_type = str(account.get("providerType") or "")
         api_format = str(account.get("apiFormat") or "")

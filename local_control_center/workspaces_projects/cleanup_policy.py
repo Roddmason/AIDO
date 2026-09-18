@@ -26,6 +26,7 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.time import iso_after_seconds, utc_now
 
 from .git_worktrees import _ensure_control_workspace, remove_git_worktree, run_brokered_git
+from .locations import legacy_workspaces_root, project_workspaces_root
 from .repository import ACTIVE_WORKSPACE_STATUSES, WorkspacesRepository, row_to_workspace
 
 # Ventana de gracia: un workspace tocado hace menos de esto nunca es candidato, para no competir
@@ -50,7 +51,23 @@ _CLEANUP_TASK_ID = "workspace-cleanup"
 
 
 def _workspaces_root(root: Path) -> Path:
-    return (root / ".tmp" / "workspaces").resolve(strict=False)
+    return legacy_workspaces_root(root)
+
+
+def _workspace_roots(root: Path, project_path: Path | None) -> list[Path]:
+    """Fronteras validas: la raiz del proyecto y la legacy del sistema, mientras quede algo alli.
+
+    La politica nunca toca rutas fuera de estas dos. Se conserva la legacy para poder retirar lo
+    que se creo antes de mover los workspaces dentro de cada proyecto.
+    """
+    roots = [legacy_workspaces_root(root)]
+    if project_path is not None:
+        roots.insert(0, project_workspaces_root(project_path))
+    return roots
+
+
+def _is_under_any(path: Path, ancestors: list[Path]) -> bool:
+    return any(_is_under(path, ancestor) for ancestor in ancestors)
 
 
 def _is_under(path: Path, ancestor: Path) -> bool:

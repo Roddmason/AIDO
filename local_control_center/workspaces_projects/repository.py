@@ -29,9 +29,11 @@ from .git_worktrees import (
     git_available,
     remove_git_worktree,
 )
+from .locations import ensure_workspaces_excluded, project_workspaces_root
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
 COPY_IGNORED_PARTS = {
+    ".aido",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -177,10 +179,13 @@ class WorkspacesRepository:
             raise WorkspaceConflictError(f"Task {task_id} already has active workspace {existing['id']}")
 
         workspace_id = f"workspace-{uuid.uuid4()}"
-        workspace_path = self.root / ".tmp" / "workspaces" / workspace_id
+        project_path = self._project_path(project_id)
+        # El workspace materializa el codigo del proyecto: pertenece al proyecto, no al repositorio
+        # del sistema. Dejarlo bajo <aido>/.tmp anidaba worktrees ajenos en el arbol de AIDO.
+        workspace_path = project_workspaces_root(project_path) / workspace_id
+        ensure_workspaces_excluded(project_path)
         resolved_isolation = "directory"
         metadata: dict[str, Any] = {"reason": reason}
-        project_path = self._project_path(project_id)
         if devcontainer:
             metadata["devcontainer"] = {**devcontainer, "status": "metadata_only"}
         timestamp = utc_now()

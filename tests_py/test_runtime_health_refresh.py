@@ -204,3 +204,28 @@ def test_creating_the_app_never_queues_maintenance_work(tmp_path: Path) -> None:
         assert ExecutionRepository(runtime.connection).list_recent() == []
     finally:
         runtime.close()
+
+
+def test_refresh_never_piles_up_while_the_previous_one_is_pending(tmp_path: Path) -> None:
+    """Con el worker frenado, refrescar de nuevo no puede acumular ejecuciones identicas.
+
+    Es el modo de falla observado en produccion: 608 health-checks encolados porque el ciclo
+    encolaba cada 240 s aunque el gobernador tuviera todo en resource_wait.
+    """
+    runtime = _platform(tmp_path)
+    try:
+        statuses = [
+            _status(id="codex_cli", kind="cli", healthCheckedAt=None),
+            _status(id="gemini", kind="api", healthCheckedAt=None),
+        ]
+        first = enqueue_stale_health_checks(runtime, statuses=statuses)
+        assert first["enqueued"] == 2
+
+        for _ in range(5):
+            repeat = enqueue_stale_health_checks(runtime, statuses=statuses)
+            assert repeat["enqueued"] == 0, repeat
+            assert repeat["pending"] == 2, repeat
+
+        assert len(ExecutionRepository(runtime.connection).list_recent()) == 2
+    finally:
+        runtime.close()

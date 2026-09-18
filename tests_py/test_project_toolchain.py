@@ -277,3 +277,40 @@ def test_discovery_stays_fast_on_a_large_repository() -> None:
     elapsed = time.perf_counter() - started
 
     assert elapsed < 2.0, f"la detección tardó {elapsed:.1f}s; antes del arreglo eran ~7,9s"
+
+
+def test_a_repo_wrapper_counts_as_available_even_though_it_is_not_on_the_path(
+    tmp_path: Path,
+) -> None:
+    """El wrapper vive en el repo, no en el PATH: buscarlo con `which` lo declara ausente.
+
+    Defecto real: `votacionEnLinea` tiene `mvnw.cmd` y se reportaba `java-maven` ausente en un host
+    que sí tiene Maven instalado. Pedirle al operador que instale algo que ya está ahí es el mismo
+    error que motivó todo este trabajo, una capa más abajo.
+    """
+    from local_control_center.projects.toolchain import missing_toolchains
+
+    (tmp_path / "pom.xml").write_text(POM, encoding="utf-8")
+    wrapper = tmp_path / "mvnw.cmd"
+    wrapper.write_text("@echo off\n", encoding="utf-8")
+
+    commands = plan_workspace_commands(tmp_path)
+
+    assert all(command.executable == "mvnw.cmd" for command in commands)
+    assert missing_toolchains(commands) == [], "el wrapper del repo existe y es ejecutable"
+
+
+def test_a_wrapper_that_does_not_exist_is_still_reported_missing(tmp_path: Path) -> None:
+    """La contrapartida: no basta con que el plan mencione un wrapper, tiene que estar."""
+    from local_control_center.projects.toolchain import ToolchainCommand, missing_toolchains
+
+    absent = ToolchainCommand(
+        purpose="test",
+        label="Test",
+        argv=[str(tmp_path / "gradlew.bat"), "test"],
+        policy_command="gradlew.bat test",
+        toolchain="java-gradle",
+        executable="gradlew.bat",
+    )
+
+    assert missing_toolchains([absent]) == ["java-gradle"]

@@ -219,3 +219,28 @@ def test_the_lifecycle_hook_guard_ignores_capitalisation(script: str) -> None:
     from local_control_center.security_policy.permissions import node_script_category
 
     assert node_script_category(parse_command(f"npm run {script}")) == "package_script_hook"
+
+
+def test_every_planned_executable_passes_the_sandbox_boundary(tmp_path: Path) -> None:
+    """Decidir `allow` en la política y morir en el sandbox es peor que negar de entrada.
+
+    Son DOS allowlists distintas: `security_policy.permissions` clasifica el riesgo y
+    `sandbox.ALLOWED_EXECUTABLES` autoriza el spawn. Agregar toolchains sólo a la primera dejaba la
+    validación por proyecto decidiendo que sí y despuès fallando con "Executable is not allowlisted
+    for restricted subprocess" — el mismo "saltado parece verificado" que este trabajo vino a
+    eliminar. Este test ata las dos capas.
+    """
+    from local_control_center.security_policy.sandbox import validate_restricted_process
+
+    rejected: list[str] = []
+    checked = 0
+    for workspace in _workspaces(tmp_path):
+        for command in plan_workspace_commands(workspace):
+            checked += 1
+            argv = [command.executable, *command.policy_command.split()[1:]]
+            error = validate_restricted_process(argv, None, None)
+            if error:
+                rejected.append(f"{command.policy_command}: {error}")
+
+    assert checked >= 14, checked
+    assert rejected == []

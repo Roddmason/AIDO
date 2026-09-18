@@ -13,6 +13,7 @@ export function ProjectQualitySettingsPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = ctx;
 	const gateCommands = findSetting(ctx.resolved, 'project.quality.gateCommands');
 	const devopsChecks = findSetting(ctx.resolved, 'project.quality.devopsChecksEnabled');
+	const containerized = findSetting(ctx.resolved, 'project.runtime.containerized');
 	const commandCount = Array.isArray(gateCommands?.value) ? gateCommands.value.length : 0;
 
 	return (
@@ -50,6 +51,19 @@ export function ProjectQualitySettingsPanel({ ctx }: { ctx: SectionContext }) {
 					)}
 				</p>
 				{devopsChecks ? <WiredRows ctx={ctx} settings={[devopsChecks]} /> : null}
+			</section>
+
+			<section className="settings-group">
+				<h4 className="settings-group-title">
+					{t('app.settings.quality.runtimeGroup', 'Project runtime')}
+				</h4>
+				<p className="settings-section-intro">
+					{t(
+						'app.settings.quality.runtimeHint',
+						'AIDO validates this project with its own toolchain. If a tool is missing on this machine, enable this to run it inside a container image matching the project instead.',
+					)}
+				</p>
+				{containerized ? <WiredRows ctx={ctx} settings={[containerized]} /> : null}
 			</section>
 		</div>
 	);

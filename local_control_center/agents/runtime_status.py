@@ -47,6 +47,8 @@ CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 # healthy para siempre y el indicador proactivo mostraría "verde-falso". El cache de 60s del
 # RuntimeRegistry acota la frecuencia real de subprocess muy por debajo de este TTL.
 CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS = 300
+PRESENT_CREDENTIAL_STATUSES = frozenset({"configured", "unverified"})
+"""Una ref presente y bien formada cuenta como configurada; leer su valor es verificacion."""
 # Runtimes autónomos de edición de código: su único propósito es mutar el workspace,
 # así que sin la capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
 CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
@@ -243,7 +245,11 @@ def _api_account_configuration(connection: sqlite3.Connection, account: dict[str
         "hasModel": "model" not in required_configuration
         or _has_enabled_model(connection, str(account["providerId"])),
         "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
-        "hasCredential": "apiKey" not in required_configuration or credential_status == "configured",
+        # Una ref en keyring resuelve 'unverified' SIEMPRE con fetch=False: no leemos el secreto
+        # a proposito. Tratarla como ausente le pedia al operador reingresar lo que ya configuro,
+        # y sin health check previo el bucle no salia nunca. Verificar es otro estado, no este.
+        "hasCredential": "apiKey" not in required_configuration
+        or credential_status in PRESENT_CREDENTIAL_STATUSES,
         "credentialStatus": credential_status,
         "credentialMessage": credential_resolution.message,
     }

@@ -13342,6 +13342,10 @@
     "app.settings.resources.minFreeDiskPercent": {
       "en": "Minimum free disk (% of the volume)",
       "es": "Disco libre minimo (% del volumen)"
+    },
+    "app.settings.resources.minFreeMemoryPercent": {
+      "en": "Minimum free memory (% of RAM)",
+      "es": "Memoria libre minima (% de la RAM)"
     }
   }
 }

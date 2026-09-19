@@ -223,6 +223,16 @@ REGISTRY: list[SettingDescriptor] = [
         maximum=10_240,
     ),
     SettingDescriptor(
+        key="resources.minFreeDiskPercent",
+        section="resources",
+        project_section=None,
+        type="number",
+        default=5,
+        label_key="app.settings.resources.minFreeDiskPercent",
+        minimum=0,
+        maximum=90,
+    ),
+    SettingDescriptor(
         key="resources.maxCpuPercent",
         section="resources",
         project_section=None,

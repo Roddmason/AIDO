@@ -164,6 +164,31 @@ def _setting(repository: SettingsRepository, key: str) -> Any:
         return descriptor.default
 
 
+def effective_min_free_disk_bytes(connection: sqlite3.Connection, *, snapshot: ResourceSnapshot) -> int:
+    """Piso de disco efectivo: el MENOR entre el absoluto configurado y su porcentaje.
+
+    Un piso absoluto que el equipo no puede alcanzar no protege nada, solo apaga el producto:
+    medido con el default de 50 GiB contra 42-48 GiB libres, el gobernador rechazaba **todo**
+    spawn. Es el mismo contrato inalcanzable que ya se corrigio en el TTL de salud.
+
+    Kubernetes expresa sus señales de eviction en porcentaje **o** valor absoluto justamente
+    porque 50 GiB son el 20% de un disco de 256 GB y el 2,5% de uno de 2 TB. Tomar el menor deja
+    que el absoluto siga protegiendo en discos grandes y deje de ser inalcanzable en los chicos.
+
+    Sin informacion de capacidad (un snapshot viejo o parcial) se cae al absoluto: la ausencia de
+    un dato nunca puede relajar un piso.
+    """
+    repository = SettingsRepository(connection)
+    absolute = int(float(_setting(repository, "resources.minFreeDiskGiB")) * GIB)
+    percent = float(_setting(repository, "resources.minFreeDiskPercent"))
+    capacities = [value for value in snapshot.disk_total_bytes.values() if value > 0]
+    if not capacities or percent <= 0:
+        return absolute
+    # El gobernador juzga por el volumen mas apretado, asi que el piso se calcula sobre el mismo.
+    relative = int(min(capacities) * percent / 100)
+    return min(absolute, relative)
+
+
 def resolve_resource_policy(
     connection: sqlite3.Connection,
     *,
@@ -189,7 +214,7 @@ def resolve_resource_policy(
         max_light_workloads=int(_setting(repository, "resources.maxLightWorkloads")),
         min_free_memory_bytes=int(min_memory_gib * GIB),
         hard_free_memory_bytes=int(float(_setting(repository, "resources.hardFreeMemoryGiB")) * GIB),
-        min_free_disk_bytes=int(float(_setting(repository, "resources.minFreeDiskGiB")) * GIB),
+        min_free_disk_bytes=effective_min_free_disk_bytes(connection, snapshot=snapshot),
         max_cpu_percent=float(_setting(repository, "resources.maxCpuPercent")),
         unreal_reserve_memory_bytes=int(unreal_reserve_gib * GIB),
         block_local_gpu_when_unreal=bool(_setting(repository, "resources.blockLocalGpuWhenUnreal")),

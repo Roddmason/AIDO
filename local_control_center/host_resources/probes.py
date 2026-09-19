@@ -135,7 +135,7 @@ class HostResourceProbe:
         memory = psutil.virtual_memory()
         swap = psutil.swap_memory()
         committed_memory, commit_limit = _windows_commit_memory()
-        disk_free = self._disk_free_by_volume()
+        disk_free, disk_total = self._disk_by_volume()
         disk_read_rate, disk_write_rate = self._disk_rates(now_monotonic)
         gpu_utilization, gpu_used, gpu_free = _gpu_usage(self.gpu_runner)
         active_aido, unreal, docker, wsl, ollama = _process_state()
@@ -150,6 +150,7 @@ class HostResourceProbe:
             commit_limit_bytes=commit_limit,
             swap_or_pagefile_used_bytes=max(0, int(swap.used)),
             disk_free_bytes=disk_free,
+            disk_total_bytes=disk_total,
             disk_read_bytes_per_second=disk_read_rate,
             disk_write_bytes_per_second=disk_write_rate,
             gpu_utilization_percent=gpu_utilization,
@@ -163,20 +164,28 @@ class HostResourceProbe:
             ollama_running=ollama,
         )
 
-    def _disk_free_by_volume(self) -> dict[str, int]:
-        volumes: dict[str, int] = {}
+    def _disk_by_volume(self) -> tuple[dict[str, int], dict[str, int]]:
+        """Espacio libre y capacidad por volumen relevante, en una sola pasada.
+
+        La capacidad hace falta para expresar el piso como porcentaje: un piso absoluto de 50
+        GiB es el 20% de un disco de 256 GB y el 2,5% de uno de 2 TB.
+        """
+        free: dict[str, int] = {}
+        total: dict[str, int] = {}
         for path in self.relevant_paths:
             probe_path = path if path.is_dir() else path.parent
             while not probe_path.is_dir() and probe_path != probe_path.parent:
                 probe_path = probe_path.parent
             volume = path.anchor or str(probe_path)
-            if volume in volumes:
+            if volume in free:
                 continue
             try:
-                volumes[volume] = int(psutil.disk_usage(str(probe_path)).free)
+                usage = psutil.disk_usage(str(probe_path))
             except (FileNotFoundError, OSError):
                 continue
-        return volumes
+            free[volume] = int(usage.free)
+            total[volume] = int(usage.total)
+        return free, total
 
     def _disk_rates(self, now_monotonic: float) -> tuple[float, float]:
         counters: Any = psutil.disk_io_counters()

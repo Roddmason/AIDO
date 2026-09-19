@@ -164,6 +164,28 @@ def _setting(repository: SettingsRepository, key: str) -> Any:
         return descriptor.default
 
 
+def effective_min_free_memory_bytes(connection: sqlite3.Connection, *, snapshot: ResourceSnapshot) -> int:
+    """Piso de memoria efectivo: el menor entre el absoluto y su porcentaje, nunca bajo el duro.
+
+    Gemelo exacto del piso de disco, con una diferencia que importa: quedarse sin RAM es mas
+    inmediato que quedarse sin disco, asi que el resultado **nunca** baja de
+    `hardFreeMemoryGiB`, que existe para eso. El componente relativo solo evita que el absoluto
+    se vuelva inalcanzable — en un equipo de 16 GiB, un piso de 16 es el 100% de la RAM.
+
+    Medido antes del cambio: 21,9 GiB disponibles menos 16 de piso dejaban 5,9 de presupuesto, y
+    el perfil `agent_cli` pide 8. Ningun trabajo de agente podia admitirse jamas.
+    """
+    repository = SettingsRepository(connection)
+    absolute = float(_setting(repository, "resources.minFreeMemoryGiB"))
+    percent = float(_setting(repository, "resources.minFreeMemoryPercent"))
+    hard = float(_setting(repository, "resources.hardFreeMemoryGiB"))
+    effective = absolute
+    if percent > 0 and snapshot.total_memory_bytes > 0:
+        relative = snapshot.total_memory_bytes * percent / 100 / GIB
+        effective = min(absolute, relative)
+    return int(max(hard, effective) * GIB)
+
+
 def effective_min_free_disk_bytes(connection: sqlite3.Connection, *, snapshot: ResourceSnapshot) -> int:
     """Piso de disco efectivo: el MENOR entre el absoluto configurado y su porcentaje.
 
@@ -204,7 +226,7 @@ def resolve_resource_policy(
         if configured_profile == "auto"
         else configured_profile
     )
-    min_memory_gib = float(_setting(repository, "resources.minFreeMemoryGiB"))
+    min_memory_gib = effective_min_free_memory_bytes(connection, snapshot=snapshot) / GIB
     unreal_reserve_gib = float(_setting(repository, "resources.unrealReserveMemoryGiB"))
     if effective_profile == "interactive_unreal":
         min_memory_gib = max(min_memory_gib, unreal_reserve_gib)

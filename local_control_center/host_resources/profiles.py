@@ -164,26 +164,23 @@ def _setting(repository: SettingsRepository, key: str) -> Any:
         return descriptor.default
 
 
-def effective_min_free_memory_bytes(connection: sqlite3.Connection, *, snapshot: ResourceSnapshot) -> int:
-    """Piso de memoria efectivo: el menor entre el absoluto y su porcentaje, nunca bajo el duro.
+def _is_configured(repository: SettingsRepository, key: str) -> bool:
+    """Indica si alguien fijo el valor, o si todavia viene del default del registry.
 
-    Gemelo exacto del piso de disco, con una diferencia que importa: quedarse sin RAM es mas
-    inmediato que quedarse sin disco, asi que el resultado **nunca** baja de
-    `hardFreeMemoryGiB`, que existe para eso. El componente relativo solo evita que el absoluto
-    se vuelva inalcanzable — en un equipo de 16 GiB, un piso de 16 es el 100% de la RAM.
-
-    Medido antes del cambio: 21,9 GiB disponibles menos 16 de piso dejaban 5,9 de presupuesto, y
-    el perfil `agent_cli` pide 8. Ningun trabajo de agente podia admitirse jamas.
+    La diferencia decide si el componente porcentual aplica: existe para rescatar un default
+    que no puede conocer la maquina, nunca para corregir a una persona que escribio un numero.
     """
-    repository = SettingsRepository(connection)
-    absolute = float(_setting(repository, "resources.minFreeMemoryGiB"))
-    percent = float(_setting(repository, "resources.minFreeMemoryPercent"))
-    hard = float(_setting(repository, "resources.hardFreeMemoryGiB"))
-    effective = absolute
-    if percent > 0 and snapshot.total_memory_bytes > 0:
-        relative = snapshot.total_memory_bytes * percent / 100 / GIB
-        effective = min(absolute, relative)
-    return int(max(hard, effective) * GIB)
+    descriptor = descriptor_for(key)
+    if descriptor is None:
+        return False
+    value = repository.get_value(key, "general", None)
+    if value is UNSET:
+        return False
+    try:
+        validate_value(descriptor, value)
+    except ValueError:
+        return False
+    return True
 
 
 def effective_min_free_disk_bytes(connection: sqlite3.Connection, *, snapshot: ResourceSnapshot) -> int:
@@ -197,11 +194,15 @@ def effective_min_free_disk_bytes(connection: sqlite3.Connection, *, snapshot: R
     porque 50 GiB son el 20% de un disco de 256 GB y el 2,5% de uno de 2 TB. Tomar el menor deja
     que el absoluto siga protegiendo en discos grandes y deje de ser inalcanzable en los chicos.
 
+    El porcentaje **solo** rescata el default: un piso que el operador fijo se devuelve tal cual.
+
     Sin informacion de capacidad (un snapshot viejo o parcial) se cae al absoluto: la ausencia de
     un dato nunca puede relajar un piso.
     """
     repository = SettingsRepository(connection)
     absolute = int(float(_setting(repository, "resources.minFreeDiskGiB")) * GIB)
+    if _is_configured(repository, "resources.minFreeDiskGiB"):
+        return absolute
     percent = float(_setting(repository, "resources.minFreeDiskPercent"))
     capacities = [value for value in snapshot.disk_total_bytes.values() if value > 0]
     if not capacities or percent <= 0:
@@ -226,7 +227,7 @@ def resolve_resource_policy(
         if configured_profile == "auto"
         else configured_profile
     )
-    min_memory_gib = effective_min_free_memory_bytes(connection, snapshot=snapshot) / GIB
+    min_memory_gib = float(_setting(repository, "resources.minFreeMemoryGiB"))
     unreal_reserve_gib = float(_setting(repository, "resources.unrealReserveMemoryGiB"))
     if effective_profile == "interactive_unreal":
         min_memory_gib = max(min_memory_gib, unreal_reserve_gib)

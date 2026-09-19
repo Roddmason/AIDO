@@ -13338,6 +13338,10 @@
     "app.settings.chip.source.detected": {
       "en": "Detected from the project",
       "es": "Detectado del proyecto"
+    },
+    "app.settings.resources.minFreeDiskPercent": {
+      "en": "Minimum free disk (% of the volume)",
+      "es": "Disco libre minimo (% del volumen)"
     }
   }
 }

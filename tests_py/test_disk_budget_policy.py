@@ -66,11 +66,24 @@ def test_this_machine_can_actually_satisfy_the_default(connection) -> None:
 
 
 def test_the_operator_can_still_demand_more_than_the_default(connection) -> None:
-    """Bajar el default no puede quitarle al operador la posibilidad de ser más estricto."""
+    """Un piso escrito a mano se respeta tal cual: el porcentaje sólo rescata el default.
+
+    Esta es la regresión que la suite completa encontró. La primera versión tomaba el menor
+    **siempre**, así que el operador que pedía 120 GiB recibía 102,4 y nadie se lo decía. El
+    porcentaje existe para corregir un número que no puede conocer la máquina, no a una persona.
+    """
     with connection:
         SettingsRepository(connection).set_value("resources.minFreeDiskGiB", "general", None, 120)
 
-    assert _floor(connection, total_gib=2048) == pytest.approx(102.4, rel=0.01)
+    assert _floor(connection, total_gib=2048) == pytest.approx(120, rel=0.01)
+
+
+def test_an_operator_floor_is_never_lowered_by_the_percentage(connection) -> None:
+    """El caso exacto que rompió 10 tests: 120 GiB pedidos en un disco donde el 5% son 12,8."""
+    with connection:
+        SettingsRepository(connection).set_value("resources.minFreeDiskGiB", "general", None, 120)
+
+    assert _floor(connection, total_gib=256) == pytest.approx(120, rel=0.01)
 
 
 def test_without_capacity_information_it_falls_back_to_the_absolute_floor(connection) -> None:

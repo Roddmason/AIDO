@@ -427,7 +427,7 @@ def test_ai_resource_manager_enforces_operator_declared_free_account(tmp_path) -
     assert rejection == "free_tier_account_not_confirmed"
 
 
-def test_product_owner_readiness_accepts_and_prioritizes_free_gemini() -> None:
+def test_product_owner_readiness_does_not_offer_free_gemini_outside_execution_contract() -> None:
     readiness = product_owner_agent_readiness(
         [
             {
@@ -449,8 +449,8 @@ def test_product_owner_readiness_accepts_and_prioritizes_free_gemini() -> None:
     )
 
     assert readiness["executable"] is True
-    assert readiness["selectedRuntimeId"] == "gemini-team"
-    assert readiness["candidateRuntimeIds"][0] == "gemini-team"
+    assert readiness["selectedRuntimeId"] == "openai_compatible"
+    assert readiness["candidateRuntimeIds"] == ["openai_compatible"]
 
 
 def test_gemini_manifest_enriches_stable_models_but_not_unknown_ids() -> None:

@@ -29,6 +29,137 @@ from local_control_center.threads.repository import ThreadsRepository
 pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
+@pytest.mark.parametrize(
+    ("state", "review_status", "invalidated"),
+    [
+        ("blocked", "queued", False),
+        ("discovery", "consuming", False),
+        ("plan_ready", "consumed", False),
+        ("blocked", "consuming", True),
+    ],
+)
+def test_approved_runtime_risk_does_not_recreate_or_keep_a_consent_error(
+    tmp_path, monkeypatch, state, review_status, invalidated
+):
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "approved-risk")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        loop = {
+            "id": "approved-risk-loop",
+            "projectId": project["id"],
+            "state": state,
+            "context": {
+                "durableRun": {
+                    "blockedStage": "resource_manager",
+                    "runtimeRiskReview": {"status": review_status},
+                    "resource_manager": {
+                        "runtimeRiskReviewInvalid": invalidated,
+                        "resourceBlockers": [
+                            {
+                                "decision": {
+                                    "selected": None,
+                                    "policyResult": {
+                                        "decisionEngine": {
+                                            "mode": "runtime_selection",
+                                            "reasonCode": "risk_requires_review",
+                                        }
+                                    },
+                                }
+                            }
+                        ],
+                    },
+                }
+            },
+        }
+        monkeypatch.setattr(service, "_latest_loop_for_thread", lambda **_kwargs: loop)
+
+        def unexpected_materialization(*_args, **_kwargs):
+            raise AssertionError("An approved review must not ask for consent again")
+
+        monkeypatch.setattr(
+            "local_control_center.product_loop.runtime_risk_review.ensure_runtime_risk_review",
+            unexpected_materialization,
+        )
+        stale = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="resource_manager",
+            blocker_type="runtime_risk_review_required",
+            action_type="open_settings_section",
+            title="Current invalidated review" if invalidated else "Old review error",
+            description="Configuration changed" if invalidated else "The review was already decided",
+            payload={"section": "routing"},
+        )
+        cost = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="resource_manager",
+            blocker_type="resource_manager_unconfigured",
+            action_type="open_settings_section",
+            title="Independent cost gate",
+            description="Cost approval is still required",
+            payload={"section": "costs"},
+        )
+        service._materialize_runtime_risk_review(thread["id"])
+        assert service.repository.get(stale["id"])["status"] == ("pending" if invalidated else "dismissed")
+        assert service.repository.get(cost["id"])["status"] == "pending"
+
+
+@pytest.mark.parametrize("job_status", ["failed", "cancelled", "completed"])
+def test_approved_runtime_failure_offers_only_its_failed_job_retry(tmp_path, monkeypatch, job_status):
+    from local_control_center.jobs_approvals.repository import JobsRepository
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "approved-risk-failure")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        loop_id, review_id = "approved-risk-loop", "approved-risk-review"
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="thread.product_loop.run",
+            status=job_status,
+            payload={
+                "threadId": thread["id"],
+                "runMetadata": {"runtimeRiskContinuation": {"loopId": loop_id, "reviewId": review_id}},
+            },
+        )["job"]
+        loop = {
+            "id": loop_id,
+            "projectId": project["id"],
+            "state": "discovery",
+            "context": {
+                "durableRun": {
+                    "runtimeRiskReview": {
+                        "id": review_id,
+                        "status": "consuming",
+                        "continuationJobId": job["id"],
+                    }
+                }
+            },
+        }
+        monkeypatch.setattr(service, "_latest_loop_for_thread", lambda **_kwargs: loop)
+        reason = "No se permite ejecución externa dentro de una transacción SQLite."
+        ThreadsRepository(connection).record_event(
+            thread_id=thread["id"],
+            type="worker_failed",
+            agent_role="aido_lead",
+            payload={"jobId": job["id"], "reason": reason},
+        )
+        service._materialize_runtime_risk_review(thread["id"])
+        pending = [a for a in service.repository.list_for_thread(thread["id"]) if a["status"] == "pending"]
+        if job_status == "failed":
+            assert len(pending) == 1
+            assert pending[0]["actionType"] == "run_worker_once"
+            assert pending[0]["payload"]["jobId"] == job["id"]
+            assert pending[0]["technicalReason"] == reason
+            assert pending[0]["blockerType"] == "runtime_execution_failed"
+        else:
+            assert pending == []
+
+
 def _pending_action_types(connection, thread_id: str) -> set[tuple[str, str]]:
     rows = connection.execute(
         """
@@ -54,6 +185,84 @@ def _project_and_thread(connection, tmp_path: Path, name: str) -> tuple[dict, di
         title=f"{name} thread",
     )
     return project, thread
+
+
+@pytest.mark.parametrize(
+    ("runtime_id", "nvidia_available", "expected_status"),
+    [
+        ("gemini", True, "blocked"),
+        ("nvidia_nim", False, "blocked"),
+        ("", False, "blocked"),
+        ("nvidia_nim", True, "completed"),
+    ],
+)
+def test_product_owner_runtime_revalidation_checks_its_execution_contract(
+    tmp_path: Path, monkeypatch, runtime_id: str, nvidia_available: bool, expected_status: str
+) -> None:
+    providers = [
+        {"id": "gemini", "providerFamily": "gemini", "executable": True, "capabilities": ["chat"]},
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": nvidia_available,
+            "productOwnerExecutable": nvidia_available,
+            "capabilities": ["chat"],
+        },
+    ]
+    monkeypatch.setattr(
+        "local_control_center.remediations.service.RuntimeStatusService.list_provider_statuses",
+        lambda _self, *, project_id=None: providers,
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "po-runtime-validation")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        created = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="po-validation-loop",
+            stage="product_owner",
+            reason="ProductOwner runtime failed.",
+            details={"status": "runtime_failed", "selectedRuntimeId": runtime_id},
+        )
+        action = next(item for item in created if item["actionType"] == "validate_runtime")
+        result = service.execute(action["id"], platform=object())
+
+        assert result["execution"]["status"] == expected_status
+        if runtime_id:
+            assert result["execution"]["runtimeId"] == runtime_id
+        if expected_status == "blocked":
+            assert result["remediation"]["status"] != "resolved"
+
+
+def test_provider_http_failure_preserves_model_and_does_not_claim_missing_runtime(tmp_path: Path) -> None:
+    reason = "NVIDIA NIM execution failed: provider_request_failed (http_status=410)"
+    model = "abacusai/dracarys-llama-3.1-70b-instruct"
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "provider-http-failure")
+        created = BlockerRemediationService(connection, root=tmp_path).create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="provider-http-loop",
+            stage="product_owner",
+            reason=reason,
+            details={
+                "status": "runtime_failed",
+                "selectedRuntimeId": "nvidia_nim",
+                "model": model,
+                "runtimeResult": {
+                    "decision": "allow",
+                    "execution": "runtime_adapter:nvidia_nim",
+                    "httpStatus": 410,
+                    "reason": reason,
+                },
+            },
+        )
+        assert {item["blockerType"] for item in created} == {"runtime_execution_failed"}
+        assert {item["actionType"] for item in created} == {"open_settings_section", "retry_loop"}
+        assert all(item["technicalReason"] == reason for item in created)
+        assert all(item["payload"]["model"] == model for item in created)
 
 
 def test_terminal_loop_resolves_its_pending_actions_without_hiding_loopless_recovery(
@@ -413,6 +622,154 @@ def test_worker_not_running_creates_run_worker_once_remediation(tmp_path: Path) 
         assert worker_action["primary"] is True
         assert worker_action["destructive"] is False
         assert worker_action["confirmationRequired"] is False
+
+
+@pytest.mark.parametrize("invalid", [None, "workspace", "project", "loop"])
+def test_interrupted_execution_diff_uses_only_persisted_workspace(tmp_path, monkeypatch, invalid):
+    from types import SimpleNamespace
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "partial-work")
+        workspace = tmp_path / "isolated"
+        workspace.mkdir()
+        connection.execute(
+            "INSERT INTO workspaces (id,project_id,task_id,owner_agent_id,path,status,isolation_type,metadata,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,'ready','git_worktree','{}',?,?)",
+            (
+                "partial-workspace",
+                "other-project" if invalid == "project" else project["id"],
+                "task",
+                "developer",
+                str(workspace),
+                utc_now(),
+                utc_now(),
+            ),
+        )
+        service = BlockerRemediationService(connection, root=tmp_path)
+        loop = {
+            "id": "partial-loop",
+            "projectId": project["id"],
+            "state": "blocked",
+            "context": {
+                "durableRun": {
+                    "workspaceId": "other-workspace" if invalid == "workspace" else "partial-workspace"
+                }
+            },
+        }
+        if invalid == "loop":
+            loop["id"] = "replacement-loop"
+        monkeypatch.setattr(service, "_latest_loop_for_thread", lambda **_: loop)
+        calls = []
+
+        def git(**kwargs):
+            from local_control_center.security_policy.policy_engine import evaluate_git_workspace_command
+
+            decision = evaluate_git_workspace_command(
+                {
+                    "agentId": "git_workspace_agent",
+                    "tool": "shell",
+                    "workspaceId": kwargs["workspace_id"],
+                    "workspacePath": str(kwargs["workspace_path"]),
+                    "agentRunId": "partial-diff-run",
+                    "commandArgv": ["git", *kwargs["args"]],
+                },
+                permission_profile="dev_safe",
+                categories=[],
+            )
+            assert decision["decision"] == "allow", decision["reason"]
+            calls.append(kwargs)
+            return {
+                "returnCode": 0,
+                "stdout": "R  moved.txt\0?? old-name.txt\0?? new.txt\0?? folder/name with space.txt\0"
+                if kwargs["args"][0] == "status"
+                else "diff --git a/pom.xml b/pom.xml",
+                "trace": {},
+            }
+
+        monkeypatch.setattr("local_control_center.workspaces_projects.git_worktrees.run_brokered_git", git)
+        action = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="partial-loop",
+            stage="worker",
+            blocker_type="runtime_execution_failed",
+            action_type="view_diff",
+            title="Review partial changes",
+            description="Timeout",
+            payload={"interruptedExecutionId": "failed-job", "workspaceId": "partial-workspace"},
+        )
+        result = service._execute_git_action(
+            "view_diff",
+            action=action,
+            payload={
+                "projectId": "injected-project",
+                "workspaceId": "injected-workspace",
+                "workspacePath": "C:/",
+            },
+            platform=SimpleNamespace(cwd=tmp_path),
+        )
+        if invalid:
+            assert result["status"] == "blocked"
+            assert calls == []
+        else:
+            assert result["status"] == "completed"
+            assert result["workspaceId"] == "partial-workspace"
+            assert result["untrackedFiles"] == ["new.txt", "folder/name with space.txt"]
+            assert result["partialExecution"] is True
+            assert len(calls) == 2
+            assert all(call["cwd"] == workspace and call["project_id"] == project["id"] for call in calls)
+            assert calls[0]["args"] == ["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]
+            assert calls[1]["args"] == ["status", "--porcelain=v1", "--untracked-files=all", "-z"]
+            assert not service._should_resolve(action_type="view_diff", execution=result)
+
+
+def test_execution_deadline_offers_partial_review_without_retry(tmp_path):
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "deadline-review")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        actions = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="deadline-loop",
+            stage="worker",
+            reason="execution_deadline_exhausted",
+            details={"interruptedExecutionId": "deadline-job", "workspaceId": "preserved-workspace"},
+        )
+        assert [action["actionType"] for action in actions] == ["view_diff"]
+        assert actions[0]["blockerType"] == "runtime_execution_failed"
+        assert actions[0]["payload"]["interruptedExecutionId"] == "deadline-job"
+        assert actions[0]["payload"]["workspaceId"] == "preserved-workspace"
+
+
+@pytest.mark.parametrize(("thread_status", "running"), [("queued", True), ("open", False)])
+def test_obsolete_worker_stopped_card_is_resolved_without_hiding_failed_job(tmp_path, thread_status, running):
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "worker-recovered")
+        threads = ThreadsRepository(connection)
+        threads.set_status(thread["id"], "queued")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        service.ensure_worker_remediation(thread_id=thread["id"], worker_status={"running": False})
+        failed = service.repository.create_action(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="failed-loop",
+            stage="worker",
+            blocker_type="runtime_execution_failed",
+            action_type="run_worker_once",
+            title="Failed job",
+            description="A distinct failure still requires recovery",
+            payload={"jobId": "failed-job"},
+        )
+        threads.set_status(thread["id"], thread_status)
+        actions = service.ensure_worker_remediation(
+            thread_id=thread["id"], worker_status={"running": running}
+        )
+        stopped = [item for item in actions if item["blockerType"] == "worker_not_running"]
+        assert stopped and all(item["status"] == "resolved" for item in stopped)
+        assert service.repository.get(failed["id"])["status"] == "pending"
 
 
 def test_gitleaks_missing_block_creates_setup_and_run_gitleaks_remediations(tmp_path: Path) -> None:

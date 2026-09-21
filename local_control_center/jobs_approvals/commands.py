@@ -210,6 +210,13 @@ def approve_action(
         HTTPException: 422 si falta la razón; 409 si la acción ya fue decidida o expiró.
     """
     reason = required_reason(body)
+    if jobs.get_action_request(action_id).get("actionType") == "product_loop.approve_runtime_risk":
+        from local_control_center.product_loop.runtime_risk_review import approve_runtime_risk
+
+        try:
+            return approve_runtime_risk(jobs, job_id=job_id, action_id=action_id, reason=reason)
+        except (KeyError, ValueError, TypeError, OSError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
     product_loop_result = _apply_product_loop_delivery_feedback(
         jobs,
         job_id=job_id,
@@ -245,6 +252,13 @@ def deny_action(
         HTTPException: 422 si falta la razón; 409 si la acción ya fue decidida.
     """
     reason = required_reason(body)
+    if jobs.get_action_request(action_id).get("actionType") == "product_loop.approve_runtime_risk":
+        from local_control_center.product_loop.runtime_risk_review import deny_runtime_risk
+
+        try:
+            return deny_runtime_risk(jobs, job_id=job_id, action_id=action_id, reason=reason)
+        except (KeyError, ValueError, TypeError, OSError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
     product_loop_result = _apply_product_loop_delivery_feedback(
         jobs,
         job_id=job_id,

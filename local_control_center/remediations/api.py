@@ -50,12 +50,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/threads/{thread_id}/remediations",
         response_model=RemediationListResponse,
     )
-    async def list_thread_remediations(thread_id: str) -> dict[str, Any]:
+    def list_thread_remediations(thread_id: str) -> dict[str, Any]:
         try:
             return {
                 "remediations": service().list_for_thread(
                     thread_id=thread_id,
                     worker_status=worker_status(),
+                    summary=True,
                 )
             }
         except KeyError as error:

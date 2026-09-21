@@ -863,6 +863,22 @@
       "en": "Research",
       "es": "Investigación"
     },
+    "app.threads.research.historyTitle": {
+      "en": "Research history",
+      "es": "Historial de investigación"
+    },
+    "app.threads.research.historyHelp": {
+      "en": "This report is a historical result. Current status and repair actions are shown in Execution.",
+      "es": "Este reporte es un resultado histórico. El estado actual y las acciones de reparación se muestran en Ejecución."
+    },
+    "app.threads.research.recordedResult": {
+      "en": "Recorded result",
+      "es": "Resultado registrado"
+    },
+    "app.threads.step.discovery_research": {
+      "en": "Discovery and research",
+      "es": "Definición e investigación"
+    },
     "app.threads.research.recommendation": {
       "en": "Recommendation",
       "es": "Recomendación"
@@ -10823,6 +10839,26 @@
       "en": "Quality gate commands",
       "es": "Comandos de puertas de calidad"
     },
+    "app.settings.decisionEngine.enabled": {"en": "Decision Engine enabled", "es": "Decision Engine habilitado"},
+    "app.settings.decisionEngine.provider": {"en": "Decision provider", "es": "Proveedor de decisiones"},
+    "app.settings.decisionEngine.mode": {"en": "Decision mode", "es": "Modo de decisiones"},
+    "app.settings.decisionEngine.shadow.enabled": {"en": "Shadow observation enabled", "es": "Observación shadow habilitada"},
+    "app.settings.decisionEngine.jev.enabled": {"en": "Jev provider enabled", "es": "Proveedor Jev habilitado"},
+    "app.settings.decisionEngine.endpoint": {"en": "Jev endpoint", "es": "Endpoint Jev"},
+    "app.settings.decisionEngine.api_key_reference": {"en": "Jev credential reference", "es": "Referencia de credencial Jev"},
+    "app.settings.decisionEngine.model": {"en": "Jev pinned model", "es": "Modelo Jev fijado"},
+    "app.settings.decisionEngine.version": {"en": "Jev pinned version", "es": "Versión Jev fijada"},
+    "app.settings.decisionEngine.timeout_seconds": {"en": "Decision timeout (seconds)", "es": "Timeout de decisión (segundos)"},
+    "app.settings.decisionEngine.confidence_threshold": {"en": "Minimum confidence", "es": "Confianza mínima"},
+    "app.settings.decisionEngine.margin_threshold": {"en": "Minimum probability margin", "es": "Margen mínimo de probabilidades"},
+    "app.settings.decisionEngine.max_risk": {"en": "Maximum recommendation risk", "es": "Riesgo máximo de recomendación"},
+    "app.settings.decisionEngine.probability_tolerance": {"en": "Probability sum tolerance", "es": "Tolerancia de suma de probabilidades"},
+    "app.settings.decisionEngine.circuit_failure_threshold": {"en": "Failures before circuit opens", "es": "Fallos antes de abrir circuito"},
+    "app.settings.decisionEngine.circuit_cooldown_seconds": {"en": "Circuit cooldown (seconds)", "es": "Pausa de circuito (segundos)"},
+    "app.settings.agents.responseStyle": {
+      "en": "DeveloperAgent summary",
+      "es": "Resumen de DeveloperAgent"
+    },
     "app.settings.runtime.cli.enabled": {
       "en": "CLI runtimes (platform-wide)",
       "es": "Runtimes CLI (toda la plataforma)"
@@ -11022,6 +11058,71 @@
     "app.settings.status.saving": {
       "en": "Saving...",
       "es": "Guardando..."
+    },
+    "app.threads.remediation.blocker.decision_engine_unavailable.title": {
+      "en": "Jev decision unavailable",
+      "es": "Decisión de Jev no disponible"
+    },
+    "app.threads.remediation.blocker.decision_engine_unavailable.explanation": {
+      "en": "Jev could not complete model selection. Review its reported failure and decision settings.",
+      "es": "Jev no pudo completar la selección del modelo. Revisa el fallo informado y los ajustes de decisiones."
+    },
+    "app.threads.remediation.blocker.decision_engine_unavailable.impact": {
+      "en": "Execution waits for an explicit retry. Validated runtimes remain subject to the current policies.",
+      "es": "La ejecución espera un reintento explícito. Los runtimes validados siguen sujetos a las políticas vigentes."
+    },
+    "app.threads.remediation.action.reviewDecisionEngine": {
+      "en": "Review decision engine",
+      "es": "Revisar motor de decisiones"
+    },
+    "app.threads.remediation.blocker.runtime_execution_denied.title": {
+      "en": "Runtime execution denied",
+      "es": "Ejecución del runtime denegada"
+    },
+    "app.threads.remediation.blocker.runtime_execution_failed.title": {
+      "en": "Provider request failed",
+      "es": "Falló la solicitud al proveedor"
+    },
+    "app.threads.remediation.blocker.worker_execution_failed.title": {
+      "en": "Worker execution failed",
+      "es": "Falló la ejecución del worker"
+    },
+    "app.threads.remediation.blocker.worker_execution_failed.explanation": {
+      "en": "The worker could not complete this job. Review the reported cause before retrying.",
+      "es": "El worker no pudo completar este trabajo. Revisa la causa informada antes de reintentar."
+    },
+    "app.threads.remediation.blocker.worker_execution_failed.impact": {
+      "en": "The recovery action retries the same job in this run.",
+      "es": "La acción de recuperación reintenta el mismo trabajo en esta ejecución."
+    },
+    "app.threads.remediation.blocker.worker_interrupted.explanation": {
+      "en": "Execution stopped before completion. Review the recorded cause and partial work.",
+      "es": "La ejecución se detuvo antes de terminar. Revisa la causa registrada y el trabajo parcial."
+    },
+    "app.threads.remediation.blocker.worker_interrupted.impact": {
+      "en": "Workspace changes are preserved. Reviewing them does not restart the run.",
+      "es": "Los cambios del workspace están conservados. Revisarlos no reinicia la ejecución."
+    },
+    "app.threads.remediation.partialChanges": { "en": "Preserved workspace changes", "es": "Cambios conservados" },
+    "app.threads.remediation.trackedChanges": { "en": "Tracked changes", "es": "Cambios en archivos versionados" },
+    "app.threads.remediation.noTrackedChanges": { "en": "No tracked changes.", "es": "Sin cambios en archivos versionados." },
+    "app.threads.remediation.diffPreviewTruncated": { "en": "Preview truncated; full changes remain in the workspace.", "es": "Vista previa recortada; los cambios completos permanecen en el workspace." },
+    "app.threads.remediation.untrackedFiles": { "en": "Untracked files (contents are not included in this diff)", "es": "Archivos nuevos (su contenido no se incluye en este diff)" },
+    "app.threads.remediation.blocker.runtime_execution_failed.explanation": {
+      "en": "The selected provider returned an HTTP error. Review the reported cause and model.",
+      "es": "El proveedor seleccionado devolvió un error HTTP. Revisa la causa informada y el modelo."
+    },
+    "app.threads.remediation.blocker.runtime_execution_failed.impact": {
+      "en": "The step stays blocked until the provider can complete the request.",
+      "es": "El paso permanece bloqueado hasta que el proveedor pueda completar la solicitud."
+    },
+    "app.threads.remediation.blocker.runtime_execution_denied.explanation": {
+      "en": "AIDO rejected the selected runtime before execution. Review the reported cause.",
+      "es": "AIDO rechazó el runtime seleccionado antes de ejecutarlo. Revisa la causa informada."
+    },
+    "app.threads.remediation.blocker.runtime_execution_denied.impact": {
+      "en": "The step remains blocked until a supported, authorized runtime can execute it.",
+      "es": "El paso permanece bloqueado hasta que un runtime compatible y autorizado pueda ejecutarlo."
     },
     "app.threads.remediation.blocker.runtime_not_executable.title": {
       "en": "No executable runtime",
@@ -11227,6 +11328,18 @@
       "en": "Anything that needs the configured remote cannot complete.",
       "es": "Todo lo que dependa del remote configurado no puede completarse."
     },
+    "app.threads.remediation.blocker.resource_policy_selection.title": {
+      "en": "No eligible AI resource is available",
+      "es": "No hay un recurso de IA elegible disponible"
+    },
+    "app.threads.remediation.blocker.resource_policy_selection.explanation": {
+      "en": "Review the recorded role restrictions and validation requirements for this run.",
+      "es": "Revisa las restricciones de rol y los requisitos de validación registrados para esta ejecución."
+    },
+    "app.threads.remediation.blocker.resource_policy_selection.impact": {
+      "en": "Execution is waiting for an explicit retry under the current policies.",
+      "es": "La ejecución espera un reintento explícito con las políticas actuales."
+    },
     "app.threads.remediation.blocker.resource_manager_unconfigured.title": {
       "en": "No eligible AI resource is available",
       "es": "No hay un recurso de IA elegible disponible"
@@ -11308,12 +11421,12 @@
       "es": "Evidencia de investigación requerida"
     },
     "app.threads.remediation.blocker.research_required.explanation": {
-      "en": "AIDO must process a ResearchAgent job before accepting this high-impact decision.",
-      "es": "AIDO debe procesar un trabajo de ResearchAgent antes de aceptar esta decisión de alto impacto."
+      "en": "Choose a completed research report with a validated technical decision to add as evidence.",
+      "es": "Elige un reporte de investigación completado con una decisión técnica validada para incorporarlo como evidencia."
     },
     "app.threads.remediation.blocker.research_required.impact": {
-      "en": "The decision waits for research evidence before AIDO adopts it.",
-      "es": "La decisión espera evidencia de investigación antes de que AIDO la adopte."
+      "en": "Existing decisions stay unchanged; a version is not accepted automatically.",
+      "es": "Las decisiones existentes se conservan; no se acepta una versión automáticamente."
     },
     "app.threads.remediation.blocker.workspace_root_missing.title": {
       "en": "Workspace root missing",
@@ -11482,6 +11595,150 @@
     "app.threads.remediation.action.retryLoop": {
       "en": "Retry loop",
       "es": "Reintentar loop"
+    },
+    "app.threads.remediation.action.applyResearch": {
+      "en": "Apply research",
+      "es": "Incorporar investigación"
+    },
+    "app.threads.remediation.researchLabel": {
+      "en": "Research report",
+      "es": "Reporte de investigación"
+    },
+    "app.threads.remediation.researchPlaceholder": {
+      "en": "Select a research report",
+      "es": "Selecciona un reporte de investigación"
+    },
+    "app.threads.remediation.researchHelp": {
+      "en": "Adds evidence and preserves existing decisions. No version is accepted automatically.",
+      "es": "Agrega evidencia y conserva las decisiones existentes. No se acepta una versión automáticamente."
+    },
+    "app.threads.remediation.researchEmpty": {
+      "en": "No eligible report is available. A completed report needs a validated technical decision and citations.",
+      "es": "No hay un reporte elegible. Un reporte completado necesita una decisión técnica validada y citas."
+    },
+    "app.threads.remediation.researchIneligible": {
+      "en": "Not eligible",
+      "es": "No elegible"
+    },
+    "app.threads.remediation.researchApplyFailed": {
+      "en": "The research report could not be applied. Review its eligibility and try again.",
+      "es": "No se pudo incorporar el reporte de investigación. Revisa su elegibilidad y vuelve a intentarlo."
+    },
+    "app.threads.remediation.researchApplyQueued": {
+      "en": "Research applied; continuation queued",
+      "es": "Investigación incorporada; continuación en cola"
+    },
+    "app.threads.remediation.blocker.runtime_risk_review_required.title": {
+      "en": "Runtime risk review required",
+      "es": "Se requiere revisar el riesgo del runtime"
+    },
+    "app.threads.remediation.blocker.runtime_risk_review_required.explanation": {
+      "en": "Review the exact proposed runtimes and their risk for this continuation.",
+      "es": "Revisa los runtimes propuestos y su riesgo para esta continuación."
+    },
+    "app.threads.remediation.blocker.runtime_risk_review_required.impact": {
+      "en": "Continuation waits for your reason and explicit consent to runtime risk.",
+      "es": "La continuación espera tu motivo y consentimiento explícito al riesgo del runtime."
+    },
+    "app.threads.remediation.action.approveRuntimeRisk": {
+      "en": "Approve runtime risk",
+      "es": "Aprobar riesgo del runtime"
+    },
+    "app.threads.remediation.riskReview.proposals": {
+      "en": "Proposed runtimes",
+      "es": "Runtimes propuestos"
+    },
+    "app.threads.remediation.riskReview.scope": {
+      "en": "This consent applies only to these proposals in this thread and this run. It does not approve budgets, costs or permissions.",
+      "es": "Este consentimiento aplica sólo a estas propuestas en este hilo y esta ejecución. No aprueba presupuestos, costos ni permisos."
+    },
+    "app.threads.remediation.riskReview.details": {
+      "en": "Approval details",
+      "es": "Detalles de la aprobación"
+    },
+    "app.threads.remediation.riskReview.reason": {
+      "en": "Reason for approval",
+      "es": "Motivo de aprobación"
+    },
+    "app.threads.remediation.riskReview.consent": {
+      "en": "I accept the runtime risk of these exact proposals for this continuation.",
+      "es": "Acepto el riesgo de runtime de estas propuestas exactas para esta continuación."
+    },
+    "app.threads.remediation.riskReview.incomplete": {
+      "en": "The approval request is incomplete. Refresh the repair actions before reviewing it.",
+      "es": "La solicitud de aprobación está incompleta. Actualiza las acciones de reparación antes de revisarla."
+    },
+    "app.threads.remediation.riskReview.expired": {
+      "en": "This approval request has expired and cannot be approved. Refresh only re-reads its status; it does not renew approval.",
+      "es": "Esta solicitud de aprobación caducó y no se puede aprobar. Actualizar sólo vuelve a leer su estado; no renueva la aprobación."
+    },
+    "app.threads.remediation.riskReview.refreshRequired": {
+      "en": "Refresh the actions and review the current scope before consenting again.",
+      "es": "Actualiza las acciones y revisa el alcance vigente antes de volver a dar tu consentimiento."
+    },
+    "app.threads.remediation.riskReview.failed": {
+      "en": "Runtime risk approval did not complete. Review the current request and try again.",
+      "es": "La aprobación de riesgo del runtime no se completó. Revisa la solicitud actual y vuelve a intentarlo."
+    },
+    "app.threads.remediation.riskReview.queued": {
+      "en": "Runtime risk approved; continuation queued",
+      "es": "Riesgo de runtime aprobado; continuación en cola"
+    },
+    "app.threads.remediation.riskReview.field.role": {
+      "en": "Role",
+      "es": "Rol"
+    },
+    "app.threads.remediation.riskReview.field.providerId": {
+      "en": "Provider",
+      "es": "Proveedor"
+    },
+    "app.threads.remediation.riskReview.field.model": {
+      "en": "Model",
+      "es": "Modelo"
+    },
+    "app.threads.remediation.riskReview.field.runtime": {
+      "en": "Runtime",
+      "es": "Runtime"
+    },
+    "app.threads.remediation.riskReview.field.risk": {
+      "en": "Risk",
+      "es": "Riesgo"
+    },
+    "app.threads.remediation.riskReview.field.decisionId": {
+      "en": "Decision",
+      "es": "Decisión"
+    },
+    "app.threads.remediation.riskReview.field.taskId": {
+      "en": "Task",
+      "es": "Tarea"
+    },
+    "app.threads.remediation.riskReview.field.agentProfileId": {
+      "en": "Agent profile",
+      "es": "Perfil de agente"
+    },
+    "app.threads.remediation.riskReview.field.projectId": {
+      "en": "Project",
+      "es": "Proyecto"
+    },
+    "app.threads.remediation.riskReview.field.threadId": {
+      "en": "Thread",
+      "es": "Hilo"
+    },
+    "app.threads.remediation.riskReview.field.loopId": {
+      "en": "Loop",
+      "es": "Loop"
+    },
+    "app.threads.remediation.riskReview.field.jobId": {
+      "en": "Job",
+      "es": "Trabajo"
+    },
+    "app.threads.remediation.riskReview.field.actionRequestId": {
+      "en": "Approval request",
+      "es": "Solicitud de aprobación"
+    },
+    "app.threads.remediation.riskReview.field.expiresAt": {
+      "en": "Expires at",
+      "es": "Caduca el"
     },
     "app.threads.remediation.action.viewDiff": {
       "en": "View diff",

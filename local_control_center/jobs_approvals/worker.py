@@ -116,7 +116,7 @@ class ConcurrentWorker:
                 else governor.admit(
                     ResourceAdmissionRequest(
                         execution_id=next_job["id"],
-                        workload_class=_workload_class_for_job(next_job),
+                        workload_class=_workload_class_for_job(next_job, connection=connection),
                         owner_id=worker_id,
                         job_id=next_job["id"],
                         lease_seconds=max(1, self.lease_ms // 1000),
@@ -316,11 +316,38 @@ class ConcurrentWorker:
         return results
 
 
-def _workload_class_for_job(job: dict[str, Any]) -> WorkloadClass:
+def _workload_class_for_job(job: dict[str, Any], *, connection: Any | None = None) -> WorkloadClass:
     """Clasifica conservadoramente jobs productivos antes de reservar capacidad."""
     kind = str(job.get("kind") or "")
     if kind == "operation.execute":
         return job["payload"]["workloadClass"]
+    if connection is not None and kind in {
+        THREAD_PRODUCT_LOOP_JOB_KIND,
+        THREAD_RESEARCH_JOB_KIND,
+        "prompt.optimize",
+        "chat.route",
+    }:
+        from local_control_center.agents.provider_accounts import ProviderAccountStore
+        from local_control_center.agents.providers.factory import provider_account_policy_kind
+        from local_control_center.agents.runtime_readiness import provider_workload_class
+        from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+
+        policy = RuntimeConfigRepository(connection)
+        permitted_workloads = {
+            provider_workload_class(account)
+            for account in ProviderAccountStore(connection).list_provider_accounts()
+            if account["enabled"]
+            and account["providerType"] in {"local", "api", "gateway", "cli"}
+            and policy.runtime_policy_decision(
+                provider_id=account["providerId"],
+                kind=provider_account_policy_kind(account),
+                project_id=job.get("projectId"),
+                provider_family=account.get("providerFamily"),
+                account=account,
+            )["allowed"]
+        }
+        if permitted_workloads == {"local_gpu_model"}:
+            return "local_gpu_model"
     if kind == MEMORY_FORGET_JOB_KIND:
         # Borrado lógico en SQLite más un rebuild de índice: no merece el perfil pesado por defecto.
         return "control_plane"
@@ -359,9 +386,20 @@ def execute_job(
     if contained_legacy:
         from local_control_center.executions.repository import ExecutionRepository
 
+        workload = _workload_class_for_job(job)
+        if not context.aggregate_managed_process_id:
+            lease = ResourceRepository(connection).active_lease_for_execution(job["id"])
+            if lease is None or lease.id != context.resource_lease_id or lease.owner_id != context.worker_id:
+                raise JobExecutionUnavailable(
+                    status="resource_wait",
+                    summary="The runner requires its own active resource reservation.",
+                    metadata={"reason": "resource_parent_identity_mismatch"},
+                )
+            # The admitted envelope survives policy edits between claim and dispatch.
+            workload = lease.workload_class
         ExecutionRepository(connection).attach_claimed_job(
             job,
-            workload_class=_workload_class_for_job(job),
+            workload_class=workload,
             cwd=str(Path(db_path).parent),
             owner_id=context.worker_id,
             fencing_token=context.fencing_token,

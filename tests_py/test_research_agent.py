@@ -11,6 +11,7 @@ import pytest
 from local_control_center.agents import research_agent as research_agent_module
 from local_control_center.app import create_app
 from local_control_center.research.source_log import list_research_sources
+from local_control_center.threads.repository import ThreadsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
 
@@ -67,6 +68,36 @@ def research_request(project: dict[str, Any], workspace: dict[str, Any], **extra
         "taskId": "research-policy-check",
         **extra,
     }
+
+
+@pytest.mark.parametrize("cited", [True, False])
+def test_research_report_emits_thread_event_for_live_refresh(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cited: bool
+) -> None:
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-event")
+    threads = ThreadsRepository(store.connection)
+    thread = threads.create_thread(
+        project_id=project["id"], owner_type="workspace", owner_id=project["id"], title="Research"
+    )
+    url = "https://docs.python.org/3/library/asyncio-task.html"
+    result = research_agent_module.ResearchAgentRunner(store.connection, root=tmp_path).run(
+        research_request(
+            project,
+            workspace,
+            metadata={"threadId": thread["id"]},
+            sources=[{"url": url, "publisher": "Python", "content": "TaskGroup documentation."}],
+            conclusions=[{"statement": "TaskGroup is documented.", "citations": [url] if cited else []}],
+        )
+    )
+    events = [event for event in threads.list_events(thread["id"]) if event["type"] == "research_report"]
+    assert len(events) == 1
+    assert events[0]["payload"] == {
+        "artifactId": result["reportArtifact"]["id"],
+        "status": "research_ready" if cited else "research_blocked",
+    }
+    assert events[0]["agentRole"] == "research_agent"
+    assert threads.list_artifacts(thread["id"])[0]["artifactId"] == events[0]["payload"]["artifactId"]
 
 
 class _Headers:

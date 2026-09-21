@@ -13,3 +13,8 @@ la selección.
 from __future__ import annotations
 
 MODEL_WILDCARDS: frozenset[str] = frozenset({"", "*", "auto", "auto_best_available"})
+
+
+def is_nvidia_nim_auto_selection_sentinel(provider_family: str, model: str) -> bool:
+    """Return whether an NVIDIA NIM candidate still needs an explicit model selection."""
+    return provider_family == "nvidia_nim" and model == "auto_best_available"

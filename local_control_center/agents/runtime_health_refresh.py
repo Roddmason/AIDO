@@ -96,19 +96,40 @@ def stale_health_targets(
     return targets
 
 
-def _pending_health_checks(platform: Any) -> int:
-    """Cuenta health-checks ya encolados que todavia no llegaron a un estado terminal."""
+def _pending_health_checks(platform: Any) -> tuple[int, set[tuple[str, str]], set[str]]:
+    """Identifica objetivos pendientes sin publicar los inputs cifrados de la operación."""
+    from local_control_center.credentials.backends import CredentialBackendError
+    from local_control_center.executions.inputs import OperationInputStore
     from local_control_center.executions.models import TERMINAL_STATUSES
+    from local_control_center.shared.serialization import json_loads
 
     placeholders = ",".join("?" for _ in TERMINAL_STATUSES)
-    row = platform.connection.execute(
+    rows = platform.connection.execute(
         f"""
-        SELECT COUNT(*) AS total FROM operational_executions
+        SELECT operation, arguments_json FROM operational_executions
         WHERE operation IN (?, ?) AND status NOT IN ({placeholders})
         """,
         (CLI_HEALTH_OPERATION, PROVIDER_HEALTH_OPERATION, *sorted(TERMINAL_STATUSES)),
-    ).fetchone()
-    return int(row["total"] if row else 0)
+    ).fetchall()
+    inputs = OperationInputStore(platform.db_path)
+    targets: set[tuple[str, str]] = set()
+    unresolved_operations: set[str] = set()
+    for row in rows:
+        operation = str(row["operation"])
+        argument = CLI_ARGUMENT if operation == CLI_HEALTH_OPERATION else PROVIDER_ARGUMENT
+        try:
+            arguments = json_loads(row["arguments_json"], {})
+            locator = arguments.get("sealedInput") if isinstance(arguments, dict) else None
+            payload = inputs.get(locator) if isinstance(locator, str) else arguments
+            target = payload.get(argument) if isinstance(payload, dict) else None
+            if not isinstance(target, str) or not target.strip():
+                raise CredentialBackendError("Health check target is unavailable.")
+            targets.add((operation, target))
+        except (CredentialBackendError, TypeError, ValueError):
+            # Sin identidad no se puede probar ausencia de duplicados. El bloqueo queda
+            # acotado a esta operación, sin impedir la otra clase de health-check.
+            unresolved_operations.add(operation)
+    return len(rows), targets, unresolved_operations
 
 
 def _current_statuses(platform: Any) -> list[dict[str, Any]]:
@@ -137,18 +158,16 @@ def enqueue_stale_health_checks(
         logger.warning("Runtime health refresh could not read provider statuses: %s", error)
         return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": [], "pending": 0}
 
-    pending = _pending_health_checks(platform)
-    if pending:
-        # Encolar otro refresco mientras el anterior no corrio solo hace crecer la cola sin techo:
-        # con el worker frenado (recursos, pausa) se acumulan cientos de ejecuciones identicas.
-        logger.info("Runtime health refresh skipped: %d health checks are still pending.", pending)
-        return {"considered": len(resolved), "enqueued": 0, "failed": 0, "runtimes": [], "pending": pending}
+    pending, pending_targets, unresolved_operations = _pending_health_checks(platform)
 
     targets = stale_health_targets(resolved, now=now)
     handlers = getattr(platform, "execution_handlers", {}) or {}
     enqueued: list[str] = []
     failed = 0
     for operation, argument, runtime_id in targets:
+        target = (operation, runtime_id)
+        if target in pending_targets or operation in unresolved_operations:
+            continue
         registered = handlers.get(operation)
         if registered is None:
             failed += 1
@@ -157,6 +176,7 @@ def enqueue_stale_health_checks(
         try:
             enqueue_registered_operation(platform, registered[0], {argument: runtime_id})
             enqueued.append(runtime_id)
+            pending_targets.add(target)
         except Exception as error:  # pragma: no cover - un runtime no puede bloquear a los demás
             failed += 1
             logger.warning("Runtime health refresh failed to enqueue %s: %s", runtime_id, error)
@@ -167,7 +187,7 @@ def enqueue_stale_health_checks(
         "enqueued": len(enqueued),
         "failed": failed,
         "runtimes": enqueued,
-        "pending": 0,
+        "pending": pending,
     }
 
 

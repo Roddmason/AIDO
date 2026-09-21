@@ -63,6 +63,35 @@ def dispatch_execution(job: dict, *, connection, db_path):
                 status="cancelled" if result["cancelled"] else "failed",
                 reason=result["terminationReason"] or "El runner terminó sin resultado durable.",
             )
+        if job["kind"] == "thread.product_loop.run" and result.get("timedOut"):
+            from .timeout_reconciliation import (
+                reconcile_product_loop_timeout,
+                record_timeout_observation,
+                timeout_loop_for_job,
+            )
+
+            record_timeout_observation(
+                connection,
+                execution_id=execution_id,
+                attempt_id=context.attempt_id,
+                supervision_result=result,
+            )
+            try:
+                loop = timeout_loop_for_job(connection, job)
+                reconcile_product_loop_timeout(
+                    connection,
+                    execution_id=execution_id,
+                    expected_loop_id=loop["id"],
+                    expected_loop_version=loop["version"],
+                    expected_attempt_id=context.attempt_id,
+                    supervision_result=result,
+                    owner_id=context.worker_id,
+                    fencing_token=context.fencing_token,
+                )
+            except (ValueError, KeyError) as error:
+                diagnostic_event(
+                    "dispatcher.timeout_reconciliation_deferred", component="dispatcher", reason=str(error)
+                )
     legacy_result = (
         current["result"]
         if current["operation"].startswith("legacy_job:") and isinstance(current["result"], dict)

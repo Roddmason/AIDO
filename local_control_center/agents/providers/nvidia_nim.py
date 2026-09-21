@@ -18,6 +18,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
+from local_control_center.agents.model_wildcards import is_nvidia_nim_auto_selection_sentinel
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 from local_control_center.evidence.image_validation import MAX_IMAGE_BYTES
@@ -70,8 +71,10 @@ def _provider_returned_usage(raw_response: Any) -> bool:
 class NvidiaNimCapabilityError(RuntimeError):
     """Stable pre-network or redacted transport error for a NVIDIA capability call."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, status_code: int | None = None, request_attempted: bool = False):
         self.code = code
+        self.status_code = status_code
+        self.request_attempted = request_attempted
         super().__init__(code)
 
 
@@ -111,7 +114,11 @@ def _stdlib_transport(request: ProviderHttpRequest) -> ProviderHttpResponse:
         status_code = int(error.code)
         headers = {str(key).lower(): str(value) for key, value in error.headers.items()}
     except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise NvidiaNimCapabilityError("provider_request_failed") from error
+        is_timeout = isinstance(error, TimeoutError) or isinstance(
+            getattr(error, "reason", None), TimeoutError
+        )
+        code = "provider_request_timeout" if is_timeout else "provider_request_failed"
+        raise NvidiaNimCapabilityError(code) from error
     if not isinstance(payload, dict):
         raise NvidiaNimCapabilityError("provider_response_invalid")
     return ProviderHttpResponse(statusCode=status_code, headers=headers, jsonBody=payload)
@@ -207,15 +214,30 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute one bounded JSON capability request through the injected transport."""
-        response = self.transport(
-            ProviderHttpRequest(
-                method=method,
-                url=f"{self.base_url}{suffix}",
-                headers=self._capability_headers(),
-                jsonBody=payload or {},
-                timeoutSeconds=60,
-            )
+        request = ProviderHttpRequest(
+            method=method,
+            url=f"{self.base_url}{suffix}",
+            headers=self._capability_headers(),
+            jsonBody=payload or {},
+            timeoutSeconds=60,
         )
+        try:
+            response = self.transport(request)
+        except NvidiaNimCapabilityError as error:
+            error.request_attempted = True
+            raise
+        except urllib.error.HTTPError as error:
+            raise NvidiaNimCapabilityError(
+                "provider_request_failed", status_code=error.code, request_attempted=True
+            ) from error
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            is_timeout = isinstance(error, TimeoutError) or isinstance(
+                getattr(error, "reason", None), TimeoutError
+            )
+            raise NvidiaNimCapabilityError(
+                "provider_request_timeout" if is_timeout else "provider_request_failed",
+                request_attempted=True,
+            ) from error
         if response.status_code == 429:
             if self.connection is not None:
                 model = str((payload or {}).get("model") or "*")
@@ -227,10 +249,16 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
                         error_class="NvidiaNimRateLimit",
                     )
                 except sqlite3.Error as error:
-                    raise NvidiaNimCapabilityError("provider_rate_limit_persistence_failed") from error
-            raise NvidiaNimCapabilityError("provider_rate_limited")
+                    raise NvidiaNimCapabilityError(
+                        "provider_rate_limit_persistence_failed", request_attempted=True
+                    ) from error
+            raise NvidiaNimCapabilityError(
+                "provider_rate_limited", status_code=response.status_code, request_attempted=True
+            )
         if response.status_code < 200 or response.status_code >= 300:
-            raise NvidiaNimCapabilityError("provider_request_failed")
+            raise NvidiaNimCapabilityError(
+                "provider_request_failed", status_code=response.status_code, request_attempted=True
+            )
         return response.json_body
 
     def _post_capability(self, *, suffix: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -272,6 +300,8 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
         """Execute NVIDIA chat through the same injected, deployment-aware transport port."""
         self._assert_capability("chat_completions")
+        if is_nvidia_nim_auto_selection_sentinel("nvidia_nim", request.model):
+            raise NvidiaNimCapabilityError("nvidia_model_selection_required")
         request_payload: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
@@ -286,10 +316,11 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
             payload=request_payload,
         )
         choices = payload.get("choices")
-        message = choices[0].get("message") if isinstance(choices, list) and choices else None
+        choice = choices[0] if isinstance(choices, list) and choices else None
+        message = choice.get("message") if isinstance(choice, dict) else None
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
-            raise NvidiaNimCapabilityError("provider_response_invalid")
+            raise NvidiaNimCapabilityError("provider_response_invalid", request_attempted=True)
         return ModelResponse(
             providerId=self.provider_id,
             model=str(payload.get("model") or request.model),

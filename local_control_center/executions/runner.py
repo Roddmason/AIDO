@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import os
 import time
 from pathlib import Path
 from typing import get_type_hints
@@ -22,7 +23,11 @@ from pydantic import TypeAdapter, ValidationError
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import StaleWorkerFenceError
-from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+from local_control_center.process_supervision.context import (
+    ProcessExecutionContext,
+    execution_scope,
+    runner_execution_deadline,
+)
 from local_control_center.shared.serialization import json_loads
 
 from .inputs import OperationInputStore
@@ -87,6 +92,9 @@ def run_registered_operation(
                     diagnostics_expires_at=options.get("expiresAt", 0),
                     aggregate_managed_process_id=session[0]["aggregateId"] if session else None,
                     session_role="execution" if session else None,
+                    execution_deadline_monotonic=runner_execution_deadline(
+                        connection, execution_id=execution_id, runner_pid=os.getpid()
+                    ),
                 )
             ):
                 result = (

@@ -9,6 +9,7 @@ import { getThreadEvents } from '../../api/client';
 import type { ThreadAgentEvent, ThreadEvents } from '../../api/types';
 
 const POLL_INTERVAL_MS = 1000;
+const IDLE_POLL_INTERVAL_MS = 15000;
 const MAX_RENDERED_EVENTS = 300;
 const EMPTY_BOOTSTRAP_POLLS = 5;
 
@@ -67,14 +68,19 @@ export function useThreadEventStream(
 				setThreadStatus(page.threadStatus);
 				setRunning(page.running);
 				setLoading(false);
-				if (page.running || emptyPolls < EMPTY_BOOTSTRAP_POLLS) {
-					timer = window.setTimeout(poll, POLL_INTERVAL_MS);
-				}
+				setError('');
+				timer = window.setTimeout(
+					poll,
+					page.running || emptyPolls < EMPTY_BOOTSTRAP_POLLS
+						? POLL_INTERVAL_MS
+						: IDLE_POLL_INTERVAL_MS,
+				);
 			} catch (pollError) {
 				if (!active) return;
 				setError(pollError instanceof Error ? pollError.message : 'thread_events_unavailable');
 				setRunning(false);
 				setLoading(false);
+				timer = window.setTimeout(poll, IDLE_POLL_INTERVAL_MS);
 			}
 		};
 		void poll();

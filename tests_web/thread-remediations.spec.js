@@ -69,6 +69,19 @@ async function mockRemediations(page, remediations) {
 	});
 }
 
+/** Background refreshes must keep failing until the operator actually clicks Retry. */
+async function recoverRemediationsOnRetry(page) {
+	await page.addInitScript(() => {
+		window.__aidoRemediationRetryRequested = false;
+		document.addEventListener('click', (event) => {
+			if (event.target instanceof Element && event.target.closest('.thread-remediation-load-error button')) {
+				window.__aidoRemediationRetryRequested = true;
+			}
+		}, true);
+	});
+	return () => page.evaluate(() => window.__aidoRemediationRetryRequested === true);
+}
+
 /** The blocker card that carries the given title text, scoped to the inspector pane. */
 function blockerCard(page, titlePattern) {
 	return page
@@ -137,6 +150,183 @@ test('Remediations: a blocked runtime card opens Providers & CLI', async ({ page
 	await expect(settings).toBeVisible({ timeout: 10_000 });
 	await expect(settings.getByText(/Providers & CLI/).first()).toBeVisible();
 });
+
+test('Remediations: Jev timeout preserves validated runtime and offers engine settings and explicit retry', async ({ page }) => {
+	const reason = 'Jev runtime selection blocked: timeout. Validated runtime: codex_cli / gpt-5.5.';
+	const settingsAction = remediation({
+		id: 'remediation-jev-settings', stage: 'resource_manager', blockerType: 'decision_engine_unavailable',
+		actionType: 'open_settings_section', technicalReason: reason,
+		payload: { section: 'routing', reason, decisionEngine: { reasonCode: 'timeout', decisionId: 'jev-proof' } },
+	});
+	const retryAction = remediation({
+		...settingsAction, id: 'remediation-jev-retry', actionType: 'retry_loop',
+		payload: { reason, retryTarget: 'resource_manager' },
+	});
+	let retries = 0;
+	await page.route('**/api/v1/remediations/remediation-jev-retry/execute', async (route) => {
+		retries += 1;
+		await route.fulfill({
+			status: 200, contentType: 'application/json',
+			body: JSON.stringify({ remediation: retryAction, execution: { status: 'blocked', reason } }),
+		});
+	});
+	await mockRemediations(page, [settingsAction, retryAction]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Jev timeout remediation ${Date.now()}`);
+	const card = blockerCard(page, /Jev decision unavailable|Decisión de Jev no disponible/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await expect(card.getByText(reason, { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: /Configure runtime|Configurar runtime/ })).toHaveCount(0);
+	expect(retries).toBe(0);
+	await card.getByRole('button', { name: /Retry loop|Reintentar loop/ }).click();
+	await expect.poll(() => retries).toBe(1);
+	await card.getByRole('button', { name: /Review decision engine|Revisar motor de decisiones/ }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText(/Decision timeout \(seconds\)|Timeout de decisión \(segundos\)/).first()).toBeVisible();
+});
+
+test('Remediations: role and unknown cost policy opens Routing without configuring or approving a runtime', async ({ page }) => {
+	await page.route('**/api/v1/i18n/catalog', async (route) => {
+		const response = await route.fetch();
+		const catalog = await response.json();
+		catalog.translations['app.threads.remediation.blocker.resource_manager_unconfigured.title'].en =
+			'AI resource routing is not configured';
+		await route.fulfill({ response, json: catalog });
+	});
+	const reason = 'aido_lead: role_blocks_candidate; unknown cost requires approval (6).';
+	await mockRemediations(page, [remediation({
+		stage: 'resource_manager', blockerType: 'resource_manager_unconfigured',
+		actionType: 'open_settings_section', technicalReason: reason, primary: true,
+		payload: { section: 'routing', reason, blockedRoles: ['aido_lead'], resourceBlockers: [{
+			role: 'aido_lead', selected: null, decisionReason: reason,
+			rejected: [{ providerId: 'codex_cli', model: 'gpt-5.5', reason: 'role_blocks_candidate' }],
+		}] },
+	})]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Role policy remediation ${Date.now()}`);
+	const card = blockerCard(page, /No eligible AI resource is available|No hay un recurso de IA elegible disponible/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await expect(card.getByText(reason, { exact: true })).toBeVisible();
+	await expect(card.getByRole('button', { name: /Configure runtime|Configurar runtime|Approve|Aprobar/ })).toHaveCount(0);
+	await card.getByRole('button', { name: /Open routing|Abrir enrutamiento/ }).click();
+	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText(/Decision timeout \(seconds\)|Timeout de decisión \(segundos\)/).first()).toBeVisible();
+});
+
+test('Remediations: runtime denial names the policy failure and opens configuration', async ({ page }) => {
+	const reason = 'ProductOwnerAgent model execution is limited to configured adapters.';
+	await mockRemediations(page, [remediation({
+		stage: 'product_owner',
+		blockerType: 'runtime_execution_denied',
+		actionType: 'open_settings_section',
+		title: 'Review runtime configuration',
+		description: 'Review the reported denial and select a supported, authorized runtime.',
+		technicalReason: reason,
+		payload: { reason, section: 'providers-cli' },
+	})]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Runtime denial remediation ${Date.now()}`);
+	const card = blockerCard(page, /Runtime execution denied|Ejecución del runtime denegada/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await expect(card.getByText(reason, { exact: true })).toBeVisible();
+	await expect(card.getByText(/No executable runtime|Sin runtime ejecutable/)).toHaveCount(0);
+	await card.getByRole('button', { name: /Configure runtime|Configurar runtime/ }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/Providers & CLI/).first()).toBeVisible();
+});
+
+test('Remediations: provider HTTP failure shows the real cause instead of a missing runtime', async ({ page }) => {
+	const reason = 'NVIDIA NIM execution failed: provider_request_failed (http_status=410)';
+	await mockRemediations(page, [remediation({
+		stage: 'product_owner',
+		blockerType: 'runtime_execution_failed',
+		actionType: 'open_settings_section',
+		title: 'Review provider and model',
+		technicalReason: reason,
+		payload: { reason, section: 'providers-cli', model: 'abacusai/dracarys-llama-3.1-70b-instruct' },
+	})]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Provider failure remediation ${Date.now()}`);
+	const card = blockerCard(page, /Provider request failed|Falló la solicitud al proveedor/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await expect(card.getByText(reason, { exact: true })).toBeVisible();
+	await expect(card.getByText(/No executable runtime|Sin runtime ejecutable/)).toHaveCount(0);
+	await card.getByRole('button', { name: /Configure runtime|Configurar runtime/ }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+test('Remediations: a worker execution failure retries its job without provider configuration', async ({ page }) => {
+	const reason = 'SQLite transaction failed while consuming the runtime review.';
+	const record = remediation({
+		id: 'remediation-worker-failure', stage: 'worker', blockerType: 'runtime_execution_failed',
+		actionType: 'run_worker_once', primary: true, technicalReason: reason,
+		payload: { reason, jobId: 'job-existing-review', reviewId: 'review-existing' },
+	});
+	await mockRemediations(page, [record]);
+	const executions = [];
+	await page.route('**/api/v1/remediations/remediation-worker-failure/execute', async (route) => {
+		executions.push(route.request().url());
+		await route.fulfill({ json: {
+			remediation: record, execution: { status: 'queued', jobId: 'job-existing-review' },
+		} });
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Worker execution failure ${Date.now()}`);
+	for (const pane of ['.inspector-panel', '.thread-execution-pane']) {
+		const card = page.locator(pane).getByRole('group', { name: /Worker execution failed|Falló la ejecución del worker/ });
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		await expect(card.getByText(reason, { exact: true })).toBeVisible();
+		await expect(card.getByText(/same job|mismo trabajo/)).toBeVisible();
+		await expect(card.getByRole('button', { name: /Run now|Ejecutar ahora/ })).toBeVisible();
+		await expect(card.getByRole('button', { name: /Configure runtime|Configurar runtime/ })).toHaveCount(0);
+		await expect(card.getByText(/HTTP error|error HTTP|Provider request failed|Falló la solicitud al proveedor/)).toHaveCount(0);
+	}
+	expect(executions).toHaveLength(0);
+	await blockerCard(page, /Worker execution failed|Falló la ejecución del worker/)
+		.getByRole('button', { name: /Run now|Ejecutar ahora/ }).click();
+	await expect.poll(() => executions.length).toBe(1);
+});
+
+for (const hasTracked of [true, false]) {
+test(`Remediations: interrupted work shows preserved changes without retrying (tracked=${hasTracked})`, async ({ page }) => {
+	const record = remediation({
+		id: 'partial-execution', stage: 'worker', blockerType: 'runtime_execution_failed',
+		actionType: 'view_diff', primary: true, technicalReason: 'The execution reached its time limit.',
+		payload: { interruptedExecutionId: 'failed-job', workspaceId: 'preserved-workspace' },
+	});
+	await mockRemediations(page, [record]);
+	let reads = 0;
+	await page.route('**/api/v1/remediations/partial-execution/execute', async (route) => {
+		reads++;
+		await route.fulfill({ json: { remediation: record, execution: {
+			status: 'completed', partialExecution: true, workspacePath: 'H:/isolated-workspace',
+			diff: hasTracked ? 'diff --git a/pom.xml b/pom.xml\n+<java.version>25</java.version>' : '', untrackedFiles: ['src/new.txt'],
+		} } });
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Interrupted work ${Date.now()}`);
+	const card = blockerCard(page, /Worker execution failed|Falló la ejecución del worker/);
+	await expect(card.getByText(/preserved|conservados/)).toBeVisible();
+	await expect(card.getByRole('button', { name: /Run now|Retry loop|Configure runtime/ })).toHaveCount(0);
+	expect(reads).toBe(0);
+	await card.getByRole('button', { name: /View diff|Ver diff/ }).click();
+	const dialog = page.getByRole('dialog', { name: /Preserved workspace changes|Cambios conservados/ });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText('H:/isolated-workspace', { exact: true })).toBeVisible();
+	await expect(dialog.getByText('src/new.txt', { exact: true })).toBeVisible();
+	if (hasTracked) await expect(dialog.getByText(/java.version/)).toBeVisible();
+	else await expect(dialog.getByText(/No tracked changes|Sin cambios en archivos versionados/)).toBeVisible();
+	expect(reads).toBe(1);
+});
+}
 
 test('Remediations: git_not_initialized offers Initialize Git', async ({ page }) => {
 	let executeCalled = false;
@@ -597,6 +787,33 @@ test('Remediations: a blocked run with no remediation falls back to settings and
 	await expect(settings).toBeVisible({ timeout: 10_000 });
 });
 
+test('Remediations: a failed read is not an empty repair plan', async ({ page }) => {
+	const retryRequested = await recoverRemediationsOnRetry(page);
+	await page.route('**/api/v1/threads/*/remediations', async (route) =>
+		route.fulfill(await retryRequested()
+			? { json: { remediations: [] } }
+			: { status: 503, json: { detail: 'Remediation storage is temporarily unavailable.' } }),
+	);
+	await injectBlockedEvent(page, {
+		stage: 'resource_manager',
+		reason: 'No validated candidate is available.',
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Blocked repair read failure ${Date.now()}`);
+
+	const execution = page.locator('.thread-execution-pane');
+	const loadError = execution.locator('.thread-remediation-load-error');
+	const missingPlan = execution.getByText(/Blocked without a repair plan|Bloqueado sin plan de reparación/);
+	await expect(loadError).toBeVisible({ timeout: 20_000 });
+	await expect(missingPlan).toHaveCount(0);
+
+	// Only a successful empty response proves that the fallback plan is needed.
+	await loadError.getByRole('button', { name: /Retry|Reintentar/ }).click();
+	await expect(loadError).toHaveCount(0);
+	await expect(missingPlan).toBeVisible();
+});
+
 test('Remediations: a stopped worker offers Run now', async ({ page }) => {
 	await mockRemediations(page, [
 		remediation({
@@ -666,9 +883,9 @@ test('Remediations: a failed repair request stays visible and explains what fail
 test('Remediations: a failed remediation load offers Retry and recovers the real actions', async ({
 	page,
 }) => {
-	let failLoad = true;
+	const retryRequested = await recoverRemediationsOnRetry(page);
 	await page.route('**/api/v1/threads/*/remediations', async (route) => {
-		if (failLoad) {
+		if (!(await retryRequested())) {
 			await route.fulfill({
 				status: 503,
 				contentType: 'application/json',
@@ -702,7 +919,6 @@ test('Remediations: a failed remediation load offers Retry and recovers the real
 		/Could not load repair actions|No se pudieron cargar las acciones de reparación/,
 	);
 
-	failLoad = false;
 	await loadError.getByRole('button', { name: /Retry|Reintentar/ }).click();
 	await expect(
 		blockerCard(page, /Worker is not running|El worker no está corriendo/),

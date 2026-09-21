@@ -449,7 +449,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                         "supportsRerank": api_family == "rerank",
                         "enabled": True,
                         "source": enriched.get("source", f"provider_account_sync:{provider_id}"),
-                    }
+                    },
+                    preserve_operator_enabled=True,
                 )
             )
         # La exclusión es regla de proyecto, no preferencia: el sync también apaga las filas que

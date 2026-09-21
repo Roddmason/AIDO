@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .ai_resource_manager import AIResourceManager, AIResourceRequest
 from .budget_rules import BudgetRuleEvaluator
 from .model_benchmarks import ModelBenchmarkStore
-from .model_wildcards import MODEL_WILDCARDS
+from .model_wildcards import MODEL_WILDCARDS, is_nvidia_nim_auto_selection_sentinel
 from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 from .quota_manager import QuotaManager
@@ -78,7 +78,9 @@ class ModelRouter:
         self.budgets = BudgetRuleEvaluator(connection)
         self.benchmarks = ModelBenchmarkStore(connection)
 
-    def preview(self, request: RoutingRequest, *, record: bool = True) -> dict[str, Any]:
+    def preview(
+        self, request: RoutingRequest, *, record: bool = True, allow_decision_inference: bool = False
+    ) -> dict[str, Any]:
         """Resuelve la decisión de ruteo: candidatos, rechazos, elegido y política de aprobación.
 
         Args:
@@ -89,7 +91,9 @@ class ModelRouter:
             Resultado con el provider/model/runtime elegido (o None), el desglose de puntaje, los
             candidatos/rechazados y el policyResult con presupuesto, cuota y si requiere aprobación.
         """
-        ai_resource_preview = self._preview_with_ai_resource_manager(request, record=record)
+        ai_resource_preview = self._preview_with_ai_resource_manager(
+            request, record=record, allow_decision_inference=allow_decision_inference
+        )
         if ai_resource_preview is not None:
             return ai_resource_preview
 
@@ -319,13 +323,23 @@ class ModelRouter:
         return result
 
     def _preview_with_ai_resource_manager(
-        self, request: RoutingRequest, *, record: bool
+        self, request: RoutingRequest, *, record: bool, allow_decision_inference: bool = False
     ) -> dict[str, Any] | None:
-        if not self._has_ai_resource_profiles():
+        from local_control_center.decision_engine.config import resolve_config
+
+        try:
+            runtime_selection = resolve_config(self.connection, request.project_id).selects_runtime
+        except ValueError:
+            return self._blocked_jev_selection("decision_configuration_invalid")
+        if not runtime_selection and not self._has_ai_resource_profiles():
             return None
         try:
-            return self._ai_resource_preview(request, record=record)
+            return self._ai_resource_preview(
+                request, record=record, allow_decision_inference=allow_decision_inference
+            )
         except Exception:
+            if runtime_selection:
+                return self._blocked_jev_selection("selection_unavailable")
             # El preview nunca debe devolver 500 por un perfil corrupto o un contrato roto del
             # manager: se degrada al scorer clásico y queda traza para diagnosticar.
             logger.warning(
@@ -335,13 +349,43 @@ class ModelRouter:
             )
             return None
 
-    def _ai_resource_preview(self, request: RoutingRequest, *, record: bool) -> dict[str, Any] | None:
+    @staticmethod
+    def _blocked_jev_selection(reason: str) -> dict[str, Any]:
+        """Active selection never falls back to the classic scorer or a pinned provider."""
+        return {
+            "selected": None,
+            "estimatedCostUsd": None,
+            "estimatedTokens": 0,
+            "decisionReason": f"Jev runtime selection blocked: {reason}.",
+            "candidates": [],
+            "rejected": [],
+            "scoreBreakdown": {},
+            "policyResult": {
+                "requiresApproval": False,
+                "source": "ai_resource_manager",
+                "decisionEngine": {"mode": "runtime_selection", "reasonCode": reason},
+            },
+        }
+
+    def _ai_resource_preview(
+        self, request: RoutingRequest, *, record: bool, allow_decision_inference: bool = False
+    ) -> dict[str, Any] | None:
         """Vía AIResourceManager del preview (mismo motor que usa el product loop)."""
         try:
             role_policy = self.routes.get_role_policy(request.role)
         except KeyError:
             role_policy = self.routes.get_role_policy("developer")
         preferred_provider_ids = self._role_policy_provider_preference(role_policy)
+        from .repository import AgentsRepository
+
+        profile = next(
+            (
+                item
+                for item in AgentsRepository(self.connection).list_agent_profiles(request.project_id)
+                if item["role"] == request.role
+            ),
+            {},
+        )
         ai_request = AIResourceRequest(
             project_id=request.project_id,
             task_type=request.task_type,
@@ -370,9 +414,12 @@ class ModelRouter:
             workflow_run_id=request.workflow_run_id,
             workflow_step_id=request.workflow_step_id,
             agent_id=request.agent_id,
+            agent_profile_id=profile.get("id"),
             task_id=request.task_id,
         )
-        decision = AIResourceManager(self.connection).select_resource(ai_request, record=record)
+        decision = AIResourceManager(self.connection).select_resource(
+            ai_request, record=record, allow_decision_inference=allow_decision_inference
+        )
         result = self._ai_decision_to_routing_preview(request, role_policy, decision)
         if record:
             selected = result.get("selected") or {}
@@ -512,7 +559,8 @@ class ModelRouter:
             "preferredResourceOrder": decision.get("policyResult", {}).get("preferredResourceOrder", []),
             "selectionOrder": decision.get("policyResult", {}).get("selectionOrder"),
             "source": "ai_resource_manager",
-            "opaqueMlUsed": False,
+            "opaqueMlUsed": bool(decision.get("policyResult", {}).get("opaqueMlUsed")),
+            "decisionEngine": decision.get("policyResult", {}).get("decisionEngine"),
         }
         budget_result = {
             "allowed": not bool(decision.get("budgetStop")),
@@ -590,6 +638,11 @@ class ModelRouter:
             return "provider_disabled"
         if not model["enabled"]:
             return "model_disabled"
+        if is_nvidia_nim_auto_selection_sentinel(
+            str(provider.get("providerFamily") or provider.get("providerId") or "").strip(),
+            str(model.get("model") or "").strip(),
+        ):
+            return "nvidia_model_selection_required"
         if provider_type != "manual" and not provider.get("lastHealthCheckAt"):
             return "provider_healthcheck_required"
         if provider["healthStatus"] != "healthy":

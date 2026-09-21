@@ -31,6 +31,7 @@ from .cli_runtimes.codex_cli import CodexCliRuntime
 from .cli_runtimes.manual import ManualRuntime
 from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
+from .response_style import developer_summary_instruction, resolve_response_style
 
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
@@ -420,6 +421,7 @@ def developer_agent_prompt(
     qa_commands: list[list[str]],
     story_specs: str | None = None,
     constitution: str | None = None,
+    response_style: str = "normal",
 ) -> str:
     """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules.
 
@@ -427,7 +429,8 @@ def developer_agent_prompt(
     acceptance criteria, and role responsibilities) is included as the acceptance
     source of truth; ``constitution`` (the rendered project constitution) is
     prepended as binding project rules. Without either, the prompt is
-    byte-identical to the legacy form.
+    byte-identical to the legacy form when the response style is normal. Runtime
+    callers resolve the configured style before command construction or authorization.
     """
     qa_text = (
         "\n".join(" ".join(command) for command in qa_commands)
@@ -445,7 +448,7 @@ def developer_agent_prompt(
         "- Do not read, write, print, commit, push, or exfiltrate secrets or credentials.\n"
         "- Do not skip applicable tests; if QA commands are provided, preserve them as required verification.\n"
         "- Do not modify the source repository root outside this workspace.\n"
-        "- Produce a concise structured summary with changed files, tests run, blockers, and residual risks.\n\n"
+        f"{developer_summary_instruction(response_style)}\n\n"
         f"{constitution_block}"
         f"{spec_block}"
         f"Instruction:\n{instruction}\n\nRequired QA commands:\n{qa_text}\n"
@@ -625,6 +628,14 @@ def build_developer_agent_argv(
             "Runtime detected executable does not match the declared runtime command."
         )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
+    workspace = (
+        connection.execute("SELECT project_id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        if connection is not None
+        else None
+    )
+    response_style = resolve_response_style(
+        connection, project_id=str(workspace["project_id"]) if workspace else None
+    )
     request = RuntimeRequest.model_validate(
         {
             "runtime": runtime_id,
@@ -635,6 +646,7 @@ def build_developer_agent_argv(
                 qa_commands=qa_commands,
                 story_specs=story_specs,
                 constitution=constitution,
+                response_style=response_style,
             ),
             "model": model,
             "envPolicy": {

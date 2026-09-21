@@ -486,12 +486,15 @@ def test_schema_rebuild_rolls_back_ddl_and_data_on_failure(tmp_path: Path) -> No
 
 def test_provider_test_prompt_keeps_missing_usage_unknown(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
         "local_control_center.agents.model_gateway_api.provider_instance",
         lambda *_args, **_kwargs: SimpleNamespace(
             chat_completion=lambda _request: SimpleNamespace(
                 content="ok",
+                provider_id="ollama",
+                model="test-model",
                 usage=SimpleNamespace(
                     total_tokens=0,
                     raw_usage={"usage_source": "provider"},
@@ -500,7 +503,9 @@ def test_provider_test_prompt_keeps_missing_usage_unknown(
         ),
     )
 
-    result = _run_provider_test_prompt("ollama", "test-model", connection=object())
+    with closing(open_sqlite_connection(tmp_path / "model-health.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        result = _run_provider_test_prompt("ollama", "test-model", connection=connection)
 
     assert result["ok"] is True
     assert result["totalTokens"] is None
@@ -1495,7 +1500,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
     base_url, _handler, server = run_json_gateway_server(
         {
             "id": "chatcmpl-nvidia-no-usage",
-            "model": "auto_best_available",
+            "model": "fixture-nvidia-model",
             "choices": [{"message": {"role": "assistant", "content": "provider text without usage"}}],
         }
     )
@@ -1523,7 +1528,7 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
             plan = ModelGateway(connection).plan_model_call(
                 project_id="project-nvidia",
                 provider="nvidia_nim",
-                model="auto_best_available",
+                model="fixture-nvidia-model",
                 runtime_type="api",
                 messages=[{"role": "user", "content": "hello"}],
             )
@@ -1654,6 +1659,14 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "nvidia_nim")
+    assert (
+        client.post(
+            "/api/v1/model-gateway/models",
+            headers=headers,
+            json={"providerId": "nvidia_nim", "model": "fixture-nvidia-model", "enabled": True},
+        ).status_code
+        == 201
+    )
 
     response = client.post(
         "/api/v1/model-gateway/route/preview",
@@ -1738,6 +1751,14 @@ def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "nvidia_nim")
+    assert (
+        client.post(
+            "/api/v1/model-gateway/models",
+            headers=headers,
+            json={"providerId": "nvidia_nim", "model": "fixture-nvidia-model", "enabled": True},
+        ).status_code
+        == 201
+    )
     enable_provider(client, headers, "ollama")
 
     patched_policy = client.patch(
@@ -2104,6 +2125,28 @@ def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: P
     assert unknown["staleness"] == "unknown"
     assert stale["estimatedCostUsd"] is not None
     assert stale["staleness"] == "stale"
+
+
+@pytest.mark.parametrize(
+    ("column", "tokens"),
+    [
+        ("input_price_per_mtok", {"input_tokens": 100}),
+        ("cached_input_price_per_mtok", {"input_tokens": 100, "cached_input_tokens": 100}),
+        ("output_price_per_mtok", {"output_tokens": 100}),
+        ("reasoning_price_per_mtok", {"reasoning_tokens": 100}),
+    ],
+)
+def test_pricing_does_not_report_missing_consumed_rate_as_zero(tmp_path, column, tokens):
+    with closing(open_sqlite_connection(tmp_path / "pricing.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            f"UPDATE model_catalog SET {column}=NULL WHERE provider_id=? AND model=?",
+            ("codex_cli", "gpt-5.5"),
+        )
+        result = PricingCatalog(connection).estimate(provider_id="codex_cli", model="gpt-5.5", **tokens)
+        assert result["estimatedCostUsd"] is None
+        assert result["priceKnown"] is False
+        assert result["freeTier"] is False
 
 
 def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(

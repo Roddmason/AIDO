@@ -11,14 +11,19 @@ from __future__ import annotations
 
 import re
 import time
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from starlette.concurrency import run_in_threadpool
 
 from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
@@ -29,6 +34,11 @@ from .codex_compatibility import CodexCompatibilityResponse, CodexCompatibilityS
 from .codex_smoke import CodexSmokeRequest, run_codex_smoke
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
+from .model_execution_health import (
+    model_validation_rejection,
+    provider_configuration_fingerprint,
+    record_model_execution,
+)
 from .model_gateway import ModelGateway, _provider_usage_reported, provider_instance
 from .model_gateway_models import (
     BudgetRulePatchRequest,
@@ -206,8 +216,12 @@ def _run_provider_test_prompt(
     from .providers.base import ModelRequest
 
     started = time.monotonic()
+    execution_started_at = datetime.now(UTC).isoformat(timespec="microseconds")
+    fingerprint = provider_configuration_fingerprint(connection, provider_id)
+    invoked = False
     try:
         resolved_provider = provider or provider_instance(provider_id, connection=connection)
+        invoked = True
         response = resolved_provider.chat_completion(
             ModelRequest.model_validate(
                 {
@@ -221,15 +235,28 @@ def _run_provider_test_prompt(
         raw_usage = getattr(usage, "raw_usage", None) or {}
         usage_reported = _provider_usage_reported(raw_usage)
         usage_source = str(raw_usage.get("usage_source") or "provider") if usage_reported else "unknown"
+        valid_response = bool(str(response.content or "").strip()) and (
+            getattr(response, "provider_id", None) == provider_id
+            and getattr(response, "model", None) == model
+        )
+        record_model_execution(
+            connection,
+            provider_id,
+            model,
+            valid_response,
+            "test_prompt",
+            configuration_fingerprint=fingerprint,
+            started_at=execution_started_at,
+        )
         return {
             "providerId": provider_id,
             "model": model,
-            "ok": True,
+            "ok": valid_response,
             "latencyMs": int((time.monotonic() - started) * 1000),
             "sample": str(redact_secrets(response.content or ""))[:TEST_PROMPT_SAMPLE_LIMIT],
             "totalTokens": int(getattr(usage, "total_tokens", 0) or 0) if usage_reported else None,
             "usageSource": usage_source,
-            "error": None,
+            "error": None if valid_response else "model_validation_invalid_response",
         }
     except UnsupportedProviderCapabilityError as error:
         return {
@@ -243,6 +270,17 @@ def _run_provider_test_prompt(
             "error": error.public_code,
         }
     except NvidiaNimCapabilityError as error:
+        if invoked and (error.request_attempted or error.status_code is not None):
+            record_model_execution(
+                connection,
+                provider_id,
+                model,
+                False,
+                "test_prompt",
+                http_status=error.status_code,
+                configuration_fingerprint=fingerprint,
+                started_at=execution_started_at,
+            )
         return {
             "providerId": provider_id,
             "model": model,
@@ -256,6 +294,17 @@ def _run_provider_test_prompt(
     except Exception as error:
         # Any provider/network failure is surfaced as a redacted test result, never raised, so the
         # test action degrades gracefully and never leaks the secret in a stack trace.
+        if invoked and isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError)):
+            record_model_execution(
+                connection,
+                provider_id,
+                model,
+                False,
+                "test_prompt",
+                http_status=error.code if isinstance(error, HTTPError) else None,
+                configuration_fingerprint=fingerprint,
+                started_at=execution_started_at,
+            )
         return {
             "providerId": provider_id,
             "model": model,
@@ -632,7 +681,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     "supportsEmbeddings": api_family == "embeddings",
                     "supportsRerank": api_family == "rerank",
                     "enabled": True,
-                }
+                },
+                preserve_operator_enabled=True,
             )
             for item in discovered
         ]
@@ -997,7 +1047,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """
         require_write(request)
         body_payload = _payload(body)
-        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
+        result = await run_in_threadpool(
+            ModelRouter(platform.connection).preview,
+            RoutingRequest(**body_payload),
+            record=True,
+            allow_decision_inference=True,
+        )
         selected = result.get("selected")
         if not selected:
             raise HTTPException(status_code=409, detail=result.get("decisionReason") or "No route selected.")
@@ -1057,6 +1112,28 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             budget_remaining_usd=body_payload.get("budgetRemainingUsd"),
             metadata={"routing": result},
         )
+        decision_engine = result.get("policyResult", {}).get("decisionEngine", {})
+        if decision_engine.get("mode") == "runtime_selection":
+            from .agent_resource_policy import selection_profile_changed
+
+            if selection_profile_changed(platform.connection, decision_engine, body_payload.get("projectId")):
+                raise HTTPException(status_code=409, detail="agent_profile_changed")
+            validation = decision_engine.get("selectionValidation")
+            fingerprint = provider_configuration_fingerprint(platform.connection, selected["provider"])
+            if not isinstance(validation, dict) or any(
+                validation.get(key) != value
+                for key, value in {
+                    "providerId": selected["provider"],
+                    "model": selected["model"],
+                    "configurationFingerprint": fingerprint,
+                }.items()
+            ):
+                raise HTTPException(status_code=409, detail="model_validation_configuration_changed")
+            validation_reason = model_validation_rejection(
+                platform.connection, selected["provider"], selected["model"]
+            )
+            if validation_reason:
+                raise HTTPException(status_code=409, detail=validation_reason)
         execution = gateway.execute_model_call(
             {
                 **planned_call,
@@ -1243,20 +1320,40 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""
         require_write(request)
+        fingerprint = provider_configuration_fingerprint(platform.connection, runtime_id)
         try:
             command = cli_runtime_command(runtime_id)
             health = RuntimeRegistry().health_check(runtime_id, executable=command)
             detection = RuntimeRegistry().detect(runtime_id, executable=command)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        persist_cli_probe(
-            runtime_id,
-            check_type="health",
-            payload={**detection, **health},
-            executable_hint=command,
+        transaction = (
+            nullcontext()
+            if platform.connection.in_transaction
+            else immediate_transaction(platform.connection)
         )
+        with transaction:
+            if not fingerprint or fingerprint != provider_configuration_fingerprint(
+                platform.connection, runtime_id
+            ):
+                health = {
+                    "runtime": runtime_id,
+                    "status": "unknown",
+                    "message": "CLI configuration changed during the health check; fresh health evidence is required.",
+                }
+                audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
+                return {"health": health}
+            persist_cli_probe(
+                runtime_id,
+                check_type="health",
+                payload={**detection, **health},
+                executable_hint=command,
+            )
         RuntimeStatusService(
-            platform.connection, allow_probes=True, probe_runtime_ids={runtime_id}
+            platform.connection,
+            allow_probes=True,
+            probe_runtime_ids={runtime_id},
+            force_native_auth_refresh=True,
         ).list_provider_statuses()
         audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
         return {"health": health}

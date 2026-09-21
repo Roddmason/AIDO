@@ -23,6 +23,22 @@ INFERENCE_OPERATIONS = frozenset(
 
 def operation_workload(connection, spec, payload):
     """Reserva el perfil más restrictivo posible sin confiar en flags de recursos del cliente."""
+    if spec.name == "agents.run_developer_agent":
+        body = payload.get("body")
+        preferred = body.get("preferredRuntime") if isinstance(body, dict) else None
+        if isinstance(preferred, str) and preferred:
+            account = next(
+                (
+                    account
+                    for account in ProviderAccountStore(connection).list_provider_accounts()
+                    if account["providerId"] == preferred
+                ),
+                None,
+            )
+            if account is not None and provider_workload_class(account) == "local_gpu_model":
+                return "local_gpu_model"
+        # Preserve the patch/QA envelope without selecting a runtime during enqueue.
+        return spec.workload_class
     if spec.name == "remediations.execute":
         action = connection.execute(
             "SELECT action_type FROM remediation_actions WHERE id=?", (payload.get("remediation_id"),)

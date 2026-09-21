@@ -155,7 +155,8 @@ export function SettingsModal({
 	}
 
 	function renderSectionContent() {
-		if (loading) {
+		const hasSettings = general.length > 0 || project.length > 0;
+		if (loading && !hasSettings) {
 			return (
 				<>
 					<Skeleton
@@ -167,7 +168,7 @@ export function SettingsModal({
 				</>
 			);
 		}
-		if (error) {
+		if (error && !hasSettings) {
 			return (
 				<ErrorState title={t('app.settings.error.title', 'Failed to load settings')} body={error} />
 			);
@@ -195,7 +196,17 @@ export function SettingsModal({
 			closeSettings: onClose,
 		};
 
-		return currentSection.render(ctx);
+		return (
+			<>
+				{error ? (
+					<ErrorState
+						title={t('app.settings.error.title', 'Failed to load settings')}
+						body={error}
+					/>
+				) : null}
+				{currentSection.render(ctx)}
+			</>
+		);
 	}
 
 	return (

@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,12 +23,15 @@ from typing import Any
 from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
+from .model_execution_health import provider_configuration_fingerprint
 from .model_gateway import cached_ollama_status
+from .product_owner_agent_contract import PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
 from .provider_accounts import ProviderAccountStore
 from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .providers.factory import provider_account_requires_credential
@@ -407,7 +411,9 @@ def _api_provider_status(
     payload["pricingMode"] = str(account.get("pricingMode") or "")
     metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
     payload["freeTierDeclaredByOperator"] = metadata.get("freeTierDeclaredByOperator") is True
-    payload["productOwnerExecutable"] = can_run_prompt
+    payload["productOwnerExecutable"] = bool(
+        can_run_prompt and payload["providerFamily"] in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+    )
     return payload
 
 
@@ -713,6 +719,7 @@ class RuntimeStatusService:
         *,
         allow_probes: bool = False,
         probe_runtime_ids: set[str] | None = None,
+        force_native_auth_refresh: bool = False,
     ):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
@@ -721,6 +728,7 @@ class RuntimeStatusService:
         # A request correlation scope is not a worker execution or permission to probe.
         self.allow_probes = allow_probes or bool(context and context.in_job_runner)
         self.probe_runtime_ids = probe_runtime_ids
+        self.force_native_auth_refresh = force_native_auth_refresh
 
     @staticmethod
     def _persist_fresh_cli_version(
@@ -748,24 +756,41 @@ class RuntimeStatusService:
         runtime_id: str,
         detection: dict[str, Any],
         command: str | None,
+        configuration_fingerprint: str,
     ) -> None:
         """Valida la autenticación nativa de un CLI detectado cuya cuenta aún no está validada.
 
-        Invariantes: una cuenta ya validada (healthy + lastValidationAt) no se re-sondea en el
-        rollup; un probe ``unknown`` (timeout/bloqueado/binario ausente) no escribe nada, para no
-        degradar el estado por un fallo transitorio. Solo un veredicto concluyente persiste.
+        El rollup conserva cuentas vigentes; la operación explícita de salud puede renovarlas
+        antes del TTL. Un probe ``unknown`` no escribe nada. Sólo persiste un veredicto nativo
+        concluyente cuya configuración y cuenta sigan siendo las observadas antes del probe.
         """
         account = accounts.get(runtime_id)
         if not account:
             return
-        if account.get("healthStatus") == "healthy" and _native_auth_validation_is_fresh(
-            account.get("lastValidationAt")
+        force_refresh = (
+            self.force_native_auth_refresh
+            and self.probe_runtime_ids is not None
+            and runtime_id in self.probe_runtime_ids
+        )
+        if (
+            not force_refresh
+            and account.get("healthStatus") == "healthy"
+            and _native_auth_validation_is_fresh(account.get("lastValidationAt"))
         ):
             return
         if detection.get("status") != "installed":
             return
         version = detection.get("version") or (installations.get(runtime_id) or {}).get("detectedVersion")
         if not version:
+            return
+        fingerprint = configuration_fingerprint
+        current = repo.get_runtime_account(str(account["id"]))
+        if (
+            not fingerprint
+            or fingerprint != provider_configuration_fingerprint(self.connection, runtime_id)
+            or current != account
+        ):
+            accounts[runtime_id] = current
             return
         probe = self.registry.validate_native_auth(runtime_id, executable=command)
         status = str(probe.get("status") or "unknown")
@@ -781,7 +806,19 @@ class RuntimeStatusService:
             patch.update({"healthStatus": "healthy", "lastValidationAt": utc_now()})
         else:
             patch.update({"healthStatus": "unauthenticated", "lastValidationAt": None})
-        accounts[runtime_id] = repo.update_runtime_account(str(account["id"]), patch)
+        transaction = (
+            nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
+        )
+        with transaction:
+            current = repo.get_runtime_account(str(account["id"]))
+            if (
+                not fingerprint
+                or fingerprint != provider_configuration_fingerprint(self.connection, runtime_id)
+                or current != account
+            ):
+                accounts[runtime_id] = current
+                return
+            accounts[runtime_id] = repo.update_runtime_account(str(account["id"]), patch)
 
     def list_provider_statuses(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
         """Compute a status payload for every catalogued provider, dispatching by kind.
@@ -795,6 +832,12 @@ class RuntimeStatusService:
             for provider_id in CLI_RUNTIME_IDS | set(MODEL_PROVIDER_FAMILIES)
         }
         runtime_repo = RuntimeConfigRepository(self.connection)
+        # Seal before reading the command/account snapshot, not after detect has run.
+        configuration_fingerprints = {
+            runtime_id: provider_configuration_fingerprint(self.connection, runtime_id)
+            for runtime_id in CLI_RUNTIME_IDS
+            if self.allow_probes and (self.probe_runtime_ids is None or runtime_id in self.probe_runtime_ids)
+        }
         runtime_installations = {
             installation["runtimeId"]: installation for installation in runtime_repo.list_installations()
         }
@@ -836,9 +879,27 @@ class RuntimeStatusService:
                     "message": configuration.reason if configuration else "CLI command is not configured.",
                 }
             )
-            self._persist_fresh_cli_version(
-                runtime_repo, runtime_installations, runtime_id, detections[runtime_id]
+            transaction = (
+                nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
             )
+            with transaction:
+                fingerprint = configuration_fingerprints[runtime_id]
+                if not fingerprint or fingerprint != provider_configuration_fingerprint(
+                    self.connection, runtime_id
+                ):
+                    detections[runtime_id] = {
+                        "runtime": runtime_id,
+                        "status": "configuration_changed",
+                        "executable": None,
+                        "version": None,
+                        "message": "CLI configuration changed during detection; fresh health evidence is required.",
+                    }
+                    continue
+                self._persist_fresh_cli_version(
+                    runtime_repo, runtime_installations, runtime_id, detections[runtime_id]
+                )
+                # Our own version update is valid only after the pre-detection seal matched.
+                fingerprint = provider_configuration_fingerprint(self.connection, runtime_id)
             self._validate_cli_native_auth(
                 runtime_repo,
                 runtime_accounts,
@@ -846,6 +907,7 @@ class RuntimeStatusService:
                 runtime_id,
                 detections[runtime_id],
                 command,
+                fingerprint,
             )
         statuses: list[dict[str, Any]] = []
         for account in self.accounts.list_provider_accounts():

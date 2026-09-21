@@ -917,8 +917,11 @@ class QuotaManager:
         retry_after: str | None = None,
         headers: Mapping[str, str] | None = None,
         error_class: str | None = None,
+        status_code: int | None = 429,
     ) -> dict[str, Any]:
-        """Record bounded 429 evidence without replacing configured operator limits."""
+        """Record HTTP or CLI limit evidence without replacing configured operator limits."""
+        if status_code not in (None, 429):
+            raise ValueError("Quota observations accept HTTP 429 or a CLI outcome without HTTP status.")
         normalized_model = model or "*"
         with _atomic(self.connection):
             now = self._now()
@@ -985,7 +988,7 @@ class QuotaManager:
                         inherited["monthly_tokens"] if inherited is not None else None,
                         inherited["monthly_budget_usd"] if inherited is not None else None,
                         cooldown.isoformat(),
-                        timestamp,
+                        timestamp if status_code == 429 else None,
                         timestamp,
                         inherited["unknown_limit_strategy"] if inherited is not None else "conservative",
                         inherited["max_concurrency"] if inherited is not None else None,
@@ -1002,14 +1005,20 @@ class QuotaManager:
                 self.connection.execute(
                     """
                     UPDATE provider_limits
-                    SET cooldown_until = ?, last_429_at = ?, last_limit_error_at = ?, updated_at = ?
+                    SET cooldown_until = ?, last_429_at = COALESCE(?, last_429_at), last_limit_error_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (cooldown.isoformat(), timestamp, timestamp, timestamp, limit_id),
+                    (
+                        cooldown.isoformat(),
+                        timestamp if status_code == 429 else None,
+                        timestamp,
+                        timestamp,
+                        limit_id,
+                    ),
                 )
             safe_headers = _safe_rate_limit_headers(headers)
             metadata: dict[str, Any] = {
-                "statusCode": 429,
+                "statusCode": status_code,
                 "retryAfterSource": source,
                 "retryAfterSeconds": bounded_seconds,
                 "errorClass": _safe_error_class(error_class),

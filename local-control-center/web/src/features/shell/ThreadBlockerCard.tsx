@@ -16,12 +16,21 @@
 
 import { AlertTriangle, ClipboardCopy, ExternalLink, RefreshCw, Settings2, X } from 'lucide-react';
 import { m } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { JsonObject } from '../../api/generated/openapi';
-import { Button, Dialog, Disclosure, SelectField, useToast } from '../../components/ui';
+import {
+	Button,
+	Checkbox,
+	DataTable,
+	Dialog,
+	Disclosure,
+	SelectField,
+	TextArea,
+	useToast,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { redactVisibleSecret } from '../../lib/format';
+import { formatTime, redactVisibleSecret } from '../../lib/format';
 import { listStagger, panelTransition } from '../../motion/variants';
 import {
 	type BlockerActionModel,
@@ -63,8 +72,9 @@ export function ThreadBlockerList({
 		? handle.cards.filter((card) => !excludeBlockerTypes.includes(card.blockerType))
 		: handle.cards;
 	// A blocked run with no persisted remediation still gets a card: raw console text is not a fix.
-	// The first load is allowed to settle first, so a slow fetch never flashes the fallback.
-	const showFallback = persisted.length === 0 && Boolean(fallback) && !handle.loading;
+	// Only a successful read can establish that no repair action exists.
+	const showFallback =
+		persisted.length === 0 && Boolean(fallback) && !handle.loading && !handle.error;
 	const cards =
 		showFallback && fallback ? [buildFallbackCard(fallback.stage, fallback.reason)] : persisted;
 
@@ -163,6 +173,273 @@ function answerOptions(action: BlockerActionModel): string[] {
 	return options.map((option) => String(option).trim()).filter(Boolean);
 }
 
+type ResearchCandidate = {
+	researchRunId: string;
+	label: string;
+	eligible: boolean;
+	reason?: string;
+};
+
+function researchCandidates(action: BlockerActionModel): ResearchCandidate[] {
+	const candidates = actionPayload(action).researchCandidates;
+	if (!Array.isArray(candidates)) return [];
+	return candidates.flatMap((candidate: unknown) => {
+		if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+		const record = candidate as Record<string, unknown>;
+		if (typeof record.researchRunId !== 'string' || !record.researchRunId.trim()) return [];
+		return [
+			{
+				researchRunId: record.researchRunId,
+				label: typeof record.label === 'string' ? record.label : record.researchRunId,
+				// The backend validates scope, technical decisions and citations; ready alone is insufficient.
+				eligible: record.eligible === true,
+				reason: typeof record.reason === 'string' ? record.reason : undefined,
+			},
+		];
+	});
+}
+
+const RUNTIME_RISK_FIELDS = [
+	['role', 'Role'],
+	['providerId', 'Provider'],
+	['model', 'Model'],
+	['runtime', 'Runtime'],
+	['risk', 'Risk'],
+	['decisionId', 'Decision'],
+	['taskId', 'Task'],
+	['agentProfileId', 'Agent profile'],
+] as const;
+
+type RuntimeRiskProposal = Record<(typeof RUNTIME_RISK_FIELDS)[number][0], string>;
+
+/** Consent is tied to the displayed server request; only the operator's reason is sent back. */
+function RuntimeRiskReview({
+	action,
+	handle,
+}: {
+	action: BlockerActionModel;
+	handle: ThreadRemediationsHandle;
+}) {
+	const { t } = useI18n();
+	const { notify } = useToast();
+	const [reason, setReason] = useState('');
+	const [consentedScope, setConsentedScope] = useState<string | null>(null);
+	const [error, setError] = useState('');
+	const [failedReview, setFailedReview] = useState<{
+		refreshFrom: BlockerActionModel | null;
+	} | null>(null);
+	const [clock, setClock] = useState(Date.now);
+	const payload = actionPayload(action);
+	const rawProposals = Array.isArray(payload.proposals) ? payload.proposals : [];
+	const proposals = rawProposals.filter((value): value is RuntimeRiskProposal => {
+		if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+		const record = value as Record<string, unknown>;
+		return RUNTIME_RISK_FIELDS.every(([field]) => {
+			const value = record[field];
+			return typeof value === 'string' && value.trim().length > 0;
+		});
+	});
+	const scope = [
+		['projectId', 'Project', action.remediation?.projectId],
+		['threadId', 'Thread', action.remediation?.threadId],
+		['loopId', 'Loop', action.remediation?.loopId],
+		['jobId', 'Job', payload.jobId],
+		['actionRequestId', 'Approval request', payload.actionRequestId],
+		['expiresAt', 'Expires at', payload.expiresAt],
+	] as const;
+	const scopeKey = JSON.stringify([scope, proposals]);
+	const consented = consentedScope === scopeKey;
+	const expiresAt =
+		typeof payload.expiresAt === 'string' ? Date.parse(payload.expiresAt) : Number.NaN;
+	const complete =
+		proposals.length > 0 &&
+		proposals.length === rawProposals.length &&
+		scope.every(([, , value]) => typeof value === 'string' && value.trim().length > 0);
+	const unavailable =
+		!complete || !Number.isFinite(expiresAt)
+			? t(
+					'app.threads.remediation.riskReview.incomplete',
+					'The approval request is incomplete. Refresh the repair actions before reviewing it.',
+				)
+			: expiresAt <= Math.max(clock, Date.now())
+				? t(
+						'app.threads.remediation.riskReview.expired',
+						'This approval request has expired and cannot be approved. Refresh only re-reads its status; it does not renew approval.',
+					)
+				: '';
+	const busy = handle.busyId !== null;
+	// A refresh must return a new server snapshot before consent can be given again. A click or a
+	// failed refresh alone does not make the proposal that failed safe to approve.
+	const mustRefresh =
+		failedReview !== null &&
+		(failedReview.refreshFrom === null ||
+			failedReview.refreshFrom === action ||
+			handle.loading ||
+			handle.error);
+	const canApprove =
+		!busy &&
+		!handle.loading &&
+		!unavailable &&
+		!mustRefresh &&
+		reason.trim().length > 0 &&
+		consented;
+
+	useEffect(() => {
+		let timer: number | undefined;
+		const update = () => {
+			const now = Date.now();
+			setClock(now);
+			if (Number.isFinite(expiresAt) && expiresAt > now) {
+				timer = window.setTimeout(update, Math.min(expiresAt - now, 2_147_483_647));
+			}
+		};
+		update();
+		return () => window.clearTimeout(timer);
+	}, [expiresAt]);
+
+	const approve = async () => {
+		if (!canApprove || expiresAt <= Date.now()) return;
+		setError('');
+		const fallback = t(
+			'app.threads.remediation.riskReview.failed',
+			'Runtime risk approval did not complete. Review the current request and try again.',
+		);
+		const failReview = (message: string) => {
+			setError(message);
+			setConsentedScope(null);
+			setFailedReview({ refreshFrom: null });
+		};
+		try {
+			const result = await handle.execute(action, { reason: reason.trim() });
+			if (!result) return;
+			const execution = (result.execution ?? {}) as Record<string, unknown>;
+			if (execution.status !== 'queued') {
+				failReview(redactVisibleSecret(execution.reason, fallback));
+				return;
+			}
+			notify({
+				title: t(
+					'app.threads.remediation.riskReview.queued',
+					'Runtime risk approved; continuation queued',
+				),
+				body:
+					typeof execution.reason === 'string' ? redactVisibleSecret(execution.reason) : undefined,
+				tone: 'ok',
+			});
+		} catch (failure) {
+			failReview(
+				redactVisibleSecret(failure instanceof Error ? failure.message : failure, fallback),
+			);
+		}
+	};
+
+	return (
+		<div className="thread-remediation-confirm" style={{ width: '100%', minWidth: 0 }}>
+			<p>
+				{t(
+					'app.threads.remediation.riskReview.scope',
+					'This consent applies only to these proposals in this thread and this run. It does not approve budgets, costs or permissions.',
+				)}
+			</p>
+			<p>
+				{t('app.threads.remediation.riskReview.field.expiresAt', 'Expires at')}:{' '}
+				{Number.isFinite(expiresAt) && typeof payload.expiresAt === 'string' ? (
+					<time dateTime={payload.expiresAt}>{formatTime(payload.expiresAt)}</time>
+				) : (
+					'—'
+				)}
+			</p>
+			<ol
+				className="thread-remediation-detail"
+				aria-label={t('app.threads.remediation.riskReview.proposals', 'Proposed runtimes')}
+			>
+				{proposals.map((proposal) => (
+					<li
+						key={`${proposal.role}:${proposal.agentProfileId}:${proposal.taskId}:${proposal.decisionId}`}
+					>
+						<strong className="thread-remediation-explanation">{proposal.role}</strong>
+						<p>
+							<span>{proposal.providerId}</span> / <span>{proposal.model}</span>
+						</p>
+						<p>
+							{t('app.threads.remediation.riskReview.field.risk', 'Risk')}:{' '}
+							<span>{proposal.risk}</span>
+						</p>
+					</li>
+				))}
+			</ol>
+			<Disclosure
+				headingLevel={4}
+				title={t('app.threads.remediation.riskReview.details', 'Approval details')}
+			>
+				<dl className="thread-remediation-facts">
+					{scope.map(([field, label, value]) => (
+						<div key={field}>
+							<dt>{t(`app.threads.remediation.riskReview.field.${field}`, label)}</dt>
+							<dd>{typeof value === 'string' ? value : '—'}</dd>
+						</div>
+					))}
+				</dl>
+				<DataTable
+					caption={t('app.threads.remediation.riskReview.proposals', 'Proposed runtimes')}
+					columns={RUNTIME_RISK_FIELDS.map(([field, label]) => ({
+						key: field,
+						label: t(`app.threads.remediation.riskReview.field.${field}`, label),
+						render: (proposal: RuntimeRiskProposal) => proposal[field],
+					}))}
+					rows={proposals}
+					empty={null}
+				/>
+			</Disclosure>
+			<TextArea
+				label={t('app.threads.remediation.riskReview.reason', 'Reason for approval')}
+				value={reason}
+				onChange={(event) => setReason(event.target.value)}
+				error={unavailable || error}
+				required
+				disabled={busy || Boolean(unavailable)}
+				rows={3}
+			/>
+			<Checkbox
+				label={t(
+					'app.threads.remediation.riskReview.consent',
+					'I accept the runtime risk of these exact proposals for this continuation.',
+				)}
+				checked={consented}
+				onChange={(event) => setConsentedScope(event.target.checked ? scopeKey : null)}
+				disabled={busy || handle.loading || Boolean(unavailable) || mustRefresh}
+				help={
+					mustRefresh
+						? t(
+								'app.threads.remediation.riskReview.refreshRequired',
+								'Refresh the actions and review the current scope before consenting again.',
+							)
+						: undefined
+				}
+			/>
+			<Button
+				variant={action.primary ? 'primary' : 'secondary'}
+				loading={handle.busyId === action.id}
+				disabled={!canApprove}
+				onClick={() => void approve()}
+			>
+				{t('app.threads.remediation.action.approveRuntimeRisk', 'Approve runtime risk')}
+			</Button>
+			<Button
+				variant="secondary"
+				disabled={busy || handle.loading}
+				onClick={() => {
+					setConsentedScope(null);
+					setFailedReview((current) => (current ? { refreshFrom: action } : null));
+					handle.reload();
+				}}
+			>
+				{t('app.threads.remediation.refreshActions', 'Refresh actions')}
+			</Button>
+		</div>
+	);
+}
+
 function ThreadBlockerCard({
 	card,
 	handle,
@@ -175,7 +452,14 @@ function ThreadBlockerCard({
 	const { t } = useI18n();
 	const { notify } = useToast();
 	const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
+	const [selectedResearch, setSelectedResearch] = useState<Record<string, string>>({});
+	const [researchErrors, setResearchErrors] = useState<Record<string, string>>({});
 	const [pendingConfirmation, setPendingConfirmation] = useState<BlockerActionModel | null>(null);
+	const [partialDiff, setPartialDiff] = useState<{
+		path: string;
+		patch: string;
+		untracked: string[];
+	} | null>(null);
 	const anyBusy = handle.busyId !== null;
 	const [primaryAction, ...secondaryActions] = card.actions;
 	const hasDestructiveAction = card.actions.some((action) => action.confirmationRequired);
@@ -188,21 +472,61 @@ function ThreadBlockerCard({
 	const rawCause = card.reason || card.cause;
 	const technicalReason = rawCause && rawCause !== (humanCause || card.cause) ? rawCause : '';
 	const dismissId = `${card.key}:dismiss`;
+	const isResearchAction = (action: BlockerActionModel) =>
+		card.blockerType === 'research_required' && action.remediation?.actionType === 'retry_loop';
 
 	const runExecute = async (action: BlockerActionModel, payload?: JsonObject) => {
+		const appliesResearch = isResearchAction(action);
+		if (appliesResearch) setResearchErrors((current) => ({ ...current, [action.id]: '' }));
 		try {
 			const result = await handle.execute(action, payload);
 			if (!result) return;
 			const execution = (result.execution ?? {}) as Record<string, unknown>;
 			const status = typeof execution.status === 'string' ? execution.status : '';
 			const reason = typeof execution.reason === 'string' ? execution.reason : undefined;
-			if (status === 'completed' || status === 'queued' || status === 'awaiting_approval') {
+			if (
+				status === 'completed' &&
+				action.remediation?.actionType === 'view_diff' &&
+				execution.partialExecution === true
+			) {
+				setPartialDiff({
+					path: redactVisibleSecret(execution.workspacePath),
+					patch: redactVisibleSecret(execution.diff, ''),
+					untracked: Array.isArray(execution.untrackedFiles)
+						? execution.untrackedFiles.map((name) => redactVisibleSecret(name))
+						: [],
+				});
+				return;
+			}
+			if (
+				status === 'completed' ||
+				status === 'queued' ||
+				(!appliesResearch && status === 'awaiting_approval')
+			) {
 				notify({
-					title: t('app.threads.remediation.executeSuccess', 'Repair action ran'),
+					title:
+						appliesResearch && status === 'queued'
+							? t(
+									'app.threads.remediation.researchApplyQueued',
+									'Research applied; continuation queued',
+								)
+							: t('app.threads.remediation.executeSuccess', 'Repair action ran'),
 					body: reason,
 					tone: 'ok',
 				});
 			} else {
+				if (appliesResearch) {
+					setResearchErrors((current) => ({
+						...current,
+						[action.id]: redactVisibleSecret(
+							reason,
+							t(
+								'app.threads.remediation.researchApplyFailed',
+								'The research report could not be applied. Review its eligibility and try again.',
+							),
+						),
+					}));
+				}
 				notify({
 					title: t('app.threads.remediation.executeBlocked', 'Action needs another step'),
 					body: reason,
@@ -210,6 +534,18 @@ function ThreadBlockerCard({
 				});
 			}
 		} catch (error) {
+			if (appliesResearch) {
+				setResearchErrors((current) => ({
+					...current,
+					[action.id]: redactVisibleSecret(
+						error instanceof Error ? error.message : error,
+						t(
+							'app.threads.remediation.researchApplyFailed',
+							'The research report could not be applied. Review its eligibility and try again.',
+						),
+					),
+				}));
+			}
 			notify({
 				title: t('app.threads.remediation.executeFailed', 'Repair action failed'),
 				body: redactVisibleSecret(
@@ -283,6 +619,70 @@ function ThreadBlockerCard({
 
 	const renderAction = (action: BlockerActionModel) => {
 		const variant = action.primary ? 'primary' : 'secondary';
+		if (action.remediation?.actionType === 'approve_runtime_risk') {
+			return <RuntimeRiskReview key={action.id} action={action} handle={handle} />;
+		}
+		if (isResearchAction(action)) {
+			const candidates = researchCandidates(action);
+			const hasEligibleResearch = candidates.some((candidate) => candidate.eligible);
+			const selected = candidates.find(
+				(candidate) =>
+					candidate.researchRunId === selectedResearch[action.id] && candidate.eligible,
+			);
+			return (
+				<div className="thread-remediation-answer" key={action.id}>
+					<SelectField
+						label={t('app.threads.remediation.researchLabel', 'Research report')}
+						help={
+							hasEligibleResearch
+								? t(
+										'app.threads.remediation.researchHelp',
+										'Adds evidence and preserves existing decisions. No version is accepted automatically.',
+									)
+								: t(
+										'app.threads.remediation.researchEmpty',
+										'No eligible report is available. A completed report needs a validated technical decision and citations.',
+									)
+						}
+						error={researchErrors[action.id]}
+						value={selected?.researchRunId ?? ''}
+						disabled={anyBusy}
+						onChange={(event) => {
+							setSelectedResearch((current) => ({ ...current, [action.id]: event.target.value }));
+							setResearchErrors((current) => ({ ...current, [action.id]: '' }));
+						}}
+					>
+						<option value="">
+							{t('app.threads.remediation.researchPlaceholder', 'Select a research report')}
+						</option>
+						{candidates.map((candidate) => (
+							<option
+								key={candidate.researchRunId}
+								value={candidate.researchRunId}
+								disabled={!candidate.eligible}
+							>
+								{candidate.eligible
+									? candidate.label
+									: `${candidate.label} — ${
+											candidate.reason ||
+											t('app.threads.remediation.researchIneligible', 'Not eligible')
+										}`}
+							</option>
+						))}
+					</SelectField>
+					<Button
+						variant={variant}
+						loading={handle.busyId === action.id}
+						disabled={anyBusy || !selected}
+						onClick={() => {
+							if (selected) void runExecute(action, { researchRunId: selected.researchRunId });
+						}}
+					>
+						{t('app.threads.remediation.action.applyResearch', 'Apply research')}
+					</Button>
+				</div>
+			);
+		}
 		const options = answerOptions(action);
 		if (action.remediation?.actionType === 'answer_question' && options.length) {
 			const selectedAnswer = selectedAnswers[action.id] ?? '';
@@ -428,6 +828,42 @@ function ThreadBlockerCard({
 						{detail ? <pre>{detail}</pre> : null}
 					</div>
 				</Disclosure>
+			) : null}
+
+			{partialDiff ? (
+				<Dialog
+					open
+					onClose={() => setPartialDiff(null)}
+					label={t('app.threads.remediation.partialChanges', 'Preserved workspace changes')}
+				>
+					<p className="mono">{partialDiff.path}</p>
+					<h4>{t('app.threads.remediation.trackedChanges', 'Tracked changes')}</h4>
+					<pre>
+						{partialDiff.patch.slice(0, 100_000) ||
+							t('app.threads.remediation.noTrackedChanges', 'No tracked changes.')}
+					</pre>
+					{partialDiff.patch.length > 100_000 ? (
+						<p>
+							{t(
+								'app.threads.remediation.diffPreviewTruncated',
+								'Preview truncated; full changes remain in the workspace.',
+							)}
+						</p>
+					) : null}
+					<h4>
+						{t(
+							'app.threads.remediation.untrackedFiles',
+							'Untracked files (contents are not included in this diff)',
+						)}
+					</h4>
+					<ul>
+						{partialDiff.untracked.map((name) => (
+							<li className="mono" key={name}>
+								{name}
+							</li>
+						))}
+					</ul>
+				</Dialog>
 			) : null}
 
 			{hasDestructiveAction ? (

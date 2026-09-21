@@ -33,6 +33,147 @@ async function createLiveThread(page, firstMessage) {
 	await expect(page.getByText(firstMessage).first()).toBeVisible({ timeout: 20_000 });
 }
 
+test('Threads: resolving a conversation decision refreshes the open inspector and loop', async ({
+	page,
+}) => {
+	const firstMessage = `Inspector decision refresh ${Date.now()}`;
+	let resolved = false;
+	let decision;
+	let thread;
+	await page.route('**/api/v1/threads/*', async (route) => {
+		const response = await route.fetch();
+		const detail = await response.json();
+		if (detail.thread?.title !== firstMessage.slice(0, 80)) {
+			await route.fulfill({ response });
+			return;
+		}
+		thread = { ...detail.thread, status: resolved ? 'running' : 'waiting_decision' };
+		decision = {
+			id: 'inspector-refresh-decision',
+			threadId: thread.id,
+			projectId: thread.projectId,
+			title: 'Choose the delivery scope',
+			prompt: 'Continue with the agreed scope?',
+			options: ['Continue with this scope'],
+			status: resolved ? 'resolved' : 'pending',
+			metadata: {},
+			createdAt: thread.createdAt,
+			updatedAt: thread.updatedAt,
+		};
+		await route.fulfill({ response, json: { ...detail, thread, decisions: [decision] } });
+	});
+	await page.route('**/api/v1/projects/*/product-loop', async (route) => {
+		const response = await route.fetch();
+		const data = await response.json();
+		await route.fulfill({
+			response,
+			json: {
+				...data,
+				loops: [{
+					id: 'inspector-refresh-loop',
+					projectId: thread?.projectId ?? '',
+					title: firstMessage,
+					state: resolved ? 'planning' : 'discovering',
+					status: 'active',
+					context: {},
+					version: 1,
+					createdAt: '2026-09-20T00:00:00Z',
+					updatedAt: '2026-09-20T00:00:00Z',
+				}],
+			},
+		});
+	});
+	// No event or status transition can mask a missing mutation invalidation.
+	await page.route('**/api/v1/threads/*/events?*', (route) => route.fulfill({
+		json: { events: [], lastSeq: 0, running: false, threadStatus: 'waiting_decision' },
+	}));
+	await page.route('**/api/v1/threads/*/decisions/inspector-refresh-decision/resolve', async (route) => {
+		resolved = true;
+		await route.fulfill({ json: {
+			decision: { ...decision, status: 'resolved' },
+			thread: { ...thread, status: 'running' },
+		} });
+	});
+	try {
+		await page.goto('/#threads');
+		await expectControlPlaneLoaded(page);
+		await createLiveThread(page, firstMessage);
+		const inspector = page.locator('.inspector-panel');
+		const goalTab = inspector.getByRole('tab', { name: /Goal|Objetivo/ });
+		const vitals = inspector.locator('.thread-inspector-summary');
+		await expect(vitals.getByText('waiting decision', { exact: true })).toBeVisible();
+		await expect(vitals.getByText('1 decision pending', { exact: true })).toBeVisible();
+		await expect(vitals.getByText('discovering', { exact: true })).toBeVisible();
+		await page.locator('.thread-decision-console').getByRole('button', {
+			name: 'Continue with this scope', exact: true,
+		}).click();
+		await expect(page.locator('.thread-decision-console')).toHaveCount(0);
+		await expect(vitals.getByText('1 decision pending', { exact: true })).toHaveCount(0);
+		await expect(vitals.getByText('running', { exact: true })).toBeVisible();
+		await expect(vitals.getByText('planning', { exact: true })).toBeVisible();
+		await expect(goalTab).toHaveAttribute('aria-selected', 'true');
+		await expect(inspector.locator('.thread-inspector-goal-head h3')).toHaveText(firstMessage);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
+test('Threads: inspector follows execution events after the 300-event display limit', async ({
+	page,
+}) => {
+	const firstMessage = `Inspector event tail refresh ${Date.now()}`;
+	const updatedTitle = 'Updated after event 301';
+	let advanced = false;
+	await page.route('**/api/v1/threads/*', async (route) => {
+		const response = await route.fetch();
+		const detail = await response.json();
+		if (detail.thread?.title !== firstMessage.slice(0, 80)) {
+			await route.fulfill({ response });
+			return;
+		}
+		await route.fulfill({ response, json: {
+			...detail,
+			thread: { ...detail.thread, status: 'running', title: advanced ? updatedTitle : firstMessage },
+		} });
+	});
+	await page.route('**/api/v1/threads/*/events?*', async (route) => {
+		const url = new URL(route.request().url());
+		const afterSeq = Number(url.searchParams.get('afterSeq'));
+		const lastSeq = advanced ? 301 : 300;
+		const events = Array.from({ length: Math.max(0, lastSeq - afterSeq) }, (_, index) => ({
+			id: `inspector-event-${afterSeq + index + 1}`,
+			threadId: url.pathname.split('/')[4],
+			projectId: 'inspector-event-project',
+			sequence: afterSeq + index + 1,
+			type: 'stage_progress',
+			agentRole: 'aido_lead',
+			payload: {},
+			metadata: {},
+			createdAt: '2026-09-20T00:00:00Z',
+		}));
+		await route.fulfill({ json: { events, lastSeq, running: true, threadStatus: 'running' } });
+	});
+	try {
+		await page.goto('/#threads');
+		await expectControlPlaneLoaded(page);
+		await createLiveThread(page, firstMessage);
+		const inspector = page.locator('.inspector-panel');
+		await expect(inspector.locator('.thread-inspector-goal-head h3')).toHaveText(firstMessage);
+		// Confirm the bounded buffer is full before the next event; status remains unchanged.
+		await page.waitForRequest((request) => {
+			const url = new URL(request.url());
+			return url.pathname.endsWith('/events') && url.searchParams.get('afterSeq') === '300';
+		});
+		advanced = true;
+		await expect(inspector.locator('.thread-inspector-goal-head h3')).toHaveText(updatedTitle);
+		await expect(inspector.getByRole('tab', { name: /Goal|Objetivo/ })).toHaveAttribute(
+			'aria-selected', 'true',
+		);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
 test('Threads: the inspector opens as the AI-manager console with pinned loop vitals', async ({
 	page,
 }) => {

@@ -34,7 +34,6 @@ def plan_team_and_resources(
     thread_id = run.thread_id
     message_text = run.message_text
     request_meta = run.request_meta
-    plan_only = run.plan_only
     effective_root = run.effective_root
     git_state = run.git_state
     assessment_result = run.assessment_result
@@ -47,7 +46,6 @@ def plan_team_and_resources(
     brief = run.brief
     po_artifact_ids = run.po_artifact_ids
     po_evidence = run.po_evidence
-    evidence_ids = run.evidence_ids
     try:
         backlog = coordinator._persist_product_owner_backlog(
             project_id=project_id,
@@ -240,6 +238,23 @@ def plan_team_and_resources(
             },
             thread_id=thread_id,
         )
+    from local_control_center.product_loop.runtime_risk_review import seal_technical_plan
+
+    loop = coordinator.repository.update_loop_context(
+        loop["id"],
+        context={
+            **loop["context"],
+            **coordinator._durable_run_patch(
+                loop,
+                {
+                    "technicalLeadPlan": seal_technical_plan(
+                        coordinator, loop, tasks=agent_tasks, raw_plan=raw_plan
+                    ),
+                },
+            ),
+        },
+    )
+    run.loop = loop
     try:
         team_schedule, resource_blockers = coordinator._team_schedule_with_resource_decisions(
             project_id=project_id,
@@ -289,6 +304,24 @@ def plan_team_and_resources(
             },
             thread_id=thread_id,
         )
+    return finish_team_planning(
+        coordinator,
+        run,
+        agent_tasks=agent_tasks,
+        team_schedule=team_schedule,
+        backlog_artifact=backlog_artifact,
+        raw_plan=raw_plan,
+    )
+
+
+def finish_team_planning(coordinator, run, *, agent_tasks, team_schedule, backlog_artifact, raw_plan):
+    """Complete an existing planning checkpoint without regenerating its tasks or PO output."""
+    from local_control_center.shared.redaction import redact_secrets
+
+    project_id, loop, actor, thread_id = run.project_id, run.loop, run.actor, run.thread_id
+    product_owner_context = run.product_owner_context
+    product_owner_output_record = run.product_owner_output_record
+    evidence_ids, plan_only = run.evidence_ids, run.plan_only
     try:
         team_assignments = coordinator._create_team_assignments(
             project_id=project_id,

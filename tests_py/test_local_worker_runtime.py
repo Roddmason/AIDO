@@ -454,6 +454,33 @@ def test_worker_run_once_leaves_job_queued_when_preflight_fails(monkeypatch, tmp
         runtime.close()
 
 
+@pytest.mark.parametrize("reason", ["heavy_workload_capacity", "aggregate_memory_budget"])
+def test_worker_defers_capacity_to_atomic_job_admission(monkeypatch, tmp_path, reason):
+    """A job's existing reservation must not make its runtime look unconfigured."""
+    provider = {
+        "id": "claude_code_cli",
+        "executable": False,
+        "configured": True,
+        "authenticated": True,
+        "available": True,
+        "healthy": True,
+        "globallyEnabled": True,
+        "projectEnabled": True,
+        "policyAllowed": True,
+        "blockingReasons": [reason],
+    }
+    monkeypatch.setattr(
+        "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
+        lambda _service: [provider],
+    )
+    monkeypatch.setattr("local_control_center.workers.runtime._which_gitleaks", lambda: "gitleaks")
+    worker = LocalWorkerRuntime(db_path=tmp_path / "worker.sqlite", cwd=tmp_path)
+    assert worker.preflight().ok
+    # An independent authentication/policy failure must still block before claiming.
+    provider["blockingReasons"].append("authentication_required")
+    assert not worker.preflight().ok
+
+
 def test_worker_run_once_requires_gitleaks(monkeypatch, tmp_path: Path) -> None:
     fake_bin = tmp_path / "empty-bin"
     fake_bin.mkdir()

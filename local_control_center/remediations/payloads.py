@@ -22,10 +22,108 @@ from local_control_center.agents.runtime_provider_config import (
     RUNTIME_PROVIDER_CONFIG_SPECS,
     known_provider_default_base_url,
 )
+from local_control_center.agents.runtime_readiness import HOST_CAPACITY_BLOCKERS
 from local_control_center.runtime_integrations.repository import is_ollama_runtime_id
 from local_control_center.shared.redaction import redact_secrets
 
 OLLAMA_REMOTE_PROVIDER_IDS = frozenset({"ollama_remote"})
+
+DECISION_ENGINE_FAILURE_CODES = frozenset(
+    {
+        "timeout",
+        "transport_error",
+        "http_error",
+        "circuit_open",
+        "credential_unavailable",
+        "invalid_endpoint",
+        "invalid_config",
+        "external_boundary",
+        "invalid_request",
+        "invalid_response",
+        "response_too_large",
+        "model_mismatch",
+        "invalid_provider_result",
+        "selection_evidence_unavailable",
+        "real_provider_calls_disabled",
+        "provider_disabled",
+        "jev_required_for_selection",
+        "selection_disabled",
+    }
+)
+
+
+def decision_engine_failure(details: dict[str, Any]) -> dict[str, Any] | None:
+    """Read an active selection failure without inferring it from unrelated candidate rejections."""
+    blockers = details.get("resourceBlockers")
+    if not isinstance(blockers, list):
+        return None
+    for blocker in blockers:
+        decision = blocker.get("decision") if isinstance(blocker, dict) else None
+        if not isinstance(decision, dict) or decision.get("selected") is not None:
+            continue
+        policy = decision.get("policyResult")
+        engine = policy.get("decisionEngine") if isinstance(policy, dict) else None
+        if (
+            isinstance(engine, dict)
+            and engine.get("mode") == "runtime_selection"
+            and str(engine.get("reasonCode") or "") in DECISION_ENGINE_FAILURE_CODES
+        ):
+            return decision
+    return None
+
+
+def runtime_risk_review_failure(details: dict[str, Any]) -> dict[str, Any] | None:
+    """Identify the separate risk gate without treating it as runtime unavailability."""
+    for blocker in details.get("resourceBlockers") or []:
+        decision = blocker.get("decision") if isinstance(blocker, dict) else None
+        if not isinstance(decision, dict) or decision.get("selected") is not None:
+            continue
+        engine = (decision.get("policyResult") or {}).get("decisionEngine") or {}
+        if engine.get("mode") == "runtime_selection" and engine.get("reasonCode") == "risk_requires_review":
+            return decision
+    return None
+
+
+def resource_selection_constraint_failure(details: dict[str, Any]) -> dict[str, Any] | None:
+    """Separate policy/capacity deferrals from evidence that a runtime is absent."""
+    blockers = details.get("resourceBlockers")
+    if not isinstance(blockers, list):
+        return None
+    for blocker in blockers:
+        decision = blocker.get("decision") if isinstance(blocker, dict) else None
+        if not isinstance(decision, dict) or decision.get("selected") is not None:
+            continue
+        policy = decision.get("policyResult")
+        if not isinstance(policy, dict):
+            continue
+        engine = policy.get("decisionEngine")
+        preflight = policy.get("runtimePreflight")
+        if (
+            not isinstance(engine, dict)
+            or engine.get("mode") != "runtime_selection"
+            or engine.get("reasonCode") != "no_eligible_candidates"
+        ):
+            continue
+        counts = preflight.get("deferredReasonCounts") if isinstance(preflight, dict) else None
+        constraint_codes = HOST_CAPACITY_BLOCKERS | {"preflight_unknown_cost_requires_approval"}
+        capacity_or_cost_deferred = isinstance(counts, dict) and any(
+            code in constraint_codes and type(count) is int and count > 0 for code, count in counts.items()
+        )
+        rejection_sources = [decision.get("rejected")]
+        if isinstance(preflight, dict):
+            rejection_sources.append(preflight.get("rejected"))
+        policy_blocked = any(
+            isinstance(items, list)
+            and any(
+                isinstance(item, dict)
+                and item.get("reason") in {"role_blocks_candidate", "runtime_policy_denied"}
+                for item in items
+            )
+            for items in rejection_sources
+        )
+        if policy_blocked or capacity_or_cost_deferred:
+            return decision
+    return None
 
 
 @dataclass(frozen=True)
@@ -690,6 +788,42 @@ def _runtime_not_executable_specs(context: BlockerPayloadContext) -> list[dict[s
     ]
 
 
+def _runtime_execution_denied_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    """Offer configuration review without widening the rejected execution's permissions."""
+    return [
+        {
+            "actionType": "open_settings_section",
+            "title": "Review runtime configuration",
+            "description": "Review the reported denial and select a supported, authorized runtime.",
+            "payload": {**context.runtime_settings_payload, "section": "providers-cli"},
+        },
+        {
+            "actionType": "retry_loop",
+            "title": "Retry loop",
+            "description": "Retry after resolving the reported runtime denial.",
+            "payload": {**context.runtime_recovery_payload, "retryTarget": "runtime"},
+        },
+    ]
+
+
+def _runtime_execution_failed_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    """Offer recovery without equating catalog health with successful model execution."""
+    return [
+        {
+            "actionType": "open_settings_section",
+            "title": "Review provider and model",
+            "description": "Review the reported provider error and the selected model before retrying.",
+            "payload": context.runtime_settings_payload,
+        },
+        {
+            "actionType": "retry_loop",
+            "title": "Retry loop",
+            "description": "Retry after resolving the reported provider error.",
+            "payload": {**context.runtime_recovery_payload, "retryTarget": "runtime"},
+        },
+    ]
+
+
 def _runtime_auth_missing_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
     runtime_settings_payload = context.runtime_settings_payload
     return [
@@ -1005,8 +1139,51 @@ def _provider_health_failed_specs(context: BlockerPayloadContext) -> list[dict[s
     ]
 
 
+def _decision_engine_unavailable_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    decision = decision_engine_failure(context.details) or {}
+    policy = decision.get("policyResult") or {}
+    engine = policy.get("decisionEngine") or {}
+    preflight = policy.get("runtimePreflight") or {}
+    validated = preflight.get("validated") if isinstance(preflight, dict) else None
+    payload = {
+        **context.resource_manager_settings_payload,
+        "section": "routing",
+        "decisionEngine": {key: engine[key] for key in ("mode", "reasonCode", "decisionId") if key in engine},
+        "validatedCandidates": _resource_candidate_summaries(validated or decision.get("candidates")),
+    }
+    return [
+        {
+            "actionType": "open_settings_section",
+            "title": "Review decision engine",
+            "description": "Review the reported Jev failure and decision timeout in Routing settings.",
+            "payload": payload,
+        },
+        {
+            "actionType": "retry_loop",
+            "title": "Retry loop",
+            "description": "Explicitly retry selection through Jev under the current runtime and cost policies.",
+            "payload": {**payload, "retryTarget": "resource_manager"},
+        },
+    ]
+
+
 def _resource_manager_unconfigured_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
     resource_manager_settings_payload = context.resource_manager_settings_payload
+    if resource_selection_constraint_failure(context.details) is not None:
+        return [
+            {
+                "actionType": "open_settings_section",
+                "title": "Review resource selection constraints",
+                "description": "Review the recorded runtime policies, validation requirements and capacity deferrals in Routing.",
+                "payload": resource_manager_settings_payload,
+            },
+            {
+                "actionType": "retry_loop",
+                "title": "Retry loop",
+                "description": "Explicitly retry resource selection under the current role and cost policies.",
+                "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
+            },
+        ]
     return [
         {
             "actionType": "open_settings_section",
@@ -1070,6 +1247,17 @@ def _resource_manager_approval_required_specs(context: BlockerPayloadContext) ->
             "description": "Retry after approving or changing the AI resource policy.",
             "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
         },
+    ]
+
+
+def _runtime_risk_review_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    return [
+        {
+            "actionType": "open_settings_section",
+            "title": "Runtime risk review required",
+            "description": "Review the exact proposed runtimes in this thread. No runtime, cost or OS permission has been approved.",
+            "payload": {**context.resource_manager_settings_payload, "section": "routing"},
+        }
     ]
 
 
@@ -1361,7 +1549,10 @@ def _thread_intake_decision_required_specs(context: BlockerPayloadContext) -> li
 Builder = Callable[[BlockerPayloadContext], list[dict[str, Any]]]
 
 PAYLOAD_BUILDERS: dict[str, Builder] = {
+    "decision_engine_unavailable": _decision_engine_unavailable_specs,
     "runtime_not_executable": _runtime_not_executable_specs,
+    "runtime_execution_denied": _runtime_execution_denied_specs,
+    "runtime_execution_failed": _runtime_execution_failed_specs,
     "runtime_auth_missing": _runtime_auth_missing_specs,
     "runtime_output_invalid": _runtime_output_invalid_specs,
     "git_not_initialized": _git_not_initialized_specs,
@@ -1379,6 +1570,7 @@ PAYLOAD_BUILDERS: dict[str, Builder] = {
     "resource_manager_unconfigured": _resource_manager_unconfigured_specs,
     "resource_manager_privacy_blocked": _resource_manager_privacy_blocked_specs,
     "resource_manager_approval_required": _resource_manager_approval_required_specs,
+    "runtime_risk_review_required": _runtime_risk_review_specs,
     "technical_lead_planning_failed": _technical_lead_planning_failed_specs,
     "team_scheduler_failed": _team_scheduler_failed_specs,
     "product_owner_output_invalid": _product_owner_output_invalid_specs,

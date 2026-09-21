@@ -313,12 +313,12 @@ export function App() {
 							<Suspense fallback={<RouteSkeleton />}>
 								{state.error ? (
 									<ErrorState
-										title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
+										title={t('app.controlPlane.error.operationFailed', 'Operation failed.')}
 										body={state.error}
 									/>
-								) : (
-									renderRoute(page, routeContext)
-								)}
+								) : null}
+								{/* Mutation errors must not unmount the route and erase its drafts or inline errors. */}
+								{renderRoute(page, routeContext)}
 							</Suspense>
 						</RouteErrorBoundary>
 					</MotionPage>

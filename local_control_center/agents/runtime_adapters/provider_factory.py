@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.time import utc_now
 
 from ..credentials import CredentialResolver
+from ..model_wildcards import is_nvidia_nim_auto_selection_sentinel
 from ..provider_accounts import ProviderAccountStore
 from ..providers.base import ModelRequest
 from ..providers.factory import (
@@ -26,6 +27,7 @@ from ..providers.factory import (
     provider_account_policy_kind,
     provider_account_requires_credential,
 )
+from ..providers.nvidia_nim import NvidiaNimCapabilityError
 from ..quota_manager import QuotaManager
 from ..runtime_provider_config import runtime_provider_configuration_for_account
 from .common import _ArtifactRecorder, _redact_text, _result
@@ -176,6 +178,12 @@ class ProviderFactoryAdapter:
                 started_at=started_at,
                 reason=f"{self.display_name} execution requires input.model.",
             )
+        if is_nvidia_nim_auto_selection_sentinel(self.provider_family, model):
+            return _result(
+                status="blocked",
+                started_at=started_at,
+                reason="nvidia_model_selection_required",
+            )
         try:
             response = provider.chat_completion(
                 ModelRequest(
@@ -184,6 +192,16 @@ class ProviderFactoryAdapter:
                     temperature=request.input.get("temperature"),
                     maxTokens=request.input.get("maxTokens"),
                 )
+            )
+        except NvidiaNimCapabilityError as error:
+            status_suffix = f" (http_status={error.status_code})" if error.status_code is not None else ""
+            return _result(
+                status="unavailable",
+                started_at=started_at,
+                reason=f"{self.display_name} execution failed: {error.code}{status_suffix}",
+                http_status=error.status_code,
+                provider_attempted=error.request_attempted or error.status_code is not None,
+                redacted=True,
             )
         except HTTPError as error:
             # Un 429 sin registrar deja al provider luciendo sano y los agentes lo reeligen en cada
@@ -202,13 +220,27 @@ class ProviderFactoryAdapter:
                 status="unavailable",
                 started_at=started_at,
                 reason=f"{self.display_name} execution failed: provider_request_failed",
+                http_status=error.code,
+                provider_attempted=True,
                 redacted=True,
             )
-        except Exception:
+        except Exception as error:
             return _result(
                 status="unavailable",
                 started_at=started_at,
                 reason=f"{self.display_name} execution failed: provider_request_failed",
+                provider_attempted=isinstance(error, (URLError, TimeoutError, ConnectionError)),
+                redacted=True,
+            )
+        if not str(getattr(response, "content", "") or "").strip() or (
+            getattr(response, "provider_id", None) != str(account["providerId"])
+            or getattr(response, "model", None) != model
+        ):
+            return _result(
+                status="unavailable",
+                started_at=started_at,
+                reason="model_validation_invalid_response",
+                provider_attempted=True,
                 redacted=True,
             )
         clean_content, redacted = _redact_text(response.content)
@@ -231,4 +263,5 @@ class ProviderFactoryAdapter:
             output_artifact_id=output_id,
             evidence_package_id=evidence_id,
             redacted=redacted,
+            provider_attempted=True,
         )

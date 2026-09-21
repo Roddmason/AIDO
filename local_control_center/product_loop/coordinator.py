@@ -20,6 +20,7 @@ demanda (no hay scheduler en segundo plano) e inyectando ``now`` para que los te
 from __future__ import annotations
 
 import sqlite3
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
@@ -58,6 +59,7 @@ from local_control_center.agents.runtime_failover import (
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
+from local_control_center.decision_engine.observers import observe_resource_decision, record_resource_outcome
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -354,6 +356,8 @@ class _UserMessageRun:
     product_owner_status: str = ""
     brief: dict[str, Any] = field(default_factory=dict)
     product_owner_output_record: dict[str, Any] = field(default_factory=dict)
+    research_resolution: dict[str, Any] = field(default_factory=dict)
+    runtime_risk_review: dict[str, Any] = field(default_factory=dict)
     pending_thread_decisions: list[dict[str, Any]] = field(default_factory=list)
     po_artifact_ids: list[str] = field(default_factory=list)
     po_evidence: dict[str, Any] = field(default_factory=dict)
@@ -623,7 +627,25 @@ class ProductLoopCoordinator:
         *,
         evidence_package_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        durable = {**self._durable_run_context(loop), **redact_secrets(updates)}
+        original = self._durable_run_context(loop)
+        clean_updates = redact_secrets(updates)
+        resolution = original.get("researchResolution") or {}
+        risk_review = original.get("runtimeRiskReview") or {}
+        if (
+            (
+                isinstance(resolution, dict)
+                and resolution.get("status") == "consumed"
+                and resolution.get("loopId") == loop["id"]
+            )
+            or (
+                isinstance(risk_review, dict)
+                and risk_review.get("status") in {"consuming", "consumed"}
+                and risk_review.get("loopId") == loop["id"]
+            )
+        ) and "requestMeta" in clean_updates:
+            # Research provenance stays immutable; execution uses the freshly resealed policy.
+            clean_updates["effectiveRequestMeta"] = clean_updates.pop("requestMeta")
+        durable = {**original, **clean_updates}
         ids = [str(item) for item in durable.get("evidencePackageIds", []) if str(item).strip()]
         for evidence_id in evidence_package_ids or []:
             if evidence_id and evidence_id not in ids:
@@ -2520,6 +2542,8 @@ class ProductLoopCoordinator:
 
     @staticmethod
     def _resource_privacy_level(request_meta: dict[str, Any]) -> str:
+        if request_meta.get("forceLocal"):
+            return "local_only"
         value = str(
             request_meta.get("privacyLevel")
             or request_meta.get("privacy_level")
@@ -2604,6 +2628,8 @@ class ProductLoopCoordinator:
             {
                 "routingDecisionId": decision.get("routingDecisionId"),
                 "selected": decision.get("selected"),
+                "proposal": decision.get("proposal"),
+                "reviewRequired": bool(decision.get("reviewRequired")),
                 "reviewerSelection": decision.get("reviewerSelection"),
                 "localVsRemote": decision.get("localVsRemote"),
                 "costTier": decision.get("costTier"),
@@ -2816,56 +2842,48 @@ class ProductLoopCoordinator:
         request_meta: dict[str, Any],
         team_schedule: dict[str, Any],
         agent_tasks: list[dict[str, Any]],
+        runtime_risk_review_id: str | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         manager = AIResourceManager(self.connection)
-        context_tokens = self._resource_context_tokens_estimate(request_meta)
         privacy_level = self._resource_privacy_level(request_meta)
-        profiles_by_role = self._profile_by_role()
         enriched_roles: list[dict[str, Any]] = []
         blockers: list[dict[str, Any]] = []
         for role_plan in team_schedule["roles"]:
             role = str(role_plan["role"])
-            profile = profiles_by_role.get(role) or {}
             task = self._task_for_assignment(role, agent_tasks)
             resource_policy = self._resource_role_policy(role)
+            routing_started = time.perf_counter()
             decision = manager.select_resource(
-                AIResourceRequest(
+                self._team_resource_request(
                     project_id=project_id,
-                    workflow_run_id=loop_id,
-                    agent_id=str(profile.get("id") or role),
-                    task_id=task["id"],
-                    task_type=f"{role}.{role_plan.get('kind') or 'reason'}",
-                    risk_level=str(team_schedule.get("risk") or "medium"),
-                    routing_policy=(
-                        "economy"
-                        if resource_policy["freeTierOnly"]
-                        else str(team_schedule.get("mode") or "balanced")
-                    ),
-                    context_tokens_estimate=context_tokens,
-                    required_capabilities=self._resource_required_capabilities(role_plan),
-                    privacy_level=privacy_level,
-                    budget_remaining_usd=role_plan.get("budgetUsd"),
-                    max_tokens=role_plan.get("maxTokens"),
-                    preferred_provider_ids=resource_policy["preferredProviderIds"],
-                    preferred_resources=resource_policy["preferredResources"],
-                    blocked_resources=resource_policy["blockedResources"],
-                    context_token_limit=resource_policy["maxTokensPerRun"],
-                    role_policy_id=resource_policy["rolePolicyId"],
-                    allow_remote=resource_policy["allowRemote"],
-                    allow_local=resource_policy["allowLocal"],
-                    allow_cli=resource_policy["allowCli"],
-                    allow_api=resource_policy["allowApi"],
-                    free_tier_only=resource_policy["freeTierOnly"],
-                    allow_unknown_cost=resource_policy["allowUnknownCost"],
-                    require_approval_for_unknown_cost=resource_policy["requireApprovalForUnknownCost"],
-                    require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
+                    loop_id=loop_id,
+                    request_meta=request_meta,
+                    team_schedule=team_schedule,
+                    role_plan=role_plan,
+                    agent_tasks=agent_tasks,
                 ),
                 record=True,
+                allow_decision_inference=runtime_risk_review_id is None,
+                **({"runtime_risk_review_id": runtime_risk_review_id} if runtime_risk_review_id else {}),
             )
             decision = self._resource_decision_with_approval_override(
                 role=role,
                 decision=decision,
                 request_meta=request_meta,
+            )
+            observe_resource_decision(
+                self.connection,
+                decision=decision,
+                project_id=project_id,
+                execution_id=loop_id,
+                task_id=task["id"],
+                risk=str(team_schedule.get("risk") or "medium"),
+                privacy_mode="local_only"
+                if request_meta.get("forceLocal")
+                or not resource_policy["allowRemote"]
+                or privacy_level not in {"public", "remote_allowed"}
+                else "metadata_only",
+                routing_latency_ms=(time.perf_counter() - routing_started) * 1000,
             )
             public_decision = self._public_resource_decision(decision)
             enriched_roles.append({**role_plan, "resourceDecision": public_decision})
@@ -2899,6 +2917,51 @@ class ProductLoopCoordinator:
         }
         return enriched, blockers
 
+    def _team_resource_request(
+        self,
+        *,
+        project_id: str,
+        loop_id: str,
+        request_meta: dict[str, Any],
+        team_schedule: dict[str, Any],
+        role_plan: dict[str, Any],
+        agent_tasks: list[dict[str, Any]],
+    ) -> AIResourceRequest:
+        role = str(role_plan["role"])
+        profile = self._profile_by_role(project_id).get(role) or {}
+        task = self._task_for_assignment(role, agent_tasks)
+        policy = self._resource_role_policy(role)
+        return AIResourceRequest(
+            project_id=project_id,
+            workflow_run_id=loop_id,
+            agent_id=str(profile.get("id") or role),
+            agent_profile_id=profile.get("id"),
+            task_id=task["id"],
+            task_type=f"{role}.{role_plan.get('kind') or 'reason'}",
+            risk_level=str(team_schedule.get("risk") or "medium"),
+            routing_policy="economy"
+            if policy["freeTierOnly"]
+            else str(team_schedule.get("mode") or "balanced"),
+            context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
+            required_capabilities=self._resource_required_capabilities(role_plan),
+            privacy_level=self._resource_privacy_level(request_meta),
+            budget_remaining_usd=role_plan.get("budgetUsd"),
+            max_tokens=role_plan.get("maxTokens"),
+            preferred_provider_ids=policy["preferredProviderIds"],
+            preferred_resources=policy["preferredResources"],
+            blocked_resources=policy["blockedResources"],
+            context_token_limit=policy["maxTokensPerRun"],
+            role_policy_id=policy["rolePolicyId"],
+            allow_remote=policy["allowRemote"],
+            allow_local=policy["allowLocal"],
+            allow_cli=policy["allowCli"],
+            allow_api=policy["allowApi"],
+            free_tier_only=policy["freeTierOnly"],
+            allow_unknown_cost=policy["allowUnknownCost"],
+            require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
+            require_approval_over_usd=policy["requiresApprovalOverUsd"],
+        )
+
     @staticmethod
     def _unscheduled_agent_task_roles(
         *, agent_tasks: list[dict[str, Any]], team_schedule: dict[str, Any]
@@ -2913,8 +2976,8 @@ class ProductLoopCoordinator:
         }
         return sorted(role for role in task_roles if role not in scheduled_roles)
 
-    def _profile_by_role(self) -> dict[str, dict[str, Any]]:
-        profiles = self.agents.list_agent_profiles()
+    def _profile_by_role(self, project_id: str | None = None) -> dict[str, dict[str, Any]]:
+        profiles = self.agents.list_agent_profiles(project_id=project_id)
         by_role: dict[str, dict[str, Any]] = {}
         for profile in profiles:
             by_role.setdefault(str(profile["role"]), profile)
@@ -2934,7 +2997,7 @@ class ProductLoopCoordinator:
         agent_tasks: list[dict[str, Any]],
         team_schedule: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        profiles_by_role = self._profile_by_role()
+        profiles_by_role = self._profile_by_role(project_id)
         missing_roles: list[str] = []
         missing_reviewers: list[str] = []
         for role_plan in team_schedule["roles"]:
@@ -3180,6 +3243,7 @@ class ProductLoopCoordinator:
         loop_id: str,
         task_id: str,
         request_meta: dict[str, Any],
+        excluded_resources: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         manager = AIResourceManager(self.connection)
         resource_policy = self._resource_role_policy(
@@ -3229,11 +3293,13 @@ class ProductLoopCoordinator:
             *({"provider": provider_id, "model": ""} for provider_id in self._persisted_runtime_order()),
             *resource_policy["preferredResources"],
         ]
+        routing_started = time.perf_counter()
         decision = manager.select_resource(
             AIResourceRequest(
                 project_id=project_id,
                 workflow_run_id=loop_id,
                 agent_id=PRODUCT_OWNER_AGENT_ID,
+                agent_profile_id=(self._profile_by_role(project_id).get("product_owner") or {}).get("id"),
                 task_id=task_id,
                 task_type="product_owner.discovery",
                 risk_level=str(request_meta.get("risk") or "medium"),
@@ -3243,6 +3309,7 @@ class ProductLoopCoordinator:
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed_provider_ids,
+                excluded_resources=excluded_resources or [],
                 preferred_provider_ids=preferred_provider_ids,
                 preferred_resources=preferred_resources,
                 blocked_resources=resource_policy["blockedResources"],
@@ -3259,11 +3326,26 @@ class ProductLoopCoordinator:
                 require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
             ),
             record=True,
+            allow_decision_inference=True,
         )
         decision = self._resource_decision_with_approval_override(
             role="product_owner",
             decision=decision,
             request_meta=request_meta,
+        )
+        observe_resource_decision(
+            self.connection,
+            decision=decision,
+            project_id=project_id,
+            execution_id=loop_id,
+            task_id=task_id,
+            risk=str(request_meta.get("risk") or "medium"),
+            privacy_mode="local_only"
+            if request_meta.get("forceLocal")
+            or not resource_policy["allowRemote"]
+            or self._resource_privacy_level(request_meta) not in {"public", "remote_allowed"}
+            else "metadata_only",
+            routing_latency_ms=(time.perf_counter() - routing_started) * 1000,
         )
         public_decision = self._public_resource_decision(decision)
         selected = (
@@ -3468,6 +3550,17 @@ class ProductLoopCoordinator:
             provider_usage=self._runtime_provider_usage(runtime_result, usage_entry),
             latency_ms=latency_ms,
             evidence_ref=evidence_ref,
+        )
+        record_resource_outcome(
+            self.connection,
+            source_decision_id=decision.get("routingDecisionId"),
+            outcome={
+                "evidence_ref": evidence_ref,
+                "execution_succeeded": effective_success,
+                "duration_ms": latency_ms,
+                "cost": cost.get("actualCostUsd"),
+                "tokens": cost.get("totalTokens"),
+            },
         )
         return {
             "role": role,
@@ -4021,29 +4114,78 @@ class ProductLoopCoordinator:
             technical_lead_runner=technical_lead_runner,
             security_runner=security_runner,
         )
-        result = self._ensure_thread_and_similarity(run)
+        risk_continuation = bool((run_metadata or {}).get("runtimeRiskContinuation"))
+        research_continuation = bool((run_metadata or {}).get("researchContinuation"))
+        if risk_continuation:
+            from local_control_center.product_loop.runtime_risk_review import load_runtime_risk_continuation
+
+            try:
+                load_runtime_risk_continuation(self, run)
+            except (KeyError, ValueError, TypeError, OSError) as error:
+                marker = (run_metadata or {}).get("runtimeRiskContinuation") or {}
+                with suppress(KeyError):
+                    run.loop = self.get(str(marker.get("loopId") or ""))
+                return {"status": "blocked", "reason": str(error), "loop": run.loop}
+        result = (
+            None
+            if risk_continuation
+            else self._load_research_continuation(run)
+            if research_continuation
+            else self._ensure_thread_and_similarity(run)
+        )
         if result is not None:
             return result
         self._seal_constitution(run)
         result = self._check_workspace_and_git(run)
         if result is not None:
             return result
-        result = self._select_product_owner_resources(run)
-        if result is not None:
-            return result
-        result = self._run_project_assessment(run)
-        if result is not None:
-            return result
-        result = self._run_discovery_phase(run)
-        if result is not None:
-            return result
-        result = self._persist_product_owner_results(run)
-        if result is not None:
-            return result
-        result = self._route_product_owner_outcome(run)
-        if result is not None:
-            return result
-        result = self._plan_team_and_resources(run)
+        if research_continuation or risk_continuation:
+            result = self._revalidate_research_continuation(run) if research_continuation else None
+            if result is not None:
+                return result
+            run.loop = self._transition_run_state(
+                run.loop,
+                to_state="discovery",
+                reason="Continuing the verified persisted ProductOwner output.",
+                trigger="research_continuation",
+                actor=run.actor,
+                thread_id=run.thread_id,
+                context_patch=self._durable_run_patch(
+                    run.loop, {"blockedStage": None, "blockedReason": None}
+                ),
+            )
+        else:
+            result = self._select_product_owner_resources(run)
+            if result is not None:
+                return result
+            result = self._run_project_assessment(run)
+            if result is not None:
+                return result
+            result = self._run_discovery_phase(run)
+            if result is not None:
+                return result
+            result = self._persist_product_owner_results(run)
+            if result is not None:
+                return result
+        if risk_continuation:
+            from local_control_center.product_loop.runtime_risk_review import resume_runtime_risk_planning
+
+            try:
+                result = resume_runtime_risk_planning(self, run)
+            except (KeyError, ValueError, TypeError, OSError) as error:
+                return self._block_run(
+                    run.loop,
+                    stage="resource_manager",
+                    reason=str(error),
+                    actor=run.actor,
+                    thread_id=run.thread_id,
+                    details={"runtimeRiskReviewInvalid": True},
+                )
+        else:
+            result = self._route_product_owner_outcome(run)
+            if result is not None:
+                return result
+            result = self._plan_team_and_resources(run)
         if result is not None:
             return result
         result = self._prepare_developer_execution(run)
@@ -4357,6 +4499,136 @@ class ProductLoopCoordinator:
                 thread_id=run.thread_id,
             )
 
+    def _load_research_continuation(self, run: _UserMessageRun) -> dict[str, Any] | None:
+        """Consume only the server-created job and durable receipt, before any fresh intake or inference."""
+        from local_control_center.process_supervision.context import CURRENT_EXECUTION
+        from local_control_center.product_loop.research_resolution import (
+            ResearchResolutionError,
+            hydrate_research_run,
+            resolution_snapshot,
+            validate_research,
+        )
+
+        loop: dict[str, Any] = {}
+        try:
+            metadata = run.run_metadata or {}
+            marker = metadata.get("researchContinuation")
+            context = CURRENT_EXECUTION.get()
+            if (
+                not isinstance(marker, dict)
+                or context is None
+                or not context.in_job_runner
+                or context.connection is not self.connection
+                or context.project_id != run.project_id
+                or not context.execution_id
+                or context.execution_id != metadata.get("jobId")
+            ):
+                raise ResearchResolutionError("Research continuation requires its admitted worker execution.")
+            with immediate_transaction(self.connection):
+                job = self.jobs.get_job(context.execution_id)
+                if (
+                    job["kind"] != "thread.product_loop.run"
+                    or job["status"] != "running"
+                    or job["projectId"] != run.project_id
+                    or job["payload"].get("threadId") != run.thread_id
+                    or (job["payload"].get("runMetadata") or {}).get("researchContinuation") != marker
+                ):
+                    raise ResearchResolutionError(
+                        "The worker job does not authorize this research continuation."
+                    )
+                loop = self.repository.get_loop(str(marker.get("loopId") or ""))
+                if self.connection.execute(
+                    "SELECT 1 FROM product_loops WHERE project_id=? AND rowid>(SELECT rowid FROM product_loops WHERE id=?) "
+                    "AND json_extract(context,'$.durableRun.thread.projectThreadId')=? LIMIT 1",
+                    (run.project_id, loop["id"], run.thread_id),
+                ).fetchone():
+                    raise ResearchResolutionError(
+                        "A newer Product Loop superseded this research continuation."
+                    )
+                durable = dict(loop["context"].get("durableRun") or {})
+                receipt = dict(durable.get("researchResolution") or {})
+                action = RemediationActionsRepository(self.connection).get(
+                    str(receipt.get("remediationActionId") or "")
+                )
+                if (
+                    loop["projectId"] != run.project_id
+                    or loop["state"] != "blocked"
+                    or durable.get("blockedStage") != "research"
+                    or durable.get("runActive")
+                    or receipt.get("status") != "queued"
+                    or receipt.get("id") != marker.get("receiptId")
+                    or receipt.get("jobId") != job["id"]
+                    or receipt.get("loopVersion") != loop["version"]
+                    or action["status"] != "resolved"
+                    or action["loopId"] != loop["id"]
+                    or action["threadId"] != run.thread_id
+                    or action["actionType"] != "retry_loop"
+                ):
+                    raise ResearchResolutionError(
+                        "The research receipt is stale, consumed, or belongs to another loop."
+                    )
+                snapshot = resolution_snapshot(self.connection, loop)
+                if (
+                    snapshot != receipt.get("snapshot")
+                    or snapshot["threadId"] != run.thread_id
+                    or str(run.message).strip() != str(durable["message"]).strip()
+                ):
+                    raise ResearchResolutionError(
+                        "Research decisions or scope changed while the continuation was queued."
+                    )
+                validated = validate_research(
+                    self.connection,
+                    root=self.root,
+                    snapshot=snapshot,
+                    research_run_id=receipt["researchRunId"],
+                )
+                if any(receipt.get(key) != value for key, value in validated.items()):
+                    raise ResearchResolutionError(
+                        "Research evidence changed while the continuation was queued."
+                    )
+                receipt.update({"status": "consumed", "consumedAt": utc_now()})
+                durable.update({"researchResolution": receipt, "runActive": True})
+                loop = self.repository.update_loop_context(
+                    loop["id"], context={**loop["context"], "durableRun": durable}
+                )
+                hydrate_research_run(self, run, loop=loop, receipt=receipt)
+            return None
+        except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
+            return {"status": "blocked", "reason": str(error), "loop": loop}
+
+    def _revalidate_research_continuation(self, run: _UserMessageRun) -> dict[str, Any] | None:
+        from local_control_center.product_loop.research_resolution import (
+            ResearchResolutionError,
+            resolution_snapshot,
+            validate_research,
+        )
+
+        try:
+            # Git checks can yield: re-read decisions and actual files before entering planning.
+            loop = self.repository.get_loop(run.loop["id"])
+            snapshot = resolution_snapshot(self.connection, loop)
+            if snapshot != run.research_resolution["snapshot"]:
+                raise ResearchResolutionError("Research decisions changed during the workspace checks.")
+            validated = validate_research(
+                self.connection,
+                root=self.root,
+                snapshot=snapshot,
+                research_run_id=run.research_resolution["researchRunId"],
+            )
+            if any(run.research_resolution.get(key) != value for key, value in validated.items()):
+                raise ResearchResolutionError("Research evidence changed during the workspace checks.")
+            run.loop = loop
+            return None
+        except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
+            return self._block_run(
+                run.loop,
+                stage="research",
+                reason=str(error),
+                actor=run.actor,
+                details=self._durable_run_context(run.loop).get("research") or {},
+                thread_id=run.thread_id,
+            )
+
     def _clear_run_active(self, loop: dict[str, Any]) -> dict[str, Any]:
         """Apaga el marcador durable ``runActive`` en todo cierre controlado del run.
 
@@ -4555,40 +4827,55 @@ class ProductLoopCoordinator:
         # invalida, asi que reusar la anterior devolveria el mismo proveedor ya caido.
         manager = AIResourceManager(self.connection)
         try:
-            decision = manager.select_resource(
-                AIResourceRequest(
+            if role == "product_owner":
+                decision, _ = self._product_owner_resource_selection(
                     project_id=run.project_id,
-                    workflow_run_id=run.loop["id"],
-                    agent_id=role,
-                    task_id=f"{run.task_id}:f{len(attempts)}",
-                    task_type=f"{role}.implement",
-                    risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
-                    routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
-                    required_capabilities=["chat"],
-                    preferred_provider_ids=policy["preferredProviderIds"],
-                    preferred_resources=policy["preferredResources"],
-                    blocked_resources=policy["blockedResources"],
+                    loop_id=run.loop["id"],
+                    task_id=str(payload["taskId"]),
+                    request_meta=run.request_meta,
                     excluded_resources=excluded,
-                    context_token_limit=policy["maxTokensPerRun"],
-                    role_policy_id=policy["rolePolicyId"],
-                    allow_remote=policy["allowRemote"],
-                    allow_local=policy["allowLocal"],
-                    allow_cli=policy["allowCli"],
-                    allow_api=policy["allowApi"],
-                    free_tier_only=policy["freeTierOnly"],
-                    allow_unknown_cost=policy["allowUnknownCost"],
-                    require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
-                    require_approval_over_usd=policy["requiresApprovalOverUsd"],
-                ),
-                record=True,
-            )
+                )
+            else:
+                decision = manager.select_resource(
+                    AIResourceRequest(
+                        project_id=run.project_id,
+                        workflow_run_id=run.loop["id"],
+                        agent_id=role,
+                        agent_profile_id=(self._profile_by_role(run.project_id).get(role) or {}).get("id"),
+                        task_id=f"{run.task_id}:f{len(attempts)}",
+                        task_type=f"{role}.implement",
+                        risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
+                        routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
+                        required_capabilities=["chat"],
+                        preferred_provider_ids=policy["preferredProviderIds"],
+                        preferred_resources=policy["preferredResources"],
+                        blocked_resources=policy["blockedResources"],
+                        excluded_resources=excluded,
+                        context_token_limit=policy["maxTokensPerRun"],
+                        role_policy_id=policy["rolePolicyId"],
+                        allow_remote=policy["allowRemote"],
+                        allow_local=policy["allowLocal"],
+                        allow_cli=policy["allowCli"],
+                        allow_api=policy["allowApi"],
+                        free_tier_only=policy["freeTierOnly"],
+                        allow_unknown_cost=policy["allowUnknownCost"],
+                        require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
+                        require_approval_over_usd=policy["requiresApprovalOverUsd"],
+                    ),
+                    record=True,
+                    allow_decision_inference=True,
+                )
         except Exception:
             return None
         selected = decision.get("selected") if isinstance(decision, dict) else None
         if not selected:
             return None
+        if decision.get("approvalRequired"):
+            return None
         affordable, cost_reason = is_affordable_candidate(
-            decision, requires_approval_over_usd=policy["requiresApprovalOverUsd"]
+            decision,
+            requires_approval_over_usd=policy["requiresApprovalOverUsd"],
+            allow_unknown_cost=policy["allowUnknownCost"] and not policy["requireApprovalForUnknownCost"],
         )
         if not affordable:
             attempts[-1]["costDecision"] = f"runtime_failover_cost_capped: {cost_reason}"
@@ -4606,6 +4893,11 @@ class ProductLoopCoordinator:
         else:
             next_payload.pop("model", None)
         next_payload["resourceSelection"] = self._public_resource_decision(decision)
+        if role == "product_owner":
+            next_payload["metadata"] = {
+                **dict(payload.get("metadata") or {}),
+                "resourceSelection": next_payload["resourceSelection"],
+            }
         return next_payload
 
     def _run_with_failover(
@@ -4618,10 +4910,10 @@ class ProductLoopCoordinator:
         thread_id: str | None,
         role: str = "developer",
     ) -> dict[str, Any]:
-        """Ejecuta el runtime y, ante una falla de transporte o cuota, reintenta en otro proveedor.
+        """Ejecuta el runtime y recupera rechazos de proveedor con otro candidato autorizado.
 
-        ``role`` gobierna qué política de recursos acota el reemplazo (hoy solo lo usa la fase
-        del developer; un caller nuevo debe pasar su propio rol o heredará esa política).
+        ``role`` conserva la política y el contrato del ejecutor. Product Owner también
+        recupera respuestas fallidas estructuradas; nunca se repite salida parcial del developer.
 
         Solo reintenta lo que dice algo del proveedor y no del trabajo: un fallo de contrato se
         propaga tal cual, porque repetirlo en otro modelo gasta dinero para obtener el mismo error.
@@ -4636,9 +4928,34 @@ class ProductLoopCoordinator:
         """
         current_payload = payload
         for attempt in range(MAX_FAILOVER_ATTEMPTS + 1):
+            failed_result = None
+            if role == "product_owner" and current_payload is not payload:
+                decision = (current_payload.get("metadata") or {}).get("resourceSelection") or {}
+                run.product_owner_resource_decision = decision
+                run.product_owner_selected_resource = decision.get("selected") or {}
             try:
-                return runtime.run(current_payload)
+                result = runtime.run(current_payload)
+                # Product Owner has a read-only executor. Never replay partial developer output.
+                if role == "product_owner" and isinstance(result, dict) and result.get("output") is None:
+                    details = result.get("runtimeResult") or {}
+                    status = details.get("httpStatus")
+                    reason = str(result.get("reason") or details.get("reason") or "")
+                    if isinstance(status, int):
+                        reason = f"{reason} (http_status={status})"
+                    error = RuntimeError(reason)
+                    if result.get("status") in {
+                        "failed",
+                        "runtime_failed",
+                        "runtime_unavailable",
+                    } and should_failover(classify_runtime_failure(error)):
+                        failed_result = result
+                        raise error
+                return result
             except Exception as error:
+                from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
+
+                if isinstance(error, ExecutionDeadlineExceeded):
+                    raise
                 failure = classify_runtime_failure(error)
                 failed_provider = str(current_payload.get("preferredRuntime") or "")
                 failed_model = str(current_payload.get("model") or "")
@@ -4652,6 +4969,8 @@ class ProductLoopCoordinator:
                     }
                 )
                 if not should_failover(failure) or attempt == MAX_FAILOVER_ATTEMPTS:
+                    if failed_result is not None:
+                        return failed_result
                     raise
                 replacement = self._failover_replacement(
                     run=run,
@@ -4662,6 +4981,8 @@ class ProductLoopCoordinator:
                     role=role,
                 )
                 if replacement is None:
+                    if failed_result is not None:
+                        return failed_result
                     raise
                 current_payload = replacement
                 self._record_thread_event(

@@ -739,6 +739,12 @@ class ResearchAgentRunner:
                 "discrepancies": report["discrepancies"],
             },
         )
+        threads.record_event(
+            thread_id=thread_id,
+            type="research_report",
+            agent_role=RESEARCH_AGENT_ID,
+            payload={"artifactId": report_artifact_id, "status": report["status"]},
+        )
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Ejecuta la validación de research y devuelve estado, fuentes, hallazgos y evidencia."""

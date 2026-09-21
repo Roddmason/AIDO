@@ -100,3 +100,57 @@ def test_explicit_sandbox_reason_is_not_overwritten() -> None:
     result = _execution_result_from_tool_call(call)
 
     assert result["reason"] == "Command is not allowlisted."
+
+
+def test_denied_tool_call_preserves_policy_reason_without_claiming_execution() -> None:
+    reason = "ProductOwnerAgent model execution is limited to configured adapters."
+    result = _execution_result_from_tool_call(
+        {
+            "id": "denied-tool-call",
+            "status": "denied",
+            "payload": {
+                "decision": "deny",
+                "decisionReason": reason,
+                "permissionDecisionId": "permission-denied",
+                "execution": "not_executed",
+            },
+        }
+    )
+
+    assert result["status"] == "failed"
+    assert result["blocked"] is True
+    assert result["reason"] == reason
+    assert result["decision"] == "deny"
+    assert result["permissionDecisionId"] == "permission-denied"
+    assert result["execution"] == "not_executed"
+    assert result["returnCode"] is None
+    assert result["failureCause"] is None
+
+
+def test_denial_reason_redacts_credentials() -> None:
+    result = _execution_result_from_tool_call(
+        {
+            "status": "denied",
+            "payload": {"decision": "deny", "decisionReason": "api_key=secret-test-credential"},
+        }
+    )
+
+    assert "secret-test-credential" not in result["reason"]
+
+
+def test_provider_http_failure_preserves_status_without_guessing_model_retirement() -> None:
+    reason = "NVIDIA NIM execution failed: provider_request_failed (http_status=410)"
+    result = _execution_result_from_tool_call(
+        {
+            "status": "unavailable",
+            "payload": {
+                "decision": "allow",
+                "execution": "runtime_adapter:nvidia_nim",
+                "executionResult": {"reason": reason, "httpStatus": 410, "blocked": True},
+            },
+        }
+    )
+    assert result["status"] == "failed"
+    assert result["reason"] == reason
+    assert result["httpStatus"] == 410
+    assert result["failureCause"] is None

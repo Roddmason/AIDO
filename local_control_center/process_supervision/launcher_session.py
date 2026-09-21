@@ -333,12 +333,14 @@ class LauncherCaptureSession:
                         key: result[key]
                         for key in (
                             "managedProcessId",
+                            "executionId",
                             "returnCode",
                             "cancelled",
                             "timedOut",
                             "terminationReason",
                             "stdoutArtifactId",
                             "stderrArtifactId",
+                            "remainingDescendantCount",
                         )
                     }
             finally:

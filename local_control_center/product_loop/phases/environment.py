@@ -147,6 +147,15 @@ def select_product_owner_resources(
     preferred_runtime = run.preferred_runtime
     product_owner = run.product_owner
     product_owner_task_id = f"product-owner-{stable_task_suffix(thread_id, loop['id'])}"
+    loop = coordinator._transition_run_state(
+        loop,
+        to_state="runtime_check",
+        reason="Validating eligible ProductOwnerAgent runtimes before resource selection.",
+        trigger="product_owner_runtime_check",
+        actor=actor,
+        context_patch=coordinator._durable_run_patch(loop, {"status": "runtime_check"}),
+        thread_id=thread_id,
+    )
     try:
         product_owner_resource_decision, product_owner_resource_blocker = (
             coordinator._product_owner_resource_selection(
@@ -219,15 +228,6 @@ def select_product_owner_resources(
     )
     product_owner_effective_runtime = product_owner_preferred_runtime or preferred_runtime
 
-    loop = coordinator._transition_run_state(
-        loop,
-        to_state="runtime_check",
-        reason="Checking executable ProductOwnerAgent runtime after git_check.",
-        trigger="product_owner_runtime_check",
-        actor=actor,
-        context_patch=coordinator._durable_run_patch(loop, {"status": "runtime_check"}),
-        thread_id=thread_id,
-    )
     if hasattr(product_owner, "status"):
         try:
             product_owner_readiness = product_owner.status(preferred_runtime=product_owner_effective_runtime)

@@ -61,7 +61,7 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
     """Preview the entire verified session, not a second reservation for its own child."""
     context = CURRENT_EXECUTION.get()
     workload = provider_workload_class(account)
-    execution_id = context.execution_id if context and context.execution_id else "readiness-preview"
+    execution_id = "readiness-preview"
     if context:
         from local_control_center.process_supervision.session_client import session_identity
 
@@ -84,6 +84,25 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                     # Retain live host CPU, disk and the full 18 GiB + host-reserve check.
                     # Session subbudgets and fencing remain enforced by the supervisor at spawn.
                     workload, execution_id = "capture_session", lease.execution_id
+            elif (
+                context.in_job_runner
+                and context.connection is connection
+                and context.execution_id
+                and context.worker_id
+                and context.resource_lease_id
+            ):
+                from local_control_center.host_resources.branch_admission import BranchAdmission
+
+                lease = ResourceRepository(connection).active_lease_for_execution(context.execution_id)
+                if (
+                    lease is not None
+                    and lease.id == context.resource_lease_id
+                    and lease.owner_id == context.worker_id
+                    and BranchAdmission._parent_covers(lease, workload)
+                ):
+                    # Preview the full reservation already held by this verified job.
+                    # Transport admission still serializes any child using that budget.
+                    workload, execution_id = lease.workload_class, lease.execution_id
     return ResourceAdmissionRequest(
         execution_id=execution_id, owner_id="readiness-preview", workload_class=workload
     )
@@ -103,9 +122,25 @@ def healthy_evidence(status: dict) -> bool:
 
 
 def provider_workload_class(account: dict) -> WorkloadClass:
-    """Clasifica inferencia conservadoramente desde la configuración, no desde el nombre comercial."""
+    """Clasifica desde el contrato persistido; loopback por sí solo no demuestra un proxy."""
     if account.get("providerType") == "cli":
         return "agent_cli"
+    from .provider_catalog import provider_catalog_entry
+
+    metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
+    entry = provider_catalog_entry(str(metadata.get("providerCatalogId") or ""))
+    if (
+        entry is not None
+        and entry.id == "omniroute"
+        and account.get("providerType") == entry.provider_type == "gateway"
+        and account.get("apiFormat") == entry.api_format
+        and account.get("providerFamily") == entry.provider_family
+        and account.get("deploymentMode") in {"self_hosted_development", "self_hosted_enterprise"}
+        and metadata.get("endpointKind") == "remote"
+    ):
+        # The configured gateway forwards inference off-host; its local HTTP
+        # process still consumes the existing 2 GiB API admission budget.
+        return "remote_llm_light"
     host = urlparse(str(account.get("baseUrl") or "")).hostname
     if host in {"localhost", "127.0.0.1", "::1", "host.docker.internal"} or str(
         account.get("deploymentMode") or ""

@@ -49,7 +49,7 @@ export type InspectorResource<T> = {
 };
 
 /**
- * Fetches `load` once per `key`/`attempt` while `active`, aborting on unmount/key change.
+ * Fetches `load` once per key/attempt/refresh signal while active, aborting superseded reads.
  * The dedup marker resets synchronously in the cleanup (the aborted promise settles on a
  * later microtask, too late for a quick tab-away/tab-back). Data is dropped only when `key`
  * changes so a `reload` keeps the previous rows visible during the background refetch.
@@ -58,6 +58,7 @@ function useLazyResource<T>(
 	key: string | null,
 	active: boolean,
 	load: (signal: AbortSignal) => Promise<T>,
+	refreshSignal: string | number = 0,
 ): InspectorResource<T> {
 	const [data, setData] = useState<T | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -68,7 +69,7 @@ function useLazyResource<T>(
 
 	useEffect(() => {
 		if (!active || !key) return;
-		const fetchId = `${key}#${attempt}`;
+		const fetchId = `${key}#${attempt}#${refreshSignal}`;
 		if (fetchedRef.current === fetchId) return;
 		fetchedRef.current = fetchId;
 		const controller = new AbortController();
@@ -93,7 +94,7 @@ function useLazyResource<T>(
 			controller.abort();
 			if (fetchedRef.current === fetchId) fetchedRef.current = null;
 		};
-	}, [active, key, attempt, load]);
+	}, [active, key, attempt, load, refreshSignal]);
 
 	const reload = useCallback(() => {
 		fetchedRef.current = null;
@@ -113,18 +114,24 @@ export function useThreadInspectorData(
 	projectId: string | null,
 	threadId: string | null,
 	tab: ThreadInspectorTab,
+	refreshSignal: string | number = 0,
 ) {
 	const loadDetail = useCallback(
 		(signal: AbortSignal) => getThread(threadId ?? '', signal),
 		[threadId],
 	);
-	const detail = useLazyResource<ThreadDetail>(threadId, true, loadDetail);
+	const detail = useLazyResource<ThreadDetail>(threadId, true, loadDetail, refreshSignal);
 
 	const loadLoop = useCallback(
 		(signal: AbortSignal) => getProjectProductLoop(projectId ?? '', signal),
 		[projectId],
 	);
-	const loop = useLazyResource<ProjectProductLoopResponse>(projectId, true, loadLoop);
+	const loop = useLazyResource<ProjectProductLoopResponse>(
+		projectId,
+		true,
+		loadLoop,
+		refreshSignal,
+	);
 
 	const loadRoster = useCallback(
 		(signal: AbortSignal) => getAgentProfiles(projectId ?? undefined, signal),

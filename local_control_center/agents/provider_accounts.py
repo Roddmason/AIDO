@@ -403,8 +403,10 @@ class ProviderAccountStore:
             raise KeyError(f"Model not found: {model_id}")
         return row_to_model_catalog(row)
 
-    def upsert_model(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Insert or update a catalog model keyed by (providerId, model) and return the stored row."""
+    def upsert_model(
+        self, body: dict[str, Any], *, preserve_operator_enabled: bool = False
+    ) -> dict[str, Any]:
+        """Upsert a catalog model, optionally preserving operator enablement during metadata refresh."""
         model_id = str(body.get("id") or f"{body['providerId']}:{body['model']}")
         now = utc_now()
         self.connection.execute(
@@ -440,8 +442,12 @@ class ProviderAccountStore:
                 reasoning_price_per_mtok = excluded.reasoning_price_per_mtok,
                 free_tier = excluded.free_tier,
                 free_tier_notes = excluded.free_tier_notes,
-                enabled = excluded.enabled,
-                source = excluded.source,
+                enabled = CASE
+                    WHEN ? AND model_catalog.source = 'operator_override' THEN model_catalog.enabled
+                    ELSE excluded.enabled END,
+                source = CASE
+                    WHEN ? AND model_catalog.source = 'operator_override' THEN model_catalog.source
+                    ELSE excluded.source END,
                 updated_at = excluded.updated_at
             """,
             (
@@ -474,6 +480,8 @@ class ProviderAccountStore:
                 body.get("source", "manual"),
                 now,
                 now,
+                preserve_operator_enabled,
+                preserve_operator_enabled,
             ),
         )
         row = self.connection.execute(
@@ -576,7 +584,8 @@ class ProviderAccountStore:
                     "reasoningPricePerMtok": snapshot["reasoningPricePerMtok"],
                     "freeTier": snapshot["freeTier"],
                     "source": f"pricing_snapshot:{snapshot_id}",
-                }
+                },
+                preserve_operator_enabled=True,
             )
         return snapshot
 

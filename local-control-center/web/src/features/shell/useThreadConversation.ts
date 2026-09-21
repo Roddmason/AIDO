@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getThread, postThreadMessage, resolveThreadDecision } from '../../api/client';
 import type { ThreadDetail } from '../../api/types';
 import type { Mutate } from '../../app/routes';
+import { useThreadRefresh } from './useThreadRefresh';
 
 type UseThreadConversation = {
 	detail: ThreadDetail | null;
@@ -27,6 +28,7 @@ export function useThreadConversation(
 	threadId: string | null,
 	mutate: Mutate,
 ): UseThreadConversation {
+	const { invalidate } = useThreadRefresh();
 	const [detail, setDetail] = useState<ThreadDetail | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState(false);
@@ -55,7 +57,10 @@ export function useThreadConversation(
 		[threadId],
 	);
 
-	const reload = useCallback(() => load(), [load]);
+	const reload = useCallback(() => {
+		load();
+		if (threadId) invalidate(threadId);
+	}, [load, threadId, invalidate]);
 
 	useEffect(() => {
 		const controller = new AbortController();

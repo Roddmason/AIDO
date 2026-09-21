@@ -13,12 +13,13 @@
  */
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutStorage } from 'react-resizable-panels';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ShellSidebar } from '../features/shell/ShellSidebar';
+import { ThreadRefreshContext } from '../features/shell/useThreadRefresh';
 import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
@@ -118,6 +119,19 @@ export function AppShell({
 	children: ReactNode;
 }) {
 	const isDesktop = useIsDesktopLayout();
+	const [threadRefresh, setThreadRefresh] = useState<{ threadId: string | null; revision: number }>(
+		{
+			threadId: null,
+			revision: 0,
+		},
+	);
+	const invalidateThread = useCallback((threadId: string) => {
+		setThreadRefresh((current) => ({ threadId, revision: current.revision + 1 }));
+	}, []);
+	const threadRefreshContext = useMemo(
+		() => ({ ...threadRefresh, invalidate: invalidateThread }),
+		[threadRefresh, invalidateThread],
+	);
 
 	const explorerPanelRef = usePanelRef();
 	const inspectorPanelRef = usePanelRef();
@@ -243,24 +257,28 @@ export function AppShell({
 			<section
 				className={area === 'threads' ? 'content-frame content-frame--full-bleed' : 'content-frame'}
 			>
-				{children}
+				<ThreadRefreshContext.Provider value={threadRefreshContext}>
+					{children}
+				</ThreadRefreshContext.Provider>
 			</section>
 		</main>
 	);
 
 	const inspector = (
-		<InspectorPanel
-			overview={overview}
-			selectedProject={selectedProject}
-			selectedRunId={selectedRunId}
-			token={token}
-			mutate={mutate}
-			onClose={toggleInspector}
-			onClearRun={onClearRun}
-			onOpenSettings={onOpenSettings}
-			showLoops={area === 'threads'}
-			selectedThreadId={selectedSessionId}
-		/>
+		<ThreadRefreshContext.Provider value={threadRefreshContext}>
+			<InspectorPanel
+				overview={overview}
+				selectedProject={selectedProject}
+				selectedRunId={selectedRunId}
+				token={token}
+				mutate={mutate}
+				onClose={toggleInspector}
+				onClearRun={onClearRun}
+				onOpenSettings={onOpenSettings}
+				showLoops={area === 'threads'}
+				selectedThreadId={selectedSessionId}
+			/>
+		</ThreadRefreshContext.Provider>
 	);
 
 	const bottomDock = (

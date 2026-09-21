@@ -39,6 +39,8 @@ def _result(
     status: str,
     started_at: str,
     exit_code: int | None = None,
+    http_status: int | None = None,
+    provider_attempted: bool = False,
     reason: str | None = None,
     stdout_artifact_id: str | None = None,
     stderr_artifact_id: str | None = None,
@@ -49,6 +51,8 @@ def _result(
     return RuntimeExecutionResult(
         status=status,
         exitCode=exit_code,
+        httpStatus=http_status,
+        providerAttempted=provider_attempted,
         stdoutArtifactId=stdout_artifact_id,
         stderrArtifactId=stderr_artifact_id,
         outputArtifactId=output_artifact_id,

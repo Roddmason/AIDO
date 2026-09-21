@@ -87,7 +87,15 @@ class PricingCatalog:
             "output": row["output_price_per_mtok"],
             "reasoning": row["reasoning_price_per_mtok"],
         }
-        if all(value is None for value in prices.values()):
+        billed_tokens = {
+            "input": max(input_tokens - cached_input_tokens, 0),
+            "cached": cached_input_tokens,
+            "output": output_tokens,
+            "reasoning": reasoning_tokens,
+        }
+        if all(value is None for value in prices.values()) or any(
+            count > 0 and prices[kind] is None for kind, count in billed_tokens.items()
+        ):
             return {
                 "estimatedCostUsd": None,
                 "source": "unknown_price",

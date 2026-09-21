@@ -10,7 +10,7 @@
  */
 import { AlertTriangle, ExternalLink, Play } from 'lucide-react';
 import { m } from 'motion/react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { WorkerStatusResponse } from '../../api/client';
 import type { ThreadAgentEvent, ThreadDecision, ThreadMessage } from '../../api/types';
@@ -72,6 +72,8 @@ const MILESTONE_INDEX: Record<string, number> = {
 	git_check: 1,
 	discovery: 2,
 	discovering: 2,
+	research_adopted: 2,
+	runtime_risk_approved: 2,
 	awaiting_user: 2,
 	planning: 2,
 	brief_ready: 2,
@@ -94,6 +96,15 @@ const MILESTONE_INDEX: Record<string, number> = {
 	delivered: PIPELINE_STEPS.length,
 };
 
+/** Blockers may name the failing agent/guard instead of emitting a pipeline milestone. */
+const BLOCKED_STAGE_INDEX: Record<string, number> = {
+	runtime: 0,
+	resource_manager: 0,
+	product_owner: 2,
+	research: 2,
+	worker: 3,
+};
+
 type StepState = 'pending' | 'active' | 'done' | 'blocked';
 
 type PipelineSnapshot = {
@@ -111,13 +122,18 @@ type PipelineSnapshot = {
  * (so a QA rework honestly moves the pipeline back to "executing"); the two readiness checks are
  * unordered peers, so each one counts as done as soon as its own event was seen.
  */
-function derivePipeline(events: ThreadAgentEvent[], threadStatus: string): PipelineSnapshot {
+function derivePipeline(
+	events: ThreadAgentEvent[],
+	threadStatus: string,
+	remediationStage: string,
+): PipelineSnapshot {
 	let current = -1;
 	let lastMilestoneSeq = 0;
 	const seenChecks = new Set<number>();
 	let blockedSeq = 0;
 	let blockedReason = '';
 	let blockedStage = '';
+	let blockedLoopId = '';
 
 	for (const event of events) {
 		const milestone = MILESTONE_INDEX[event.type];
@@ -126,16 +142,37 @@ function derivePipeline(events: ThreadAgentEvent[], threadStatus: string): Pipel
 			lastMilestoneSeq = event.sequence;
 			if (milestone <= 1) seenChecks.add(milestone);
 		}
-		if (event.type === 'blocked') {
+		// Capacity failures can leave a job queued; its waiting-worker banner owns that state.
+		const workerExecutionFailed = event.type === 'worker_failed' && threadStatus !== 'queued';
+		if (event.type === 'blocked' || workerExecutionFailed) {
 			const payload = safeRecord(event.payload);
+			const reason = textValue(payload.reason) ?? '';
+			const loopId = textValue(payload.loopId) ?? '';
+			const sameFailure =
+				blockedSeq > lastMilestoneSeq &&
+				loopId !== '' &&
+				loopId === blockedLoopId &&
+				reason === blockedReason;
+			// A job-level failure repeats the agent's blocker without its stage; preserve only that
+			// same failure's stage, never the stage of an earlier loop or a different cause.
+			blockedStage = workerExecutionFailed
+				? 'worker'
+				: textValue(payload.stage) || (sameFailure ? blockedStage : '');
 			blockedSeq = event.sequence;
-			blockedReason = textValue(payload.reason) ?? '';
-			blockedStage = textValue(payload.stage) ?? '';
+			blockedReason = reason;
+			blockedLoopId = loopId;
 		}
 	}
 
+	// A newer lifecycle milestone supersedes a historical blocker even while the thread snapshot
+	// still says blocked. A later failure remains authoritative over an earlier research adoption.
+	const isBlocked = blockedSeq > 0 ? blockedSeq > lastMilestoneSeq : threadStatus === 'blocked';
+	if (isBlocked) {
+		// Auxiliary research jobs may append a blocker without the product loop's stage.
+		blockedStage ||= remediationStage;
+		current = BLOCKED_STAGE_INDEX[blockedStage] ?? MILESTONE_INDEX[blockedStage] ?? current;
+	}
 	const doneAll = current >= PIPELINE_STEPS.length || threadStatus === 'resolved';
-	const isBlocked = threadStatus === 'blocked' || blockedSeq > lastMilestoneSeq;
 	const states = PIPELINE_STEPS.map((_, index): StepState => {
 		if (doneAll) return 'done';
 		if (index === current) return isBlocked ? 'blocked' : 'active';
@@ -187,7 +224,16 @@ export function ThreadExecutionPanel({
 }: ThreadExecutionPanelProps) {
 	const { t } = useI18n();
 
-	const pipeline = useMemo(() => derivePipeline(events, threadStatus), [events, threadStatus]);
+	const pipeline = useMemo(() => {
+		const stages = new Set(
+			remediations.cards
+				.filter((card) => !REMEDIATION_EXCLUDE_IN_PANEL.some((type) => type === card.blockerType))
+				.map((card) => card.stage)
+				.filter(Boolean),
+		);
+		const remediationStage = stages.size === 1 ? ([...stages][0] ?? '') : '';
+		return derivePipeline(events, threadStatus, remediationStage);
+	}, [events, threadStatus, remediations.cards]);
 
 	// Thread-state blockers that are NOT persisted remediations: a pending decision and an awaiting
 	// approval. The stage/runtime/git/worker blockers now come from the remediations endpoint below.
@@ -332,7 +378,13 @@ export function ThreadExecutionPanel({
 						key={step.id}
 					>
 						<span className="thread-pipeline-dot" aria-hidden="true" />
-						<span className="thread-pipeline-label">{t(step.labelKey, step.fallback)}</span>
+						<span className="thread-pipeline-label">
+							{step.id === 'branch_ready' &&
+							pipeline.states[index] === 'blocked' &&
+							['research', 'product_owner'].includes(pipeline.blockedStage)
+								? t('app.threads.step.discovery_research', 'Discovery and research')
+								: t(step.labelKey, step.fallback)}
+						</span>
 						<span className="thread-pipeline-state">
 							{t(`app.threads.stepState.${pipeline.states[index]}`, pipeline.states[index])}
 						</span>
@@ -496,6 +548,7 @@ function ThreadConsoleMessageRow({ message }: { message: ThreadMessage }) {
 /** Una fila de consola del hilo; exportada para que el dock inferior use el mismo lenguaje visual. */
 export function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const { t } = useI18n();
+	const [detailsOpen, setDetailsOpen] = useState(false);
 	const payload = safeRecord(event.payload);
 	const actor =
 		event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
@@ -525,9 +578,12 @@ export function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 				</div>
 				{detail ? <p>{detail}</p> : null}
 				{hasPayload ? (
-					<details className="thread-console-payload">
+					<details
+						className="thread-console-payload"
+						onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+					>
 						<summary>{t('app.threads.eventDetails', 'Technical details')}</summary>
-						<pre>{JSON.stringify(payload, null, 2)}</pre>
+						{detailsOpen ? <pre>{JSON.stringify(payload, null, 2)}</pre> : null}
 					</details>
 				) : null}
 			</div>

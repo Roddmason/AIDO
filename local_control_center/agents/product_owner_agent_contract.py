@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from local_control_center.security_policy.policy_engine import MODEL_RUNTIME_REASON, MODEL_RUNTIME_TOOLS
 from local_control_center.shared.redaction import redact_secrets
 
 from .autonomy_profiles import REVERSIBILITIES
@@ -23,10 +24,12 @@ PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
 # aquí, junto al esquema, como regla de contrato: la usan tanto el `description` del esquema como el
 # validador, de modo que ambos comparten una sola fuente y no pueden derivar.
 TECHNICAL_STORY_KEYS = frozenset({"role", "agentRole", "taskRole", "technicalTask", "implementationTask"})
-PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(MODEL_PROVIDER_FAMILIES)]
 PRODUCT_OWNER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
-PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
-PRODUCT_OWNER_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+# Being catalogued does not authorize the ProductOwner model-call operation.
+# Keep readiness and resource selection inside the executor's existing policy.
+PRODUCT_OWNER_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES & MODEL_RUNTIME_TOOLS)
+PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES & MODEL_RUNTIME_TOOLS)
+PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(PRODUCT_OWNER_AGENT_MODEL_RUNTIMES)]
 PRODUCT_OWNER_AGENT_RUNTIMES = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
 _LEGACY_REMOTE_RUNTIME_ORDER = [
     "openai_compatible",
@@ -310,6 +313,11 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
         return str(redact_secrets("; ".join(dict.fromkeys(reasons))))
     runtime_id = str(runtime.get("id") or "")
     capabilities = set(runtime.get("capabilities") or [])
+    if (
+        runtime_id not in PRODUCT_OWNER_AGENT_CLI_RUNTIMES
+        and runtime_provider_family(runtime) not in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+    ):
+        return f"ProductOwnerAgent model execution is limited to {MODEL_RUNTIME_REASON}."
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES and runtime.get("productOwnerExecutable") is False:
         return str(
             redact_secrets(

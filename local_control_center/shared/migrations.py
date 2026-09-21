@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 73
+CURRENT_SCHEMA_VERSION = 76
 
 
 def _execute_atomic_statements(
@@ -134,7 +134,120 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase71_schema(connection)
     init_phase72_schema(connection)
     init_phase73_schema(connection)
+    init_phase74_schema(connection)
+    init_phase75_schema(connection)
+    init_phase76_schema(connection)
     seed_platform_catalogs(connection)
+
+
+def init_phase76_schema(connection: sqlite3.Connection) -> None:
+    """Extend execution provenance to ModelGateway while preserving v75 evidence atomically."""
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 76").fetchone():
+        return
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE model_execution_health_v76 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider_id TEXT NOT NULL, model TEXT NOT NULL, configuration_fingerprint TEXT NOT NULL,
+            success INTEGER NOT NULL CHECK (success IN (0, 1)),
+            source TEXT NOT NULL CHECK (source IN ('tool_broker', 'test_prompt', 'model_gateway')),
+            http_status INTEGER CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+            started_at TEXT NOT NULL, observed_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """INSERT INTO model_execution_health_v76
+            (id, provider_id, model, configuration_fingerprint, success, source, http_status, started_at, observed_at)
+            SELECT id, provider_id, model, configuration_fingerprint, success, source, http_status, started_at, observed_at
+            FROM model_execution_health""",
+                (),
+            ),
+            ("DROP TABLE model_execution_health", ()),
+            ("ALTER TABLE model_execution_health_v76 RENAME TO model_execution_health", ()),
+            (
+                """CREATE INDEX idx_model_execution_health_latest
+            ON model_execution_health(provider_id, model, started_at DESC, id DESC)""",
+                (),
+            ),
+            ("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", (76, utc_now())),
+        ],
+    )
+
+
+def init_phase75_schema(connection: sqlite3.Connection) -> None:
+    """Persist executed model validation independently from provider health and catalog metadata."""
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS model_execution_health (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                configuration_fingerprint TEXT NOT NULL,
+                success INTEGER NOT NULL CHECK (success IN (0, 1)),
+                source TEXT NOT NULL CHECK (source IN ('tool_broker', 'test_prompt')),
+                http_status INTEGER CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+                started_at TEXT NOT NULL,
+                observed_at TEXT NOT NULL
+            )""",
+                (),
+            ),
+            (
+                """CREATE INDEX IF NOT EXISTS idx_model_execution_health_latest
+                ON model_execution_health(provider_id, model, started_at DESC, id DESC)""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (75, utc_now())),
+        ],
+    )
+
+
+def init_phase74_schema(connection: sqlite3.Connection) -> None:
+    """Evidencia shadow independiente de estados operacionales y aprendizaje efectivo."""
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS decision_receipts (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            project_id TEXT,
+            source_decision_id TEXT,
+            configuration_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')),
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS idx_decisions_project ON decision_receipts(project_id, sequence)",
+                (),
+            ),
+            ("CREATE INDEX IF NOT EXISTS idx_decisions_source ON decision_receipts(source_decision_id)", ()),
+            (
+                """CREATE TABLE IF NOT EXISTS decision_outcomes (
+            decision_id TEXT PRIMARY KEY REFERENCES decision_receipts(id),
+            payload TEXT NOT NULL,
+            observed_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """CREATE TABLE IF NOT EXISTS decision_provider_health (
+            configuration_fingerprint TEXT PRIMARY KEY,
+            failures INTEGER NOT NULL DEFAULT 0,
+            open_until REAL NOT NULL DEFAULT 0
+        )""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (74, utc_now())),
+        ],
+    )
 
 
 def init_base_schema(connection: sqlite3.Connection) -> None:

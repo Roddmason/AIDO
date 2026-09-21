@@ -28,6 +28,15 @@ CLAUDE_EXPIRED_STDERR = (
 CLAUDE_INVALID_STDERR = "Failed to authenticate. API Error: 401 Invalid authentication credentials\n"
 
 
+def test_claude_weekly_limit_is_quota_evidence_not_unknown():
+    from local_control_center.agents.runtime_failover import looks_like_quota_exhaustion
+
+    output = "You've hit your weekly limit · resets Sep 22, 10pm (America/Santiago)"
+    failure = classify_runtime_failure(runtime_id="claude_code_cli", return_code=1, stdout=output, stderr="")
+    assert failure.cause == "quota_exhausted"
+    assert looks_like_quota_exhaustion(output)
+
+
 def test_quota_exhausted_is_detected_even_when_return_code_is_zero() -> None:
     """Codex sale con rc=0 pese al error de cuota: clasificar por salida, nunca por returncode."""
     failure = classify_runtime_failure(

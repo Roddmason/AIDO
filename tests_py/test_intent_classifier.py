@@ -108,3 +108,22 @@ def test_low_confidence_prompt_asks_before_execution() -> None:
     assert decision.plan_mode == "ask"
     assert decision.confidence < 0.55
     assert decision.questions
+
+
+def test_spanish_migration_and_architecture_request_requires_planning() -> None:
+    decision = classify(
+        "Migra a java 25, lleva el front a react compatible y mejora la lógica y flujos "
+        "con patron de arquitectura y patrones de diseño claros, alta performance del sistema"
+    )
+
+    assert {"migration", "architecture"} <= set(decision.intents)
+    assert decision.risk == "high"
+    assert decision.plan_mode == "plan"
+    assert {"migration_review", "architecture_review"} <= set(decision.required_gates)
+    assert decision.questions == []
+
+
+def test_migration_keyword_does_not_match_spanish_substrings() -> None:
+    decision = classify("Revisa el comportamiento de las aves migratorias")
+
+    assert "migration" not in decision.intents

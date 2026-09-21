@@ -14,15 +14,18 @@ import json
 import sqlite3
 import threading
 import time
+from datetime import UTC, datetime
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
+from .model_execution_health import provider_configuration_fingerprint, record_model_execution
 from .providers.http_transport import urlopen_fail_closed
+from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .repository import AgentsRepository
 from .runtime_provider_config import DEFAULT_OLLAMA_BASE_URL
 
@@ -335,16 +338,39 @@ class ModelGateway:
         request_payload = planned_call.get("request") or {}
         messages = request_payload.get("messages") or []
         start = time.monotonic()
+        started_at = datetime.now(UTC).isoformat(timespec="microseconds")
+        fingerprint = provider_configuration_fingerprint(self.repository.connection, provider_id)
+        invoked = False
         try:
-            response = provider_instance(provider_id, connection=self.repository.connection).chat_completion(
-                ModelRequest(
-                    model=model,
-                    messages=messages,
-                    temperature=request_payload.get("temperature"),
-                    maxTokens=request_payload.get("maxTokens"),
-                )
+            provider = provider_instance(provider_id, connection=self.repository.connection)
+            request = ModelRequest(
+                model=model,
+                messages=messages,
+                temperature=request_payload.get("temperature"),
+                maxTokens=request_payload.get("maxTokens"),
             )
+            invoked = True
+            response = provider.chat_completion(request)
         except Exception as error:
+            http_status = error.code if isinstance(error, HTTPError) else getattr(error, "status_code", None)
+            http_status = http_status if isinstance(http_status, int) and 100 <= http_status <= 599 else None
+            if invoked and (
+                isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError))
+                or (
+                    isinstance(error, NvidiaNimCapabilityError)
+                    and (error.request_attempted or http_status is not None)
+                )
+            ):
+                record_model_execution(
+                    self.repository.connection,
+                    provider_id,
+                    model,
+                    False,
+                    "model_gateway",
+                    http_status=http_status,
+                    configuration_fingerprint=fingerprint,
+                    started_at=started_at,
+                )
             reason = f"provider_request_failed:{_public_error(error)}"
             model_call = self.record_model_usage(
                 project_id=project_id,
@@ -353,16 +379,30 @@ class ModelGateway:
                 provider=provider_id,
                 model=model,
                 status="unavailable",
-                metadata={"reason": reason, "plannedCall": plan},
+                metadata={"reason": reason, "plannedCall": plan, "httpStatus": http_status},
             )
             return {
                 "status": "unavailable",
                 "provider": provider_id,
                 "model": model,
                 "reason": redact_secrets(reason),
+                "httpStatus": http_status,
                 "modelCall": model_call,
             }
 
+        valid_response = bool(str(response.content or "").strip()) and (
+            getattr(response, "provider_id", None) == provider_id
+            and getattr(response, "model", None) == model
+        )
+        record_model_execution(
+            self.repository.connection,
+            provider_id,
+            model,
+            valid_response,
+            "model_gateway",
+            configuration_fingerprint=fingerprint,
+            started_at=started_at,
+        )
         latency_ms = int((time.monotonic() - start) * 1000)
         usage_result = self._record_successful_provider_usage(
             provider_id=provider_id,
@@ -372,6 +412,29 @@ class ModelGateway:
             planned_call=planned_call,
             latency_ms=latency_ms,
         )
+        if not valid_response:
+            model_call = self.record_model_usage(
+                project_id=project_id,
+                agent_run_id=agent_run_id,
+                model_policy_id=model_policy_id,
+                provider=provider_id,
+                model=model,
+                status="unavailable",
+                prompt_tokens=usage_result["promptTokens"],
+                completion_tokens=usage_result["completionTokens"],
+                cost_usd=usage_result["actualCostUsd"],
+                metadata={
+                    "reason": "model_validation_invalid_response",
+                    "usageLedgerId": usage_result["usage"]["id"],
+                },
+            )
+            return {
+                "status": "unavailable",
+                "provider": provider_id,
+                "model": model,
+                "reason": "model_validation_invalid_response",
+                "modelCall": model_call,
+            }
         model_call = self.record_model_usage(
             project_id=project_id,
             agent_run_id=agent_run_id,

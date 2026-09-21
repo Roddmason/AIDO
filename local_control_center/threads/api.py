@@ -381,7 +381,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/threads/{thread_id}/messages",
         response_model=ThreadMessageResultResponse,
     )
-    async def post_message(thread_id: str, body: ThreadMessageRequest, request: Request) -> dict[str, Any]:
+    def post_message(thread_id: str, body: ThreadMessageRequest, request: Request) -> dict[str, Any]:
         """Publica un mensaje de usuario y ejecuta el coordinator: responde o bloquea con una decisión."""
         require_write(request)
         try:

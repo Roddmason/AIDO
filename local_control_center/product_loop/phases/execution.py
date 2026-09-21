@@ -19,6 +19,45 @@ if TYPE_CHECKING:
 __all__ = ["capture_review_evidence", "execute_developer_phase", "prepare_developer_execution"]
 
 
+def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=None):
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+    from local_control_center.process_supervision.repository import ManagedProcessRepository
+    from local_control_center.product_loop.coordinator import _ProductLoopCancelled
+
+    context = CURRENT_EXECUTION.get()
+    if (
+        context is None
+        or context.connection is not coordinator.connection
+        or not context.in_job_runner
+        or context.project_id != run.project_id
+        or not context.execution_id
+    ):
+        raise ValueError("Interrupted execution requires its trusted worker identity.")
+    job = coordinator.connection.execute(
+        "SELECT status FROM jobs WHERE id=?", (context.execution_id,)
+    ).fetchone()
+    if (job and job["status"] == "cancelled") or ManagedProcessRepository(
+        coordinator.connection
+    ).cancellation_reason(context.execution_id):
+        raise _ProductLoopCancelled(run.loop["id"], run.thread_id)
+    return coordinator._block_run(
+        run.loop,
+        stage="worker",
+        reason=reason,
+        actor=run.actor,
+        thread_id=run.thread_id,
+        details={
+            "status": "failed",
+            "reason": "execution_deadline_exhausted",
+            "interruptedExecutionId": context.execution_id,
+            "workspaceId": run.workspace["id"],
+            "workspacePath": run.workspace["path"],
+            "runtimeResult": runtime_result or {},
+            "partialEvidence": True,
+        },
+    )
+
+
 def prepare_developer_execution(
     coordinator: ProductLoopCoordinator, run: _UserMessageRun
 ) -> dict[str, Any] | None:
@@ -196,6 +235,7 @@ def execute_developer_phase(
     Devuelve el resultado terminal (con learning de recursos) si el runtime falla, o
     ``None`` para continuar con la captura de evidencia.
     """
+    from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
     from local_control_center.product_loop.coordinator import _bounded_instruction
     from local_control_center.project_constitution.prompt import render_constitution_prompt
     from local_control_center.shared.redaction import redact_secrets
@@ -260,6 +300,8 @@ def execute_developer_phase(
             thread_id=thread_id,
             role="developer",
         )
+    except ExecutionDeadlineExceeded as error:
+        return _block_interrupted_execution(coordinator, run, reason=str(error))
     except Exception as error:
         reason = str(redact_secrets(str(error)))
         if failover_attempts:
@@ -304,6 +346,14 @@ def execute_developer_phase(
                 resource_learning,
             )
         return blocked_result
+    execution_result = runtime_result.get("runtimeResult") or {}
+    if execution_result.get("timedOut") is True:
+        return _block_interrupted_execution(
+            coordinator,
+            run,
+            reason="execution_deadline_exhausted: the runtime timed out; inspect the preserved partial workspace changes.",
+            runtime_result=runtime_result,
+        )
     run.runtime_result = runtime_result
     return None
 

@@ -68,6 +68,176 @@ def test_local_inference_is_not_classified_as_a_remote_light_call():
     assert provider_workload_class({"baseUrl": "https://api.example.test"}) == "remote_llm_light"
 
 
+def _configured_omniroute_proxy():
+    from local_control_center.agents.provider_catalog import provider_catalog_entry
+
+    entry = provider_catalog_entry("omniroute")
+    return {
+        "providerId": "operator-proxy-instance",
+        "providerType": entry.provider_type,
+        "providerFamily": entry.provider_family,
+        "apiFormat": entry.api_format,
+        "deploymentMode": entry.deployment_mode,
+        "baseUrl": entry.default_base_url,
+        "metadata": {"providerCatalogId": entry.id, "endpointKind": "remote"},
+    }
+
+
+@pytest.mark.parametrize("deployment_mode", ["self_hosted_development", "self_hosted_enterprise"])
+def test_declared_omniroute_proxy_uses_existing_light_budget_without_gpu(deployment_mode):
+    from local_control_center.host_resources.profiles import workload_profile
+
+    account = {**_configured_omniroute_proxy(), "deploymentMode": deployment_mode}
+    workload = provider_workload_class(account)
+    assert workload == "remote_llm_light"
+    profile = workload_profile(workload)
+    assert profile.memory_limit_bytes == 2 * 1024**3
+    assert profile.gpu_required is False
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"providerType": "local", "providerFamily": "ollama", "apiFormat": "ollama"},
+        {"providerType": "api", "providerFamily": "nvidia_nim"},
+        {"providerType": "manual"},
+        {"providerFamily": "custom_gpu_server"},
+        {"apiFormat": "ollama"},
+        {"deploymentMode": "local"},
+        {"metadata": {"providerCatalogId": "omniroute", "endpointKind": "local"}},
+        {"metadata": {"endpointKind": "remote"}},
+        {"metadata": {}},
+    ],
+    ids=[
+        "ollama",
+        "nim",
+        "manual",
+        "local-family",
+        "local-format",
+        "local-deployment",
+        "local-upstream",
+        "unidentified-proxy",
+        "unknown-upstream",
+    ],
+)
+def test_loopback_local_or_unverified_contract_keeps_local_inference_budget(override):
+    assert provider_workload_class({**_configured_omniroute_proxy(), **override}) == "local_gpu_model"
+
+
+def test_declared_proxy_admits_two_gib_but_keeps_host_and_runtime_policy(tmp_path):
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
+    runtime.init()
+    account = _configured_omniroute_proxy()
+    try:
+        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=18 * 1024**3)
+        resources = ResourceRepository(runtime.connection)
+        resources.record_sample(sample)
+        status = {
+            "id": account["providerId"],
+            "kind": "gateway",
+            "configured": True,
+            "installed": True,
+            "authenticated": True,
+            "executable": True,
+            "reason": "Ready",
+            "healthStatus": "healthy",
+            "healthCheckedAt": utc_now(),
+        }
+        policy = {
+            "allowed": True,
+            "policy": {"global": {"remoteEnabled": True}, "project": {"remoteEnabled": True}},
+        }
+        assert apply_effective_readiness(runtime.connection, dict(status), account, policy)["executable"]
+        denied = apply_effective_readiness(
+            runtime.connection, dict(status), account, {**policy, "allowed": False}
+        )
+        assert not denied["executable"]
+        assert "policy_denied" in denied["blockingReasons"]
+        decision = HostResourceGovernor(runtime.connection).admit(
+            ResourceAdmissionRequest(
+                execution_id="proxy", owner_id="worker", workload_class=provider_workload_class(account)
+            ),
+            snapshot=sample,
+        )
+        assert decision.status == "admitted"
+        assert decision.lease.memory_limit_bytes == 2 * 1024**3
+        assert not decision.lease.gpu_required
+        resources.record_sample(ResourceSnapshot.test_snapshot(available_memory_bytes=0))
+        blocked = apply_effective_readiness(runtime.connection, dict(status), account, policy)
+        assert not blocked["resourceAdmissible"]
+        assert "hard_memory_floor" in blocked["blockingReasons"]
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("kind", ["cli", "api"])
+@pytest.mark.parametrize("condition", ["verified", "wrong_owner", "wrong_lease", "outside", "memory", "cpu"])
+def test_readiness_counts_current_job_reservation_once(tmp_path, kind, condition):
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
+    runtime.init()
+    try:
+        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=25 * 1024**3)
+        lease = (
+            HostResourceGovernor(runtime.connection)
+            .admit(
+                ResourceAdmissionRequest(
+                    execution_id="job-current", owner_id="worker-current", workload_class="agent_cli"
+                ),
+                snapshot=sample,
+            )
+            .lease
+        )
+        assert lease is not None
+        if condition == "memory":
+            sample = sample.model_copy(update={"available_memory_bytes": 23 * 1024**3})
+        if condition == "cpu":
+            sample = sample.model_copy(update={"cpu_percent_1s": 90.0})
+        ResourceRepository(runtime.connection).record_sample(sample)
+        status = {
+            "id": "test-runtime",
+            "kind": kind,
+            "configured": True,
+            "installed": True,
+            "authenticated": True,
+            "executable": True,
+            "reason": "Ready",
+            "healthStatus": "healthy",
+            "healthCheckedAt": utc_now(),
+        }
+        flag = "cliEnabled" if kind == "cli" else "remoteEnabled"
+        policy = {"allowed": True, "policy": {"global": {flag: True}, "project": {flag: True}}}
+        before = runtime.connection.total_changes
+        with execution_scope(
+            ProcessExecutionContext(
+                db_path=runtime.db_path,
+                execution_id="job-current",
+                project_id="project",
+                connection=runtime.connection,
+                in_job_runner=condition != "outside",
+                worker_id="other-worker" if condition == "wrong_owner" else "worker-current",
+                resource_lease_id="other-lease" if condition == "wrong_lease" else lease.id,
+            )
+        ):
+            result = apply_effective_readiness(
+                runtime.connection,
+                status,
+                {"providerType": kind, "baseUrl": "https://api.example.test"},
+                policy,
+            )
+        assert result["resourceAdmissible"] is (condition == "verified"), result
+        assert runtime.connection.total_changes == before
+        assert len(ResourceRepository(runtime.connection).active_leases()) == 1
+    finally:
+        runtime.close()
+
+
 @pytest.mark.parametrize("already_blocked", [False, True])
 def test_resource_rejection_explains_effective_state_without_hiding_prior_blocker(tmp_path, already_blocked):
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
@@ -307,3 +477,78 @@ def test_every_governor_wait_code_is_classified_as_host_capacity_or_not(tmp_path
 
     assert codes, "no se encontró ningún motivo del gobernador; el patrón quedó obsoleto"
     assert codes <= HOST_CAPACITY_BLOCKERS, sorted(codes - HOST_CAPACITY_BLOCKERS)
+
+
+@pytest.mark.parametrize(
+    "condition", ["verified_gpu", "cli_parent", "gpu_flag_missing", "insufficient_memory"]
+)
+def test_gpu_readiness_counts_only_sufficient_verified_gpu_parent(tmp_path, monkeypatch, condition):
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.process_supervision import session_client
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "gpu-readiness.sqlite")
+    runtime.init()
+    monkeypatch.setattr(session_client, "session_identity", lambda _path: None)
+    try:
+        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=48 * 1024**3)
+        workload = "agent_cli" if condition == "cli_parent" else "local_gpu_model"
+        lease = (
+            HostResourceGovernor(runtime.connection)
+            .admit(
+                ResourceAdmissionRequest(execution_id="gpu-job", owner_id="worker", workload_class=workload),
+                snapshot=sample,
+            )
+            .lease
+        )
+        assert lease is not None
+        if condition == "cli_parent":
+            runtime.connection.execute(
+                "UPDATE resource_leases SET cpu_limit_percent=60,memory_limit_bytes=?,process_limit=32 WHERE id=?",
+                (32 * 1024**3, lease.id),
+            )
+        elif condition == "gpu_flag_missing":
+            runtime.connection.execute("UPDATE resource_leases SET gpu_required=0 WHERE id=?", (lease.id,))
+        elif condition == "insufficient_memory":
+            runtime.connection.execute(
+                "UPDATE resource_leases SET memory_limit_bytes=1 WHERE id=?", (lease.id,)
+            )
+        ResourceRepository(runtime.connection).record_sample(sample)
+        status = {
+            "id": "ollama",
+            "kind": "local",
+            "configured": True,
+            "authenticated": True,
+            "installed": True,
+            "executable": True,
+            "reason": "Ready",
+            "healthStatus": "healthy",
+            "healthCheckedAt": utc_now(),
+        }
+        policy = {
+            "allowed": True,
+            "policy": {"global": {"ollamaEnabled": True}, "project": {"remoteEnabled": True}},
+        }
+        before = runtime.connection.total_changes
+        with execution_scope(
+            ProcessExecutionContext(
+                db_path=runtime.db_path,
+                connection=runtime.connection,
+                execution_id="gpu-job",
+                worker_id="worker",
+                resource_lease_id=lease.id,
+                in_job_runner=True,
+            )
+        ):
+            result = apply_effective_readiness(
+                runtime.connection,
+                status,
+                {"providerType": "local", "apiFormat": "ollama", "baseUrl": "http://127.0.0.1:11434"},
+                policy,
+            )
+        assert result["resourceAdmissible"] is (condition == "verified_gpu")
+        assert result["executable"] is (condition == "verified_gpu")
+        assert runtime.connection.total_changes == before
+    finally:
+        runtime.close()

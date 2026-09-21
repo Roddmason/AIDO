@@ -26,6 +26,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.process_supervision.context import remaining_execution_timeout
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
@@ -43,6 +44,7 @@ from .developer_agent_contract import (
 )
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from .repository import AgentsRepository
+from .response_style import resolve_response_style
 from .runtime_registry import (
     RuntimeCommandUnavailableError,
     build_developer_agent_argv,
@@ -246,6 +248,8 @@ def _developer_model_messages(
     qa_commands: list[list[str]],
     story_specs: str | None = None,
     constitution: str | None = None,
+    connection: sqlite3.Connection | None = None,
+    project_id: str | None = None,
 ) -> list[dict[str, str]]:
     schema = (
         '{"summary":"string","files":[{"path":"relative/path","content":"complete UTF-8 file content"}],'
@@ -266,6 +270,7 @@ def _developer_model_messages(
                 qa_commands=qa_commands,
                 story_specs=story_specs,
                 constitution=constitution,
+                response_style=resolve_response_style(connection, project_id=project_id),
             ),
         },
     ]
@@ -355,6 +360,7 @@ class DeveloperAgentRunner:
         profile: dict[str, Any],
         broker: ToolBroker,
     ) -> dict[str, Any]:
+        timeout_seconds = remaining_execution_timeout(900)
         runtime_argv = build_developer_agent_argv(
             runtime=runtime,
             workspace_id=workspace["id"],
@@ -389,7 +395,7 @@ class DeveloperAgentRunner:
                     "runtimeId": runtime["id"],
                     "capability": "code_edit",
                     "execute": True,
-                    "timeoutSeconds": 900,
+                    "timeoutSeconds": timeout_seconds,
                 },
             )
         return _execution_result_from_tool_call(runtime_eval["toolCall"])
@@ -405,6 +411,7 @@ class DeveloperAgentRunner:
         profile: dict[str, Any],
         broker: ToolBroker,
     ) -> dict[str, Any]:
+        timeout_seconds = remaining_execution_timeout(900)
         runtime_id = str(runtime["id"])
         model = payload.get("model")
         ollama_runtime = is_ollama_runtime(runtime)
@@ -432,6 +439,8 @@ class DeveloperAgentRunner:
                         qa_commands=payload.get("qaCommands") or [],
                         story_specs=payload.get("storySpecs"),
                         constitution=payload.get("constitution"),
+                        connection=self.connection,
+                        project_id=payload["projectId"],
                     ),
                     "temperature": 0.2,
                 },
@@ -441,7 +450,7 @@ class DeveloperAgentRunner:
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
-                "timeoutSeconds": 900,
+                "timeoutSeconds": timeout_seconds,
             },
         )
         model_result = _execution_result_from_tool_call(model_eval["toolCall"])
@@ -507,6 +516,66 @@ class DeveloperAgentRunner:
             if job["projectId"] != payload["projectId"]:
                 raise ValueError("DeveloperAgent job does not belong to the requested project.")
         else:
+            from local_control_center.executions.repository import ExecutionRepository
+            from local_control_center.jobs_approvals.repository import StaleWorkerFenceError
+            from local_control_center.process_supervision.context import CURRENT_EXECUTION
+            from local_control_center.process_supervision.repository import ManagedProcessRepository
+
+            parent_identity = {}
+            context = CURRENT_EXECUTION.get()
+            if (
+                context is not None
+                and context.in_job_runner
+                and context.connection is self.connection
+                and context.project_id == payload["projectId"]
+                and context.execution_id
+                and context.attempt_id
+                and context.worker_id
+                and context.fencing_token is not None
+            ):
+                parent = self.connection.execute(
+                    "SELECT j.id FROM jobs j JOIN job_runs r ON r.job_id=j.id "
+                    "WHERE j.id=? AND j.project_id=? AND j.status='running' "
+                    "AND r.id=? AND r.status='running' AND r.worker_owner_id=? "
+                    "AND r.leader_fencing_token=? "
+                    "AND r.rowid=(SELECT MAX(rowid) FROM job_runs WHERE job_id=j.id)",
+                    (
+                        context.execution_id,
+                        context.project_id,
+                        context.attempt_id,
+                        context.worker_id,
+                        context.fencing_token,
+                    ),
+                ).fetchone()
+                loop_id = (payload.get("metadata") or {}).get("loopId")
+                loop = self.connection.execute(
+                    "SELECT id FROM product_loops WHERE id=? AND project_id=? "
+                    "AND COALESCE(json_extract(context,'$.durableRun.effectiveRequestMeta.jobId'),"
+                    "json_extract(context,'$.durableRun.requestMeta.jobId'))=? "
+                    "AND json_extract(context,'$.durableRun.workspaceId')=?",
+                    (loop_id, context.project_id, context.execution_id, workspace["id"]),
+                ).fetchone()
+                if (
+                    parent
+                    and loop
+                    and not ManagedProcessRepository(self.connection).cancellation_reason(
+                        context.execution_id
+                    )
+                ):
+                    try:
+                        ExecutionRepository(self.connection).require_fence(
+                            context.execution_id,
+                            owner_id=context.worker_id,
+                            fencing_token=context.fencing_token,
+                        )
+                    except StaleWorkerFenceError:
+                        pass
+                    else:
+                        parent_identity = {
+                            "parentExecutionId": context.execution_id,
+                            "parentAttemptId": context.attempt_id,
+                            "loopId": loop["id"],
+                        }
             job_result = self.jobs.create_job(
                 project_id=payload["projectId"],
                 kind="agent.developer",
@@ -519,6 +588,7 @@ class DeveloperAgentRunner:
                     "workspaceId": workspace["id"],
                     "qaCommands": payload.get("qaCommands") or [],
                     "maxCostUsd": payload.get("maxCostUsd"),
+                    **parent_identity,
                 },
             )
             job = job_result["job"]

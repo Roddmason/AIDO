@@ -186,6 +186,10 @@ def run_supervisor(args: argparse.Namespace) -> int:
 def main() -> None:
     args = parse_args()
     apply_safe_environment_defaults()
+    from local_control_center.decision_engine.bootstrap import load_jev_startup_credential
+    from local_control_center.shared.settings import default_db_path
+
+    load_jev_startup_credential(Path(args.db_path) if args.db_path else default_db_path())
     from local_control_center.shared.db import require_safe_sqlite_runtime
 
     require_safe_sqlite_runtime()

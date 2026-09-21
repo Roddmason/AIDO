@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -32,9 +34,14 @@ class ProcessExecutionContext:
     diagnostics_expires_at: float = 0
     aggregate_managed_process_id: str | None = None
     session_role: str | None = None
+    execution_deadline_monotonic: float | None = None
 
 
 CURRENT_EXECUTION: ContextVar[ProcessExecutionContext | None] = ContextVar("aido_execution", default=None)
+
+
+class ExecutionDeadlineExceeded(TimeoutError):
+    """The parent execution budget expired; provider failover cannot renew it."""
 
 
 @contextmanager
@@ -77,3 +84,61 @@ def assert_external_boundary() -> None:
     context = CURRENT_EXECUTION.get()
     if context is not None and context.connection is not None and context.connection.in_transaction:
         raise RuntimeError("No se permite ejecución externa dentro de una transacción SQLite.")
+
+
+def runner_execution_deadline(connection, *, execution_id: str, runner_pid: int) -> float:
+    """Anchor one 900-second envelope to the registered native runner, including launcher siblings."""
+    import psutil
+
+    execution = connection.execute(
+        "SELECT started_at FROM operational_executions WHERE id=?", (execution_id,)
+    ).fetchone()
+    if not execution or not execution["started_at"]:
+        raise ValueError("The runner has no persisted execution start for its deadline.")
+
+    def timestamp(value):
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+    starts = [timestamp(execution["started_at"])]
+    processes = connection.execute(
+        "SELECT root_pid,root_create_time,started_at,finished_at FROM managed_processes WHERE execution_id=?",
+        (execution_id,),
+    ).fetchall()
+    if processes:
+        attempt = connection.execute(
+            "SELECT started_at,status FROM job_runs WHERE job_id=? ORDER BY rowid DESC LIMIT 1",
+            (execution_id,),
+        ).fetchone()
+        try:
+            runner = psutil.Process(runner_pid)
+            identities = {process.pid: process.create_time() for process in [runner, *runner.parents()]}
+        except psutil.Error as error:
+            raise ValueError("The registered runner identity could not be verified.") from error
+        matching = [
+            timestamp(process["started_at"])
+            for process in processes
+            if attempt
+            and attempt["status"] == "running"
+            and process["finished_at"] is None
+            and timestamp(process["started_at"]) >= timestamp(attempt["started_at"])
+            and process["root_pid"] in identities
+            and process["root_create_time"] > 0
+            and abs(identities[process["root_pid"]] - process["root_create_time"]) < 0.01
+        ]
+        if not matching:
+            raise ValueError("No registered native runner matches the current attempt and OS identity.")
+        starts.extend(matching)
+    return time.monotonic() + (min(starts) + 900 - time.time())
+
+
+def remaining_execution_timeout(requested_seconds: int, *, cleanup_seconds: int = 15) -> int:
+    """Share the original envelope across calls; reserve time for evidence and durable closure."""
+    context = CURRENT_EXECUTION.get()
+    if context is None or context.execution_deadline_monotonic is None:
+        return requested_seconds
+    remaining = int(context.execution_deadline_monotonic - time.monotonic() - cleanup_seconds)
+    if remaining <= 0:
+        raise ExecutionDeadlineExceeded(
+            "execution_deadline_exhausted: the execution deadline has no remaining runtime budget; partial changes are preserved."
+        )
+    return min(requested_seconds, remaining)

@@ -23,6 +23,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.decision_engine.observers import observe_intake
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.intent_classifier import (
@@ -315,6 +316,24 @@ class ThreadCoordinator:
                     "reason": "Product Loop job queued.",
                 }
 
+        observe_intake(
+            self.connection,
+            decision=decision.to_dict(),
+            team_plan=team_plan,
+            project_id=thread["projectId"],
+            source_id=user_message["id"],
+            job_id=run.get("jobId"),
+            privacy_mode="local_only"
+            if message_metadata.get("forceLocal")
+            or (
+                message_metadata.get("privacyLevel")
+                or message_metadata.get("privacy_level")
+                or message_metadata.get("resourcePrivacyLevel")
+                or "remote_allowed"
+            )
+            not in {"public", "remote_allowed"}
+            else "metadata_only",
+        )
         return {
             "thread": thread,
             "blocked": blocked,

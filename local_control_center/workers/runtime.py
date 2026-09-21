@@ -469,7 +469,9 @@ class LocalWorkerRuntime:
         }
 
     def preflight(self) -> WorkerPreflight:
-        """Check runtime and gitleaks availability before any job can be claimed."""
+        """Check runtime configuration; atomic job admission owns the capacity gate."""
+        from local_control_center.agents.runtime_readiness import HOST_CAPACITY_BLOCKERS
+
         connection = open_sqlite_connection(self.db_path)
         try:
             initialize_platform_schema(connection)
@@ -479,7 +481,26 @@ class LocalWorkerRuntime:
         executable_runtimes = [
             str(provider.get("id"))
             for provider in providers
-            if provider.get("executable") is True and str(provider.get("id") or "").strip()
+            if str(provider.get("id") or "").strip()
+            and (
+                provider.get("executable") is True
+                or (
+                    all(
+                        provider.get(key) is True
+                        for key in (
+                            "configured",
+                            "authenticated",
+                            "available",
+                            "healthy",
+                            "globallyEnabled",
+                            "projectEnabled",
+                            "policyAllowed",
+                        )
+                    )
+                    and bool(provider.get("blockingReasons"))
+                    and set(provider["blockingReasons"]) <= HOST_CAPACITY_BLOCKERS
+                )
+            )
         ]
         if not executable_runtimes:
             return WorkerPreflight(

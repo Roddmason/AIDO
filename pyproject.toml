@@ -5,6 +5,8 @@ description = "Windows-native Python backend for the Local Control Center."
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
+	"dnspython==2.8.0",
+	"httpx>=0.28,<1",
 	"fastapi>=0.136.0",
 	"keyring>=25.0.0",
 	"uvicorn>=0.37.0",

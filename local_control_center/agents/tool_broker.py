@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import shlex
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,11 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.telemetry import record_tool_call
 
+from .model_execution_health import (
+    model_validation_rejection,
+    provider_configuration_fingerprint,
+    record_model_execution,
+)
 from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .quota_manager import QuotaManager
 from .repository import AgentsRepository
@@ -583,6 +589,53 @@ class ToolBroker:
         )
         if not routing_identity_matches:
             return denied
+        routing_policy = json_loads(routing_row["policy_result_json"], {})
+        decision_engine = routing_policy.get("decisionEngine", {})
+        if isinstance(decision_engine, dict) and decision_engine.get("mode") == "runtime_selection":
+            from .agent_resource_policy import selection_profile_changed
+
+            if selection_profile_changed(self.connection, decision_engine, project_id):
+                return {
+                    **denied,
+                    "reason": "agent_profile_changed",
+                    "categories": ["model_validation_denied"],
+                }
+            role_policy_id = routing_policy.get("roleExecutionPolicy", {}).get("rolePolicyId")
+            role_policy = (
+                self.connection.execute(
+                    "SELECT updated_at FROM role_model_policies WHERE id = ?", (role_policy_id,)
+                ).fetchone()
+                if role_policy_id
+                else None
+            )
+            role_revision = role_policy["updated_at"] if role_policy else None
+            if (role_policy_id and role_policy is None) or role_revision != decision_engine.get(
+                "rolePolicyRevision"
+            ):
+                return {
+                    **denied,
+                    "reason": "role_policy_changed",
+                    "categories": ["model_validation_denied"],
+                }
+            validation = decision_engine.get("selectionValidation")
+            fingerprint = provider_configuration_fingerprint(self.connection, runtime_id)
+            if not isinstance(validation, dict) or any(
+                validation.get(key) != value
+                for key, value in {
+                    "providerId": runtime_id,
+                    "model": tool_model,
+                    "configurationFingerprint": fingerprint,
+                }.items()
+            ):
+                validation_reason = "model_validation_configuration_changed"
+            else:
+                validation_reason = model_validation_rejection(self.connection, runtime_id, str(tool_model))
+            if validation_reason:
+                return {
+                    **denied,
+                    "reason": validation_reason,
+                    "categories": ["model_validation_denied"],
+                }
         if str(routing_row["usage_status"] or "") != "not_executed":
             return {
                 **denied,
@@ -681,6 +734,7 @@ class ToolBroker:
                 provider_id=provider_id,
                 model="*",
                 error_class="runtime_usage_limit",
+                status_code=None,
             )
         except Exception:
             return
@@ -929,6 +983,23 @@ class ToolBroker:
 
         execution = "not_executed"
         execution_result = None
+        observation_provider = provider_id if tool_name in MODEL_PROVIDER_TOOLS else None
+        observation_model = str(tool_input.get("model") or "").strip() if observation_provider else None
+        if tool_name == "shell" and operation in {"product_owner_runtime", "developer_agent_runtime"}:
+            observation_provider = str(tool_call.get("runtimeId") or "").strip()
+            observation_model = _argv_option(tool_call.get("argv"), "--model")
+        observation_fingerprint = ""
+        observation_started_at = None
+        if (
+            decision["decision"] == "allow"
+            and tool_call.get("execute") is True
+            and observation_provider
+            and observation_model
+        ):
+            observation_fingerprint = provider_configuration_fingerprint(
+                self.connection, observation_provider
+            )
+            observation_started_at = datetime.now(UTC).isoformat(timespec="microseconds")
         authorize_only = tool_call.get("authorizeOnly") is True
         if (
             decision["decision"] == "allow"
@@ -1061,6 +1132,31 @@ class ToolBroker:
                     status = "completed"
                 else:
                     status = "failed"
+
+        if execution_result is not None and observation_fingerprint and observation_model:
+            http_status = execution_result.get("httpStatus")
+            http_status = http_status if isinstance(http_status, int) and 100 <= http_status <= 599 else None
+            attempted = (
+                execution_result.get("executed") is True
+                or execution_result.get("providerAttempted") is True
+                or http_status is not None
+            )
+            if attempted and status not in {
+                "denied",
+                "configuration_required",
+                "blocked",
+                "approval_required",
+            }:
+                record_model_execution(
+                    self.connection,
+                    observation_provider,
+                    observation_model,
+                    status == "completed",
+                    "tool_broker",
+                    http_status=http_status,
+                    configuration_fingerprint=observation_fingerprint,
+                    started_at=observation_started_at,
+                )
 
         if status == "failed" and execution_result is not None:
             # No se reusa runtime_id: ese cae al nombre del sandbox cuando la llamada no declara

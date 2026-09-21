@@ -17,6 +17,115 @@ const SECRET = 'sk-e2e-secret-never-rendered-0123456789';
 /** No `sk-` substring: secret redaction rewrites those and would corrupt assertions on this ref. */
 const SEEDED_CREDENTIAL_REF = 'env:AIDO_E2E_GEMINI_KEY';
 
+async function mockWizardModelCatalog(page, models, onPatch) {
+	await page.route('/api/v1/provider-accounts/from-catalog', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/model-gateway/role-policies', (route) =>
+		route.fulfill({ json: { rolePolicies: [] } }),
+	);
+	await page.route('/api/v1/provider-accounts/ollama/sync-models', (route) =>
+		route.fulfill({ json: { models } }),
+	);
+	await page.route('**/api/v1/model-gateway/models/*', async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+		const body = route.request().postDataJSON();
+		const model = models.find((entry) => entry.id === id);
+		if (onPatch && !onPatch(id, body.enabled)) {
+			await route.fulfill({ status: 500, json: { detail: 'model_update_failed' } });
+			return;
+		}
+		Object.assign(model, body);
+		await route.fulfill({ json: { model } });
+	});
+}
+
+async function openModelSelection(page) {
+	const wizard = await openWizard(page);
+	await chooseProvider(wizard, 'ollama');
+	await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+	await wizard.getByRole('button', { name: 'Sync models', exact: true }).click();
+	return wizard;
+}
+
+async function finishModelSelection(wizard) {
+	await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+	await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+	await wizard.getByRole('button', { name: 'Save & finish', exact: true }).click();
+}
+
+test('Configure provider: model selection survives sync and saves only changed enabled flags', async ({ page }) => {
+	const model = (id, enabled) => ({ id, providerId: 'ollama', model: id, enabled, freeTier: true });
+	const models = [model('enabled-first', true), model('disabled-second', false), model('unchanged', true)];
+	const writes = [];
+	await mockWizardModelCatalog(page, models, (id, enabled) => {
+		writes.push({ id, enabled });
+		return true;
+	});
+	try {
+		let wizard = await openModelSelection(page);
+		await expect(wizard.getByRole('checkbox', { name: 'enabled-first', exact: true })).toBeChecked();
+		await expect(wizard.getByRole('checkbox', { name: 'disabled-second', exact: true })).not.toBeChecked();
+		await wizard.getByRole('checkbox', { name: 'enabled-first', exact: true }).uncheck();
+		await wizard.getByRole('checkbox', { name: 'disabled-second', exact: true }).check();
+		models.push(model('new-disabled', false));
+		await wizard.getByRole('button', { name: 'Sync models', exact: true }).click();
+		await expect(wizard.getByText('2/4 selected', { exact: true })).toBeVisible();
+		await expect(wizard.getByRole('checkbox', { name: 'enabled-first', exact: true })).not.toBeChecked();
+		await expect(wizard.getByRole('checkbox', { name: 'disabled-second', exact: true })).toBeChecked();
+		await expect(wizard.getByRole('checkbox', { name: 'new-disabled', exact: true })).not.toBeChecked();
+		await finishModelSelection(wizard);
+		await expect(wizard).toBeHidden();
+		expect(writes).toEqual([
+			{ id: 'enabled-first', enabled: false },
+			{ id: 'disabled-second', enabled: true },
+		]);
+
+		wizard = await openModelSelection(page);
+		await expect(wizard.getByRole('checkbox', { name: 'enabled-first', exact: true })).not.toBeChecked();
+		await expect(wizard.getByRole('checkbox', { name: 'disabled-second', exact: true })).toBeChecked();
+		await finishModelSelection(wizard);
+		await expect(wizard).toBeHidden();
+		expect(writes).toHaveLength(2);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
+test('Configure provider: a failed model save stays open and retries only unsaved changes', async ({ page }) => {
+	const models = [
+		{ id: 'enable-first', providerId: 'ollama', model: 'enable-first', enabled: false, freeTier: true },
+		{ id: 'disable-second', providerId: 'ollama', model: 'disable-second', enabled: true, freeTier: true },
+	];
+	let failSave = true;
+	const writes = [];
+	await mockWizardModelCatalog(page, models, (id, enabled) => {
+		writes.push({ id, enabled });
+		return !(id === 'disable-second' && failSave);
+	});
+	try {
+		const wizard = await openModelSelection(page);
+		await wizard.getByRole('checkbox', { name: 'enable-first', exact: true }).check();
+		await wizard.getByRole('checkbox', { name: 'disable-second', exact: true }).uncheck();
+		await finishModelSelection(wizard);
+		await expect(wizard.getByRole('alert')).toContainText('model_update_failed');
+		await expect(wizard).toBeVisible();
+		expect(writes).toEqual([
+			{ id: 'enable-first', enabled: true },
+			{ id: 'disable-second', enabled: false },
+		]);
+		failSave = false;
+		await wizard.getByRole('button', { name: 'Save & finish', exact: true }).click();
+		await expect(wizard).toBeHidden();
+		expect(writes).toEqual([
+			{ id: 'enable-first', enabled: true },
+			{ id: 'disable-second', enabled: false },
+			{ id: 'disable-second', enabled: false },
+		]);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
 /** Opens Settings at "Providers & CLI" and returns the Add-provider wizard dialog. */
 async function openWizard(page) {
 	await page.goto('/#settings-runtime');

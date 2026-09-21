@@ -439,8 +439,17 @@ export function AddProviderWizard({
 		try {
 			const result = await syncProviderAccountModels(token, entry.id);
 			const models = (result as { models?: ModelGatewayModel[] }).models ?? [];
+			const knownIds = new Set(discovered.map((model) => model.id));
 			setDiscovered(models);
-			setSelected(new Set(models.map((model) => model.id)));
+			// Keep the operator's draft on re-sync; newly discovered rows start from persisted state.
+			setSelected(
+				(current) =>
+					new Set(
+						models
+							.filter((model) => (knownIds.has(model.id) ? current.has(model.id) : model.enabled))
+							.map((model) => model.id),
+					),
+			);
 		} catch (syncError) {
 			setError(errorMessage(syncError));
 		} finally {
@@ -507,9 +516,13 @@ export function AddProviderWizard({
 		setError('');
 		try {
 			for (const model of discovered) {
-				if (!selected.has(model.id)) {
-					await patchModelGatewayModel(token, model.id, { enabled: false }).catch(() => undefined);
-				}
+				const enabled = selected.has(model.id);
+				if (enabled === model.enabled) continue;
+				await patchModelGatewayModel(token, model.id, { enabled });
+				// Commit each confirmed delta locally so a partial failure retries only unsaved rows.
+				setDiscovered((current) =>
+					current.map((entry) => (entry.id === model.id ? { ...entry, enabled } : entry)),
+				);
 			}
 			await applyRoleAssignments();
 			onSaved();

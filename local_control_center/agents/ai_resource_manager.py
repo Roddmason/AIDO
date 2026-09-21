@@ -19,11 +19,14 @@ from __future__ import annotations
 import ipaddress
 import sqlite3
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlparse
 
-from local_control_center.agents.model_wildcards import MODEL_WILDCARDS
+from local_control_center.agents.model_wildcards import (
+    MODEL_WILDCARDS,
+    is_nvidia_nim_auto_selection_sentinel,
+)
 from local_control_center.agents.provider_accounts import (
     ProviderAccountStore,
     provider_account_is_declared_free,
@@ -99,6 +102,7 @@ class AIResourceRequest:
     workflow_run_id: str | None = None
     workflow_step_id: str | None = None
     agent_id: str | None = None
+    agent_profile_id: str | None = None
     task_id: str | None = None
 
 
@@ -391,8 +395,36 @@ class AIResourceManager:
         )
         return self._get_model(provider_id=provider_id, model=model, runtime=runtime)
 
-    def select_resource(self, request: AIResourceRequest, *, record: bool = True) -> dict[str, Any]:
+    def select_resource(
+        self,
+        request: AIResourceRequest,
+        *,
+        record: bool = True,
+        allow_decision_inference: bool = False,
+        runtime_risk_review_id: str | None = None,
+    ) -> dict[str, Any]:
         """Choose the best model/runtime for the request and persist the decision."""
+        from local_control_center.decision_engine.config import resolve_config
+
+        decision_config = resolve_config(self.connection, request.project_id)
+        from .agent_resource_policy import (
+            apply_profile_limits,
+            effective_resource_profile,
+            profile_fingerprint,
+        )
+
+        self._resource_profile = effective_resource_profile(
+            self.connection, request.agent_profile_id, request.project_id
+        )
+        request = apply_profile_limits(request, self._resource_profile)
+        profile_revision = profile_fingerprint(self._resource_profile)
+        runtime_selection = decision_config.selects_runtime
+        routing_id = f"ai-routing-{uuid.uuid4()}" if record else None
+        decision_engine = None
+        validation_fingerprints = {}
+        role_policy_revision = (
+            self._role_policy_revision(request.role_policy_id) if runtime_selection else None
+        )
         candidates: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         risk = _normalized_risk(request.risk_level)
@@ -400,12 +432,47 @@ class AIResourceManager:
         effective_risk = "critical" if policy_mode == "critical" else risk
         budget_stop = False
         models, runtime_statuses, candidate_inventory = self._selection_models(project_id=request.project_id)
+        preflight = None
+        if runtime_selection and record and allow_decision_inference:
+            from .runtime_preflight import prevalidate_candidates
+
+            # Health may be renewed; role, model and privacy restrictions cannot.
+            eligible = []
+            for model in models:
+                status = (runtime_statuses or {}).get(str(model["providerId"]))
+                if (
+                    status is not None
+                    and not self._hard_reject_reason(model, request)
+                    and not self._role_execution_policy_reject_reason(
+                        model=model, request=request, runtime_status=status
+                    )
+                    and not self._free_tier_reject_reason(model, request)
+                    and not is_nvidia_nim_auto_selection_sentinel(
+                        str(status.get("providerFamily") or ""), str(model["model"])
+                    )
+                ):
+                    eligible.append(model)
+            preflight = prevalidate_candidates(
+                self.connection, models=eligible, runtime_statuses=runtime_statuses or {}, request=request
+            )
+            spent = preflight.get("knownBudgetSpentUsd", preflight.get("budgetSpentUsd"))
+            if spent is not None and request.budget_remaining_usd is not None:
+                request = replace(
+                    request, budget_remaining_usd=max(0.0, request.budget_remaining_usd - float(spent))
+                )
+            self._runtime_status_cache.clear()
+            models, runtime_statuses, candidate_inventory = self._selection_models(
+                project_id=request.project_id
+            )
         unknown_cost_policy: dict[str, Any] = {
             "action": "not_applicable",
             "reason": "cost_known_or_local",
             "mode": policy_mode,
         }
         for model in models:
+            if preflight and model["providerId"] in preflight.get("excludedProviderIds", []):
+                rejected.append(self._rejected(model, "provider_authentication_cooldown"))
+                continue
             rejection = self._hard_reject_reason(model, request)
             if rejection:
                 rejected.append(self._rejected(model, rejection))
@@ -429,6 +496,26 @@ class AIResourceManager:
             if runtime_rejection:
                 rejected.append(self._rejected(model, runtime_rejection))
                 continue
+            if runtime_selection:
+                from local_control_center.agents.model_execution_health import (
+                    model_validation_rejection,
+                    provider_configuration_fingerprint,
+                )
+                from local_control_center.agents.runtime_readiness import healthy_evidence
+
+                validation_reason = (
+                    "health_check_required"
+                    if not healthy_evidence(runtime_status or {})
+                    else model_validation_rejection(
+                        self.connection, str(model["providerId"]), str(model["model"])
+                    )
+                )
+                if validation_reason:
+                    rejected.append(self._rejected(model, validation_reason))
+                    continue
+                validation_fingerprints[str(model["providerId"])] = provider_configuration_fingerprint(
+                    self.connection, str(model["providerId"])
+                )
             free_tier_rejection = self._free_tier_reject_reason(model, request)
             if free_tier_rejection:
                 rejected.append(self._rejected(model, free_tier_rejection))
@@ -450,13 +537,91 @@ class AIResourceManager:
             candidate = self._candidate(model, request, effective_risk, policy_mode, estimate, policy)
             candidates.append(candidate)
 
-        provider_preference = self._provider_preference(request.preferred_provider_ids)
-        preferred_resources = self._normalized_preferred_resources(request.preferred_resources)
+        provider_preference = (
+            [] if runtime_selection else self._provider_preference(request.preferred_provider_ids)
+        )
+        preferred_resources = (
+            [] if runtime_selection else self._normalized_preferred_resources(request.preferred_resources)
+        )
         selected = min(
             candidates,
             key=lambda item: self._selection_sort_key(item, provider_preference, preferred_resources),
             default=None,
         )
+        if runtime_selection:
+            from local_control_center.decision_engine.observers import _identity
+            from local_control_center.decision_engine.runtime_selection import rank_runtime_candidates
+
+            refreshed_candidates = {}
+
+            def revalidate(identity: str) -> str | None:
+                if resolve_config(self.connection, request.project_id) != decision_config:
+                    return "decision_configuration_changed"
+                if self._role_policy_revision(request.role_policy_id) != role_policy_revision:
+                    return "role_policy_changed"
+                if (
+                    profile_fingerprint(
+                        effective_resource_profile(
+                            self.connection, request.agent_profile_id, request.project_id
+                        )
+                    )
+                    != profile_revision
+                ):
+                    return "agent_profile_changed"
+                fresh = AIResourceManager(self.connection).select_resource(request, record=False)
+                refreshed_candidates.update({_identity(item): item for item in fresh["candidates"]})
+                candidate = refreshed_candidates.get(identity)
+                if candidate is None:
+                    return "candidate_no_longer_eligible"
+                provider_id = str(candidate["providerId"])
+                if provider_configuration_fingerprint(
+                    self.connection, provider_id
+                ) != validation_fingerprints.get(provider_id):
+                    return "model_validation_configuration_changed"
+                return None
+
+            if runtime_risk_review_id:
+                from local_control_center.product_loop.runtime_risk_review import approved_runtime_candidate
+
+                selected_id, decision_engine = approved_runtime_candidate(
+                    self.connection,
+                    request=request,
+                    review_id=runtime_risk_review_id,
+                    config=decision_config,
+                    revalidate=revalidate,
+                )
+            else:
+                selected_id, decision_engine = rank_runtime_candidates(
+                    self.connection,
+                    config=decision_config,
+                    candidates=candidates,
+                    request=request,
+                    risk=effective_risk,
+                    routing_id=routing_id,
+                    allow_inference=record and allow_decision_inference,
+                    revalidate=revalidate,
+                )
+            selected = refreshed_candidates.get(selected_id)
+            effective_risk = _normalized_risk(decision_engine.get("effectiveRisk") or effective_risk)
+            decision_engine["rolePolicyRevision"] = role_policy_revision
+            if request.agent_profile_id:
+                decision_engine["agentProfileId"] = request.agent_profile_id
+                decision_engine["agentProfileFingerprint"] = profile_revision
+            if selected:
+                decision_engine["selectionValidation"] = {
+                    "providerId": selected["providerId"],
+                    "model": selected["model"],
+                    "configurationFingerprint": validation_fingerprints[str(selected["providerId"])],
+                }
+            elif decision_engine.get("reviewRequired"):
+                proposed = refreshed_candidates.get(decision_engine.get("proposalIdentity"))
+                if proposed:
+                    decision_engine["proposal"] = self._public_selection(proposed)
+                    decision_engine["proposalValidation"] = {
+                        "providerId": proposed["providerId"],
+                        "model": proposed["model"],
+                        "configurationFingerprint": validation_fingerprints[str(proposed["providerId"])],
+                    }
         if selected and selected.get("unknownCostPolicy", {}).get("action") != "not_applicable":
             unknown_cost_policy = selected["unknownCostPolicy"]
         reviewer = self._select_reviewer(candidates, selected, effective_risk)
@@ -480,7 +645,7 @@ class AIResourceManager:
             or (effective_risk == "high" and selected is not None and selected["score"] < 0.72)
         )
         decision = {
-            "routingDecisionId": f"ai-routing-{uuid.uuid4()}" if record else None,
+            "routingDecisionId": routing_id,
             "selected": self._public_selection(selected),
             "reviewerSelection": self._public_selection(reviewer),
             "localVsRemote": selected["locality"] if selected else None,
@@ -527,9 +692,73 @@ class AIResourceManager:
                 ),
             },
         }
+        if preflight is not None:
+            decision["policyResult"]["runtimePreflight"] = preflight
+        if decision_engine is not None:
+            decision["policyResult"].update(
+                decisionEngine=decision_engine,
+                scoring="jev_among_validated_candidates",
+                opaqueMlUsed=selected is not None,
+                selectionOrder="jev_without_provider_defaults",
+            )
+            if decision_engine.get("reviewRequired"):
+                decision["proposal"] = decision_engine.get("proposal")
+                decision["reviewRequired"] = True
+            if selected is not None:
+                approval = " Approval is required before execution." if approval_required else ""
+                decision["decisionReason"] = (
+                    f"Selected {selected['providerId']}/{selected['model']} for {request.task_type} "
+                    f"using Jev selection among AIDO-validated candidates.{approval}"
+                )
+            elif decision_engine.get("reviewRequired"):
+                decision["decisionReason"] = (
+                    "Jev proposed an eligible runtime; explicit risk review is required before selection."
+                )
+            else:
+                decision["decisionReason"] = (
+                    f"Jev runtime selection blocked: {decision_engine['reasonCode']}. "
+                    "AIDO requires current successful model validation and executable runtime health. "
+                    "No default provider was used."
+                )
+                if preflight is not None:
+                    labels = {
+                        "preflight_unknown_cost_requires_approval": "unknown cost requires approval",
+                        "preflight_cost_budget": "validation budget exhausted",
+                        "aggregate_memory_budget": "host memory capacity unavailable",
+                        "heavy_workload_capacity": "host execution slot occupied",
+                        "preflight_attempt_or_time_budget": "validation attempt or time limit reached",
+                        "preflight_cli_attempt_budget": "CLI account validation limit reached",
+                        "preflight_in_progress": "account validation already in progress",
+                        "unknown_cost_blocked": "provider quota rejects unknown cost",
+                    }
+                    counts = preflight.get("deferredReasonCounts") or {}
+                    causes = ", ".join(
+                        f"{labels.get(reason, reason)} ({count})"
+                        for reason, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:4]
+                    )
+                    decision["decisionReason"] += (
+                        f" Automatic validation: {preflight.get('attempts', 0)} attempted, "
+                        f"{len(preflight.get('validated', []))} validated."
+                        + (f" Deferred: {causes}." if causes else "")
+                    )
+                    failures = [
+                        f"{item['providerId']}: {str(item['failureEvidence'])[:240]}"
+                        for item in preflight.get("rejected", [])
+                        if item.get("failureEvidence")
+                    ][:4]
+                    if failures:
+                        decision["decisionReason"] += " Validation failures: " + "; ".join(failures)
         if record:
             self._record_routing_decision(request=request, decision=decision)
         return decision
+
+    def _role_policy_revision(self, policy_id: str | None) -> str | None:
+        if not policy_id:
+            return None
+        row = self.connection.execute(
+            "SELECT updated_at FROM role_model_policies WHERE id = ?", (policy_id,)
+        ).fetchone()
+        return str(row["updated_at"]) if row else None
 
     def list_routing_decisions_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
         """List this manager's routing decisions whose ``task_id`` starts with any prefix, newest first.
@@ -981,12 +1210,17 @@ class AIResourceManager:
         status = runtime_statuses.get(provider_id)
         if status is None:
             return f"runtime_not_executable: Provider {provider_id} is not configured in runtime status."
-        if request.agent_id == "product_owner_agent" and status.get("productOwnerExecutable") is False:
-            return "runtime_not_executable: ProductOwnerAgent-specific CLI safety verification failed."
+        if is_nvidia_nim_auto_selection_sentinel(
+            str(status.get("providerFamily") or "").strip(),
+            str(model.get("model") or "").strip(),
+        ):
+            return "nvidia_model_selection_required"
         if status.get("executable") is not True:
             reason = str(status.get("reason") or "").strip()
             detail = reason or f"Provider {provider_id} is not executable."
             return f"runtime_not_executable: {detail}"
+        if request.agent_id == "product_owner_agent" and status.get("productOwnerExecutable") is False:
+            return "runtime_not_executable: ProductOwnerAgent-specific execution contract is not satisfied."
         advertised_models = status.get("models")
         if isinstance(advertised_models, list) and advertised_models:
             model_id = str(model.get("model") or "").strip()
@@ -1088,6 +1322,17 @@ class AIResourceManager:
         )
 
     def _hard_reject_reason(self, model: dict[str, Any], request: AIResourceRequest) -> str | None:
+        from .agent_resource_policy import profile_rejection
+
+        rejection = profile_rejection(getattr(self, "_resource_profile", None), model)
+        if rejection:
+            return rejection
+        catalog = self.connection.execute(
+            "SELECT enabled FROM model_catalog WHERE provider_id = ? AND model = ?",
+            (model["providerId"], model["model"]),
+        ).fetchone()
+        if catalog is not None and not catalog["enabled"]:
+            return "model_disabled"
         if request.allowed_provider_ids is not None and model["providerId"] not in {
             str(provider_id).strip()
             for provider_id in request.allowed_provider_ids
@@ -1529,7 +1774,9 @@ class AIResourceManager:
         reviewer_candidates = [
             item
             for item in candidates
-            if item["id"] != selected["id"] and "review" in {cap.lower() for cap in item["capabilities"]}
+            if (item["providerId"], item["runtime"], item["model"])
+            != (selected["providerId"], selected["runtime"], selected["model"])
+            and "review" in {cap.lower() for cap in item["capabilities"]}
         ]
         return max(reviewer_candidates, key=lambda item: item["score"], default=None)
 

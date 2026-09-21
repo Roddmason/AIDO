@@ -137,9 +137,10 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
     completed = tool_call.get("status") == "completed"
+    denied = tool_call.get("status") == "denied" or payload.get("decision") == "deny"
     return_code = execution_result.get("returnCode")
     timed_out = bool(execution_result.get("timedOut", False))
-    blocked = bool(execution_result.get("blocked", False))
+    blocked = denied or bool(execution_result.get("blocked", False))
     # El sandbox deja stdout/stderr inline en el payload: ahí está la causa real del fallo
     # ("OAuth access token has expired", "You've hit your usage limit"). Sin clasificarla, el
     # cliente solo recibe el returncode y no puede saber qué arreglar.
@@ -150,6 +151,8 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         stderr=str(execution_result.get("stderr") or ""),
     )
     reason = str(execution_result.get("reason") or "").strip()
+    if not reason and denied:
+        reason = str(redact_secrets(payload.get("decisionReason") or "")).strip()
     if not reason and timed_out:
         reason = "ProductOwnerAgent runtime execution timed out."
     elif not reason and blocked:
@@ -169,10 +172,13 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     classified = failure.cause if failure is not None and failure.cause != "unknown" else None
     return {
         # Una causa clasificada degrada el resultado aunque el proceso haya salido con 0.
-        "status": "failed" if (classified is not None or not completed) else "completed",
+        "status": "failed" if (classified is not None or denied or not completed) else "completed",
         "toolCallId": tool_call.get("id"),
+        "decision": "deny" if denied else payload.get("decision"),
+        "permissionDecisionId": payload.get("permissionDecisionId"),
         "execution": payload.get("execution"),
         "returnCode": return_code,
+        "httpStatus": execution_result.get("httpStatus"),
         "timedOut": timed_out,
         "blocked": blocked,
         "reason": reason,

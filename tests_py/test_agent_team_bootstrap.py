@@ -82,6 +82,8 @@ def test_new_database_bootstraps_base_team_profiles(tmp_path: Path) -> None:
         assert len(profiles) == len(BASE_TEAM_ROLES)
         for profile in profiles:
             assert profile["status"] == "active"
+            assert profile["allowedProviders"] == ["*"]
+            assert profile["allowedRuntimes"] == ["*"]
             assert profile["outputSchema"]["type"] == "object"
             assert profile["defaultRuntimePolicy"]["providerCandidates"]
             assert isinstance(profile["allowedTools"], list) and profile["allowedTools"]

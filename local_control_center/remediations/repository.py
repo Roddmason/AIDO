@@ -22,6 +22,8 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
+DISPLAY_DETAILS_LIMIT_BYTES = 64 * 1024
+
 
 def row_to_remediation(row: sqlite3.Row) -> dict[str, Any]:
     """Map a remediation row to the public camelCase contract."""
@@ -100,8 +102,14 @@ class RemediationActionsRepository:
             (project_id, clean_thread_id, clean_loop_id, stage, blocker_type, action_type),
         ).fetchall()
 
+        def job_id(payload: dict[str, Any]) -> str:
+            details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+            return str(payload.get("jobId") or details.get("jobId") or "").strip()
+
         def same_action_identity(row: sqlite3.Row) -> bool:
             existing_payload = json_loads(row["payload_json"], {})
+            if not clean_loop_id and job_id(existing_payload) != job_id(clean_payload):
+                return False
             if action_type == "open_settings_section":
                 return (
                     str(existing_payload.get("section") or "").strip()
@@ -173,8 +181,28 @@ class RemediationActionsRepository:
         )
         return self.get(action_id)
 
-    def list_for_thread(self, thread_id: str) -> list[dict[str, Any]]:
-        """List all remediation actions for a thread, newest last for stable UI ordering."""
+    def list_for_thread(self, thread_id: str, *, summary: bool = False) -> list[dict[str, Any]]:
+        """List every action in stable order, optionally projecting large display-only evidence."""
+        if summary:
+            # Project inside SQLite: Python must never parse/redact the omitted evidence on display reads.
+            rows = self.connection.execute(
+                """
+                SELECT id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                       action_type, technical_reason, is_primary, is_destructive, confirmation_required,
+                       status, created_at, resolved_at,
+                       CASE WHEN json_valid(payload_json) THEN
+                            CASE WHEN length(CAST(json_extract(payload_json, '$.details') AS BLOB)) > ?
+                                 THEN json_set(json_remove(payload_json, '$.details'), '$.detailsEvidence',
+                                               json_object('actionId', id, 'stored', json('true')))
+                                 ELSE payload_json END
+                            ELSE payload_json END AS payload_json
+                FROM remediation_actions
+                WHERE thread_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (DISPLAY_DETAILS_LIMIT_BYTES, thread_id),
+            ).fetchall()
+            return [row_to_remediation(row) for row in rows]
         rows = self.connection.execute(
             """
             SELECT *
@@ -185,6 +213,57 @@ class RemediationActionsRepository:
             (thread_id,),
         ).fetchall()
         return [row_to_remediation(row) for row in rows]
+
+    def latest_loop_id_for_thread(self, *, project_id: str, thread_id: str) -> str | None:
+        """Identify the current run by creation order, never by edits to an older loop."""
+        row = self.connection.execute(
+            """
+            SELECT id FROM product_loops
+            WHERE project_id = ?
+              AND COALESCE(NULLIF(json_extract(context, '$.durableRun.thread.projectThreadId'), ''),
+                           json_extract(context, '$.fsm.correlationId')) = ?
+            ORDER BY created_at DESC, rowid DESC LIMIT 1
+            """,
+            (project_id, thread_id),
+        ).fetchone()
+        return str(row["id"]) if row else None
+
+    def dismiss_pending_from_superseded_loops(
+        self, thread_id: str, *, include_actions: bool = True
+    ) -> list[dict[str, Any]]:
+        """Archive old blocked-run repairs without resolving their causes or manual decisions."""
+        with immediate_transaction(self.connection):
+            thread = self.connection.execute(
+                "SELECT project_id FROM project_threads WHERE id = ?", (thread_id,)
+            ).fetchone()
+            if thread is None:
+                return []
+            current = self.latest_loop_id_for_thread(project_id=thread["project_id"], thread_id=thread_id)
+            if current is None:
+                return []
+            rows = self.connection.execute(
+                """
+                SELECT remediation_actions.id FROM remediation_actions
+                INNER JOIN product_loops ON product_loops.id = remediation_actions.loop_id
+                WHERE remediation_actions.thread_id = ? AND remediation_actions.project_id = ?
+                  AND product_loops.project_id = remediation_actions.project_id
+                  AND COALESCE(NULLIF(json_extract(product_loops.context, '$.durableRun.thread.projectThreadId'), ''),
+                               json_extract(product_loops.context, '$.fsm.correlationId')) = remediation_actions.thread_id
+                  AND product_loops.state = 'blocked' AND product_loops.id <> ?
+                  AND remediation_actions.status = 'pending'
+                  AND remediation_actions.action_type NOT IN
+                      ('answer_question', 'approve_resource_decision', 'continue_plan_only')
+                ORDER BY remediation_actions.created_at ASC, remediation_actions.rowid ASC
+                """,
+                (thread_id, thread["project_id"], current),
+            ).fetchall()
+            action_ids = [str(row["id"]) for row in rows]
+            self.connection.executemany(
+                "UPDATE remediation_actions SET status = 'dismissed', resolved_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                [(utc_now(), action_id) for action_id in action_ids],
+            )
+        return [self.get(action_id) for action_id in action_ids] if include_actions else []
 
     def resolve_pending_for_loop(self, loop_id: str) -> list[dict[str, Any]]:
         """Resolve every pending action owned by one terminal Product Loop, preserving audit rows."""
@@ -274,7 +353,9 @@ class RemediationActionsRepository:
             )
         return action_ids
 
-    def resolve_pending_from_terminal_loops(self, thread_id: str) -> list[dict[str, Any]]:
+    def resolve_pending_from_terminal_loops(
+        self, thread_id: str, *, include_actions: bool = True
+    ) -> list[dict[str, Any]]:
         """Reconcile legacy pending rows whose Product Loop is already cancelled or delivered."""
         clean_thread_id = str(thread_id or "").strip()
         if not clean_thread_id:
@@ -309,7 +390,42 @@ class RemediationActionsRepository:
                 """,
                 (utc_now(), clean_thread_id),
             )
-        return [self.get(action_id) for action_id in action_ids]
+        return [self.get(action_id) for action_id in action_ids] if include_actions else []
+
+    def resolve_pending_from_terminal_jobs(
+        self, thread_id: str, *, include_actions: bool = True
+    ) -> list[dict[str, Any]]:
+        """Close worker preflight repairs for cancelled/completed jobs, retaining audit history."""
+        clean_thread_id = str(thread_id or "").strip()
+        if not clean_thread_id:
+            return []
+        with immediate_transaction(self.connection):
+            rows = self.connection.execute(
+                """
+                SELECT remediation_actions.id
+                FROM remediation_actions
+                INNER JOIN jobs ON jobs.id = COALESCE(
+                    NULLIF(json_extract(remediation_actions.payload_json, '$.jobId'), ''),
+                    json_extract(remediation_actions.payload_json, '$.details.jobId')
+                )
+                WHERE remediation_actions.thread_id = ?
+                  AND remediation_actions.loop_id = ''
+                  AND remediation_actions.stage IN ('runtime', 'gitleaks', 'worker')
+                  AND remediation_actions.status = 'pending'
+                  AND jobs.status IN ('cancelled', 'completed')
+                  AND jobs.project_id = remediation_actions.project_id
+                  AND json_extract(jobs.payload, '$.threadId') = remediation_actions.thread_id
+                ORDER BY remediation_actions.created_at ASC, remediation_actions.rowid ASC
+                """,
+                (clean_thread_id,),
+            ).fetchall()
+            action_ids = [str(row["id"]) for row in rows]
+            self.connection.executemany(
+                "UPDATE remediation_actions SET status = 'resolved', resolved_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                [(utc_now(), action_id) for action_id in action_ids],
+            )
+        return [self.get(action_id) for action_id in action_ids] if include_actions else []
 
     def get(self, action_id: str) -> dict[str, Any]:
         """Return one remediation action or raise ``KeyError``."""

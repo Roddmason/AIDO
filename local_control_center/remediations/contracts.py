@@ -10,7 +10,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 BLOCKER_TYPES = (
+    "runtime_risk_review_required",
+    "decision_engine_unavailable",
     "runtime_not_executable",
+    "runtime_execution_denied",
+    "runtime_execution_failed",
     "runtime_auth_missing",
     "runtime_output_invalid",
     "git_not_initialized",
@@ -43,7 +47,11 @@ BLOCKER_TYPES = (
     "thread_intake_decision_required",
 )
 BlockerType = Literal[
+    "runtime_risk_review_required",
+    "decision_engine_unavailable",
     "runtime_not_executable",
+    "runtime_execution_denied",
+    "runtime_execution_failed",
     "runtime_auth_missing",
     "runtime_output_invalid",
     "git_not_initialized",
@@ -77,6 +85,7 @@ BlockerType = Literal[
 ]
 
 REMEDIATION_ACTION_TYPES = (
+    "approve_runtime_risk",
     "open_settings_section",
     "validate_runtime",
     "switch_runtime",
@@ -95,6 +104,7 @@ REMEDIATION_ACTION_TYPES = (
     "save_patch",
 )
 RemediationActionType = Literal[
+    "approve_runtime_risk",
     "open_settings_section",
     "validate_runtime",
     "switch_runtime",

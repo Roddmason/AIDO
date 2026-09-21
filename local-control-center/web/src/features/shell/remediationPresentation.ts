@@ -74,8 +74,60 @@ const UNRESOLVED_BLOCKER: BlockerCopy = {
 	impactFallback: 'The run stays stopped until you resolve the reported cause by hand.',
 };
 
+const WORKER_EXECUTION_FAILED: BlockerCopy = {
+	titleKey: 'app.threads.remediation.blocker.worker_execution_failed.title',
+	titleFallback: 'Worker execution failed',
+	explanationKey: 'app.threads.remediation.blocker.worker_execution_failed.explanation',
+	explanationFallback:
+		'The worker could not complete this job. Review the reported cause before retrying.',
+	impactKey: 'app.threads.remediation.blocker.worker_execution_failed.impact',
+	impactFallback: 'The recovery action retries the same job in this run.',
+};
+
+const WORKER_EXECUTION_INTERRUPTED: BlockerCopy = {
+	...WORKER_EXECUTION_FAILED,
+	explanationKey: 'app.threads.remediation.blocker.worker_interrupted.explanation',
+	explanationFallback:
+		'Execution stopped before completion. Review the recorded cause and partial work.',
+	impactKey: 'app.threads.remediation.blocker.worker_interrupted.impact',
+	impactFallback: 'Workspace changes are preserved. Reviewing them does not restart the run.',
+};
+
 /** Plain-language copy for every blocker type the backend can raise. */
 export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
+	runtime_risk_review_required: {
+		titleKey: 'app.threads.remediation.blocker.runtime_risk_review_required.title',
+		titleFallback: 'Runtime risk review required',
+		explanationKey: 'app.threads.remediation.blocker.runtime_risk_review_required.explanation',
+		explanationFallback: 'Review the exact proposed runtimes and their risk for this continuation.',
+		impactKey: 'app.threads.remediation.blocker.runtime_risk_review_required.impact',
+		impactFallback: 'Continuation waits for your reason and explicit consent to runtime risk.',
+	},
+	runtime_execution_failed: {
+		titleKey: 'app.threads.remediation.blocker.runtime_execution_failed.title',
+		titleFallback: 'Provider request failed',
+		explanationKey: 'app.threads.remediation.blocker.runtime_execution_failed.explanation',
+		explanationFallback:
+			'The selected provider returned an HTTP error. Review the reported cause and model.',
+		impactKey: 'app.threads.remediation.blocker.runtime_execution_failed.impact',
+		impactFallback: 'The step stays blocked until the provider can complete the request.',
+		settingsSection: 'providers-cli',
+		settingsLabelKey: 'app.threads.remediation.action.configureRuntime',
+		settingsLabelFallback: 'Configure runtime',
+	},
+	runtime_execution_denied: {
+		titleKey: 'app.threads.remediation.blocker.runtime_execution_denied.title',
+		titleFallback: 'Runtime execution denied',
+		explanationKey: 'app.threads.remediation.blocker.runtime_execution_denied.explanation',
+		explanationFallback:
+			'AIDO rejected the selected runtime before execution. Review the reported cause.',
+		impactKey: 'app.threads.remediation.blocker.runtime_execution_denied.impact',
+		impactFallback:
+			'The step remains blocked until a supported, authorized runtime can execute it.',
+		settingsSection: 'providers-cli',
+		settingsLabelKey: 'app.threads.remediation.action.configureRuntime',
+		settingsLabelFallback: 'Configure runtime',
+	},
 	runtime_not_executable: {
 		titleKey: 'app.threads.remediation.blocker.runtime_not_executable.title',
 		titleFallback: 'No executable runtime',
@@ -223,6 +275,19 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		impactKey: 'app.threads.remediation.blocker.provider_health_failed.impact',
 		impactFallback: 'AIDO will not send work to a provider that failed its health check.',
 	},
+	decision_engine_unavailable: {
+		titleKey: 'app.threads.remediation.blocker.decision_engine_unavailable.title',
+		titleFallback: 'Jev decision unavailable',
+		explanationKey: 'app.threads.remediation.blocker.decision_engine_unavailable.explanation',
+		explanationFallback:
+			'Jev could not complete model selection. Review its reported failure and decision settings.',
+		impactKey: 'app.threads.remediation.blocker.decision_engine_unavailable.impact',
+		impactFallback:
+			'Execution waits for an explicit retry. Validated runtimes remain subject to the current policies.',
+		settingsSection: 'routing',
+		settingsLabelKey: 'app.threads.remediation.action.reviewDecisionEngine',
+		settingsLabelFallback: 'Review decision engine',
+	},
 	resource_manager_unconfigured: {
 		titleKey: 'app.threads.remediation.blocker.resource_manager_unconfigured.title',
 		titleFallback: 'No eligible AI resource is available',
@@ -304,9 +369,9 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		titleFallback: 'Research evidence required',
 		explanationKey: 'app.threads.remediation.blocker.research_required.explanation',
 		explanationFallback:
-			'AIDO must process a ResearchAgent job before accepting this high-impact decision.',
+			'Choose a completed research report with a validated technical decision to add as evidence.',
 		impactKey: 'app.threads.remediation.blocker.research_required.impact',
-		impactFallback: 'The decision waits for research evidence before AIDO adopts it.',
+		impactFallback: 'Existing decisions stay unchanged; a version is not accepted automatically.',
 		settingsSection: 'research',
 		settingsLabelKey: 'app.threads.remediation.action.openResearch',
 		settingsLabelFallback: 'Open research',
@@ -410,6 +475,11 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 
 /** Button label + execution kind for every backend action type. */
 export const ACTION_COPY: Record<ActionType, ActionCopy> = {
+	approve_runtime_risk: {
+		labelKey: 'app.threads.remediation.action.approveRuntimeRisk',
+		labelFallback: 'Approve runtime risk',
+		kind: 'execute',
+	},
 	open_settings_section: {
 		labelKey: 'app.threads.remediation.action.openConfiguration',
 		labelFallback: 'Open configuration',
@@ -606,7 +676,34 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 	const cards: BlockerCardModel[] = [];
 	for (const [key, records] of groups) {
 		const first = records[0];
-		const copy = BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER;
+		const baseCopy =
+			first.stage === 'worker' && first.blockerType === 'runtime_execution_failed'
+				? records.some((record) => payloadString(record.payload, 'interruptedExecutionId'))
+					? WORKER_EXECUTION_INTERRUPTED
+					: WORKER_EXECUTION_FAILED
+				: (BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER);
+		const routingPolicyRepair =
+			first.blockerType === 'resource_manager_unconfigured' &&
+			records.some(
+				(record) =>
+					record.actionType === 'open_settings_section' &&
+					payloadString(record.payload, 'section') === 'routing',
+			);
+		const copy = routingPolicyRepair
+			? {
+					...baseCopy,
+					titleKey: 'app.threads.remediation.blocker.resource_policy_selection.title',
+					titleFallback: 'No eligible AI resource is available',
+					explanationKey: 'app.threads.remediation.blocker.resource_policy_selection.explanation',
+					explanationFallback:
+						'Review the recorded role restrictions and validation requirements for this run.',
+					impactKey: 'app.threads.remediation.blocker.resource_policy_selection.impact',
+					impactFallback: 'Execution is waiting for an explicit retry under the current policies.',
+					settingsSection: 'routing',
+					settingsLabelKey: SETTINGS_SECTION_ACTION_COPY.routing.labelKey,
+					settingsLabelFallback: SETTINGS_SECTION_ACTION_COPY.routing.labelFallback,
+				}
+			: baseCopy;
 		const actions: DraftAction[] = [];
 		const coveredSections = new Set<string>();
 		const seenActionKeys = new Set<string>();

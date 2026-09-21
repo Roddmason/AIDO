@@ -63,6 +63,15 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.budget.maxCostUsd",
     ),
     SettingDescriptor(
+        key="agents.responseStyle",
+        section="costs",
+        project_section="budget",
+        type="enum",
+        default="compact",
+        enum=("compact", "normal"),
+        label_key="app.settings.agents.responseStyle",
+    ),
+    SettingDescriptor(
         key="runtime.cli.enabled",
         section="runtime",
         project_section=None,
@@ -429,6 +438,38 @@ REGISTRY: list[SettingDescriptor] = [
     ),
 ]
 
+REGISTRY.extend(
+    SettingDescriptor(
+        key=f"decision_engine.{key}",
+        section="runtime",
+        project_section="runtime",
+        type=kind,
+        default=default,
+        enum=choices,
+        minimum=minimum,
+        maximum=maximum,
+        label_key=f"app.settings.decisionEngine.{key}",
+    )
+    for key, kind, default, choices, minimum, maximum in (
+        ("enabled", "boolean", True, None, None, None),
+        ("provider", "enum", "jev", ("jev", "deterministic"), None, None),
+        ("mode", "enum", "shadow", ("disabled", "shadow", "runtime_selection"), None, None),
+        ("shadow.enabled", "boolean", True, None, None, None),
+        ("jev.enabled", "boolean", True, None, None, None),
+        ("endpoint", "string", "https://api.typesafe.ai/v1/systemone", None, None, None),
+        ("api_key_reference", "string", "env:TYPESAFE_API_KEY", None, None, None),
+        ("model", "string", "jev-1.13.0", None, None, None),
+        ("version", "string", "1.13.0", None, None, None),
+        ("timeout_seconds", "number", 5.0, None, 0.01, 5),
+        ("confidence_threshold", "number", 0.85, None, 0, 1),
+        ("margin_threshold", "number", 0.20, None, 0, 1),
+        ("max_risk", "enum", "high", ("low", "medium", "high", "critical"), None, None),
+        ("probability_tolerance", "number", 0.000001, None, 0, 0.001),
+        ("circuit_failure_threshold", "number", 3, None, 1, 20),
+        ("circuit_cooldown_seconds", "number", 30, None, 1, 300),
+    )
+)
+
 _REGISTRY_BY_KEY: dict[str, SettingDescriptor] = {d.key: d for d in REGISTRY}
 
 
@@ -444,6 +485,23 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
     - number: value is coerced via ``float()``; raises ``ValueError`` if not numeric.
     - string: returned as-is (any string is valid).
     """
+    if descriptor.key.startswith("decision_engine."):
+        from local_control_center.decision_engine.config import SETTING_NAMES, DecisionConfig
+
+        field = next(
+            name for name, key in SETTING_NAMES.items() if descriptor.key == f"decision_engine.{key}"
+        )
+        if field in {"model", "version"}:
+            import re
+
+            pattern = r"jev-\d+\.\d+\.\d+" if field == "model" else r"\d+\.\d+\.\d+"
+            if not isinstance(value, str) or not re.fullmatch(pattern, value):
+                raise ValueError("invalid_model_version")
+        else:
+            try:
+                DecisionConfig(**{field: value})
+            except ValueError:
+                raise ValueError("invalid_decision_engine_setting") from None
     if descriptor.type == "enum":
         if value not in (descriptor.enum or ()):
             raise ValueError(

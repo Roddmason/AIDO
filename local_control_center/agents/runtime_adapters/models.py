@@ -43,6 +43,8 @@ class RuntimeExecutionResult(BaseModel):
 
     status: str
     exit_code: int | None = Field(default=None, alias="exitCode")
+    http_status: int | None = Field(default=None, alias="httpStatus", ge=100, le=599)
+    provider_attempted: bool = Field(default=False, alias="providerAttempted")
     stdout_artifact_id: str | None = Field(default=None, alias="stdoutArtifactId")
     stderr_artifact_id: str | None = Field(default=None, alias="stderrArtifactId")
     output_artifact_id: str | None = Field(default=None, alias="outputArtifactId")

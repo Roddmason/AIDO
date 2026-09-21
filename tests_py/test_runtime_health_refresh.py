@@ -7,10 +7,13 @@ reporta bloqueado a los pocos minutos y después de cada reinicio del control pl
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from local_control_center.agents.runtime_health_refresh import (
     CLI_HEALTH_OPERATION,
@@ -323,3 +326,241 @@ def test_evidence_just_past_the_threshold_is_selected() -> None:
 
     assert needs_refresh(_status(healthCheckedAt=_iso(REFRESH_STALENESS_SECONDS + 1))) is True
     assert needs_refresh(_status(healthCheckedAt=_iso(REFRESH_STALENESS_SECONDS - 30))) is False
+
+
+@pytest.mark.parametrize("pending_status", ["queued", "resource_wait"])
+def test_pending_health_target_does_not_block_other_runtimes(tmp_path: Path, pending_status: str) -> None:
+    runtime = _platform(tmp_path)
+    try:
+        codex = _status(healthCheckedAt=None)
+        assert enqueue_stale_health_checks(runtime, statuses=[codex])["enqueued"] == 1
+        runtime.connection.execute("UPDATE operational_executions SET status=?", (pending_status,))
+        statuses = [
+            codex,
+            _status(id="claude_code_cli", healthCheckedAt=None),
+            _status(id="gemini", kind="api", healthCheckedAt=None),
+        ]
+
+        result = enqueue_stale_health_checks(runtime, statuses=statuses)
+
+        assert result["enqueued"] == 2, result
+        assert set(result["runtimes"]) == {"claude_code_cli", "gemini"}
+        assert result["pending"] == 1
+        repeat = enqueue_stale_health_checks(runtime, statuses=statuses)
+        assert repeat["enqueued"] == 0, repeat
+        assert repeat["pending"] == 3
+        assert len(ExecutionRepository(runtime.connection).list_recent()) == 3
+    finally:
+        runtime.close()
+
+
+def test_refresh_deduplicates_targets_within_one_batch_and_allows_terminal_retry(tmp_path: Path) -> None:
+    runtime = _platform(tmp_path)
+    try:
+        statuses = [_status(healthCheckedAt=None)] * 2
+        first = enqueue_stale_health_checks(runtime, statuses=statuses)
+        assert first["enqueued"] == 1, first
+        runtime.connection.execute("UPDATE operational_executions SET status='completed'")
+
+        result = enqueue_stale_health_checks(runtime, statuses=statuses)
+
+        assert result["enqueued"] == 1, result
+        assert result["pending"] == 0
+        assert len(ExecutionRepository(runtime.connection).list_recent()) == 2
+    finally:
+        runtime.close()
+
+
+def _native_health_fixture(tmp_path: Path, monkeypatch):
+    from local_control_center.agents.model_gateway_api import create_router
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+    from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+
+    runtime = _platform(tmp_path)
+    create_router(platform=runtime, require_write=lambda _request: None)
+    repo = RuntimeConfigRepository(runtime.connection)
+    repo.upsert_installation(
+        {
+            "runtimeId": "codex_cli",
+            "kind": "cli",
+            "executablePath": "C:/fake/codex.exe",
+            "detectedVersion": "0.155.1",
+            "enabled": True,
+        }
+    )
+    account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
+    previous = _iso(181)
+    account = repo.update_runtime_account(
+        account["id"], {"enabled": True, "healthStatus": "healthy", "lastValidationAt": previous}
+    )
+    monkeypatch.delenv("AIDO_CODEX_COMMAND", raising=False)
+    monkeypatch.setattr(
+        RuntimeRegistry,
+        "detect",
+        lambda _self, runtime_id, **_: {
+            "runtime": runtime_id,
+            "status": "installed",
+            "executable": "C:/fake/codex.exe",
+            "version": "0.155.1",
+            "message": "fake version probe",
+        },
+    )
+    monkeypatch.setattr(
+        RuntimeRegistry,
+        "health_check",
+        lambda _self, runtime_id, **_: {"runtime": runtime_id, "status": "healthy", "message": "fake"},
+    )
+    return runtime, repo, account, previous
+
+
+@pytest.mark.parametrize("verdict", ["authenticated", "unauthenticated", "unknown"])
+def test_explicit_cli_health_refreshes_native_auth_before_evidence_expires(
+    tmp_path: Path, monkeypatch, verdict: str
+) -> None:
+    from starlette.requests import Request
+
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+
+    runtime, repo, account, previous = _native_health_fixture(tmp_path, monkeypatch)
+    calls = []
+
+    def validate(_self, runtime_id, **_):
+        calls.append(runtime_id)
+        return {"runtime": runtime_id, "status": verdict, "message": "fake native auth verdict"}
+
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate)
+    try:
+        assert needs_refresh(_status(healthCheckedAt=previous))
+        handler = runtime.execution_handlers[CLI_HEALTH_OPERATION][1]
+        asyncio.run(handler("codex_cli", Request({"type": "http", "method": "POST", "path": "/"})))
+
+        updated = repo.get_runtime_account(account["id"])
+        assert calls == ["codex_cli"]
+        if verdict == "authenticated":
+            assert updated["lastValidationAt"] > previous
+            assert updated["healthStatus"] == "healthy"
+            assert not needs_refresh(_status(healthCheckedAt=updated["lastValidationAt"]))
+        elif verdict == "unauthenticated":
+            assert updated["lastValidationAt"] is None
+            assert updated["healthStatus"] == "unauthenticated"
+        else:
+            assert updated["lastValidationAt"] == previous
+            assert updated["healthStatus"] == "healthy"
+    finally:
+        runtime.close()
+
+
+def test_cli_health_does_not_stamp_auth_after_configuration_changes(tmp_path: Path, monkeypatch) -> None:
+    from starlette.requests import Request
+
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+
+    runtime, repo, account, _previous = _native_health_fixture(tmp_path, monkeypatch)
+    calls = []
+
+    def validate(_self, runtime_id, **_):
+        calls.append(runtime_id)
+        repo.update_runtime_account(
+            account["id"], {"enabled": False, "healthStatus": "unknown", "lastValidationAt": None}
+        )
+        return {"runtime": runtime_id, "status": "authenticated", "message": "old configuration"}
+
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate)
+    try:
+        handler = runtime.execution_handlers[CLI_HEALTH_OPERATION][1]
+        asyncio.run(handler("codex_cli", Request({"type": "http", "method": "POST", "path": "/"})))
+
+        updated = repo.get_runtime_account(account["id"])
+        assert calls == ["codex_cli"]
+        assert updated["enabled"] is False
+        assert updated["lastValidationAt"] is None
+        assert updated["healthStatus"] == "unknown"
+    finally:
+        runtime.close()
+
+
+def test_status_read_keeps_preventive_refresh_due_without_running_native_auth(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+    from local_control_center.agents.runtime_status import RuntimeStatusService
+
+    runtime, repo, account, previous = _native_health_fixture(tmp_path, monkeypatch)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("status reads cannot run native CLI probes")
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", forbidden)
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", forbidden)
+    try:
+        RuntimeStatusService(runtime.connection).list_provider_statuses()
+
+        assert repo.get_runtime_account(account["id"])["lastValidationAt"] == previous
+        assert needs_refresh(_status(healthCheckedAt=previous))
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("entrypoint", ["service", "registered_handler"])
+def test_cli_health_rejects_executable_changed_during_detection(
+    tmp_path: Path, monkeypatch, entrypoint: str
+) -> None:
+    from starlette.requests import Request
+
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+    from local_control_center.agents.runtime_status import RuntimeStatusService
+
+    runtime, repo, account, previous = _native_health_fixture(tmp_path, monkeypatch)
+    auth_commands = []
+    detect_commands = []
+
+    def detect(_self, runtime_id, *, executable=None):
+        detect_commands.append(executable)
+        if len(detect_commands) == 1:
+            assert executable == "C:/fake/codex.exe"
+            repo.upsert_installation(
+                {
+                    "runtimeId": runtime_id,
+                    "executablePath": "C:/replacement/codex.exe",
+                    "detectedVersion": "0.155.2",
+                }
+            )
+        return {
+            "runtime": runtime_id,
+            "status": "installed",
+            "executable": executable,
+            "version": "0.156.0",
+            "message": "old command detection completed after configuration changed",
+        }
+
+    def validate(_self, runtime_id, *, executable=None):
+        auth_commands.append(executable)
+        return {"runtime": runtime_id, "status": "authenticated", "message": "old command authenticated"}
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+    monkeypatch.setattr(RuntimeRegistry, "validate_native_auth", validate)
+    try:
+        result = None
+        if entrypoint == "registered_handler":
+            handler = runtime.execution_handlers[CLI_HEALTH_OPERATION][1]
+            result = asyncio.run(
+                handler("codex_cli", Request({"type": "http", "method": "POST", "path": "/"}))
+            )
+        else:
+            RuntimeStatusService(
+                runtime.connection,
+                allow_probes=True,
+                probe_runtime_ids={"codex_cli"},
+                force_native_auth_refresh=True,
+            ).list_provider_statuses()
+
+        assert repo.get_runtime_account(account["id"])["lastValidationAt"] == previous
+        assert auth_commands == []
+        installation = repo.get_installation("codex_cli")
+        assert installation["executablePath"] == "C:/replacement/codex.exe"
+        assert installation["detectedVersion"] == "0.155.2"
+        if result is not None:
+            assert result["health"]["status"] == "unknown"
+            assert "configuration changed" in result["health"]["message"].lower()
+    finally:
+        runtime.close()

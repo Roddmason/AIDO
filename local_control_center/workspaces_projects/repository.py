@@ -289,8 +289,9 @@ class WorkspacesRepository:
         project_id: str,
         task_id: str,
         agent_id: str,
-        source_workspace_id: str,
+        source_workspace_id: str | None,
         reason: str,
+        purpose: str = "product_owner_cli_runtime",
         workflow_run_id: str | None = None,
         workflow_step_id: str | None = None,
     ) -> dict[str, Any]:
@@ -301,12 +302,20 @@ class WorkspacesRepository:
         workspace que a cualquier otro proceso, mientras el cwd separado impide que el runtime
         descubra ``AGENTS.md`` o skills locales del repositorio por recorrido de ancestros.
         """
-        source_workspace = self.get_workspace(source_workspace_id)
-        if source_workspace["projectId"] != project_id:
+        if purpose not in {"product_owner_cli_runtime", "runtime_preflight"}:
+            raise WorkspaceIsolationError("Unsupported prompt workspace purpose.")
+        if not source_workspace_id and purpose != "runtime_preflight":
+            raise WorkspaceIsolationError("ProductOwner prompt workspace requires a source workspace.")
+        source_workspace = self.get_workspace(source_workspace_id) if source_workspace_id else None
+        if source_workspace is not None and source_workspace["projectId"] != project_id:
             raise WorkspaceIsolationError("Prompt workspace source must belong to the requested project.")
 
         project_path = self._project_path(project_id).resolve(strict=False)
-        source_path = Path(source_workspace["path"]).resolve(strict=False)
+        if source_workspace is None and not project_path.is_dir():
+            raise WorkspaceIsolationError("Prompt preflight requires an existing project directory.")
+        source_path = (
+            Path(source_workspace["path"]).resolve(strict=False) if source_workspace else project_path
+        )
         controlled_root = _ephemeral_prompt_workspace_root()
         if _is_strict_descendant(controlled_root, project_path) or controlled_root == project_path:
             raise WorkspaceIsolationError("Ephemeral prompt workspace root must be outside the project tree.")
@@ -327,7 +336,7 @@ class WorkspacesRepository:
         metadata = {
             "reason": reason,
             "ephemeralPromptWorkspace": {
-                "purpose": "product_owner_cli_runtime",
+                "purpose": purpose,
                 "controlledRoot": str(controlled_root),
                 "sourceWorkspaceId": source_workspace_id,
                 "projectInstructionsExcluded": True,

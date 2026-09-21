@@ -43,6 +43,33 @@ from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import ThreadMemoryService
 
 LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
+
+
+def test_runtime_validation_is_visible_before_resource_selection(tmp_path, monkeypatch):
+    observed = []
+
+    def blocked_selection(self, *, loop_id, **kwargs):
+        row = self.connection.execute("SELECT state FROM product_loops WHERE id=?", (loop_id,)).fetchone()
+        observed.append(row["state"])
+        return {"selected": None}, {"reason": "controlled no eligible candidates"}
+
+    monkeypatch.setattr(ProductLoopCoordinator, "_product_owner_resource_selection", blocked_selection)
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "runtime-stage")
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Diagnose this project read only.",
+            runtime_runner=_ControlledRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+        )
+        assert observed == ["runtime_check"]
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "resource_manager"
+
+
 pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 # The canonical happy path: goal_received → … → delivered (delivery only via awaiting_approval).
 # quality_review runs after security_running (spec-driven slice 0); executing can no longer
@@ -830,7 +857,8 @@ def _git_workspace_project(connection, tmp_path: Path, name: str) -> dict:
     assert run_git(["config", "user.name", "AIDO Test"], cwd=project_path).returncode == 0
     (project_path / "README.md").write_text(f"# {name}\n", encoding="utf-8")
     assert run_git(["add", "."], cwd=project_path).returncode == 0
-    assert run_git(["commit", "-m", "Initial commit"], cwd=project_path).returncode == 0
+    initial_commit = run_git(["commit", "-m", "Initial commit"], cwd=project_path)
+    assert initial_commit.returncode == 0, initial_commit.stderr
     return ProjectsRepository(connection).create_project(name=name, path=project_path, template_id="other")
 
 
@@ -4368,6 +4396,7 @@ def test_run_user_message_blocks_when_product_owner_resource_selection_crashes(
         request: Any,
         *,
         record: bool = False,
+        allow_decision_inference: bool = False,
     ) -> dict[str, Any]:
         raise RuntimeError("controlled ProductOwner ResourceManager crashed")
 
@@ -4503,11 +4532,14 @@ def test_run_user_message_blocks_when_resource_manager_selection_crashes(
         request: Any,
         *,
         record: bool = False,
+        allow_decision_inference: bool = False,
     ) -> dict[str, Any]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return original_select_resource(self, request, record=record)
+            return original_select_resource(
+                self, request, record=record, allow_decision_inference=allow_decision_inference
+            )
         raise RuntimeError("controlled AIResourceManager crashed")
 
     monkeypatch.setattr(AIResourceManager, "select_resource", crashing_select_resource)
@@ -4873,8 +4905,8 @@ def test_run_user_message_blocks_when_team_scheduler_role_has_no_agent_profile(
     runtime = _ControlledRuntime()
     original_profile_by_role = ProductLoopCoordinator._profile_by_role
 
-    def missing_backend_profile(self: ProductLoopCoordinator) -> dict[str, dict[str, Any]]:
-        profiles = dict(original_profile_by_role(self))
+    def missing_backend_profile(self: ProductLoopCoordinator, project_id=None) -> dict[str, dict[str, Any]]:
+        profiles = dict(original_profile_by_role(self, project_id))
         profiles.pop("backend_engineer", None)
         return profiles
 
@@ -5982,6 +6014,113 @@ def test_run_user_message_records_unknown_resource_usage_without_fabricating_tok
         assert all(row["actual_cost_usd"] is None for row in cost_rows)
 
 
+@pytest.mark.parametrize("status", ["failed", "runtime_failed", "runtime_unavailable"])
+@pytest.mark.parametrize("output", [None, "invalid output"])
+@pytest.mark.parametrize("http_status", [None, 410])
+def test_product_owner_distinguishes_transport_failure_from_invalid_output(
+    tmp_path: Path, status: str, output: str | None, http_status: int | None
+) -> None:
+    runtime = _ControlledRuntime()
+    reason = "NVIDIA NIM execution failed: provider_request_failed:http_status=404"
+    product_owner = _ProductOwnerRunner(
+        {
+            "status": status,
+            "reason": reason,
+            "output": output,
+            "runtimeResult": {
+                "execution": "runtime_adapter:nvidia_nim",
+                "decision": "allow",
+                "httpStatus": http_status,
+            },
+        }
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "po-transport-failure")
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+        )
+
+        durable = result["loop"]["context"]["durableRun"]
+        thread_id = durable["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
+        assert result["status"] == "blocked"
+        expected_status = "runtime_failed" if output is None else "failed_validation"
+        expected_blocker = "runtime_not_executable" if output is None else "product_owner_output_invalid"
+        if output is None and http_status is not None:
+            expected_blocker = "runtime_execution_failed"
+            assert durable["productOwner"]["runtimeResult"]["httpStatus"] == http_status
+        assert durable["productOwner"]["status"] == expected_status
+        if output is None:
+            assert result["reason"] == reason
+            assert not any(kind == "product_owner_output_invalid" for kind, _ in actions)
+        else:
+            assert "output must be a JSON object" in result["reason"]
+        assert durable["productOwner"]["resourceLearning"]["status"] == "recorded"
+        assert (expected_blocker, "retry_loop") in actions
+        assert runtime.run_payloads == []
+        assert (
+            ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
+        )
+
+
+def test_product_owner_policy_denial_reaches_remediation_without_running_developer(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    reason = "ProductOwnerAgent model execution is limited to configured adapters."
+    product_owner = _ProductOwnerRunner(
+        {
+            "status": "runtime_failed",
+            "reason": reason,
+            "output": None,
+            "runtime": {"id": "gemini", "model": "gemini-2.5-flash-lite"},
+            "runtimeResult": {
+                "blocked": True,
+                "decision": "deny",
+                "execution": "not_executed",
+                "toolCallId": "denied-tool-call",
+                "permissionDecisionId": "permission-denied",
+                "reason": reason,
+                "stderr": "api_key=must-not-forward",
+            },
+        }
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "po-policy-denial")
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+        )
+
+        durable = result["loop"]["context"]["durableRun"]
+        thread_id = durable["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
+        assert result["status"] == "blocked"
+        assert result["reason"] == reason
+        assert durable["productOwner"]["runtimeResult"]["decision"] == "deny"
+        assert "stderr" not in durable["productOwner"]["runtimeResult"]
+        assert ("runtime_execution_denied", "open_settings_section") in actions
+        assert not any(kind == "runtime_not_executable" for kind, _ in actions)
+        assert runtime.run_payloads == []
+        from local_control_center.remediations.repository import RemediationActionsRepository
+
+        records = RemediationActionsRepository(connection).list_for_thread(thread_id)
+        denied_actions = [item for item in records if item["blockerType"] == "runtime_execution_denied"]
+        assert denied_actions
+        assert all(item["payload"]["runtimeId"] == "gemini" for item in denied_actions)
+
+
 def test_run_user_message_blocks_invalid_product_owner_output_with_remediation(
     tmp_path: Path,
 ) -> None:
@@ -6112,8 +6251,8 @@ def test_run_user_message_records_product_owner_resource_learning_when_runtime_c
         assert (
             ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
         )
-        assert ("product_owner_output_invalid", "open_settings_section") in actions
-        assert ("product_owner_output_invalid", "retry_loop") in actions
+        assert ("runtime_not_executable", "open_settings_section") in actions
+        assert ("runtime_not_executable", "retry_loop") in actions
         assert any(
             row["token_status"] == "unknown"
             and row["usage_source"] == "unknown"
@@ -6178,8 +6317,8 @@ def test_product_owner_runtime_block_survives_resource_learning_persistence_cras
         )
         assert product_owner.run_payloads
         assert runtime.run_payloads == []
-        assert ("product_owner_output_invalid", "open_settings_section") in actions
-        assert ("product_owner_output_invalid", "retry_loop") in actions
+        assert ("runtime_not_executable", "open_settings_section") in actions
+        assert ("runtime_not_executable", "retry_loop") in actions
 
 
 def test_invalid_product_owner_output_block_survives_resource_learning_persistence_crash(
@@ -8571,7 +8710,7 @@ def test_failover_replacement_keeps_role_preferred_resources(tmp_path: Path, mon
 
         captured: list = []
 
-        def _capture(self, request, *, record=True):
+        def _capture(self, request, *, record=True, allow_decision_inference=False):
             captured.append(request)
             raise RuntimeError("stop after capturing the request")
 
@@ -8616,7 +8755,7 @@ def test_failover_replacement_uses_the_callers_role_policy(tmp_path: Path, monke
 
         captured: list = []
 
-        def _capture(self, request, *, record=True):
+        def _capture(self, request, *, record=True, allow_decision_inference=False):
             captured.append(request)
             raise RuntimeError("stop after capturing the request")
 

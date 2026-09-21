@@ -57,7 +57,8 @@ _CAUSE_PATTERNS: tuple[tuple[RuntimeFailureCause, re.Pattern[str]], ...] = (
     (
         "quota_exhausted",
         re.compile(
-            r"usage limit|quota (exceeded|exhausted)|out of credits|insufficient_quota", re.IGNORECASE
+            r"usage limit|hit your weekly limit|quota (exceeded|exhausted)|out of credits|insufficient_quota",
+            re.IGNORECASE,
         ),
     ),
     ("rate_limited", re.compile(r"rate limit|too many requests|429", re.IGNORECASE)),

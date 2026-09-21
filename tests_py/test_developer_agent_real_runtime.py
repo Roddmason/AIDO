@@ -67,7 +67,7 @@ def create_git_project(
         ],
         cwd=project_path,
     )
-    assert commit.returncode == 0
+    assert commit.returncode == 0, commit.stderr
     return store.create_project(name=name, path=project_path, template_id="other")
 
 

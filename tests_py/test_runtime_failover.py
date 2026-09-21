@@ -40,6 +40,15 @@ def test_a_429_http_error_is_quota_even_though_it_is_also_an_oserror() -> None:
     assert classify_runtime_failure(error) is FailureClass.QUOTA
 
 
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 410])
+def test_provider_http_rejection_does_not_stop_healthy_alternatives(status):
+    error = RuntimeError(f"NVIDIA execution failed: provider_request_failed (http_status={status})")
+    failure = classify_runtime_failure(error)
+    assert should_failover(failure)
+    exclusion = exclusion_for(failure, provider_id="nvidia_nim", model="retired")
+    assert exclusion == {"provider": "nvidia_nim", "model": "*" if status in {401, 403} else "retired"}
+
+
 def test_only_transport_and_quota_justify_spending_on_another_provider() -> None:
     assert should_failover(FailureClass.TRANSPORT) is True
     assert should_failover(FailureClass.QUOTA) is True
@@ -128,3 +137,19 @@ def test_an_unpriced_candidate_is_never_taken_automatically() -> None:
 
     assert accepted is False
     assert reason == "unknown_price"
+
+
+def test_missing_price_is_not_free_and_requires_explicit_unknown_cost_allowance():
+    decision = {"estimatedCostUsd": None, "costTier": "unknown"}
+    assert is_affordable_candidate(decision, requires_approval_over_usd=1.0) == (False, "unknown_price")
+    assert is_affordable_candidate(decision, requires_approval_over_usd=None, allow_unknown_cost=True) == (
+        False,
+        "unknown_price",
+    )
+    assert is_affordable_candidate(decision, requires_approval_over_usd=1.0, allow_unknown_cost=True) == (
+        True,
+        "unknown_cost_explicitly_allowed",
+    )
+    assert (
+        is_affordable_candidate(decision, requires_approval_over_usd=0, allow_unknown_cost=True)[0] is False
+    )

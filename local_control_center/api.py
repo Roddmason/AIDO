@@ -34,6 +34,7 @@ from .control_plane.models import OverviewResponse
 from .control_plane.overview import build_overview_from_connection
 from .control_plane.runtime import ControlCenterRuntime
 from .credentials.api import create_router as create_credentials_router
+from .decision_engine.api import create_router as create_decision_engine_router
 from .evidence.api import create_router as create_evidence_router
 from .executions.api import create_router as create_executions_router
 from .git_workspace.api import create_router as create_git_workspace_router
@@ -304,6 +305,7 @@ def create_app(
     app.include_router(create_threads_router(platform=platform, require_write=require_write))
     app.include_router(create_workers_router(platform=platform, require_write=require_write))
     app.include_router(create_settings_router(platform=platform, require_write=require_write))
+    app.include_router(create_decision_engine_router(platform=platform))
     app.include_router(create_i18n_router(platform=platform, require_write=require_write))
     app.include_router(create_credentials_router(platform=platform, require_write=require_write))
 

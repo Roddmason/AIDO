@@ -138,7 +138,15 @@ def run_discovery_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRu
     if thread_initiative is not None:
         product_owner_payload["initiativeId"] = thread_initiative["id"]
     try:
-        product_owner_result = product_owner.run(product_owner_payload)
+        product_owner_result = coordinator._run_with_failover(
+            runtime=product_owner,
+            payload=product_owner_payload,
+            run=run,
+            attempts=[],
+            thread_id=thread_id,
+            role="product_owner",
+        )
+        product_owner_resource_decision = run.product_owner_resource_decision
     except Exception as error:
         reason = str(redact_secrets(str(error)))
         product_owner_context = {
@@ -203,6 +211,89 @@ def persist_product_owner_results(
     product_owner_result = run.product_owner_result
     product_owner_workspace = run.product_owner_workspace
     product_owner_resource_decision = run.product_owner_resource_decision
+    if (
+        isinstance(product_owner_result, dict)
+        and product_owner_result.get("status") in {"failed", "runtime_failed", "runtime_unavailable"}
+        and product_owner_result.get("output") is None
+    ):
+        reason = str(
+            redact_secrets(
+                product_owner_result.get("reason") or "ProductOwnerAgent runtime execution failed."
+            )
+        )
+        runtime_result = product_owner_result.get("runtimeResult")
+        runtime = product_owner_result.get("runtime")
+        runtime = runtime if isinstance(runtime, dict) else {}
+        selected = product_owner_resource_decision.get("selected")
+        selected = selected if isinstance(selected, dict) else {}
+        runtime_identity = redact_secrets(
+            {
+                "selectedRuntimeId": runtime.get("id") or selected.get("providerId"),
+                "providerId": runtime.get("id") or selected.get("providerId"),
+                "model": runtime.get("model") or selected.get("model"),
+            }
+        )
+        runtime_failure = (
+            redact_secrets(
+                {
+                    key: runtime_result[key]
+                    for key in (
+                        "blocked",
+                        "decision",
+                        "execution",
+                        "toolCallId",
+                        "permissionDecisionId",
+                        "failureCause",
+                        "failureEvidence",
+                        "failureRetryAfter",
+                        "httpStatus",
+                        "reason",
+                    )
+                    if key in runtime_result
+                }
+            )
+            if isinstance(runtime_result, dict)
+            else {}
+        )
+        blocked_result = coordinator._block_run(
+            loop,
+            stage="product_owner",
+            reason=reason,
+            actor=actor,
+            details={
+                **runtime_identity,
+                "status": "runtime_failed",
+                "outputStatus": product_owner_result["status"],
+                "reason": reason,
+                "workspaceId": product_owner_workspace["id"],
+                "runtimeResult": runtime_failure,
+            },
+            durable_context={
+                "productOwner": {
+                    **runtime_identity,
+                    "status": "runtime_failed",
+                    "reason": reason,
+                    "workspaceId": product_owner_workspace["id"],
+                    "resourceDecision": product_owner_resource_decision,
+                    "runtimeResult": runtime_failure,
+                }
+            },
+            thread_id=thread_id,
+        )
+        evidence_ref = str((blocked_result.get("evidencePackage") or {}).get("id") or "").strip()
+        if evidence_ref:
+            resource_learning = coordinator._record_product_owner_resource_learning_best_effort(
+                project_id=project_id,
+                loop_id=loop["id"],
+                resource_decision=product_owner_resource_decision,
+                product_owner_result=product_owner_result,
+                product_owner_status="runtime_failed",
+                evidence_ref=evidence_ref,
+            )
+            blocked_result = coordinator._attach_product_owner_resource_learning_to_result(
+                blocked_result, resource_learning
+            )
+        return blocked_result
     try:
         output = coordinator._product_owner_output(product_owner_result)
         product_owner_status = coordinator._product_owner_flow_status(product_owner_result, output=output)
@@ -582,10 +673,8 @@ def route_product_owner_outcome(
     product_owner_workspace = run.product_owner_workspace
     product_owner_context = run.product_owner_context
     pending_thread_decisions = run.pending_thread_decisions
-    po_artifact_ids = run.po_artifact_ids
     po_evidence = run.po_evidence
     evidence_ids = run.evidence_ids
-    brief = run.brief
     if product_owner_status == "needs_input":
         coordinator._set_thread_status_best_effort(
             thread_id=thread_id,
@@ -648,7 +737,7 @@ def route_product_owner_outcome(
         request_meta=request_meta,
         output=output,
     )
-    if research_required_decisions:
+    if research_required_decisions and not run.research_resolution:
         research_job = coordinator._queue_required_research(
             project_id=project_id,
             thread_id=thread_id,
@@ -675,38 +764,64 @@ def route_product_owner_outcome(
         )
 
     if product_owner_status == "brief_ready":
-        approval = None
-        if coordinator._requires_brief_approval(
-            request_meta=request_meta, result=product_owner_result, output=output
-        ):
-            approval = coordinator._create_brief_approval(
-                project_id=project_id,
-                loop_id=loop["id"],
-                brief=brief,
-                artifact_ids=po_artifact_ids,
-            )
-            product_owner_context["briefApproval"] = approval
-        brief_ready = coordinator._transition_run_state(
-            loop,
-            to_state="brief_ready",
-            reason=product_owner_context["reason"] or "ProductOwnerAgent produced a product brief.",
-            trigger="product_owner_brief_ready",
-            actor=actor,
-            context_patch=coordinator._durable_run_patch(
-                loop,
-                {
-                    "status": "brief_ready",
-                    "productOwner": product_owner_context,
-                    "briefApproval": approval,
-                },
-                evidence_package_ids=evidence_ids,
-            ),
-            thread_id=thread_id,
-        )
-        return coordinator._run_result(
-            brief_ready,
-            status="brief_ready",
-            reason=product_owner_context["reason"] or "ProductOwnerAgent produced a product brief.",
-            evidence_package=po_evidence,
-        )
+        return finish_brief_ready(coordinator, run)
     return None
+
+
+def finish_brief_ready(
+    coordinator: ProductLoopCoordinator, run: _UserMessageRun, *, in_transaction: bool = False
+):
+    """Use the same approval contract for a fresh PO result and explicitly adopted research."""
+    approval = run.product_owner_context.get("briefApproval")
+    if not approval and coordinator._requires_brief_approval(
+        request_meta=run.request_meta,
+        result=run.product_owner_result,
+        output=run.output,
+    ):
+        approval = coordinator._create_brief_approval(
+            project_id=run.project_id,
+            loop_id=run.loop["id"],
+            brief=run.brief,
+            artifact_ids=run.po_artifact_ids,
+        )
+        run.product_owner_context["briefApproval"] = approval
+    reason = run.product_owner_context["reason"] or "ProductOwnerAgent produced a product brief."
+    patch = coordinator._durable_run_patch(
+        run.loop,
+        {
+            "status": "brief_ready",
+            "productOwner": run.product_owner_context,
+            "briefApproval": approval,
+            **({"blockedStage": None, "blockedReason": None} if run.research_resolution else {}),
+        },
+        evidence_package_ids=run.evidence_ids,
+    )
+    if in_transaction:
+        brief_ready = coordinator.transition_in_transaction(
+            run.loop["id"],
+            to_state="brief_ready",
+            reason=reason,
+            trigger="research_adopted",
+            actor=run.actor,
+            context_patch=patch,
+            expected_version=run.loop["version"],
+        )
+        coordinator._record_thread_event(
+            thread_id=run.thread_id,
+            event_type="brief_ready",
+            agent_role="product_owner",
+            payload={"loopId": run.loop["id"], "status": "brief_ready", "reason": reason},
+        )
+    else:
+        brief_ready = coordinator._transition_run_state(
+            run.loop,
+            to_state="brief_ready",
+            reason=reason,
+            trigger="product_owner_brief_ready",
+            actor=run.actor,
+            context_patch=patch,
+            thread_id=run.thread_id,
+        )
+    return coordinator._run_result(
+        brief_ready, status="brief_ready", reason=reason, evidence_package=run.po_evidence
+    )

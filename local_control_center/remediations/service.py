@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
@@ -26,12 +27,16 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.payloads import (
     PAYLOAD_BUILDERS,
     build_blocker_payload_context,
+    decision_engine_failure,
     resource_policy_summary,
+    resource_selection_constraint_failure,
+    runtime_risk_review_failure,
 )
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import SIMILARITY_ACTIONS
@@ -73,6 +78,19 @@ class BlockerRemediationService:
             details=clean_details,
             project_id=project_id,
         )
+        if stage == "worker" and clean_details.get("interruptedExecutionId") and loop_id:
+            blocker_type = "runtime_execution_failed"
+            specs = [
+                {
+                    "actionType": "view_diff",
+                    "title": "Review preserved workspace changes",
+                    "description": "Review partial changes before deciding how to continue.",
+                    "payload": {
+                        "interruptedExecutionId": clean_details["interruptedExecutionId"],
+                        "workspaceId": clean_details.get("workspaceId"),
+                    },
+                }
+            ]
         if not str(loop_id or "").strip():
             specs = [
                 spec
@@ -90,7 +108,7 @@ class BlockerRemediationService:
                         "payload": {},
                     }
                 )
-        return [
+        actions = [
             self.repository.create_action(
                 project_id=project_id,
                 thread_id=thread_id,
@@ -117,6 +135,112 @@ class BlockerRemediationService:
             )
             for index, spec in enumerate(specs)
         ]
+        return self._research_actions(actions)
+
+    def _research_actions(self, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        from local_control_center.product_loop.repository import ProductLoopRepository
+        from local_control_center.product_loop.research_resolution import (
+            ResearchResolutionError,
+            research_candidates,
+            resolution_snapshot,
+        )
+
+        enriched = []
+        for action in actions:
+            if (
+                action.get("stage") != "research"
+                or action.get("actionType") != "retry_loop"
+                or action.get("status") != "pending"
+                or not action.get("loopId")
+                or self.root is None
+            ):
+                enriched.append(action)
+                continue
+            payload = dict(action["payload"])
+            try:
+                loop = ProductLoopRepository(self.connection).get_loop(action["loopId"])
+                anchor = payload.get("researchSnapshot")
+                additions = {"assessmentHash", "threadDecisionsHash", "executionOptions"}
+                if not isinstance(anchor, dict) or not additions.intersection(anchor):
+                    with (
+                        nullcontext()
+                        if self.connection.in_transaction
+                        else immediate_transaction(self.connection)
+                    ):
+                        observed = self.connection.execute(
+                            "SELECT payload_json FROM remediation_actions WHERE id=?", (action["id"],)
+                        ).fetchone()["payload_json"]
+                        stored = json_loads(observed, {})
+                        anchor = stored.get("researchSnapshot")
+                        loop = ProductLoopRepository(self.connection).get_loop(action["loopId"])
+                        current = resolution_snapshot(self.connection, loop)
+                        upgrade = None
+                        first_observation = anchor is None
+                        if (
+                            isinstance(anchor, dict)
+                            and set(current) - set(anchor) == additions
+                            and set(anchor) <= set(current)
+                            and all(current[key] == value for key, value in anchor.items())
+                            and stored.get("researchLoopVersion") == loop["version"]
+                            and "researchSnapshotUpgrade" not in stored
+                        ):
+                            # New fields are observed now; this does not assert historical equality.
+                            upgrade = {
+                                "addedFields": sorted(additions),
+                                "previousSnapshot": anchor,
+                                "loopVersion": loop["version"],
+                                "upgradedAt": utc_now(),
+                            }
+                        if first_observation or upgrade:
+                            updated = {
+                                **stored,
+                                "researchSnapshot": current,
+                                "researchLoopVersion": loop["version"],
+                            }
+                            if upgrade:
+                                updated["researchSnapshotUpgrade"] = upgrade
+                            self.connection.execute(
+                                "UPDATE remediation_actions SET payload_json=? WHERE id=? AND payload_json=? "
+                                "AND status='pending' AND stage='research' AND action_type='retry_loop' "
+                                "AND project_id=? AND thread_id=? AND loop_id=? "
+                                "AND EXISTS (SELECT 1 FROM product_loops WHERE id=? AND version=?)",
+                                (
+                                    json_dumps(updated),
+                                    action["id"],
+                                    observed,
+                                    action["projectId"],
+                                    action["threadId"],
+                                    loop["id"],
+                                    loop["id"],
+                                    loop["version"],
+                                ),
+                            )
+                        # A lost CAS must expose the persisted anchor, never the computed replacement.
+                        stored_action = self.repository.get(action["id"])
+                        action = {**action, "status": stored_action["status"]}
+                        stored = stored_action["payload"]
+                        anchor = stored.get("researchSnapshot")
+                        for key in ("researchSnapshot", "researchLoopVersion", "researchSnapshotUpgrade"):
+                            if key in stored:
+                                payload[key] = stored[key]
+                            else:
+                                payload.pop(key, None)
+                        loop = ProductLoopRepository(self.connection).get_loop(action["loopId"])
+                if action["status"] != "pending":
+                    payload["researchCandidates"] = []
+                    enriched.append({**action, "payload": payload})
+                    continue
+                payload["researchCandidates"] = research_candidates(
+                    self.connection,
+                    root=self.root,
+                    loop=loop,
+                    anchor=anchor,
+                )
+            except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
+                payload["researchCandidates"] = []
+                payload["researchReason"] = str(error)
+            enriched.append({**action, "payload": payload})
+        return enriched
 
     @staticmethod
     def _spec_is_destructive(spec: dict[str, Any]) -> bool:
@@ -128,11 +252,19 @@ class BlockerRemediationService:
         *,
         thread_id: str,
         worker_status: dict[str, Any],
+        summary: bool = False,
     ) -> list[dict[str, Any]]:
         """Persist ``run_worker_once`` when a queued thread has no active worker processing it."""
         thread = ThreadsRepository(self.connection).get_thread(thread_id)
         if thread["status"] != "queued" or bool(worker_status.get("running")):
-            return self.repository.list_for_thread(thread_id)
+            self.connection.execute(
+                "UPDATE remediation_actions SET status = 'resolved', resolved_at = ? "
+                "WHERE thread_id = ? AND stage = 'worker' "
+                "AND blocker_type = 'worker_not_running' "
+                "AND action_type = 'run_worker_once' AND status = 'pending'",
+                (utc_now(), thread_id),
+            )
+            return self.repository.list_for_thread(thread_id, summary=summary)
         self.repository.create_action(
             project_id=thread["projectId"],
             thread_id=thread_id,
@@ -152,33 +284,231 @@ class BlockerRemediationService:
                 "workerStatus": redact_secrets(worker_status),
             },
         )
-        return self.repository.list_for_thread(thread_id)
+        return self.repository.list_for_thread(thread_id, summary=summary)
 
     def list_for_thread(
         self,
         *,
         thread_id: str,
         worker_status: dict[str, Any] | None = None,
+        summary: bool = False,
     ) -> list[dict[str, Any]]:
         """List remediations, materializing worker recovery and blocked-thread backfill on demand."""
-        self.repository.resolve_pending_from_terminal_loops(thread_id)
+        from local_control_center.executions.timeout_reconciliation import reconcile_thread_timeout
+
+        thread = ThreadsRepository(self.connection).get_thread(thread_id)
+        reconcile_thread_timeout(self.connection, thread_id=thread_id, project_id=thread["projectId"])
+        self._materialize_runtime_risk_review(thread_id)
+        self.repository.resolve_pending_from_terminal_loops(thread_id, include_actions=not summary)
+        self.repository.resolve_pending_from_terminal_jobs(thread_id, include_actions=not summary)
+        self.repository.dismiss_pending_from_superseded_loops(thread_id, include_actions=not summary)
         if worker_status is not None:
-            actions = self.ensure_worker_remediation(thread_id=thread_id, worker_status=worker_status)
+            actions = self.ensure_worker_remediation(
+                thread_id=thread_id, worker_status=worker_status, summary=summary
+            )
         else:
-            actions = self.repository.list_for_thread(thread_id)
-        actions = self.ensure_awaiting_user_remediations(thread_id=thread_id, existing=actions)
-        if any(action.get("status") == "pending" for action in actions):
-            return actions
-        return self.ensure_blocked_thread_remediation(thread_id=thread_id, existing=actions)
+            actions = self.repository.list_for_thread(thread_id, summary=summary)
+        actions = self._refresh_resource_selection_remediations(
+            thread_id=thread_id, actions=actions, summary=summary
+        )
+        actions = self.ensure_awaiting_user_remediations(
+            thread_id=thread_id, existing=actions, summary=summary
+        )
+        return self._research_actions(
+            self.ensure_blocked_thread_remediation(thread_id=thread_id, existing=actions, summary=summary)
+        )
+
+    def _materialize_runtime_risk_review(self, thread_id: str) -> None:
+        if self.root is None:
+            return
+        thread = ThreadsRepository(self.connection).get_thread(thread_id)
+        loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
+        if not loop:
+            return
+        durable = loop["context"].get("durableRun") or {}
+        if (
+            loop["state"] == "blocked"
+            and durable.get("blockedStage") == "resource_manager"
+            and (durable.get("resource_manager") or {}).get("runtimeRiskReviewInvalid")
+        ):
+            # A changed policy or checkpoint is a new gate, not a stale consent error.
+            return
+        if (durable.get("runtimeRiskReview") or {}).get("status") in {"queued", "consuming", "consumed"}:
+            # Consent is already durable. Polling while the worker advances must not
+            # turn that approval into a new settings error or hide a later failure.
+            self.connection.execute(
+                "UPDATE remediation_actions SET status='dismissed',resolved_at=? WHERE loop_id=? "
+                "AND blocker_type='runtime_risk_review_required' AND action_type='open_settings_section' "
+                "AND status='pending'",
+                (utc_now(), loop["id"]),
+            )
+            self._materialize_approved_runtime_failure(thread_id, loop, durable["runtimeRiskReview"])
+            return
+        if loop["state"] != "blocked":
+            return
+        if durable.get("blockedStage") != "resource_manager" or not runtime_risk_review_failure(
+            durable.get("resource_manager") or {}
+        ):
+            return
+        from local_control_center.product_loop.runtime_risk_review import ensure_runtime_risk_review
+
+        try:
+            ensure_runtime_risk_review(self.connection, loop_id=loop["id"], root=self.root)
+        except (KeyError, ValueError, TypeError, OSError) as error:
+            # A stale review is actionable evidence, never a missing-runtime diagnosis or a rerun.
+            card = self.repository.create_action(
+                project_id=loop["projectId"],
+                thread_id=thread_id,
+                loop_id=loop["id"],
+                stage="resource_manager",
+                blocker_type="runtime_risk_review_required",
+                action_type="open_settings_section",
+                title="Runtime risk proposal requires review",
+                description=str(error),
+                technical_reason=str(error),
+                primary=True,
+                payload={"section": "routing", "reason": str(error), "loopId": loop["id"]},
+            )
+            self.connection.execute(
+                "UPDATE remediation_actions SET status='dismissed',resolved_at=? WHERE loop_id=? AND stage='resource_manager' AND status='pending' AND id<>?",
+                (utc_now(), loop["id"], card["id"]),
+            )
+
+    def _materialize_approved_runtime_failure(self, thread_id: str, loop: dict, review: dict) -> None:
+        if review.get("status") != "consuming" or loop["state"] not in {
+            "workspace_check",
+            "git_check",
+            "discovery",
+            "blocked",
+        }:
+            return
+        try:
+            job = JobsRepository(self.connection).get_job(str(review.get("continuationJobId") or ""))
+        except KeyError:
+            return
+        marker = (job["payload"].get("runMetadata") or {}).get("runtimeRiskContinuation")
+        if (
+            job["status"] != "failed"
+            or job["kind"] != "thread.product_loop.run"
+            or job["projectId"] != loop["projectId"]
+            or job["payload"].get("threadId") != thread_id
+            or marker != {"loopId": loop["id"], "reviewId": review.get("id")}
+        ):
+            return
+        failure = self.connection.execute(
+            "SELECT payload FROM thread_agent_events WHERE thread_id=? AND type='worker_failed' "
+            "AND json_extract(payload,'$.jobId')=? ORDER BY sequence DESC LIMIT 1",
+            (thread_id, job["id"]),
+        ).fetchone()
+        reason = str(
+            redact_secrets(
+                json_loads(failure["payload"]).get("reason")
+                if failure
+                else "The approved continuation stopped before completing runtime selection."
+            )
+        )
+        self.repository.create_action(
+            project_id=loop["projectId"],
+            thread_id=thread_id,
+            loop_id=loop["id"],
+            stage="worker",
+            blocker_type="runtime_execution_failed",
+            action_type="run_worker_once",
+            title="Resume approved continuation",
+            description=reason,
+            technical_reason=reason,
+            primary=True,
+            payload={"jobId": job["id"], "loopId": loop["id"], "reviewId": review["id"]},
+        )
+
+    def _refresh_resource_selection_remediations(
+        self, *, thread_id: str, actions: list[dict[str, Any]], summary: bool = False
+    ) -> list[dict[str, Any]]:
+        """Replace legacy diagnoses only for a specific persisted selection failure."""
+        changed = False
+        for action in actions:
+            if (
+                action.get("status") != "pending"
+                or action.get("stage") != "resource_manager"
+                or action.get("actionType")
+                in {"answer_question", "approve_resource_decision", "continue_plan_only"}
+            ):
+                continue
+            payload = action.get("payload") or {}
+            if summary and (
+                action.get("blockerType") == "decision_engine_unavailable"
+                or (
+                    action.get("blockerType") == "resource_manager_unconfigured"
+                    and payload.get("section") == "routing"
+                )
+            ):
+                continue
+            details = payload.get("details")
+            if summary and "detailsEvidence" in payload:
+                # Only legacy candidates need the full persisted evidence to correct their diagnosis.
+                thread = ThreadsRepository(self.connection).get_thread(thread_id)
+                loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
+                if (
+                    loop is None
+                    or loop["id"] != action.get("loopId")
+                    or loop["state"] != "blocked"
+                    or action.get("projectId") != thread["projectId"]
+                ):
+                    continue
+                details = (self.repository.get(action["id"]).get("payload") or {}).get("details")
+            if not isinstance(details, dict):
+                continue
+            failure = decision_engine_failure(details)
+            corrected_type = "decision_engine_unavailable"
+            if failure is None:
+                failure = resource_selection_constraint_failure(details)
+                corrected_type = "resource_manager_unconfigured"
+            wrong_policy_settings_section = (
+                corrected_type == "resource_manager_unconfigured"
+                and action.get("actionType") == "open_settings_section"
+                and payload.get("section") != "routing"
+            )
+            if failure is None or (
+                action.get("blockerType") == corrected_type and not wrong_policy_settings_section
+            ):
+                continue
+            with immediate_transaction(self.connection):
+                thread = ThreadsRepository(self.connection).get_thread(thread_id)
+                loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
+                if (
+                    loop is None
+                    or loop["id"] != action.get("loopId")
+                    or loop["state"] != "blocked"
+                    or action.get("projectId") != thread["projectId"]
+                    or self.repository.get(action["id"])["status"] != "pending"
+                ):
+                    continue
+                self.create_for_blocked_run(
+                    project_id=thread["projectId"],
+                    thread_id=thread_id,
+                    loop_id=loop["id"],
+                    stage="resource_manager",
+                    reason=failure.get("decisionReason")
+                    or action.get("technicalReason")
+                    or payload.get("reason")
+                    or "AI resource selection blocked.",
+                    details=details,
+                )
+                self.repository.mark_status_in_transaction(action["id"], "dismissed")
+                changed = True
+        return self.repository.list_for_thread(thread_id, summary=summary) if changed else actions
 
     def ensure_awaiting_user_remediations(
         self,
         *,
         thread_id: str,
         existing: list[dict[str, Any]] | None = None,
+        summary: bool = False,
     ) -> list[dict[str, Any]]:
         """Backfill one actionable remediation per still-pending ProductOwner decision."""
-        actions = existing if existing is not None else self.repository.list_for_thread(thread_id)
+        actions = (
+            existing if existing is not None else self.repository.list_for_thread(thread_id, summary=summary)
+        )
         thread = ThreadsRepository(self.connection).get_thread(thread_id)
         loop = self._awaiting_user_loop_for_thread(
             thread_id=thread_id,
@@ -226,7 +556,7 @@ class BlockerRemediationService:
                     "pendingDecisions": missing_decisions,
                 },
             )
-        return self.repository.list_for_thread(thread_id)
+        return self.repository.list_for_thread(thread_id, summary=summary)
 
     def _awaiting_user_loop_for_thread(
         self,
@@ -251,6 +581,7 @@ class BlockerRemediationService:
         *,
         thread_id: str,
         existing: list[dict[str, Any]] | None = None,
+        summary: bool = False,
     ) -> list[dict[str, Any]]:
         """Backfill: un hilo bloqueado sin acciones pendientes siempre recibe una salida ejecutable.
 
@@ -259,14 +590,18 @@ class BlockerRemediationService:
         loop y garantiza un ``retry_loop`` real, para que el operador nunca quede frente a un
         bloqueo sin acción posible.
         """
-        actions = existing if existing is not None else self.repository.list_for_thread(thread_id)
+        actions = (
+            existing if existing is not None else self.repository.list_for_thread(thread_id, summary=summary)
+        )
         thread = ThreadsRepository(self.connection).get_thread(thread_id)
         if thread["status"] not in {"blocked", "waiting_decision"}:
             return actions
-        loop = self._blocked_loop_for_thread(
-            thread_id=thread_id, project_id=thread["projectId"]
-        ) or self._fallback_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
+        loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
         if loop is None:
+            return actions
+        if any(
+            action.get("status") == "pending" and action.get("loopId") == loop["id"] for action in actions
+        ):
             return actions
         durable = dict((loop.get("context") or {}).get("durableRun") or {})
         stage = str(durable.get("blockedStage") or "").strip() or "worker"
@@ -305,47 +640,14 @@ class BlockerRemediationService:
                     "backfilled": True,
                 },
             )
-        return self.repository.list_for_thread(thread_id)
+        return self.repository.list_for_thread(thread_id, summary=summary)
 
-    def _blocked_loop_for_thread(self, *, thread_id: str, project_id: str) -> dict[str, Any] | None:
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+    def _latest_loop_for_thread(self, *, thread_id: str, project_id: str) -> dict[str, Any] | None:
+        """Backfill only the current run, including a thread/loop state divergence."""
+        from local_control_center.product_loop.repository import ProductLoopRepository
 
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
-        for loop in coordinator.list_loops(project_id):
-            if str(loop.get("state") or "") != "blocked":
-                continue
-            durable = dict((loop.get("context") or {}).get("durableRun") or {})
-            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
-            if str(thread_ref.get("projectThreadId") or "") == thread_id:
-                return loop
-        return None
-
-    def _fallback_loop_for_thread(self, *, thread_id: str, project_id: str) -> dict[str, Any] | None:
-        """Loop más reciente del hilo cuando ninguno está en estado exactamente ``"blocked"``.
-
-        Cubre la divergencia hilo-``blocked``/loop-en-otro-estado (cascada de reintentos + worker
-        detenido): prioriza el loop más reciente cuyo durable registró un ``blockedReason`` (fue
-        bloqueado alguna vez) y, si ninguno lo tiene, cae al loop más reciente del hilo. Orden
-        determinista por ``createdAt``/``id`` para no depender de un orden inestable.
-        """
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
-        candidates: list[dict[str, Any]] = []
-        for loop in coordinator.list_loops(project_id):
-            durable = dict((loop.get("context") or {}).get("durableRun") or {})
-            thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
-            if str(thread_ref.get("projectThreadId") or "") == thread_id:
-                candidates.append(loop)
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: (str(item.get("createdAt") or ""), str(item.get("id") or "")))
-        blocked_once = [
-            loop
-            for loop in candidates
-            if str(((loop.get("context") or {}).get("durableRun") or {}).get("blockedReason") or "").strip()
-        ]
-        return (blocked_once or candidates)[-1]
+        loop_id = self.repository.latest_loop_id_for_thread(project_id=project_id, thread_id=thread_id)
+        return ProductLoopRepository(self.connection).get_loop(loop_id) if loop_id else None
 
     @staticmethod
     def _backfill_details_from_durable(durable: dict[str, Any]) -> dict[str, Any]:
@@ -435,6 +737,14 @@ class BlockerRemediationService:
     ) -> dict[str, Any]:
         """Execute a supported remediation action and resolve it only on a successful side effect."""
         action = self.repository.get(action_id)
+        self._research_actions([action])
+        self._refresh_resource_selection_remediations(thread_id=action["threadId"], actions=[action])
+        action = self.repository.get(action_id)
+        if action["loopId"]:
+            self.repository.dismiss_pending_from_superseded_loops(action["threadId"])
+        else:
+            self.repository.resolve_pending_from_terminal_jobs(action["threadId"])
+        action = self.repository.get(action_id)
         if action["status"] != "pending":
             return {
                 "remediation": action,
@@ -455,6 +765,17 @@ class BlockerRemediationService:
                 "reason": "This action can discard local work; re-run it with an explicit confirmation.",
             }
             return {"remediation": self.repository.get(action_id), "execution": redact_secrets(execution)}
+        if action_type == "approve_runtime_risk":
+            from local_control_center.jobs_approvals.commands import approve_action
+
+            stored = action["payload"]
+            result = approve_action(
+                JobsRepository(self.connection),
+                str(stored.get("jobId") or ""),
+                str(stored.get("actionRequestId") or ""),
+                {"reason": (payload or {}).get("reason")},
+            )
+            return {"remediation": self.repository.get(action_id), "execution": result["execution"]}
         if action_type == "open_settings_section":
             execution = {
                 "status": "completed",
@@ -471,6 +792,7 @@ class BlockerRemediationService:
             execution = self._validate_runtime_execution(
                 runtime_id=str(execution_payload.get("runtimeId") or "").strip(),
                 providers=providers,
+                product_owner=action.get("stage") in {"product_owner", "product_owner_runtime"},
             )
         elif action_type == "switch_runtime":
             runtime_id = str(execution_payload.get("runtimeId") or "").strip()
@@ -536,7 +858,7 @@ class BlockerRemediationService:
         elif action_type == "save_patch":
             execution = self._save_patch(action=action, payload=execution_payload, platform=platform)
         elif action_type == "retry_loop":
-            execution = self._retry_loop(action=action)
+            execution = self._retry_loop(action=action, payload=payload or {})
         elif action_type == "answer_question":
             execution = self._answer_question(action=action, payload=execution_payload)
         elif action_type == "approve_resource_decision":
@@ -783,8 +1105,21 @@ class BlockerRemediationService:
             }
 
     def _validate_runtime_execution(
-        self, *, runtime_id: str, providers: list[dict[str, Any]]
+        self, *, runtime_id: str, providers: list[dict[str, Any]], product_owner: bool = False
     ) -> dict[str, Any]:
+        if product_owner:
+            target = self._runtime_status_for(providers, runtime_id)
+            preferred = str((target or {}).get("id") or runtime_id).strip() or None
+            readiness = product_owner_agent_readiness(providers, preferred_runtime=preferred)
+            selected_id = str(readiness.get("selectedRuntimeId") or runtime_id)
+            return {
+                "status": "completed" if readiness.get("executable") is True else "blocked",
+                "action": "validate_runtime",
+                "runtimeId": selected_id,
+                "target": redact_secrets(self._runtime_status_for(providers, selected_id)),
+                "providers": redact_secrets(providers),
+                "reason": readiness["reason"],
+            }
         if runtime_id:
             target = self._runtime_status_for(providers, runtime_id)
             if target is None:
@@ -854,6 +1189,8 @@ class BlockerRemediationService:
         def with_action(result: dict[str, Any]) -> dict[str, Any]:
             return {"action": action_type, **result}
 
+        if action_type == "view_diff" and action["payload"].get("interruptedExecutionId"):
+            return with_action(self._view_interrupted_workspace(action))
         project_id = str(payload.get("projectId") or action["projectId"])
         service = GitWorkspaceService(self.connection, root=Path(getattr(platform, "cwd", self.root or ".")))
         if action_type == "git_init":
@@ -925,6 +1262,67 @@ class BlockerRemediationService:
                 gitleaks=result,
             )
         return {"status": "blocked", "reason": f"Unsupported git remediation: {action_type}."}
+
+    def _view_interrupted_workspace(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Read partial changes from the persisted loop workspace, never request-body paths."""
+        from local_control_center.workspaces_projects.git_worktrees import run_brokered_git
+
+        project_id, thread_id = action["projectId"], action["threadId"]
+        workspace_id = str(action["payload"].get("workspaceId") or "")
+        loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=project_id)
+        workspace = self.connection.execute(
+            "SELECT path FROM workspaces WHERE id=? AND project_id=? AND archived_at IS NULL",
+            (workspace_id, project_id),
+        ).fetchone()
+        if (
+            not loop
+            or loop["id"] != action["loopId"]
+            or loop["projectId"] != project_id
+            or loop["state"] != "blocked"
+            or (loop["context"].get("durableRun") or {}).get("workspaceId") != workspace_id
+            or not workspace
+        ):
+            return {"status": "blocked", "reason": "The interrupted workspace no longer matches this run."}
+        path = Path(workspace["path"]).resolve(strict=False)
+        if not path.is_dir():
+            return {"status": "blocked", "reason": "The preserved workspace is unavailable."}
+        results = []
+        for args in (
+            ["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+            ["status", "--porcelain=v1", "--untracked-files=all", "-z"],
+        ):
+            result = run_brokered_git(
+                connection=self.connection,
+                root=self.root or Path.cwd(),
+                project_id=project_id,
+                workspace_id=workspace_id,
+                workspace_path=path,
+                cwd=path,
+                args=args,
+                task_id=f"{action['id']}.{args[0]}",
+            )
+            if result.get("returnCode") != 0:
+                return {"status": "blocked", "reason": result.get("reason") or "Workspace diff unavailable."}
+            results.append(result)
+        untracked_files = []
+        entries = iter(results[1]["stdout"].split("\0"))
+        for entry in entries:
+            status = entry[:2]
+            if status == "??":
+                untracked_files.append(entry[3:])
+            elif "R" in status or "C" in status:
+                # Porcelain -z emits a second path for renames/copies, without a status prefix.
+                next(entries, None)
+        return {
+            "status": "completed",
+            "partialExecution": True,
+            "projectId": project_id,
+            "workspaceId": workspace_id,
+            "workspacePath": str(path),
+            "diff": results[0]["stdout"],
+            "untrackedFiles": untracked_files,
+            "reason": "Tracked changes collected; untracked files are listed separately. Execution remains stopped.",
+        }
 
     def _save_patch(
         self, *, action: dict[str, Any], payload: dict[str, Any], platform: Any
@@ -1026,7 +1424,152 @@ class BlockerRemediationService:
             or None,
         )
 
-    def _retry_loop(self, *, action: dict[str, Any]) -> dict[str, Any]:
+    def _retry_research_loop(self, *, action: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+        from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
+        from local_control_center.product_loop.phases.discovery import finish_brief_ready
+        from local_control_center.product_loop.research_resolution import (
+            ResearchResolutionError,
+            hydrate_research_run,
+            resolution_snapshot,
+            validate_research,
+        )
+
+        blocked = {"status": "blocked", "action": "retry_loop"}
+        research_id = payload.get("researchRunId")
+        if not isinstance(research_id, str) or not research_id.strip():
+            return {
+                **blocked,
+                "reason": "Choose a verified research report explicitly before continuing this loop.",
+            }
+        if self.root is None:
+            return {**blocked, "reason": "The project root is required to verify research artifacts."}
+        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        threads = ThreadsRepository(self.connection)
+        try:
+            with immediate_transaction(self.connection):
+                current = self.repository.get(action["id"])
+                loop = coordinator.get(current["loopId"])
+                durable = dict(loop["context"].get("durableRun") or {})
+                if (
+                    current["status"] != "pending"
+                    or loop["state"] != "blocked"
+                    or durable.get("blockedStage") != "research"
+                    or durable.get("runActive")
+                    or current["projectId"] != loop["projectId"]
+                ):
+                    raise ResearchResolutionError("This research gate is no longer blocked and pending.")
+                snapshot = resolution_snapshot(self.connection, loop)
+                if (
+                    snapshot != current["payload"].get("researchSnapshot")
+                    or loop["version"] != current["payload"].get("researchLoopVersion")
+                    or snapshot["threadId"] != current["threadId"]
+                ):
+                    raise ResearchResolutionError(
+                        "The loop, policy, or decision snapshot changed; review research again."
+                    )
+                thread = threads.get_thread(snapshot["threadId"])
+                if thread["status"] not in {"blocked", "open", "resolved"}:
+                    raise ResearchResolutionError("The thread is not available for research continuation.")
+                newer = self.connection.execute(
+                    "SELECT 1 FROM product_loops WHERE project_id=? AND rowid>(SELECT rowid FROM product_loops WHERE id=?) "
+                    "AND json_extract(context,'$.durableRun.thread.projectThreadId')=? LIMIT 1",
+                    (loop["projectId"], loop["id"], snapshot["threadId"]),
+                ).fetchone()
+                active_job = self.connection.execute(
+                    "SELECT 1 FROM jobs WHERE project_id=? AND kind='thread.product_loop.run' "
+                    "AND status IN ('queued','running','resource_wait') "
+                    "AND json_extract(payload,'$.threadId')=? LIMIT 1",
+                    (loop["projectId"], snapshot["threadId"]),
+                ).fetchone()
+                if newer or active_job:
+                    raise ResearchResolutionError(
+                        "A newer loop or active continuation already owns this thread."
+                    )
+                validated = validate_research(
+                    self.connection, root=self.root, snapshot=snapshot, research_run_id=research_id.strip()
+                )
+                receipt = {
+                    **validated,
+                    "id": f"research-resolution-{uuid.uuid4()}",
+                    "loopId": loop["id"],
+                    "productOwnerOutputId": snapshot["productOwnerOutputId"],
+                    "snapshot": snapshot,
+                    "loopVersion": loop["version"],
+                    "remediationActionId": current["id"],
+                    "adoptedAt": utc_now(),
+                    "status": "consumed",
+                }
+                if durable["productOwner"]["status"] == "backlog_ready":
+                    marker = {"loopId": loop["id"], "receiptId": receipt["id"]}
+                    metadata = {"researchContinuation": marker, "messageId": snapshot["messageId"]}
+                    job = JobsRepository(self.connection).create_job(
+                        project_id=loop["projectId"],
+                        kind="thread.product_loop.run",
+                        payload={
+                            "projectId": loop["projectId"],
+                            "threadId": snapshot["threadId"],
+                            "messageId": snapshot["messageId"],
+                            "message": durable["message"],
+                            "root": str(self.root),
+                            "title": loop["title"],
+                            "runMetadata": metadata,
+                            "remediationActionId": current["id"],
+                        },
+                        idempotency_key=f"research-resolution:{loop['id']}:{current['id']}",
+                    )["job"]
+                    receipt.update({"status": "queued", "jobId": job["id"]})
+                durable["researchResolution"] = receipt
+                loop = coordinator.repository.update_loop_context(
+                    loop["id"],
+                    context={**loop["context"], "durableRun": durable},
+                )
+                if receipt["status"] == "queued":
+                    thread = threads.set_status(snapshot["threadId"], "queued")
+                    execution = {
+                        "status": "queued",
+                        "action": "retry_loop",
+                        "job": job,
+                        "loop": loop,
+                        "thread": thread,
+                        "reason": "Queued continuation from the persisted ProductOwner output.",
+                    }
+                else:
+                    run = _UserMessageRun(
+                        project_id=loop["projectId"], message=durable["message"], actor="operator"
+                    )
+                    hydrate_research_run(coordinator, run, loop=loop, receipt=receipt)
+                    result = finish_brief_ready(coordinator, run, in_transaction=True)
+                    thread = threads.set_status(snapshot["threadId"], "open")
+                    execution = {
+                        "status": "completed",
+                        "action": "retry_loop",
+                        "loop": result["loop"],
+                        "thread": thread,
+                        "reason": "Research verified; the persisted brief is ready.",
+                    }
+                threads.record_event(
+                    thread_id=snapshot["threadId"],
+                    type="research_adopted",
+                    agent_role="aido_lead",
+                    payload={
+                        "loopId": loop["id"],
+                        "researchRunId": research_id,
+                        "receiptId": receipt["id"],
+                        "status": execution["status"],
+                    },
+                )
+                self.connection.execute(
+                    "UPDATE remediation_actions SET status='resolved', resolved_at=? "
+                    "WHERE loop_id=? AND stage='research' AND status='pending'",
+                    (utc_now(), loop["id"]),
+                )
+                return execution
+        except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
+            return {**blocked, "reason": str(error)}
+
+    def _retry_loop(self, *, action: dict[str, Any], payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        if action.get("stage") == "research":
+            return self._retry_research_loop(action=action, payload=payload or {})
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
             return {"status": "blocked", "action": "retry_loop", "reason": "loopId is required."}
@@ -1065,6 +1608,14 @@ class BlockerRemediationService:
             durable = dict((loop.get("context") or {}).get("durableRun") or {})
             remediation_stage = str(current_action.get("stage") or "").strip()
             blocked_stage = str(durable.get("blockedStage") or "").strip()
+            if blocked_stage == "resource_manager" and runtime_risk_review_failure(
+                durable.get("resource_manager") or {}
+            ):
+                return {
+                    "status": "blocked",
+                    "action": "retry_loop",
+                    "reason": "The exact runtime risk proposals require explicit review; generic retry cannot replace this consent.",
+                }
             if remediation_stage and blocked_stage and remediation_stage != blocked_stage:
                 return {
                     "status": "blocked",
@@ -2816,6 +3367,12 @@ class BlockerRemediationService:
                 return "runtime_not_executable"
             return "runtime_output_invalid"
         if stage == "resource_manager":
+            if runtime_risk_review_failure(details) is not None or details.get("runtimeRiskReviewInvalid"):
+                return "runtime_risk_review_required"
+            if decision_engine_failure(details) is not None:
+                return "decision_engine_unavailable"
+            if resource_selection_constraint_failure(details) is not None:
+                return "resource_manager_unconfigured"
             resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else None
             blockers = [
                 item
@@ -2870,6 +3427,19 @@ class BlockerRemediationService:
             return "git_branch_missing"
         if stage == "worker":
             return "worker_not_running"
+        if stage == "product_owner" and status in {"runtime_failed", "runtime_unavailable"}:
+            runtime_result = details.get("runtimeResult")
+            if isinstance(runtime_result, dict) and runtime_result.get("decision") == "deny":
+                return "runtime_execution_denied"
+            if isinstance(runtime_result, dict):
+                http_status = runtime_result.get("httpStatus")
+                if (
+                    str(runtime_result.get("execution") or "").startswith("runtime_adapter:")
+                    and isinstance(http_status, int)
+                    and 400 <= http_status <= 599
+                ):
+                    return "runtime_execution_failed"
+            return "runtime_not_executable"
         if stage == "product_owner" and status in {"persistence_failed", "failed_validation"}:
             return "product_owner_output_invalid"
         if stage == "product_owner" and (

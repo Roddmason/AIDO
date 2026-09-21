@@ -80,6 +80,7 @@ import {
 	type ThreadInspectorTab,
 	useThreadInspectorData,
 } from './useThreadInspectorData';
+import { useThreadRefresh } from './useThreadRefresh';
 import { useThreadRemediations } from './useThreadRemediations';
 
 type ThreadInspectorProps = {
@@ -152,14 +153,18 @@ export function ThreadInspector({
 }: ThreadInspectorProps) {
 	const { t } = useI18n();
 	const [tab, setTab] = useState<ThreadInspectorTab>('goal');
+	const refresh = useThreadRefresh();
+	const threadSnapshot = overview.threads.find((thread) => thread.id === threadId);
+	const refreshSignal = `${refresh.threadId === threadId ? refresh.revision : 0}:${threadSnapshot?.updatedAt ?? ''}:${threadSnapshot?.status ?? ''}`;
 	const { detail, loop, roster, cost, memory, settings } = useThreadInspectorData(
 		project.id,
 		threadId,
 		tab,
+		refreshSignal,
 	);
 	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
 	// thread always shows how to unblock it, whichever manager view is open.
-	const remediations = useThreadRemediations(threadId, mutate);
+	const remediations = useThreadRemediations(threadId, mutate, refreshSignal);
 	const hasRepairCard = remediations.cards.length > 0 || remediations.error;
 	const repairRef = useRef<HTMLDivElement>(null);
 	// The Plan tab's blocked banner hands the operator over to the repair card instead of duplicating
@@ -1604,6 +1609,15 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 
 	return (
 		<section className="thread-inspector-research">
+			<div className="thread-inspector-row-main">
+				<strong>{t('app.threads.research.historyTitle', 'Research history')}</strong>
+				<span className="thread-inspector-subline">
+					{t(
+						'app.threads.research.historyHelp',
+						'This report is a historical result. Current status and repair actions are shown in Execution.',
+					)}
+				</span>
+			</div>
 			<header className="thread-inspector-goal-head">
 				<h3>{artifact.title}</h3>
 				<StatusChip tone={toneForStatus(status.replace(/^research_/, ''))}>
@@ -1625,7 +1639,7 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 				<div className="thread-research-state" data-status={status}>
 					<div className="thread-research-state-head">
 						<AlertTriangle aria-hidden="true" size={14} />
-						<span>{t('app.threads.research.recovery', 'Recovery')}</span>
+						<span>{t('app.threads.research.recordedResult', 'Recorded result')}</span>
 					</div>
 					{textValue(metadata.reason) ? <strong>{textValue(metadata.reason)}</strong> : null}
 					{textValue(remediation.summary) ? <p>{textValue(remediation.summary)}</p> : null}

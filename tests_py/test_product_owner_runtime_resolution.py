@@ -284,13 +284,15 @@ def test_environment_path_override_does_not_promote_receipt_or_mutate_preference
 @pytest.mark.parametrize(
     "free_enabled,declared_free,preferred,expected",
     [
-        (True, True, None, "gemini"),
+        (True, True, None, "codex_cli"),
         (True, False, None, "codex_cli"),
         (False, True, None, "codex_cli"),
         (True, True, "codex_cli", "codex_cli"),
     ],
 )
-def test_cost_preference_only_orders_eligible_candidates(free_enabled, declared_free, preferred, expected):
+def test_free_gemini_cannot_outrank_an_executor_eligible_runtime(
+    free_enabled, declared_free, preferred, expected
+):
     result = product_owner_agent_readiness(
         [
             {"id": "codex_cli", "canRunPrompt": True, "capabilities": ["chat"]},

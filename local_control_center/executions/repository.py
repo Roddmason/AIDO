@@ -127,6 +127,28 @@ class ExecutionRepository:
                     utc_now(),
                 ),
             )
+            if (
+                job["kind"] != EXECUTION_JOB_KIND
+                and ManagedProcessRepository(self.connection).cancellation_reason(job["id"]) is None
+            ):
+                # An explicit retry may receive a different admitted envelope. Keep
+                # the same legacy identity and never rewrite a started/cancelled run.
+                self.connection.execute(
+                    """UPDATE operational_executions SET workload_class=?
+                    WHERE id=? AND job_id=? AND project_id IS ? AND operation=?
+                      AND status IN ('queued', 'resource_wait')
+                      AND started_at IS NULL AND finished_at IS NULL AND cancel_requested_at IS NULL
+                      AND EXISTS (SELECT 1 FROM jobs WHERE jobs.id=operational_executions.job_id
+                                  AND jobs.status='running' AND jobs.kind=?)""",
+                    (
+                        workload_class,
+                        job["id"],
+                        job["id"],
+                        job["projectId"],
+                        "legacy_job:" + job["kind"],
+                        job["kind"],
+                    ),
+                )
         return self.get(job["id"])
 
     def require_fence(self, execution_id: str, *, owner_id: str, fencing_token: int) -> None:

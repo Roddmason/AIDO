@@ -35,7 +35,7 @@ export function useSettings(
 	enabled: boolean,
 	token: string,
 ): SettingsState {
-	const [data, setData] = useState<SettingsResponse | null>(null);
+	const [data, setData] = useState<(SettingsResponse & { projectId: string }) | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const [reloadToken, setReloadToken] = useState(0);
@@ -56,7 +56,7 @@ export function useSettings(
 		getSettings(projectId, controller.signal)
 			.then((result) => {
 				if (!aborted) {
-					setData(result);
+					setData({ ...result, projectId });
 					setError('');
 				}
 			})
@@ -91,9 +91,11 @@ export function useSettings(
 		[token, refresh],
 	);
 
+	// Retain the current project's snapshot during refresh without exposing another project's rows.
+	const currentData = data?.projectId === projectId ? data : null;
 	return {
-		general: data?.general ?? [],
-		project: data?.project ?? [],
+		general: currentData?.general ?? [],
+		project: currentData?.project ?? [],
 		loading,
 		error,
 		refresh,

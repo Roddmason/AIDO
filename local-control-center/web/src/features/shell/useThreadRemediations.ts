@@ -48,7 +48,7 @@ export type ThreadRemediationsHandle = {
 export function useThreadRemediations(
 	threadId: string | null,
 	mutate: Mutate,
-	refreshSignal = 0,
+	refreshSignal: string | number = 0,
 ): ThreadRemediationsHandle {
 	const [remediations, setRemediations] = useState<RemediationActionRecord[]>([]);
 	const [loading, setLoading] = useState(false);

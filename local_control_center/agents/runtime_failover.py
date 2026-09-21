@@ -19,7 +19,7 @@ MAX_FAILOVER_ATTEMPTS = 2
 
 _QUOTA_MARKERS = re.compile(
     r"429|rate[ _-]?limit|usage[ _-]?limit|too many requests|quota|insufficient_quota|"
-    r"resource_exhausted|billing|credit|out of tokens",
+    r"resource_exhausted|billing|credit|out of tokens|hit your weekly limit",
     re.IGNORECASE,
 )
 _TRANSPORT_MARKERS = re.compile(
@@ -41,12 +41,16 @@ class FailureClass(StrEnum):
 
     QUOTA = "quota"
     TRANSPORT = "transport"
+    AUTHENTICATION = "authentication"
+    PROVIDER_REQUEST = "provider_request"
     SEMANTIC = "semantic"
     UNKNOWN = "unknown"
 
 
 #: Solo estas clases justifican reintentar en otro proveedor.
-FAILOVER_ELIGIBLE = frozenset({FailureClass.QUOTA, FailureClass.TRANSPORT})
+FAILOVER_ELIGIBLE = frozenset(
+    {FailureClass.QUOTA, FailureClass.TRANSPORT, FailureClass.AUTHENTICATION, FailureClass.PROVIDER_REQUEST}
+)
 
 
 def looks_like_quota_exhaustion(output: str) -> bool:
@@ -67,10 +71,24 @@ def classify_runtime_failure(error: BaseException) -> FailureClass:
     que un ``ValueError`` de contrato nunca termine clasificado como desconocido y reintentado.
 
     Returns:
-        La clase de falla; solo ``QUOTA`` y ``TRANSPORT`` habilitan el reintento.
+        La clase de falla; cuota, transporte y rechazos HTTP permiten otro candidato.
     """
     message = str(error)
-    status = getattr(error, "code", None) or getattr(error, "status", None)
+    status = next(
+        (
+            value
+            for name in ("http_status", "status_code", "status", "code")
+            if isinstance(value := getattr(error, name, None), int)
+        ),
+        None,
+    )
+    if status is None:
+        match = re.search(r"\bhttp(?:_status\s*=\s*|\s+)([45]\d\d)\b", message, re.IGNORECASE)
+        status = int(match.group(1)) if match else None
+    if status in {401, 403}:
+        return FailureClass.AUTHENTICATION
+    if status in {400, 404, 410, 422}:
+        return FailureClass.PROVIDER_REQUEST
     if status == 429 or looks_like_quota_exhaustion(message):
         return FailureClass.QUOTA
     if _SEMANTIC_MARKERS.search(message):
@@ -93,26 +111,31 @@ def exclusion_for(failure: FailureClass, *, provider_id: str, model: str) -> dic
     La cuota se agota por cuenta, no por modelo, así que excluye el proveedor entero; una falla de
     transporte puede ser de un modelo puntual y solo excluye ese par.
     """
-    if failure is FailureClass.QUOTA:
+    if failure in {FailureClass.QUOTA, FailureClass.AUTHENTICATION}:
         return {"provider": provider_id, "model": "*"}
     return {"provider": provider_id, "model": model or "*"}
 
 
 def is_affordable_candidate(
-    decision: dict[str, Any], *, requires_approval_over_usd: float | None
+    decision: dict[str, Any], *, requires_approval_over_usd: float | None, allow_unknown_cost: bool = False
 ) -> tuple[bool, str]:
     """Decide si un candidato de reemplazo puede ejecutarse sin pedir aprobación humana.
 
-    Fail-closed en dos frentes. Sin umbral declarado en la política del rol no hay tope que
-    respetar, así que solo se acepta lo que no cuesta. Y un costo de precio desconocido nunca se
-    acepta: saltar de gratis a un precio que nadie puede acotar no es una decisión automatizable.
+    Sin umbral declarado sólo se acepta costo conocido gratuito. El costo desconocido
+    requiere autorización explícita de la política y un umbral positivo; conserva su
+    condición desconocida y no se presenta como gratuito ni como acotado por ese umbral.
 
     Returns:
         ``(aceptable, motivo)``; el motivo describe el rechazo cuando no lo es.
     """
-    if str(decision.get("costEstimateSource") or "") == "unknown_price":
+    if (
+        decision.get("estimatedCostUsd") is None
+        or str(decision.get("costEstimateSource") or "") == "unknown_price"
+    ):
+        if allow_unknown_cost and requires_approval_over_usd is not None and requires_approval_over_usd > 0:
+            return True, "unknown_cost_explicitly_allowed"
         return False, "unknown_price"
-    estimated = float(decision.get("estimatedCostUsd") or 0.0)
+    estimated = float(decision["estimatedCostUsd"])
     cost_tier = str(decision.get("costTier") or "")
     is_free = estimated <= 0.0 or cost_tier in {"free", "local"}
     if requires_approval_over_usd is None:

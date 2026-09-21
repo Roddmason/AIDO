@@ -359,7 +359,7 @@ export type QAAgentCommandRequest = { "argv": Array<string>; "critical"?: boolea
 export type QAAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "verdictSource": string };
 export type QAAgentRunRequest = { "commands"?: Array<QAAgentCommandRequest>; "metadata"?: JsonObject; "projectId": string; "taskId"?: string; "workspaceId": string };
 export type QAAgentRunResponse = { "agentRun": AgentRunRecord; "contract": QAAgentContract; "evidencePackage": JsonObject; "job": JsonObject; "reason": string; "results": Array<JsonObject>; "status": string; "verdict": string; "workspace": JsonObject };
-export type RemediationActionRecord = { "actionType": "open_settings_section" | "validate_runtime" | "switch_runtime" | "continue_plan_only" | "git_init" | "add_remote" | "create_branch" | "checkout_branch" | "run_gitleaks" | "run_worker_once" | "check_network_access" | "answer_question" | "approve_resource_decision" | "retry_loop" | "view_diff" | "save_patch"; "blockerType": "runtime_not_executable" | "runtime_auth_missing" | "runtime_output_invalid" | "git_not_initialized" | "git_dirty_tree" | "git_status_failed" | "git_branch_missing" | "git_remote_missing" | "gitleaks_missing" | "gitleaks_failed" | "qa_failed" | "po_needs_input" | "worker_not_running" | "provider_missing_credentials" | "provider_health_failed" | "resource_manager_unconfigured" | "resource_manager_privacy_blocked" | "resource_manager_approval_required" | "team_scheduler_failed" | "technical_lead_planning_failed" | "product_owner_output_invalid" | "research_required" | "workspace_root_missing" | "workspace_allocation_failed" | "review_diff_unavailable" | "approval_unavailable" | "resource_learning_failed" | "project_assessment_failed" | "functionality_memory_decision_required" | "thread_similarity_decision_required" | "thread_intake_decision_required"; "confirmationRequired"?: boolean; "createdAt": string; "description": string; "destructive"?: boolean; "id": string; "loopId": string; "payload": JsonObject; "primary"?: boolean; "projectId": string; "resolvedAt"?: null | string; "stage": string; "status": "pending" | "resolved" | "dismissed" | "failed"; "technicalReason"?: string; "threadId": string; "title": string };
+export type RemediationActionRecord = { "actionType": "approve_runtime_risk" | "open_settings_section" | "validate_runtime" | "switch_runtime" | "continue_plan_only" | "git_init" | "add_remote" | "create_branch" | "checkout_branch" | "run_gitleaks" | "run_worker_once" | "check_network_access" | "answer_question" | "approve_resource_decision" | "retry_loop" | "view_diff" | "save_patch"; "blockerType": "runtime_risk_review_required" | "decision_engine_unavailable" | "runtime_not_executable" | "runtime_execution_denied" | "runtime_execution_failed" | "runtime_auth_missing" | "runtime_output_invalid" | "git_not_initialized" | "git_dirty_tree" | "git_status_failed" | "git_branch_missing" | "git_remote_missing" | "gitleaks_missing" | "gitleaks_failed" | "qa_failed" | "po_needs_input" | "worker_not_running" | "provider_missing_credentials" | "provider_health_failed" | "resource_manager_unconfigured" | "resource_manager_privacy_blocked" | "resource_manager_approval_required" | "team_scheduler_failed" | "technical_lead_planning_failed" | "product_owner_output_invalid" | "research_required" | "workspace_root_missing" | "workspace_allocation_failed" | "review_diff_unavailable" | "approval_unavailable" | "resource_learning_failed" | "project_assessment_failed" | "functionality_memory_decision_required" | "thread_similarity_decision_required" | "thread_intake_decision_required"; "confirmationRequired"?: boolean; "createdAt": string; "description": string; "destructive"?: boolean; "id": string; "loopId": string; "payload": JsonObject; "primary"?: boolean; "projectId": string; "resolvedAt"?: null | string; "stage": string; "status": "pending" | "resolved" | "dismissed" | "failed"; "technicalReason"?: string; "threadId": string; "title": string };
 export type RemediationDismissResponse = { "remediation": RemediationActionRecord };
 export type RemediationExecuteRequest = { "payload"?: JsonObject };
 export type RemediationExecuteResponse = { "execution": JsonObject; "remediation": RemediationActionRecord };
@@ -599,6 +599,9 @@ export const API_ENDPOINTS = [
 	{"method": "DELETE", "operationId": "delete_credential_api_v1_credentials__credential_id__delete", "path": "/api/v1/credentials/{credential_id}", "summary": "Delete Credential"},
 	{"method": "POST", "operationId": "rotate_credential_api_v1_credentials__credential_id__rotate_post", "path": "/api/v1/credentials/{credential_id}/rotate", "summary": "Rotate Credential"},
 	{"method": "POST", "operationId": "validate_credential_api_v1_credentials__credential_id__validate_post", "path": "/api/v1/credentials/{credential_id}/validate", "summary": "Validate Credential"},
+	{"method": "GET", "operationId": "status_api_v1_decision_engine_get", "path": "/api/v1/decision-engine", "summary": "Status"},
+	{"method": "GET", "operationId": "decisions_api_v1_decision_engine_decisions_get", "path": "/api/v1/decision-engine/decisions", "summary": "Decisions"},
+	{"method": "GET", "operationId": "report_api_v1_decision_engine_report_get", "path": "/api/v1/decision-engine/report", "summary": "Report"},
 	{"method": "GET", "operationId": "events_api_v1_events_get", "path": "/api/v1/events", "summary": "Events"},
 	{"method": "GET", "operationId": "list_evidence_api_v1_evidence_get", "path": "/api/v1/evidence", "summary": "List Evidence"},
 	{"method": "POST", "operationId": "create_evidence_api_v1_evidence_post", "path": "/api/v1/evidence", "summary": "Create Evidence"},
@@ -901,6 +904,7 @@ export type OperationRequestBodies = {
 	"create_thread_api_v1_threads_post": ThreadCreateRequest,
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"database_status_api_v1_operations_database_get": never,
+	"decisions_api_v1_decision_engine_decisions_get": never,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1042,6 +1046,7 @@ export type OperationRequestBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": unknown,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": unknown,
+	"report_api_v1_decision_engine_report_get": never,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveRequest,
 	"resource_status_api_v1_operations_resources_get": never,
@@ -1074,6 +1079,7 @@ export type OperationRequestBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopStartRequest,
 	"start_session_api_v1_cli_sessions_post": CliSessionStartRequest,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStatusChangeRequest,
+	"status_api_v1_decision_engine_get": never,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": unknown,
 	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": unknown,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest,
@@ -1168,6 +1174,7 @@ export type OperationResponseBodies = {
 	"create_thread_api_v1_threads_post": ThreadDetailResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
+	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1309,6 +1316,7 @@ export type OperationResponseBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
+	"report_api_v1_decision_engine_report_get": JsonObject,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
@@ -1341,6 +1349,7 @@ export type OperationResponseBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ExecutionAccepted,
 	"start_session_api_v1_cli_sessions_post": ExecutionAccepted,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": ExecutionAccepted,
+	"status_api_v1_decision_engine_get": JsonObject,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": ExecutionAccepted,
 	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": ExecutionAccepted,
 	"sync_skills_api_v1_skills_sync_post": ExecutionAccepted,
@@ -1439,6 +1448,7 @@ export type OperationResultBodies = {
 	"create_thread_api_v1_threads_post": ThreadDetailResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
+	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1580,6 +1590,7 @@ export type OperationResultBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
+	"report_api_v1_decision_engine_report_get": JsonObject,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
@@ -1612,6 +1623,7 @@ export type OperationResultBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopResumeResponse,
 	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
+	"status_api_v1_decision_engine_get": JsonObject,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": OllamaSyncModelsResponse,
 	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": DiscoverModelsResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,
@@ -1681,6 +1693,9 @@ export const OPERATIONS_BY_ID = {
 	"delete_credential_api_v1_credentials__credential_id__delete": {"method": "DELETE", "operationId": "delete_credential_api_v1_credentials__credential_id__delete", "path": "/api/v1/credentials/{credential_id}", "summary": "Delete Credential"},
 	"rotate_credential_api_v1_credentials__credential_id__rotate_post": {"method": "POST", "operationId": "rotate_credential_api_v1_credentials__credential_id__rotate_post", "path": "/api/v1/credentials/{credential_id}/rotate", "summary": "Rotate Credential"},
 	"validate_credential_api_v1_credentials__credential_id__validate_post": {"method": "POST", "operationId": "validate_credential_api_v1_credentials__credential_id__validate_post", "path": "/api/v1/credentials/{credential_id}/validate", "summary": "Validate Credential"},
+	"status_api_v1_decision_engine_get": {"method": "GET", "operationId": "status_api_v1_decision_engine_get", "path": "/api/v1/decision-engine", "summary": "Status"},
+	"decisions_api_v1_decision_engine_decisions_get": {"method": "GET", "operationId": "decisions_api_v1_decision_engine_decisions_get", "path": "/api/v1/decision-engine/decisions", "summary": "Decisions"},
+	"report_api_v1_decision_engine_report_get": {"method": "GET", "operationId": "report_api_v1_decision_engine_report_get", "path": "/api/v1/decision-engine/report", "summary": "Report"},
 	"events_api_v1_events_get": {"method": "GET", "operationId": "events_api_v1_events_get", "path": "/api/v1/events", "summary": "Events"},
 	"list_evidence_api_v1_evidence_get": {"method": "GET", "operationId": "list_evidence_api_v1_evidence_get", "path": "/api/v1/evidence", "summary": "List Evidence"},
 	"create_evidence_api_v1_evidence_post": {"method": "POST", "operationId": "create_evidence_api_v1_evidence_post", "path": "/api/v1/evidence", "summary": "Create Evidence"},

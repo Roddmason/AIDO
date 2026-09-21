@@ -23,7 +23,7 @@ import pytest
 from local_control_center.agents.model_gateway import provider_instance
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.azure_openai import AzureOpenAIProvider
-from local_control_center.agents.providers.base import ModelRequest
+from local_control_center.agents.providers.base import ModelInfo, ModelRequest
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.app import create_app
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -310,6 +310,131 @@ def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_
     assert synced.status_code == 200
     assert "test-catalog-sync-token" not in synced.text
     assert [item["model"] for item in synced.json()["models"]] == ["remote-model"]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/api/v1/provider-accounts/openai_compatible/sync-models",
+        "/api/v1/model-gateway/providers/openai_compatible/discover-models",
+    ],
+    ids=["sync", "discover"],
+)
+@pytest.mark.parametrize("apply_pricing_snapshot", [False, True], ids=["direct", "pricing-snapshot"])
+def test_model_discovery_preserves_operator_selection_and_refreshes_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str, apply_pricing_snapshot: bool
+) -> None:
+    monkeypatch.setenv("AIDO_SELECTION_SYNC_KEY", "test-selection-sync-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_remote_provider(
+        client,
+        headers,
+        "openai_compatible",
+        base_url="https://provider.example.invalid/v1",
+        credential_ref="env:AIDO_SELECTION_SYNC_KEY",
+    )
+    discovered = [ModelInfo(providerId="openai_compatible", model="chosen/model", displayName="Original")]
+    monkeypatch.setattr(OpenAICompatibleProvider, "list_models", lambda _self: discovered)
+
+    initial = client.post(endpoint, headers=headers)
+    assert initial.status_code == 200
+    model_id = initial.json()["models"][0]["id"]
+    disabled = client.patch(
+        f"/api/v1/model-gateway/models/{model_id}", json={"enabled": False}, headers=headers
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["model"]["source"] == "operator_override"
+
+    if apply_pricing_snapshot:
+        snapshot = client.post(
+            "/api/v1/model-gateway/pricing-snapshots",
+            json={
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "inputPricePerMtok": 3.0,
+                "outputPricePerMtok": 4.0,
+                "applyToCatalog": True,
+            },
+            headers=headers,
+        )
+        assert snapshot.status_code == 201
+        catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+        priced = next(item for item in catalog if item["id"] == model_id)
+        assert priced["inputPricePerMtok"] == 3.0
+        assert priced["outputPricePerMtok"] == 4.0
+        assert priced["enabled"] is False
+        assert priced["source"] == "operator_override"
+
+    discovered[:] = [
+        ModelInfo(
+            providerId="openai_compatible",
+            model="chosen/model",
+            displayName="Updated",
+            contextWindow=32768,
+            supportsTools=True,
+        ),
+        ModelInfo(providerId="openai_compatible", model="new/model", displayName="New"),
+    ]
+    for _ in range(2):
+        refreshed = client.post(endpoint, headers=headers)
+        assert refreshed.status_code == 200
+        models = {item["model"]: item for item in refreshed.json()["models"]}
+        assert models["chosen/model"]["enabled"] is False
+        assert models["chosen/model"]["source"] == "operator_override"
+        assert models["chosen/model"]["displayName"] == "Updated"
+        assert models["chosen/model"]["contextWindow"] == 32768
+        assert models["chosen/model"]["supportsTools"] is True
+        assert models["new/model"]["enabled"] is True
+
+    enabled = client.patch(
+        f"/api/v1/model-gateway/models/{model_id}", json={"enabled": True}, headers=headers
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["model"]["enabled"] is True
+    refreshed = client.post(endpoint, headers=headers)
+    assert refreshed.status_code == 200
+    models = {item["model"]: item for item in refreshed.json()["models"]}
+    assert models["chosen/model"]["enabled"] is True
+    assert models["chosen/model"]["source"] == "operator_override"
+    catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+    persisted = next(item for item in catalog if item["id"] == model_id)
+    assert persisted["enabled"] is True
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_discovery_upsert_refreshes_pricing_without_overwriting_operator_enabled(
+    tmp_path: Path, enabled: bool
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        store = ProviderAccountStore(connection)
+        initial = store.upsert_model(
+            {
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "inputPricePerMtok": 1.0,
+                "outputPricePerMtok": 2.0,
+            }
+        )
+        store.patch_model(initial["id"], {"enabled": enabled})
+
+        refreshed = store.upsert_model(
+            {
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "enabled": not enabled,
+                "source": "provider",
+                "inputPricePerMtok": 3.0,
+                "outputPricePerMtok": 4.0,
+            },
+            preserve_operator_enabled=True,
+        )
+
+        assert refreshed["enabled"] is enabled
+        assert refreshed["source"] == "operator_override"
+        assert refreshed["inputPricePerMtok"] == 3.0
+        assert refreshed["outputPricePerMtok"] == 4.0
 
 
 def test_omniroute_sync_applies_catalog_exclusion_rule(

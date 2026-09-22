@@ -872,6 +872,20 @@ class JobsRepository:
         ).fetchone()
         return row_to_job(row) if row else None
 
+    def peek_oldest_queued_job(self, kinds: tuple[str, ...]) -> dict[str, Any] | None:
+        """Devuelve el job encolado más antiguo de esos tipos, ignorando la prioridad de reparación."""
+        placeholders = ",".join("?" for _ in kinds)
+        row = self.connection.execute(
+            f"""
+            SELECT * FROM jobs
+            WHERE status = 'queued' AND kind IN ({placeholders})
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT 1
+            """,
+            kinds,
+        ).fetchone()
+        return row_to_job(row) if row else None
+
     def requeue_expired_jobs(self, *, now_iso: str | None = None) -> list[dict[str, Any]]:
         """Recupera jobs `running` cuyo lease venció: los reencola y marca su run como `failed`.
 

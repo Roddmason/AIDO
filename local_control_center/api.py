@@ -325,7 +325,7 @@ def create_app(
         return platform.get_handshake()
 
     @app.get("/api/v1/overview", response_model=OverviewResponse)
-    async def overview() -> dict[str, Any]:
+    def overview() -> dict[str, Any]:
         return build_overview_from_connection(connection=platform.connection, cwd=platform.cwd)
 
     @app.get("/api/v1/telemetry/status", response_model=TelemetryStatusResponse)

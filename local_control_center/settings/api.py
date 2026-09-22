@@ -63,7 +63,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
 
     @router.get("/api/v1/settings", response_model=SettingsResponse)
-    async def get_settings(projectId: str | None = None) -> dict[str, Any]:
+    def get_settings(projectId: str | None = None) -> dict[str, Any]:
         """Return all resolved settings for both general and project scopes."""
         return resolve_settings(connection=platform.connection, project_id=projectId)
 

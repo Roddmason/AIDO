@@ -61,6 +61,41 @@ def test_overview_stays_responsive_while_an_api_operation_is_slow(tmp_path: Path
     assert elapsed < 0.3
 
 
+def test_healthz_is_served_while_the_overview_is_still_building(tmp_path: Path, monkeypatch) -> None:
+    import local_control_center.api as api_module
+
+    runtime = _runtime(tmp_path)
+    app = create_app(runtime=runtime, static_dir=None)
+    entered = threading.Event()
+    real_build = api_module.build_overview_from_connection
+
+    def slow_build(**kwargs):
+        entered.set()
+        time.sleep(1.5)
+        return real_build(**kwargs)
+
+    monkeypatch.setattr(api_module, "build_overview_from_connection", slow_build)
+    overview_responses = []
+    with TestClient(app) as client:
+        overview_thread = threading.Thread(
+            target=lambda: overview_responses.append(client.get("/api/v1/overview")),
+            name="p0-slow-overview",
+        )
+        overview_thread.start()
+        assert entered.wait(timeout=5)
+        started = time.perf_counter()
+        response = client.get("/healthz")
+        elapsed = time.perf_counter() - started
+        overview_still_building = overview_thread.is_alive()
+        overview_thread.join(timeout=10)
+
+    runtime.close()
+    assert response.status_code == 200
+    assert overview_still_building
+    assert elapsed < 0.5
+    assert overview_responses[0].status_code == 200
+
+
 def test_fastapi_does_not_own_an_in_process_worker(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     app = create_app(runtime=runtime, static_dir=None)

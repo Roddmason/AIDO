@@ -31,7 +31,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/team-activity",
         response_model=TeamActivityResponse,
     )
-    async def team_activity(project_id: str) -> dict[str, Any]:
+    def team_activity(project_id: str) -> dict[str, Any]:
         """Return the project's agent activity entries, in-flight work first."""
         return build_team_activity(connection=platform.connection, project_id=project_id)
 

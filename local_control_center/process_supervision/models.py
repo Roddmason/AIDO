@@ -56,6 +56,7 @@ class SupervisedProcess:
     watcher: threading.Thread | None = field(default=None, repr=False)
     resource_lease_id: str | None = None
     owns_resource_lease: bool = False
+    workload_class: WorkloadClass = "agent_cli"
     captures: dict[str, Any] = field(default_factory=dict, repr=False)
     capture_failure: threading.Event = field(default_factory=threading.Event, repr=False)
     containment_evidence: dict[str, Any] = field(default_factory=dict)

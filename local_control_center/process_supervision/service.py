@@ -373,6 +373,7 @@ class ProcessSupervisorService:
             )
             managed.resource_lease_id = lease.id
             managed.owns_resource_lease = inherited_id is None
+            managed.workload_class = workload_class
             managed.root_create_time = process_create_time(managed.process.pid)
             phase = "identity_persist"
             with closing(open_sqlite_connection(self.db_path)) as connection:
@@ -757,7 +758,10 @@ class ProcessSupervisorService:
                             float(_setting(SettingsRepository(connection), "resources.hardFreeMemoryGiB"))
                             * GIB
                         )
-                        if psutil.virtual_memory().available < floor:
+                        if (
+                            not workload_profile(managed.workload_class).essential
+                            and psutil.virtual_memory().available < floor
+                        ):
                             reason = "hard_memory_floor"
                         next_memory_check = time.monotonic() + 1
                         with managed.lock:

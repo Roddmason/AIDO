@@ -440,6 +440,39 @@ def test_hard_memory_floor_cancels_active_process_and_prevents_next_stage(tmp_pa
         service.complete(child, exit_code=child.process.poll())
 
 
+def test_hard_memory_floor_spares_essential_control_plane_process(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+
+    from local_control_center.process_supervision import service as module
+
+    backend = FakeSupervisor()
+    service = ProcessSupervisorService(
+        db_path=tmp_path / "runtime.sqlite",
+        backend=backend,
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
+    essential = service.start(
+        argv=[sys.executable, "--version"],
+        cwd=tmp_path,
+        execution_id="essential-memory-test",
+        workload_class="control_plane",
+    )
+    agent = service.start(argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="agent-memory-test")
+    monkeypatch.setattr(module.psutil, "virtual_memory", lambda: SimpleNamespace(available=1))
+    try:
+        deadline = time.monotonic() + 3
+        while agent.terminal_stats is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert agent.terminal_stats and agent.terminal_stats.termination_reason == "hard_memory_floor"
+        time.sleep(1.5)
+        assert essential.terminal_stats is None
+        assert essential.managed_process_id not in backend.terminated
+    finally:
+        service.complete(agent, exit_code=agent.process.poll())
+        service.complete(essential, exit_code=0)
+
+
 def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_domain_host) -> None:
     count = 1_200_000
     result = RestrictedSubprocessSandbox().execute(

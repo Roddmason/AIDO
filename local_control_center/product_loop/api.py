@@ -119,7 +119,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop",
         response_model=ProductLoopStateResponse,
     )
-    async def get_product_loop_state(project_id: str) -> dict[str, Any]:
+    def get_product_loop_state(project_id: str) -> dict[str, Any]:
         return product_loop_state(project_id)
 
     @router.get(

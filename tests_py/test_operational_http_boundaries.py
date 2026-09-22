@@ -67,6 +67,30 @@ def test_secret_mutations_never_wait_for_vault_on_the_asgi_event_loop(tmp_path):
         runtime.close()
 
 
+def test_polled_reads_with_sync_database_work_never_run_on_the_asgi_event_loop(tmp_path):
+    """El poller de la UI golpea estos GET cada ciclo; en el loop bloquean a todos los demás requests."""
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    try:
+        app = create_app(runtime=runtime, static_dir=None)
+        handlers = {
+            route.path: route.endpoint
+            for route in app.routes
+            if hasattr(route, "endpoint") and "GET" in getattr(route, "methods", set())
+        }
+        for path in (
+            "/api/v1/overview",
+            "/api/v1/workers/status",
+            "/api/v1/settings",
+            "/api/v1/i18n/catalog",
+            "/api/v1/projects/{project_id}/git/status",
+            "/api/v1/projects/{project_id}/product-loop",
+            "/api/v1/projects/{project_id}/team-activity",
+        ):
+            assert not inspect.iscoroutinefunction(handlers[path]), path
+    finally:
+        runtime.close()
+
+
 def test_heavy_remediation_is_queued_and_does_not_execute_git_in_http(tmp_path, monkeypatch):
     from local_control_center.remediations.service import BlockerRemediationService
 

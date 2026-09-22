@@ -27,7 +27,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return I18nRepository(platform.connection)
 
     @router.get("/api/v1/i18n/catalog", response_model=I18nCatalogResponse)
-    async def get_i18n_catalog() -> dict[str, Any]:
+    def get_i18n_catalog() -> dict[str, Any]:
         return commands.get_catalog(repository())
 
     @router.put("/api/v1/i18n/catalog", response_model=I18nCatalogResponse)

@@ -136,7 +136,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return status_snapshot()
 
     @router.get("/api/v1/workers/status", response_model=WorkerStatusResponse)
-    async def worker_status() -> dict[str, Any]:
+    def worker_status() -> dict[str, Any]:
         """Return the current local worker status."""
         return status_snapshot()
 

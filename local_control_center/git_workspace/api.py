@@ -109,7 +109,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(404, str(error)) from error
 
     @router.get("/api/v1/projects/{project_id}/git/status", response_model=GitStatusResponse)
-    async def git_status(project_id: str) -> dict[str, Any]:
+    def git_status(project_id: str) -> dict[str, Any]:
         return cached_snapshot(project_id, "snapshot")
 
     @router.get("/api/v1/projects/{project_id}/git/branches", response_model=GitBranchesResponse)

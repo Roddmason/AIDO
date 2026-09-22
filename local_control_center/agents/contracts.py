@@ -418,7 +418,8 @@ class RuntimeProviderStatus(BaseModel):
     last_checked_at: str | None = Field(default=None, alias="lastCheckedAt")
     compatibility: dict[str, Any] | None = None
     #: Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations:
-    #: ``runtime_auth_missing`` / ``runtime_not_executable``); ``None`` si está sano o no configurado.
+    #: ``runtime_auth_missing`` / ``runtime_not_executable``, más ``runtime_validation_expired`` para
+    #: una auth CLI que solo venció su TTL); ``None`` si está sano o no configurado.
     #: Deja que la UI muestre el mismo chip accionable que un bloqueo de loop sin duplicar la causa.
     blocker_type: str | None = Field(default=None, alias="blockerType")
     #: Comando exacto de login interactivo del runtime, vacio si no tiene uno. La UI lo ofrece

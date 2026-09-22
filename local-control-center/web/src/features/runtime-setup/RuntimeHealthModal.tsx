@@ -18,16 +18,94 @@ import { BLOCKER_COPY } from '../shell/remediationPresentation';
 
 type BlockerCopyKey = keyof typeof BLOCKER_COPY;
 
+/**
+ * Runtime-only blocker: a CLI sign-in that was verified and whose check merely expired. It is not a
+ * loop blocker, so it lives here instead of the remediation vocabulary, and its fix is revalidating.
+ */
+const VALIDATION_EXPIRED_BLOCKER = 'runtime_validation_expired';
+const VALIDATION_EXPIRED_COPY = {
+	titleKey: 'app.runtime.health.blocker.runtime_validation_expired.title',
+	titleFallback: 'Runtime validation expired',
+	explanationKey: 'app.runtime.health.blocker.runtime_validation_expired.explanation',
+	explanationFallback:
+		"This runtime's sign-in was already verified, but that check expired. Revalidate it; you do not need to sign in again.",
+	impactKey: 'app.runtime.health.blocker.runtime_validation_expired.impact',
+	impactFallback: 'Agent steps that use this runtime wait until it is revalidated.',
+	settingsLabelKey: 'app.threads.remediation.action.validateRuntime',
+	settingsLabelFallback: 'Revalidate runtime',
+};
+
+/**
+ * Plain-language text for the machine reason codes the readiness projection joins into `reason`.
+ * Host-capacity codes say the machine lacks room, so they never read as a configuration problem.
+ */
+const REASON_COPY = new Map<string, { key: string; fallback: string }>([
+	[
+		'health_check_required',
+		{
+			key: 'app.runtime.health.reason.health_check_required',
+			fallback: 'The runtime has not passed a recent health check.',
+		},
+	],
+	[
+		'minimum_free_memory',
+		{
+			key: 'app.runtime.health.reason.minimum_free_memory',
+			fallback:
+				'This machine does not have enough free RAM right now; this is not a configuration problem.',
+		},
+	],
+	[
+		'hard_memory_floor',
+		{
+			key: 'app.runtime.health.reason.hard_memory_floor',
+			fallback:
+				"This machine's free RAM is below its safety floor; this is not a configuration problem.",
+		},
+	],
+	[
+		'aggregate_memory_budget',
+		{
+			key: 'app.runtime.health.reason.aggregate_memory_budget',
+			fallback:
+				"The AI work already running uses this machine's whole RAM budget; this is not a configuration problem.",
+		},
+	],
+	[
+		'minimum_free_disk',
+		{
+			key: 'app.runtime.health.reason.minimum_free_disk',
+			fallback:
+				'This machine does not have enough free disk space; this is not a configuration problem.',
+		},
+	],
+]);
+
+/** Renders a comma-joined list of reason codes as text, keeping unknown codes (and prose) verbatim. */
+function describeReason(reason: string, t: (key: string, fallback?: string) => string): string {
+	const codes = reason.split(', ');
+	if (!codes.some((code) => REASON_COPY.has(code))) return reason;
+	return codes
+		.map((code) => {
+			const copy = REASON_COPY.get(code);
+			return copy ? t(copy.key, copy.fallback) : code;
+		})
+		.join(' ');
+}
+
 export function RuntimeHealthModal({
 	open,
 	onClose,
 	alerts,
 	onOpenSettings,
+	onRevalidate,
 }: {
 	open: boolean;
 	onClose: () => void;
 	alerts: RuntimeHealthAlert[];
 	onOpenSettings: (section: string, providerId: string) => void;
+	/** Re-runs the runtime's health check; the primary action of an expired validation. */
+	onRevalidate: (providerId: string) => void;
 }) {
 	const { t } = useI18n();
 
@@ -40,9 +118,12 @@ export function RuntimeHealthModal({
 					</p>
 				) : (
 					alerts.map((alert) => {
-						const copy = BLOCKER_COPY[alert.blockerType as BlockerCopyKey];
+						const revalidates = alert.blockerType === VALIDATION_EXPIRED_BLOCKER;
+						const copy = revalidates
+							? VALIDATION_EXPIRED_COPY
+							: BLOCKER_COPY[alert.blockerType as BlockerCopyKey];
 						const causeText =
-							alert.reason ||
+							describeReason(alert.reason, t) ||
 							t('app.runtime.health.causeUnknown', 'The runtime reported no further detail.');
 						return (
 							<article key={alert.providerId} className="thread-remediation-card">
@@ -86,7 +167,11 @@ export function RuntimeHealthModal({
 								<div className="thread-remediation-actions">
 									<Button
 										className="thread-remediation-primary"
-										onClick={() => onOpenSettings(alert.settingsSection, alert.providerId)}
+										onClick={() =>
+											revalidates
+												? onRevalidate(alert.providerId)
+												: onOpenSettings(alert.settingsSection, alert.providerId)
+										}
 									>
 										{t(
 											copy?.settingsLabelKey ?? 'app.runtime.health.openSettings',

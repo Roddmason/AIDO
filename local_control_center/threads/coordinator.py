@@ -530,6 +530,32 @@ class ThreadCoordinator:
                     action=resolution_mode,
                 )
                 thread = self.repository.set_status(thread_id, "resolved")
+            elif (
+                can_resume_decision
+                and source_message is not None
+                and resolution_mode == "research"
+                and not functionality_decision
+            ):
+                forced_decision = self._decision_for_resolution(decision, resolution)
+                queued_job = self._queue_research_run(
+                    thread=current,
+                    message=source_message,
+                    content=source_message["content"],
+                    decision=forced_decision,
+                    team_plan=self._team_plan(forced_decision),
+                )
+                self.repository.record_event(
+                    thread_id=thread_id,
+                    type="research_running",
+                    agent_role="researcher",
+                    payload={
+                        "jobId": queued_job["id"],
+                        "messageId": source_message["id"],
+                        "decisionId": decision_id,
+                        "status": queued_job["status"],
+                    },
+                )
+                thread = self.repository.set_status(thread_id, "queued")
             elif can_resume_decision and source_message is not None:
                 forced_decision = self._decision_for_resolution(decision, resolution)
                 team_plan = self._team_plan(forced_decision)
@@ -996,8 +1022,11 @@ class ThreadCoordinator:
     def _decision_for_resolution(decision: dict[str, Any], resolution: str) -> IntentClassification:
         metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
         resolution_mode = ThreadCoordinator._resolution_mode(resolution)
+        intents = _metadata_list(metadata, "intents", ["feature"])
+        if resolution_mode == "research" and "research" not in intents:
+            intents = [*intents, "research"]
         return IntentClassification(
-            intents=_metadata_list(metadata, "intents", ["feature"]),
+            intents=intents,
             risk=_metadata_text(metadata, "risk", "low"),
             required_roles=_metadata_list(metadata, "requiredRoles", ["product_owner", "technical_lead"]),
             required_gates=_metadata_list(metadata, "requiredGates", ["implementation_plan"]),

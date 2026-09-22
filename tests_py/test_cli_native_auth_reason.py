@@ -91,3 +91,27 @@ def test_fresh_validation_authenticates_and_explains_success() -> None:
 
     assert status["authenticated"] is True
     assert "authenticated" in status["reason"].lower()
+
+
+def test_expired_validation_asks_for_revalidation_not_for_login() -> None:
+    """Una validación vencida no es falta de login: blocker propio y sin comando de sign-in."""
+    status = _status(
+        _account(
+            health_status="healthy",
+            validated_seconds_ago=CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS * 20,
+            probe=LOGGED_IN_PROBE,
+        )
+    )
+
+    assert status["blockerType"] == "runtime_validation_expired"
+    assert status["loginCommand"] == "", "pedir login a un operador con sesión iniciada es la contradicción"
+
+
+def test_missing_login_keeps_auth_blocker_and_login_command() -> None:
+    """Cuando el sondeo dijo que no hay sesión, sí corresponde pedir login con su comando."""
+    status = _status(
+        _account(health_status="unauthenticated", validated_seconds_ago=None, probe=LOGGED_OUT_PROBE)
+    )
+
+    assert status["blockerType"] == "runtime_auth_missing"
+    assert status["loginCommand"]

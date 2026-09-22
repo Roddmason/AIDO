@@ -481,6 +481,7 @@ def _cli_provider_status(
     executable = (
         can_edit_workspace if str(account["providerId"]) in CODE_EDIT_GATED_RUNTIME_IDS else can_run_prompt
     )
+    validation_expired = False
     if not configured and configuration is not None:
         reason = (
             f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
@@ -494,6 +495,7 @@ def _cli_provider_status(
     elif not account_enabled:
         reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
     elif not authenticated:
+        validation_expired = _native_auth_validation_expired(runtime_account)
         reason = _unauthenticated_cli_reason(runtime_account)
     elif not policy_allowed:
         reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
@@ -532,7 +534,9 @@ def _cli_provider_status(
         health_checked_at=(runtime_account or {}).get("lastValidationAt"),
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
-        login_command="" if authenticated else _cli_login_command(str(account["providerId"])),
+        login_command=""
+        if authenticated or validation_expired
+        else _cli_login_command(str(account["providerId"])),
         required_configuration=["command", "authentication"],
         configuration_warnings=_configuration_warnings(
             configuration,
@@ -542,6 +546,8 @@ def _cli_provider_status(
         # Approval is contextual (resource/cost/risk policy), not an intrinsic provider property.
         requires_approval=False,
     )
+    if validation_expired:
+        payload["blockerType"] = "runtime_validation_expired"
     if issue_to_patch_argv is not None:
         payload["issueToPatchArgv"] = issue_to_patch_argv
     if issue_to_patch_argv_error:
@@ -680,7 +686,7 @@ def _unauthenticated_cli_reason(runtime_account: dict[str, Any] | None) -> str:
     que no hay sesión, ese mensaje sigue siendo la explicación correcta y se conserva.
     """
     account = runtime_account or {}
-    if account.get("healthStatus") == "healthy" and account.get("lastValidationAt"):
+    if _native_auth_validation_expired(account):
         return (
             "Native CLI authentication was validated earlier and that validation expired; the "
             "runtime needs to be revalidated, not re-authenticated."
@@ -690,6 +696,16 @@ def _unauthenticated_cli_reason(runtime_account: dict[str, Any] | None) -> str:
         probe_message
         or "CLI runtime version check passed but native CLI authentication has not been validated."
     )
+
+
+def _native_auth_validation_expired(runtime_account: dict[str, Any] | None) -> bool:
+    """Indica si la auth nativa se validó con éxito y solo venció su TTL: pide revalidar, no login.
+
+    Solo tiene sentido para una cuenta que ya no cuenta como autenticada; ahí distingue el sondeo
+    exitoso vencido (``healthy`` con ``lastValidationAt``) de la falta real de credenciales.
+    """
+    account = runtime_account or {}
+    return account.get("healthStatus") == "healthy" and bool(account.get("lastValidationAt"))
 
 
 def _native_auth_validation_is_fresh(last_validation_at: Any) -> bool:

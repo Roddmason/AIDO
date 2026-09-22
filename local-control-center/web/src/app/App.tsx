@@ -8,6 +8,7 @@
  */
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { healthCheckModelGatewayCliRuntime } from '../api/client';
 import { ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
 import { RuntimeHealthModal } from '../features/runtime-setup/RuntimeHealthModal';
@@ -387,6 +388,12 @@ export function App() {
 				onOpenSettings={(section, providerId) => {
 					setRuntimeHealthOpen(false);
 					openSettings(section, providerId);
+				}}
+				onRevalidate={(providerId) => {
+					// mutate() already surfaces a failed probe as the control-plane error banner.
+					void state
+						.mutate((token) => healthCheckModelGatewayCliRuntime(token, providerId))
+						.catch(() => undefined);
 				}}
 			/>
 		</>

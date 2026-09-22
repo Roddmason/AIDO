@@ -13599,6 +13599,38 @@
     "app.settings.resources.minFreeDiskPercent": {
       "en": "Minimum free disk (% of the volume)",
       "es": "Disco libre minimo (% del volumen)"
+    },
+    "app.runtime.health.blocker.runtime_validation_expired.title": {
+      "en": "Runtime validation expired",
+      "es": "Validación del runtime vencida"
+    },
+    "app.runtime.health.blocker.runtime_validation_expired.explanation": {
+      "en": "This runtime's sign-in was already verified, but that check expired. Revalidate it; you do not need to sign in again.",
+      "es": "El inicio de sesión de este runtime ya se verificó, pero esa verificación venció. Revalídalo; no necesitas volver a iniciar sesión."
+    },
+    "app.runtime.health.blocker.runtime_validation_expired.impact": {
+      "en": "Agent steps that use this runtime wait until it is revalidated.",
+      "es": "Los pasos de agente que usan este runtime esperan hasta que se revalide."
+    },
+    "app.runtime.health.reason.health_check_required": {
+      "en": "The runtime has not passed a recent health check.",
+      "es": "El runtime no ha aprobado un chequeo de salud reciente."
+    },
+    "app.runtime.health.reason.minimum_free_memory": {
+      "en": "This machine does not have enough free RAM right now; this is not a configuration problem.",
+      "es": "Este equipo no tiene suficiente RAM libre en este momento; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.hard_memory_floor": {
+      "en": "This machine's free RAM is below its safety floor; this is not a configuration problem.",
+      "es": "La RAM libre de este equipo está bajo su piso de seguridad; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.aggregate_memory_budget": {
+      "en": "The AI work already running uses this machine's whole RAM budget; this is not a configuration problem.",
+      "es": "El trabajo de IA en curso ya ocupa todo el presupuesto de RAM de este equipo; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.minimum_free_disk": {
+      "en": "This machine does not have enough free disk space; this is not a configuration problem.",
+      "es": "Este equipo no tiene suficiente espacio libre en disco; no es un problema de configuración."
     }
   }
 }

@@ -1913,6 +1913,17 @@ export function detectModelGatewayCliRuntime(token: string, runtimeId: string) {
 	);
 }
 
+/** Re-runs the CLI health check, which also refreshes the runtime's native-auth validation. */
+export function healthCheckModelGatewayCliRuntime(token: string, runtimeId: string) {
+	return requestGeneratedOperation(
+		'health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post',
+		{
+			token,
+			pathParams: { runtime_id: runtimeId },
+		},
+	);
+}
+
 export function getModelGatewayCliSessions(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_cli_sessions_api_v1_model_gateway_cli_sessions_get', {
 		signal,

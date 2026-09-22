@@ -551,6 +551,61 @@ def test_resolve_decision_queues_original_message_for_execution(tmp_path: Path) 
         assert job["payload"]["runMetadata"]["userMode"] == "implementation"
 
 
+def test_resolving_intake_decision_with_research_queues_research_run(tmp_path: Path) -> None:
+    """Responder 'Research' a la decisión de intake debe encolar el ResearchAgent como el intake,
+    no un product loop de implementación con el modo guardado como dato inerte."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+
+        blocked = coordinator.post_message(
+            thread_id=thread["id"],
+            content="help",
+            project_assessment=RUNTIME_AVAILABLE,
+        )
+
+        resolved = coordinator.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=blocked["decision"]["id"],
+            resolution="Research",
+            decided_by="user",
+        )
+
+        assert resolved["thread"]["status"] == "queued"
+        jobs = JobsRepository(connection).list_jobs(thread["projectId"])
+        assert [job["kind"] for job in jobs] == ["thread.research.run"]
+        assert resolved["job"]["id"] == jobs[0]["id"]
+        assert jobs[0]["payload"]["query"] == "help"
+        assert "research" in jobs[0]["payload"]["decision"]["intents"]
+        events = ThreadsRepository(connection).list_events(thread["id"])
+        assert [event["type"] for event in events][-2:] == ["decision_resolved", "research_running"]
+
+
+def test_resolving_intake_decision_with_implementation_keeps_product_loop(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+
+        blocked = coordinator.post_message(
+            thread_id=thread["id"],
+            content="help",
+            project_assessment=RUNTIME_AVAILABLE,
+        )
+
+        coordinator.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=blocked["decision"]["id"],
+            resolution="Implementation",
+            decided_by="user",
+        )
+
+        jobs = JobsRepository(connection).list_jobs(thread["projectId"])
+        assert [job["kind"] for job in jobs] == ["thread.product_loop.run"]
+        assert "research" not in jobs[0]["payload"]["decision"]["intents"]
+
+
 def test_resolving_functionality_blocker_decision_requeues_blocked_thread(tmp_path: Path) -> None:
     """Reproduce el loop bloqueado sin salida: el gate de funcionalidad existente deja el hilo en
     'blocked' (la transición del run pisa 'waiting_decision') y resolver la decisión debe reencolar

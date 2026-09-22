@@ -84,6 +84,7 @@ import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 import { GitBranchBar } from './GitBranchBar';
 import { ThreadExecutionPanel } from './ThreadExecutionPanel';
+import { ownerIdForProject } from './threadOwner';
 import {
 	arrayValue,
 	isRecord,
@@ -137,12 +138,6 @@ type ResearchCardPayload = {
 	sources?: ResearchSourcePayload[];
 	discrepancies?: Array<Record<string, unknown>>;
 };
-
-/** Resolves the workspace owner id for a brand-new thread: the project's runtime workspace if any. */
-function ownerIdForProject(overview: Overview, project: Project): string {
-	const workspace = overview.runtimeWorkspaces.find((entry) => entry.projectId === project.id);
-	return workspace?.id ?? project.id;
-}
 
 type ConversationPhase = 'no-project' | 'new' | 'loading' | 'error' | 'live';
 

@@ -1524,3 +1524,164 @@ def test_thread_detail_keeps_only_the_most_recent_tail(tmp_path, monkeypatch) ->
         assert events == [3, 4, 5]
     finally:
         runtime.close()
+
+
+def _insert_workspace(
+    runtime,
+    *,
+    workspace_id: str,
+    project_id: str,
+    path: str,
+    status: str = "ready",
+    isolation_type: str = "directory",
+    owner_agent_id: str = "git_workspace_agent",
+) -> None:
+    now = "2026-09-22T00:00:00+00:00"
+    runtime.connection.execute(
+        """
+        INSERT INTO workspaces
+            (id, project_id, task_id, owner_agent_id, path, status, isolation_type,
+             metadata, created_at, updated_at, archived_at)
+        VALUES (?, ?, 'task', ?, ?, ?, ?, '{}', ?, ?, ?)
+        """,
+        (
+            workspace_id,
+            project_id,
+            owner_agent_id,
+            path,
+            status,
+            isolation_type,
+            now,
+            now,
+            now if status == "archived" else None,
+        ),
+    )
+
+
+def _project_path(runtime, project_id: str) -> str:
+    row = runtime.connection.execute("SELECT path FROM projects WHERE id = ?", (project_id,)).fetchone()
+    return str(row["path"])
+
+
+def _create_owned_thread(client, headers, project_id: str, owner_id: str) -> dict:
+    response = client.post(
+        "/api/v1/threads",
+        headers=headers,
+        json={"projectId": project_id, "ownerType": "workspace", "ownerId": owner_id, "title": "Owned"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["thread"]
+
+
+def _seed_root_and_archived_prompt_workspace(runtime, tmp_path: Path, project_id: str) -> None:
+    _insert_workspace(
+        runtime,
+        workspace_id="workspace-root",
+        project_id=project_id,
+        path=_project_path(runtime, project_id) + "/",
+    )
+    _insert_workspace(
+        runtime,
+        workspace_id="workspace-prompt",
+        project_id=project_id,
+        path=str(tmp_path / "prompt-workspaces" / "po"),
+        status="archived",
+        owner_agent_id="product_owner_agent",
+    )
+
+
+def test_create_thread_remaps_archived_workspace_owner_to_project_root(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        _seed_root_and_archived_prompt_workspace(runtime, tmp_path, project_id)
+
+        thread = _create_owned_thread(client, _token(runtime), project_id, "workspace-prompt")
+
+        assert thread["ownerId"] == "workspace-root"
+    finally:
+        runtime.close()
+
+
+def test_create_thread_remaps_foreign_project_workspace_owner_to_project_root(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        _seed_root_and_archived_prompt_workspace(runtime, tmp_path, project_id)
+        other = ProjectsRepository(runtime.connection).create_project(
+            name="Other", path=tmp_path / "other", template_id="other"
+        )
+        _insert_workspace(
+            runtime, workspace_id="workspace-foreign", project_id=other["id"], path=str(tmp_path / "other")
+        )
+
+        thread = _create_owned_thread(client, _token(runtime), project_id, "workspace-foreign")
+
+        assert thread["ownerId"] == "workspace-root"
+    finally:
+        runtime.close()
+
+
+def test_create_thread_keeps_live_same_project_workspace_owner(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        _seed_root_and_archived_prompt_workspace(runtime, tmp_path, project_id)
+        _insert_workspace(
+            runtime,
+            workspace_id="workspace-worktree",
+            project_id=project_id,
+            path=str(tmp_path / "threads" / ".aido" / "workspaces" / "wt"),
+            isolation_type="git_worktree",
+            owner_agent_id="developer_agent",
+        )
+
+        thread = _create_owned_thread(client, _token(runtime), project_id, "workspace-worktree")
+
+        assert thread["ownerId"] == "workspace-worktree"
+    finally:
+        runtime.close()
+
+
+def test_create_thread_keeps_owner_when_project_has_no_root_workspace(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _project(runtime, tmp_path)
+        _insert_workspace(
+            runtime,
+            workspace_id="workspace-prompt",
+            project_id=project_id,
+            path=str(tmp_path / "prompt-workspaces" / "po"),
+            status="archived",
+            owner_agent_id="product_owner_agent",
+        )
+
+        thread = _create_owned_thread(client, _token(runtime), project_id, "workspace-prompt")
+
+        assert thread["ownerId"] == "workspace-prompt"
+    finally:
+        runtime.close()
+
+
+def test_research_run_for_remapped_thread_targets_project_root_workspace(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        _seed_root_and_archived_prompt_workspace(runtime, tmp_path, project_id)
+        thread = _create_owned_thread(client, headers, project_id, "workspace-prompt")
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/messages",
+            headers=headers,
+            json={"content": "Research official API documentation for runtime provider setup."},
+        )
+
+        assert response.status_code == 200, response.text
+        row = runtime.connection.execute(
+            "SELECT payload FROM jobs WHERE kind = 'thread.research.run' AND project_id = ?",
+            (project_id,),
+        ).fetchone()
+        assert json.loads(row["payload"])["workspaceId"] == "workspace-root"
+    finally:
+        runtime.close()

@@ -12,6 +12,7 @@ limpia todo contenido libre antes de persistirlo.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import uuid
 from contextlib import nullcontext
@@ -33,10 +34,16 @@ from local_control_center.threads.contracts import (
 # allowlist so the table name can never reach the SQL string from anywhere but this module.
 _SEQUENCE_TABLES = frozenset({"thread_messages", "thread_agent_events"})
 _ACTIVE_DELETE_BLOCKING_STATUSES = frozenset({"queued", "running"})
+_UNUSABLE_WORKSPACE_STATUSES = ("archived", "deleted")
 
 
 class ThreadLifecycleError(ValueError):
     """Error de lifecycle que debe mapearse a conflicto HTTP cuando bloquea una mutacion valida."""
+
+
+def _comparable_path(path: str) -> str:
+    """Normaliza una ruta para compararla: separadores, barra final y mayúsculas según el SO."""
+    return os.path.normcase(os.path.normpath(str(path)))
 
 
 def row_to_thread(row: sqlite3.Row) -> dict[str, Any]:
@@ -191,6 +198,43 @@ class ThreadsRepository:
         )
         self._index_thread(thread_id)
         return self.get_thread(thread_id)
+
+    def resolve_workspace_owner_id(self, *, project_id: str, owner_id: str) -> str:
+        """Devuelve el workspace dueño utilizable para un hilo nuevo del proyecto.
+
+        Un ``owner_id`` que apunta a un workspace vivo del mismo proyecto se respeta (intención
+        explícita del cliente). Si no existe, está archivado/eliminado o pertenece a otro proyecto,
+        se reemplaza por el workspace raíz del proyecto (vivo y con la misma ruta que el proyecto),
+        porque ese id viaja luego como ``workspaceId`` de los runs del hilo. Sin raíz se conserva
+        ``owner_id`` tal cual: no se inventan workspaces.
+        """
+        owner = self.connection.execute(
+            "SELECT project_id, status, archived_at FROM workspaces WHERE id = ?", (owner_id,)
+        ).fetchone()
+        if (
+            owner
+            and owner["project_id"] == project_id
+            and owner["status"] not in _UNUSABLE_WORKSPACE_STATUSES
+            and owner["archived_at"] is None
+        ):
+            return owner_id
+        return self._project_root_workspace_id(project_id) or owner_id
+
+    def _project_root_workspace_id(self, project_id: str) -> str | None:
+        project = self.connection.execute("SELECT path FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            return None
+        placeholders = ",".join("?" for _ in _UNUSABLE_WORKSPACE_STATUSES)
+        rows = self.connection.execute(
+            f"""
+            SELECT id, path FROM workspaces
+            WHERE project_id = ? AND archived_at IS NULL AND status NOT IN ({placeholders})
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (project_id, *_UNUSABLE_WORKSPACE_STATUSES),
+        ).fetchall()
+        project_path = _comparable_path(project["path"])
+        return next((row["id"] for row in rows if _comparable_path(row["path"]) == project_path), None)
 
     def get_thread(self, thread_id: str) -> dict[str, Any]:
         """Devuelve un hilo por id o lanza ``KeyError`` si no existe."""

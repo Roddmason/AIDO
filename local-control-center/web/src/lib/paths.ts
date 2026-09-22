@@ -42,3 +42,14 @@ export function joinLocalPath(basePath: string, directoryName: string): string {
 	const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/';
 	return `${base}${separator}${child}`;
 }
+
+/** Compare two local paths ignoring case, separator style and trailing separators (Windows-safe). */
+export function samePath(left: string, right: string): boolean {
+	const normalize = (value: string) =>
+		value
+			.trim()
+			.replace(/[\\/]+/g, '/')
+			.replace(/\/+$/g, '')
+			.toLowerCase();
+	return normalize(left) === normalize(right);
+}

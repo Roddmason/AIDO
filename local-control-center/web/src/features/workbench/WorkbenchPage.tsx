@@ -46,6 +46,7 @@ import {
 import { useI18n } from '../../i18n/I18nProvider';
 import { formatTime, shortId, toneForStatus } from '../../lib/format';
 import { GitBranchBar } from '../shell/GitBranchBar';
+import { ownerIdForProject } from '../shell/threadOwner';
 import { TeamActivityPanel } from '../team-activity/TeamActivityPanel';
 import type { ComposerDraft } from './composerDraft';
 import { clearComposerDraft, persistComposerDraft, readComposerDraft } from './composerDraft';
@@ -107,11 +108,6 @@ function deriveTitle(prompt: string): string {
 	const head = prompt.trim().split(/\r?\n/)[0] ?? '';
 	if (!head) return '';
 	return head.slice(0, 96);
-}
-
-function ownerIdForProject(overview: Overview, project: Project): string {
-	const workspace = overview.runtimeWorkspaces.find((entry) => entry.projectId === project.id);
-	return workspace?.id ?? project.id;
 }
 
 /**

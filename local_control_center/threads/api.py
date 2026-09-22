@@ -129,11 +129,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def create_thread(body: ThreadCreateRequest, request: Request) -> dict[str, Any]:
         """Crea un hilo enlazado a una entidad dueña del proyecto y devuelve su detalle vacío."""
         require_write(request)
+        repo = repository()
+        owner_id = body.owner_id
+        if body.owner_type == "workspace":
+            owner_id = repo.resolve_workspace_owner_id(project_id=body.project_id, owner_id=owner_id)
         try:
-            thread = repository().create_thread(
+            thread = repo.create_thread(
                 project_id=body.project_id,
                 owner_type=body.owner_type,
-                owner_id=body.owner_id,
+                owner_id=owner_id,
                 title=body.title,
             )
         except ValueError as error:

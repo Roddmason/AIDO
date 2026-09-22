@@ -105,6 +105,98 @@ def test_control_operation_can_repair_an_older_queued_conversation(tmp_path):
         runtime.close()
 
 
+def _denied_runtime_preflight():
+    from local_control_center.workers.runtime import WorkerPreflight
+
+    return WorkerPreflight(
+        False,
+        "No executable runtime is available for local worker execution.",
+        [],
+        None,
+        "runtime",
+        {"executable": False, "status": "configuration_required"},
+    )
+
+
+def _queue_repair_operation(client: TestClient, runtime, tmp_path: Path) -> str:
+    response = client.post(
+        "/api/v1/projects",
+        headers=_headers(runtime),
+        json={
+            "name": "Repair project",
+            "path": str(tmp_path / "repair"),
+            "templateId": "other",
+            "createDirectory": True,
+        },
+    )
+    assert response.status_code == 202, response.text
+    return response.json()["executionId"]
+
+
+def _thread_worker_failures(connection, thread_id: str) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in ThreadsRepository(connection).list_events(thread_id)
+        if event["type"] == "worker_failed"
+    ]
+
+
+def test_starved_conversation_surfaces_preflight_failure_while_repair_runs(monkeypatch, tmp_path):
+    runtime, client = _client(tmp_path)
+    worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)
+    calls = []
+    try:
+        project = _project(runtime, tmp_path)
+        thread = _thread(client, runtime, project["id"])
+        thread_job_id = _queue_thread_job(client, runtime, thread["id"])
+        operation_id = _queue_repair_operation(client, runtime, tmp_path)
+        assert JobsRepository(runtime.connection).peek_next_job()["id"] == operation_id
+        client.post("/api/v1/workers/run-once", headers=_headers(runtime))
+        monkeypatch.setattr(worker, "_govern_resources_if_due", lambda: True)
+        monkeypatch.setattr(worker, "_ensure_leadership_watcher", lambda: None)
+        monkeypatch.setattr(worker, "_refresh_runtime_health_if_due", lambda: None)
+
+        def deny():
+            calls.append("preflight")
+            return _denied_runtime_preflight()
+
+        def repair_batch(**_kwargs):
+            calls.append("batch")
+            worker._stop_event.set()
+
+        monkeypatch.setattr(worker, "preflight", deny)
+        monkeypatch.setattr(worker, "_run_batch_once", repair_batch)
+        worker.run_forever()
+        assert calls == ["preflight", "batch"]
+        failures = _thread_worker_failures(runtime.connection, thread["id"])
+        assert len(failures) == 1
+        assert failures[0]["payload"]["jobId"] == thread_job_id
+        assert "runtime" in failures[0]["payload"]["reason"].lower()
+        assert JobsRepository(runtime.connection).get_job(thread_job_id)["status"] == "queued"
+        assert ("runtime_not_executable", "run_worker_once") in _pending_remediation_actions(
+            runtime.connection, thread["id"]
+        )
+    finally:
+        worker.stop(reason="isolated starved conversation preflight test")
+        runtime.close()
+
+
+def test_starved_conversation_preflight_failure_is_recorded_once_per_reason(monkeypatch, tmp_path):
+    runtime, client = _client(tmp_path)
+    worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)
+    try:
+        project = _project(runtime, tmp_path)
+        thread = _thread(client, runtime, project["id"])
+        _queue_thread_job(client, runtime, thread["id"])
+        _queue_repair_operation(client, runtime, tmp_path)
+        monkeypatch.setattr(worker, "preflight", _denied_runtime_preflight)
+
+        assert [worker._queued_job_preflight() for _ in range(3)] == [True, True, True]
+        assert len(_thread_worker_failures(runtime.connection, thread["id"])) == 1
+    finally:
+        runtime.close()
+
+
 def test_external_worker_never_downgrades_a_lost_fence_to_unfenced_claim(monkeypatch, tmp_path):
     runtime, client = _client(tmp_path)
     worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)

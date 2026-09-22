@@ -122,6 +122,7 @@ class LocalWorkerRuntime:
         self._last_run_at: str | None = None
         self._last_idle_at: str | None = None
         self._last_error: str | None = None
+        self._last_starved_preflight: tuple[str, str] | None = None
         self._claimed_jobs = 0
         self._completed_runs = 0
         self._failed_runs = 0
@@ -324,9 +325,15 @@ class LocalWorkerRuntime:
             THREAD_RESEARCH_JOB_KIND,
         )
 
+        thread_kinds = (THREAD_PRODUCT_LOOP_JOB_KIND, THREAD_RESEARCH_JOB_KIND)
         with closing(open_sqlite_connection(self.db_path)) as connection:
-            job = JobsRepository(connection).peek_next_job()
-        if not job or job["kind"] not in {THREAD_PRODUCT_LOOP_JOB_KIND, THREAD_RESEARCH_JOB_KIND}:
+            jobs = JobsRepository(connection)
+            job = jobs.peek_next_job()
+            head_is_thread = bool(job) and job["kind"] in thread_kinds
+            starved_job = jobs.peek_oldest_queued_job(thread_kinds) if job and not head_is_thread else None
+        if starved_job:
+            self._surface_starved_thread_preflight(str(starved_job["id"]))
+        if not head_is_thread:
             return True
         preflight = self.preflight()
         if preflight.ok:
@@ -337,6 +344,20 @@ class LocalWorkerRuntime:
         self._record_worker_event("worker_failed", payload)
         self._record_queued_thread_event("worker_failed", payload)
         return False
+
+    def _surface_starved_thread_preflight(self, job_id: str) -> None:
+        """Expone en la conversación postergada por reparaciones por qué no podrá correr.
+
+        La operación de reparación sigue su curso; cada motivo se registra una sola vez por job.
+        """
+        preflight = self.preflight()
+        if preflight.ok:
+            self._last_starved_preflight = None
+            return
+        if self._last_starved_preflight == (job_id, preflight.reason):
+            return
+        self._last_starved_preflight = (job_id, preflight.reason)
+        self._record_queued_thread_event("worker_failed", self._preflight_failure_payload(preflight))
 
     def _renew_leadership(self, *, status: str) -> bool:
         if self._fencing_token is None:

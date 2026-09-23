@@ -1171,6 +1171,18 @@
       "en": "Queued: waiting for a worker to pick this run up.",
       "es": "En cola: esperando que un worker tome esta ejecución."
     },
+    "app.threads.waitingCapacityTitle": {
+      "en": "Waiting for machine capacity",
+      "es": "Esperando capacidad del equipo"
+    },
+    "app.threads.waitingCapacity": {
+      "en": "Waiting for machine capacity:",
+      "es": "Esperando capacidad del equipo:"
+    },
+    "app.threads.event.resource_wait": {
+      "en": "Waiting for capacity",
+      "es": "Esperando capacidad"
+    },
     "app.threads.startingRunTitle": {
       "en": "Starting run",
       "es": "Iniciando ejecución"
@@ -13891,6 +13903,22 @@
     "app.runtime.health.reason.minimum_free_disk": {
       "en": "This machine does not have enough free disk space; this is not a configuration problem.",
       "es": "Este equipo no tiene suficiente espacio libre en disco; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.host_cpu_saturated": {
+      "en": "This machine's CPU is busy above the admission limit; this is not a configuration problem.",
+      "es": "La CPU de este equipo está ocupada sobre el límite de admisión; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.aggregate_cpu_budget": {
+      "en": "The AI work already running uses this machine's whole CPU budget; this is not a configuration problem.",
+      "es": "El trabajo de IA en curso ya usa todo el presupuesto de CPU del equipo; no es un problema de configuración."
+    },
+    "app.runtime.health.reason.heavy_workload_capacity": {
+      "en": "Another heavy job is already using the only heavy-work slot.",
+      "es": "Otro trabajo pesado ya ocupa el único cupo de trabajo pesado."
+    },
+    "app.runtime.health.reason.light_workload_capacity": {
+      "en": "The limit of simultaneous light jobs is already in use.",
+      "es": "El límite de trabajos livianos simultáneos ya está en uso."
     }
   }
 }

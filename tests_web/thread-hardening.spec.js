@@ -140,3 +140,25 @@ test('Threads: a failed intake research does not talk about technical decisions'
 	await expect(execution.getByText('Research could not answer', { exact: true })).toBeVisible();
 	await expect(execution.getByText(/validated technical decision/)).toHaveCount(0);
 });
+
+test('Threads: a queued run waiting for machine capacity shows the readable reason', async ({ page }) => {
+	await page.route('**/api/v1/workers/status', (route) => route.fulfill({ json: {
+		status: 'running', running: true, paused: false, autostart: true, reason: '',
+		maxConcurrentJobs: 1, pollIntervalSeconds: 1, inFlightJobs: 0, claimedJobs: 0,
+		completedRuns: 0, failedRuns: 0,
+	} }));
+	const execution = await openMockThread(page, {
+		id: 'thread-hardening-capacity', title: 'Hardening capacity wait', status: 'queued', running: true,
+		events: [
+			{ sequence: 1, type: 'run_queued' },
+			{ sequence: 2, type: 'resource_wait', payload: {
+				jobId: 'job-capacity', reasonCode: 'minimum_free_memory',
+				reason: 'Available memory is below the configured workload admission threshold.',
+			} },
+		],
+	});
+	const banner = execution.getByRole('region', { name: 'Waiting for machine capacity' });
+	await expect(banner.getByText('Waiting for machine capacity', { exact: true })).toBeVisible();
+	await expect(execution.getByRole('region', { name: 'Waiting for worker' })).toHaveCount(0);
+	await expect(banner).toContainText('This machine does not have enough free RAM right now');
+});

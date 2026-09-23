@@ -15,6 +15,7 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { useI18n } from '../../i18n/I18nProvider';
 import { BLOCKER_COPY } from '../shell/remediationPresentation';
+import { describeReason } from './reasonCopy';
 
 type BlockerCopyKey = keyof typeof BLOCKER_COPY;
 
@@ -34,64 +35,6 @@ const VALIDATION_EXPIRED_COPY = {
 	settingsLabelKey: 'app.threads.remediation.action.validateRuntime',
 	settingsLabelFallback: 'Revalidate runtime',
 };
-
-/**
- * Plain-language text for the machine reason codes the readiness projection joins into `reason`.
- * Host-capacity codes say the machine lacks room, so they never read as a configuration problem.
- */
-const REASON_COPY = new Map<string, { key: string; fallback: string }>([
-	[
-		'health_check_required',
-		{
-			key: 'app.runtime.health.reason.health_check_required',
-			fallback: 'The runtime has not passed a recent health check.',
-		},
-	],
-	[
-		'minimum_free_memory',
-		{
-			key: 'app.runtime.health.reason.minimum_free_memory',
-			fallback:
-				'This machine does not have enough free RAM right now; this is not a configuration problem.',
-		},
-	],
-	[
-		'hard_memory_floor',
-		{
-			key: 'app.runtime.health.reason.hard_memory_floor',
-			fallback:
-				"This machine's free RAM is below its safety floor; this is not a configuration problem.",
-		},
-	],
-	[
-		'aggregate_memory_budget',
-		{
-			key: 'app.runtime.health.reason.aggregate_memory_budget',
-			fallback:
-				"The AI work already running uses this machine's whole RAM budget; this is not a configuration problem.",
-		},
-	],
-	[
-		'minimum_free_disk',
-		{
-			key: 'app.runtime.health.reason.minimum_free_disk',
-			fallback:
-				'This machine does not have enough free disk space; this is not a configuration problem.',
-		},
-	],
-]);
-
-/** Renders a comma-joined list of reason codes as text, keeping unknown codes (and prose) verbatim. */
-function describeReason(reason: string, t: (key: string, fallback?: string) => string): string {
-	const codes = reason.split(', ');
-	if (!codes.some((code) => REASON_COPY.has(code))) return reason;
-	return codes
-		.map((code) => {
-			const copy = REASON_COPY.get(code);
-			return copy ? t(copy.key, copy.fallback) : code;
-		})
-		.join(' ');
-}
 
 export function RuntimeHealthModal({
 	open,

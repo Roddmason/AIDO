@@ -12060,6 +12060,14 @@
       "en": "Trusted domains",
       "es": "Dominios de confianza"
     },
+    "app.settings.research.webSearchProvider": {
+      "en": "Web search provider",
+      "es": "Proveedor de búsqueda web"
+    },
+    "app.settings.research.webSearchBaseUrl": {
+      "en": "Search provider URL (loopback only)",
+      "es": "URL del proveedor de búsqueda (solo loopback)"
+    },
     "app.settings.research.internetGroup": {
       "en": "Internet access",
       "es": "Acceso a internet"

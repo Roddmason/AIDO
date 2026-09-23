@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import socket
 from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ import pytest
 from local_control_center.agents import research_agent as research_agent_module
 from local_control_center.app import create_app
 from local_control_center.research.source_log import list_research_sources
+from local_control_center.research.web_search import ResearchProviderBlockedError, searxng_web_search_provider
+from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads.repository import ThreadsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
@@ -342,6 +345,9 @@ def test_research_agent_default_web_search_provider_fetches_and_prioritizes_offi
     create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store, _client, _headers = create_client(tmp_path, monkeypatch)
+    SettingsRepository(store.connection).set_value(
+        "research.webSearch.provider", "general", None, "duckduckgo"
+    )
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-default-search")
     docs_url = "https://docs.python.org/3/library/asyncio-task.html"
     unknown_url = "https://unknown.example/asyncio"
@@ -403,6 +409,9 @@ def test_research_agent_web_search_blocks_with_reason_when_internet_is_unavailab
 
     monkeypatch.setattr(research_agent_module, "urlopen", offline_urlopen)
     store, client, headers = create_client(tmp_path, monkeypatch)
+    SettingsRepository(store.connection).set_value(
+        "research.webSearch.provider", "general", None, "duckduckgo"
+    )
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-search-offline")
 
     response = client.post(
@@ -658,3 +667,109 @@ def test_research_agent_highest_trust_conflict_requires_human_review(
         "needsManualReview": True,
         "reason": "The highest-trust sources disagree; a human must resolve the conflict.",
     }
+
+
+def test_duckduckgo_non_200_is_reported_as_provider_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Challenge(_FetchedResponse):
+        status = 202
+
+    monkeypatch.setattr(
+        research_agent_module, "urlopen", lambda *_args, **_kwargs: _Challenge("<html>anomaly</html>")
+    )
+
+    with pytest.raises(ResearchProviderBlockedError) as caught:
+        research_agent_module._duckduckgo_web_search_provider("python asyncio docs", 5)
+
+    assert caught.value.code == "research_provider_blocked"
+
+
+def test_research_run_reports_a_blocked_provider_instead_of_missing_sources(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-provider-blocked")
+
+    def blocked_provider(_query: str, _max_sources: int) -> list[dict[str, Any]]:
+        raise ResearchProviderBlockedError("searxng", "HTTP 403")
+
+    result = research_agent_module.ResearchAgentRunner(
+        store.connection, root=tmp_path, web_search_provider=blocked_provider
+    ).run(
+        research_request(
+            project,
+            workspace,
+            query="Python asyncio TaskGroup official docs",
+            maxSources=1,
+            sources=[],
+            metadata={"allowWebSearch": True},
+        )
+    )
+
+    assert result["status"] == "research_blocked"
+    assert result["reason"] == "The web search provider blocked the query (searxng: HTTP 403)."
+    assert result["remediation"]["action"] == "research_provider_blocked"
+
+
+def test_research_run_with_searxng_down_blocks_with_network_remediation(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Réplica de ``docker stop aido-searxng``: el run termina ``research_blocked``, no con excepción."""
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-searxng-down")
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_url = f"http://127.0.0.1:{probe.getsockname()[1]}"
+
+    result = research_agent_module.ResearchAgentRunner(
+        store.connection, root=tmp_path, web_search_provider=searxng_web_search_provider(closed_url)
+    ).run(
+        research_request(
+            project,
+            workspace,
+            query="Python asyncio TaskGroup official docs",
+            maxSources=1,
+            sources=[],
+            metadata={"allowWebSearch": True},
+        )
+    )
+
+    assert result["status"] == "research_blocked"
+    assert result["reason"].startswith("ResearchAgent web search failed:")
+    assert result["remediation"]["action"] == "check_network_access"
+
+
+def test_research_run_never_fetches_a_non_public_source(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden_urlopen(*_args: object, **_kwargs: object) -> _FetchedResponse:
+        raise AssertionError("a non-public source must never be fetched")
+
+    monkeypatch.setattr(research_agent_module, "urlopen", forbidden_urlopen)
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-ssrf")
+
+    def metadata_provider(_query: str, _max_sources: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "url": "http://169.254.169.254/latest/meta-data/",
+                "title": "Instance metadata",
+                "publisher": "169.254.169.254",
+                "sourceType": "web_search",
+            }
+        ]
+
+    result = research_agent_module.ResearchAgentRunner(
+        store.connection, root=tmp_path, web_search_provider=metadata_provider
+    ).run(
+        research_request(
+            project,
+            workspace,
+            query="cloud instance metadata",
+            maxSources=1,
+            sources=[],
+            metadata={"allowWebSearch": True},
+        )
+    )
+
+    assert result["status"] == "research_blocked"
+    assert "must target a public host" in result["reason"]

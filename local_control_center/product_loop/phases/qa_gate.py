@@ -21,9 +21,10 @@ __all__ = ["evaluate_qa_gate"]
 def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) -> dict[str, Any] | None:
     """Evalúa el veredicto QA del runtime y decide rework, bloqueo o avance a Security.
 
-    Devuelve un dict terminal (bloqueo o rondas de rework agotadas) o ``None`` para continuar;
-    cuando QA falla dentro del presupuesto de rondas deja ``run.should_rework`` en ``True`` para
-    que el driver re-ejecute al developer con el feedback compactado.
+    Devuelve un dict terminal (bloqueo, incluido el de rondas de rework agotadas en ``qa_rework``)
+    o ``None`` para continuar; cuando QA falla dentro del presupuesto de rondas deja
+    ``run.should_rework`` en ``True`` para que el driver re-ejecute al developer con el feedback
+    compactado.
     """
     from local_control_center.product_loop.coordinator import (
         DEFAULT_AUTO_REWORK_ROUNDS,
@@ -167,8 +168,23 @@ def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) 
             )
         run.loop = reworked
         if run.rework_round >= DEFAULT_AUTO_REWORK_ROUNDS:
-            return coordinator._run_result(
-                reworked, status=REWORK_STATE, reason=reason, evidence_package=evidence
+            return coordinator._block_run(
+                reworked,
+                stage="qa_rework",
+                reason=reason,
+                actor=actor,
+                details={
+                    "status": "rework_exhausted",
+                    "reason": reason,
+                    "runtimeStatus": runtime_status,
+                    "qaVerdict": qa_verdict,
+                    "reworkRound": run.rework_round,
+                    "qaResults": qa_results,
+                    "evidenceRef": evidence["id"],
+                    "teamSchedule": team_schedule,
+                    "agentTaskIds": [task["id"] for task in agent_tasks],
+                },
+                thread_id=thread_id,
             )
         run.rework_round += 1
         run.rework_feedback = coordinator._qa_rework_feedback(qa_results)

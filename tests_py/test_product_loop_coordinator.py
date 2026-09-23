@@ -7448,8 +7448,9 @@ def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
             technical_lead_runner=technical_lead,
         )
 
-        assert result["status"] == "reworking"
-        assert result["loop"]["state"] == "reworking"
+        assert result["status"] == "blocked"
+        assert result["loop"]["state"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
         assert result["loop"]["context"]["durableRun"]["rework"]["source"] == "qa"
         assert result["loop"]["context"]["durableRun"]["rework"]["reason"] == result["reason"]
         assert "reworking" in [item["toState"] for item in result["transitions"]]
@@ -8563,7 +8564,7 @@ def test_qa_failure_reworks_automatically_and_recovers(tmp_path: Path) -> None:
         assert "auto_rework" in triggers
 
 
-def test_qa_failure_exhausts_auto_rework_and_stops_in_reworking(tmp_path: Path) -> None:
+def test_qa_failure_exhausts_auto_rework_and_blocks_the_loop(tmp_path: Path) -> None:
     runtime = _ControlledRuntime(status="qa_failed")
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
@@ -8583,8 +8584,9 @@ def test_qa_failure_exhausts_auto_rework_and_stops_in_reworking(tmp_path: Path) 
             security_runner=_SecurityGate(),
         )
 
-        assert result["status"] == "reworking"
-        assert result["loop"]["state"] == "reworking"
+        assert result["status"] == "blocked"
+        assert result["loop"]["state"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
         assert len(runtime.run_payloads) == 1 + DEFAULT_AUTO_REWORK_ROUNDS
         assert result["loop"]["context"]["fsm"]["usage"]["reworkRounds"] == 1 + DEFAULT_AUTO_REWORK_ROUNDS
 

@@ -247,6 +247,68 @@ def test_performance_pass_links_similarity_event_to_functionality_registry(tmp_p
         assert "Performance pass requested" in notes
 
 
+def test_mark_similarity_confirmation_makes_the_candidate_findable_without_delivery(
+    tmp_path: Path,
+) -> None:
+    """Spec: una decisión explícita del operador es evidencia más fuerte que la heurística de entrega."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        source = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-source",
+            title="Optimize dashboard filters",
+        )
+        candidate = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-candidate",
+            title="Workspace dashboard filters",
+            summary="Never delivered, but the operator confirmed it as existing.",
+        )
+        repo.set_status(candidate["id"], "resolved")
+        service = ThreadMemoryService(connection)
+
+        assert service.has_delivery_evidence(candidate["id"], project_id) is False
+        service.mark_similarity(
+            project_id=project_id,
+            source_thread_id=source["id"],
+            candidate_thread_id=candidate["id"],
+            score=0.91,
+            reason="Operator confirmed the workspace dashboard filters already exist.",
+            action="improve_existing",
+        )
+
+        assert service.has_delivery_evidence(candidate["id"], project_id) is True
+        matches = service.find_existing_functionality(
+            project_id=project_id, query="Improve the workspace dashboard filters"
+        )
+
+    assert [match["sourceThreadId"] for match in matches] == [candidate["id"]]
+
+
+def test_delivery_evidence_never_borrows_a_loop_from_another_project(tmp_path: Path) -> None:
+    """Spec: la evidencia de entrega está acotada al proyecto del hilo, nunca a otro proyecto."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _archived_functionality_thread(connection, tmp_path)
+        other_project = ProjectsRepository(connection).create_project(
+            name="Other project", path=tmp_path / "other-project", template_id="other"
+        )
+        _delivered_loop(connection, other_project["id"], thread["id"])
+
+        service = ThreadMemoryService(connection)
+        assert service.has_delivery_evidence(thread["id"], project["id"]) is False
+        assert service.ensure_project_functionality(project["id"]) == 0
+        matches = service.find_existing_functionality(
+            project_id=project["id"], query="Improve the workspace dashboard filters"
+        )
+
+    assert matches == []
+
+
 def test_project_functionality_endpoint_lists_registry(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:
@@ -382,7 +444,7 @@ def test_functionality_with_an_approved_brief_matches(tmp_path) -> None:
         )
 
         service = ThreadMemoryService(connection)
-        assert service.has_delivery_evidence(thread["id"]) is True
+        assert service.has_delivery_evidence(thread["id"], project["id"]) is True
         matches = service.find_existing_functionality(
             project_id=project["id"], query="Improve the workspace dashboard filters"
         )

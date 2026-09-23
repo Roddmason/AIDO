@@ -36,19 +36,30 @@ FUNCTIONALITY_MATCH_THRESHOLD = 0.45
 FUNCTIONALITY_MATCH_CANDIDATES = 20
 """Candidatos léxicos revisados antes de exigir evidencia de entrega al mejor match."""
 _DELIVERY_EVIDENCE_CONDITION = """
-EXISTS (
-    SELECT 1 FROM product_loops l
-    WHERE json_extract(l.context, '$.durableRun.thread.projectThreadId') = {thread_id}
-      AND (
-        l.state = 'delivered'
-        OR EXISTS (
-            SELECT 1 FROM product_briefs b
-            WHERE b.initiative_id = l.initiative_id AND b.status = 'approved'
-        )
-      )
+(
+    EXISTS (
+        SELECT 1 FROM product_loops l
+        WHERE l.project_id = {project_id}
+          AND json_extract(l.context, '$.durableRun.thread.projectThreadId') = {thread_id}
+          AND (
+            l.state = 'delivered'
+            OR EXISTS (
+                SELECT 1 FROM product_briefs b
+                WHERE b.project_id = l.project_id AND b.initiative_id = l.initiative_id AND b.status = 'approved'
+            )
+          )
+    )
+    OR EXISTS (
+        SELECT 1 FROM thread_similarity_events e
+        WHERE e.project_id = {project_id}
+          AND e.candidate_thread_id = {thread_id}
+          AND e.action <> 'create_new_anyway'
+    )
 )
 """
-"""Condición SQL: el hilo ``{thread_id}`` tiene un loop entregado o un brief aprobado de su iniciativa."""
+"""Condición SQL: el hilo ``{thread_id}`` del proyecto ``{project_id}`` tiene un loop entregado, un brief
+aprobado de su iniciativa, o una decisión explícita del operador (``mark_similarity`` con una acción
+distinta de ``create_new_anyway``) sobre ese candidato — todo acotado a ese mismo proyecto."""
 MAX_FILE_PATHS = 50
 MAX_PERFORMANCE_NOTES = 20
 _PATH_PATTERN = re.compile(
@@ -230,7 +241,7 @@ class ThreadSimilarityService:
 
         El JOIN por fingerprint evita re-upserts en bucle cuando dos threads comparten huella.
         """
-        delivery = _DELIVERY_EVIDENCE_CONDITION.format(thread_id="t.id")
+        delivery = _DELIVERY_EVIDENCE_CONDITION.format(thread_id="t.id", project_id="t.project_id")
         statuses = sorted(FUNCTIONALITY_SOURCE_STATUSES)
         placeholders = ", ".join("?" for _ in statuses)
         rows = self.connection.execute(
@@ -257,7 +268,9 @@ class ThreadSimilarityService:
         """Reconstruye índice y registry derivado para un thread concreto."""
         index = self.index_thread(thread_id)
         functionality = None
-        if index["status"] in FUNCTIONALITY_SOURCE_STATUSES and self.has_delivery_evidence(thread_id):
+        if index["status"] in FUNCTIONALITY_SOURCE_STATUSES and self.has_delivery_evidence(
+            thread_id, index["projectId"]
+        ):
             functionality = self.upsert_functionality_from_thread(thread_id)
         return {"index": index, "functionality": functionality}
 
@@ -269,7 +282,9 @@ class ThreadSimilarityService:
         ).fetchall()
         for row in rows:
             self.index_thread(row["id"])
-            if row["status"] in FUNCTIONALITY_SOURCE_STATUSES and self.has_delivery_evidence(row["id"]):
+            if row["status"] in FUNCTIONALITY_SOURCE_STATUSES and self.has_delivery_evidence(
+                row["id"], project_id
+            ):
                 self.upsert_functionality_from_thread(row["id"])
 
     def upsert_functionality_from_thread(self, thread_id: str) -> dict[str, Any]:
@@ -410,16 +425,22 @@ class ThreadSimilarityService:
             item
             for item in candidates
             if float(item.get("score") or 0.0) >= FUNCTIONALITY_MATCH_THRESHOLD
-            and self.has_delivery_evidence(str(item.get("sourceThreadId") or ""))
+            and self.has_delivery_evidence(str(item.get("sourceThreadId") or ""), project_id)
         ]
         return matches[: max(1, int(limit))]
 
-    def has_delivery_evidence(self, thread_id: str) -> bool:
-        """Dice si el hilo entregó: tiene un loop ``delivered`` o un brief aprobado de su iniciativa."""
-        if not thread_id:
+    def has_delivery_evidence(self, thread_id: str, project_id: str) -> bool:
+        """Dice si el hilo entregó.
+
+        Cuenta como entrega un loop ``delivered``, un brief aprobado de su iniciativa, o una
+        decisión explícita del operador sobre ese candidato (``mark_similarity``).
+        """
+        if not thread_id or not project_id:
             return False
-        condition = _DELIVERY_EVIDENCE_CONDITION.format(thread_id="?")
-        row = self.connection.execute(f"SELECT {condition} AS delivered", (thread_id,)).fetchone()
+        condition = _DELIVERY_EVIDENCE_CONDITION.format(thread_id="?", project_id="?")
+        row = self.connection.execute(
+            f"SELECT {condition} AS delivered", (project_id, thread_id, project_id, thread_id)
+        ).fetchone()
         return bool(row[0])
 
     def find_similar(

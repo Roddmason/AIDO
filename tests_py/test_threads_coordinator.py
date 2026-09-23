@@ -10,6 +10,8 @@ import json
 from contextlib import closing
 from pathlib import Path
 
+import pytest
+
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
@@ -18,6 +20,7 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.threads.coordinator import ThreadCoordinator
 from local_control_center.threads.repository import ThreadsRepository
+from tests_py.test_intent_classifier import CHANGE_PROMPTS, RESEARCH_PROMPTS
 
 RUNTIME_AVAILABLE = {
     "runtimeStatus": {
@@ -708,3 +711,29 @@ def test_coordinator_redacts_secrets_in_thread_summary(tmp_path: Path) -> None:
         refreshed = ThreadsRepository(connection).get_thread(thread["id"])
         assert secret not in refreshed["summary"]
         assert "[redacted]" in refreshed["summary"]
+
+
+@pytest.mark.parametrize("prompt", RESEARCH_PROMPTS)
+def test_intake_routes_read_only_questions_to_the_research_agent(tmp_path: Path, prompt: str) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        ThreadCoordinator(connection, root=tmp_path).post_message(
+            thread_id=thread["id"], content=prompt, project_assessment=RUNTIME_AVAILABLE
+        )
+        jobs = JobsRepository(connection).list_jobs(thread["projectId"])
+
+    assert [job["kind"] for job in jobs] == ["thread.research.run"]
+
+
+@pytest.mark.parametrize("prompt", CHANGE_PROMPTS)
+def test_intake_keeps_change_requests_in_the_product_loop(tmp_path: Path, prompt: str) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        ThreadCoordinator(connection, root=tmp_path).post_message(
+            thread_id=thread["id"], content=prompt, project_assessment=RUNTIME_AVAILABLE
+        )
+        jobs = JobsRepository(connection).list_jobs(thread["projectId"])
+
+    assert [job["kind"] for job in jobs] == ["thread.product_loop.run"]

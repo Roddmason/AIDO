@@ -279,7 +279,7 @@ class ThreadCoordinator:
                 )
                 thread = self.repository.set_status(thread_id, "waiting_decision")
                 run = {"status": "blocked", "jobId": None, "loopId": None, "reason": lead_message["content"]}
-            elif "research" in decision.intents:
+            elif decision.research_only:
                 decision_record = None
                 job = self._queue_research_run(
                     thread=existing_thread,

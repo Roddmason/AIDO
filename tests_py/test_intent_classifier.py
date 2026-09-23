@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from local_control_center.product_loop.intent_classifier import IntentClassificationInput, IntentClassifier
 
 
@@ -127,3 +129,65 @@ def test_migration_keyword_does_not_match_spanish_substrings() -> None:
     decision = classify("Revisa el comportamiento de las aves migratorias")
 
     assert "migration" not in decision.intents
+
+
+ORIGINAL_VALIDATION_PROMPT = (
+    "Investiga en modo solo lectura: ¿qué versión de Python exige pyproject.toml de este repo? "
+    "Responde en una línea y no modifiques archivos."
+)
+CHANGE_PROMPTS = (
+    "Analiza por qué el login falla al expirar la sesión y corrige el bug",
+    "Compara la versión actual con la anterior y corrige el bug de sesión",
+    "Corrige el bug de memoria sin modificar la API pública",
+    "Fix the crash on startup; compare with the previous release",
+)
+RESEARCH_PROMPTS = (
+    "Investiga qué tests cubren el login",
+    "Research which feature flags exist",
+    "Investiga por qué el build de refactor está lento, solo analiza, no modifiques nada",
+    "Analiza el bug de memoria en modo solo lectura, no lo corrijas",
+    "Evaluate migration options for Postgres 17 and cite sources",
+    ORIGINAL_VALIDATION_PROMPT,
+)
+
+
+@pytest.mark.parametrize("prompt", CHANGE_PROMPTS)
+def test_change_requests_are_never_research_only(prompt: str) -> None:
+    assert classify(prompt).research_only is False
+
+
+@pytest.mark.parametrize("prompt", RESEARCH_PROMPTS)
+def test_read_only_questions_are_research_only(prompt: str) -> None:
+    decision = classify(prompt)
+
+    assert decision.research_only is True
+    assert "research" in decision.intents
+    assert decision.plan_mode not in {"ask", "blocked"}
+
+
+def test_spanish_research_vocabulary_matches_with_and_without_accents() -> None:
+    accented = classify("Evalúa y compara las opciones de caché")
+    unaccented = classify("Evalua y compara las opciones de cache")
+
+    assert accented.scores == unaccented.scores
+    assert accented.scores["research"] == 2
+
+
+def test_classification_exposes_scores_and_research_flag() -> None:
+    decision = classify("Research which feature flags exist")
+
+    assert decision.scores["research"] == 1
+    assert decision.scores["feature"] == 1
+    assert decision.to_dict()["researchOnly"] is True
+    assert decision.to_dict()["scores"]["research"] == 1
+
+
+def test_classifier_questions_carry_i18n_keys_aligned_with_the_english_text() -> None:
+    ask = classify("help")
+    blocked = classify("Add a dashboard", project_assessment=_runtime_unavailable_assessment())
+
+    assert ask.question_keys == ["app.threads.intake.question.outcome"]
+    assert ask.questions == ["What outcome should AIDO optimize for: diagnosis, implementation, or research?"]
+    assert ask.to_dict()["questionKeys"] == ask.question_keys
+    assert blocked.question_keys[0] == "app.threads.intake.question.runtime"
+    assert len(blocked.question_keys) == len(blocked.questions)

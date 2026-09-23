@@ -11,6 +11,7 @@ taxonomias locales.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,6 +47,10 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "hotfix",
         "regression",
         "broken",
+        "corrige",
+        "corregir",
+        "arregla",
+        "arreglar",
     ),
     "feature": (
         "add",
@@ -58,6 +63,8 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "workflow",
         "endpoint",
         "screen",
+        "implementa",
+        "implementar",
     ),
     "refactor": (
         "refactor",
@@ -81,7 +88,6 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "migra",
         "migrar",
         "migración",
-        "migracion",
     ),
     "tests": ("test", "tests", "testing", "coverage", "pytest", "playwright", "regression"),
     "security": (
@@ -113,7 +119,25 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "arquitectura",
         "diseño",
     ),
-    "research": ("research", "investigate", "compare", "evaluate", "benchmark", "source", "cite"),
+    "research": (
+        "research",
+        "investigate",
+        "compare",
+        "evaluate",
+        "benchmark",
+        "source",
+        "cite",
+        "investiga",
+        "investigar",
+        "averigua",
+        "averiguar",
+        "analiza",
+        "analizar",
+        "compara",
+        "comparar",
+        "evalúa",
+        "evaluar",
+    ),
     "cleanup": ("cleanup", "clean up", "dead code", "unused", "remove obsolete", "tidy"),
 }
 SECURITY_CRITICAL_KEYWORDS = ("pentest", "penetration", "exploit", "vulnerability", "vuln")
@@ -124,6 +148,52 @@ BACKEND_PATH_MARKERS = ("local_control_center/", "/backend/", "/api/", "/reposit
 TEST_PATH_MARKERS = ("tests_py/", "tests_web/", "/test_", ".test.", ".spec.")
 DOC_EXTENSIONS = (".md", ".rst", ".txt")
 MIGRATION_PATH_MARKERS = ("migration", "migrations.py", "alembic", "schema")
+CHANGE_PRODUCING_INTENTS = (
+    "bugfix",
+    "feature",
+    "refactor",
+    "migration",
+    "tests",
+    "security",
+    "docs",
+    "architecture",
+    "cleanup",
+)
+EXPLICIT_CHANGE_VERBS = (
+    "corrige",
+    "corregir",
+    "arregla",
+    "arreglar",
+    "implementa",
+    "implementar",
+    "fix",
+    "implement",
+)
+READ_ONLY_MARKERS = (
+    "solo lectura",
+    "no modifiques",
+    "sin modificar nada",
+    "no cambies",
+    "read-only",
+    "read only",
+    "don't change",
+    "do not modify",
+)
+QUESTION_COPY: dict[str, tuple[str, str]] = {
+    "runtime": (
+        "app.threads.intake.question.runtime",
+        "Configure an executable AIDO runtime before starting autonomous work.",
+    ),
+    "outcome": (
+        "app.threads.intake.question.outcome",
+        "What outcome should AIDO optimize for: diagnosis, implementation, or research?",
+    ),
+    "migrationScope": (
+        "app.threads.intake.question.migrationScope",
+        "Should schema/data migration be shipped in the same change as the refactor?",
+    ),
+}
+"""Preguntas del intake: clave i18n y texto inglés persistido (el texto sigue siendo el fallback)."""
 
 
 @dataclass(frozen=True)
@@ -150,6 +220,9 @@ class IntentClassification:
     confidence: float
     questions: list[str]
     user_mode: str
+    scores: dict[str, int] = field(default_factory=dict)
+    research_only: bool = False
+    question_keys: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serializa la decision a la forma camelCase persistida en metadata."""
@@ -163,6 +236,9 @@ class IntentClassification:
             "confidence": self.confidence,
             "questions": list(self.questions),
             "userMode": self.user_mode,
+            "scores": dict(self.scores),
+            "researchOnly": self.research_only,
+            "questionKeys": list(self.question_keys),
             "source": "deterministic_intent_classifier",
         }
 
@@ -170,14 +246,36 @@ class IntentClassification:
 LlmClassifier = Callable[[IntentClassificationInput, IntentClassification], IntentClassification | None]
 
 
+def _fold_accents(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
 def _normalize_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value.strip().lower())
+    return re.sub(r"\s+", " ", _fold_accents(value.strip().lower().replace("\u2019", "'")))
 
 
 def _contains_keyword(text: str, keyword: str) -> bool:
+    keyword = _fold_accents(keyword)
     if " " in keyword:
         return keyword in text
     return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+
+
+def _has_read_only_marker(prompt: str) -> bool:
+    return any(_contains_keyword(prompt, marker) for marker in READ_ONLY_MARKERS)
+
+
+def _is_research_only(scores: Mapping[str, int], prompt: str) -> bool:
+    if _has_read_only_marker(prompt):
+        return True
+    research = scores.get("research", 0)
+    if research <= 0:
+        return False
+    strongest_change = max(scores.get(intent, 0) for intent in CHANGE_PRODUCING_INTENTS)
+    if any(_contains_keyword(prompt, verb) for verb in EXPLICIT_CHANGE_VERBS):
+        return research > strongest_change
+    return research >= strongest_change
 
 
 def _append_unique(items: list[str], *values: str) -> None:
@@ -336,15 +434,17 @@ def _plan_mode(confidence: float, runtime_available: bool | None, risk: str, use
     return "execute"
 
 
-def _questions_for(plan_mode: str, intents: Sequence[str], runtime_available: bool | None) -> list[str]:
-    questions: list[str] = []
+def _question_entries(
+    plan_mode: str, intents: Sequence[str], runtime_available: bool | None
+) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
     if runtime_available is False:
-        questions.append("Configure an executable AIDO runtime before starting autonomous work.")
+        entries.append(QUESTION_COPY["runtime"])
     if plan_mode == "ask":
-        questions.append("What outcome should AIDO optimize for: diagnosis, implementation, or research?")
+        entries.append(QUESTION_COPY["outcome"])
     if "migration" in intents and "refactor" in intents:
-        questions.append("Should schema/data migration be shipped in the same change as the refactor?")
-    return questions
+        entries.append(QUESTION_COPY["migrationScope"])
+    return entries
 
 
 class IntentClassifier:
@@ -359,6 +459,8 @@ class IntentClassifier:
         user_mode = _normalize_text(payload.user_mode or "aido_decide").replace(" ", "_")
         file_signals = _infer_file_signals(payload.changed_files)
         scores = _intent_scores(prompt, file_signals)
+        if _has_read_only_marker(prompt):
+            scores["research"] += 1
         intents = [intent for intent in INTENT_VALUES if scores[intent] > 0]
         if not intents:
             intents = ["feature"] if prompt else []
@@ -369,6 +471,7 @@ class IntentClassifier:
         gates = _gates_for(intents, file_signals, risk)
         if plan_mode == "blocked":
             _append_unique(gates, "runtime_configuration")
+        question_entries = _question_entries(plan_mode, intents, runtime_available)
         decision = IntentClassification(
             intents=list(intents),
             risk=risk,
@@ -377,8 +480,11 @@ class IntentClassifier:
             suggested_branch_name=f"codex/{intents[0] if intents else 'task'}-{_slug(prompt)}",
             plan_mode=plan_mode,
             confidence=confidence,
-            questions=_questions_for(plan_mode, intents, runtime_available),
+            questions=[text for _key, text in question_entries],
             user_mode=user_mode,
+            scores=dict(scores),
+            research_only=_is_research_only(scores, prompt),
+            question_keys=[key for key, _text in question_entries],
         )
         if decision.plan_mode == "ask" and self.llm_classifier is not None:
             llm_decision = self.llm_classifier(payload, decision)
@@ -390,6 +496,7 @@ class IntentClassifier:
         intents = [intent for intent in decision.intents if intent in INTENT_VALUES]
         risk = decision.risk if decision.risk in RISK_VALUES else "medium"
         plan_mode = decision.plan_mode if decision.plan_mode in PLAN_MODE_VALUES else "ask"
+        questions = list(dict.fromkeys(decision.questions))
         return IntentClassification(
             intents=intents or ["feature"],
             risk=risk,
@@ -398,6 +505,11 @@ class IntentClassifier:
             suggested_branch_name=decision.suggested_branch_name or "codex/task",
             plan_mode=plan_mode,
             confidence=max(0.0, min(1.0, float(decision.confidence))),
-            questions=list(dict.fromkeys(decision.questions)),
+            questions=questions,
             user_mode=decision.user_mode,
+            scores=dict(decision.scores),
+            research_only=decision.research_only and "research" in intents,
+            question_keys=list(decision.question_keys)
+            if len(decision.question_keys) == len(questions)
+            else [],
         )

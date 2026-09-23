@@ -1143,6 +1143,18 @@
       "en": "Worker assigned",
       "es": "Worker asignado"
     },
+    "app.threads.intake.question.runtime": {
+      "en": "Configure an executable AIDO runtime before starting autonomous work.",
+      "es": "Configura un entorno de ejecución de AIDO antes de iniciar trabajo autónomo."
+    },
+    "app.threads.intake.question.outcome": {
+      "en": "What outcome should AIDO optimize for: diagnosis, implementation, or research?",
+      "es": "¿Qué resultado debe priorizar AIDO: diagnóstico, implementación o investigación?"
+    },
+    "app.threads.intake.question.migrationScope": {
+      "en": "Should schema/data migration be shipped in the same change as the refactor?",
+      "es": "¿La migración de esquema o datos debe entregarse en el mismo cambio que el refactor?"
+    },
     "app.threads.event.worker_idle": {
       "en": "Worker idle",
       "es": "Worker sin jobs"

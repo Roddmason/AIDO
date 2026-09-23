@@ -256,7 +256,7 @@ def _normalize_text(value: str) -> str:
 
 
 def _contains_keyword(text: str, keyword: str) -> bool:
-    # Frases y palabras exigen limites de palabra: "read only" no debe calzar dentro de "thread only".
+    """Busca la palabra o frase con límites de palabra: "read only" no calza dentro de "thread only"."""
     keyword = _fold_accents(keyword)
     return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text) is not None
 
@@ -266,13 +266,16 @@ def _has_read_only_marker(prompt: str) -> bool:
 
 
 def _is_research_only(scores: Mapping[str, int], prompt: str) -> bool:
+    """Dice si el pedido es sólo de investigación.
+
+    Con un verbo de cambio explícito, un marcador ("no cambies la API") acota el cambio: sólo suma su
+    +1 al puntaje de research y no fuerza el modo solo-lectura.
+    """
     research = scores.get("research", 0)
     if research <= 0:
         return False
     strongest_change = max(scores.get(intent, 0) for intent in CHANGE_PRODUCING_INTENTS)
     if any(_contains_keyword(prompt, verb) for verb in EXPLICIT_CHANGE_VERBS):
-        # Con un verbo de cambio explicito, un marcador ("no cambies la API") acota el cambio:
-        # solo suma su +1 al puntaje de research, no fuerza el modo solo-lectura.
         return research > strongest_change
     return _has_read_only_marker(prompt) or research >= strongest_change
 

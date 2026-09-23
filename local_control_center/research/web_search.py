@@ -196,10 +196,10 @@ class PublicRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-# Sin proxies del entorno: con proxy la IP conectada sería la del proxy y el fijado no protegería nada.
 _PUBLIC_SOURCE_OPENER = build_opener(
     ProxyHandler({}), PublicRedirectHandler(), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
 )
+"""Opener sin proxies del entorno: con proxy la IP conectada sería la del proxy y el fijado no protegería nada."""
 _STANDARD_URLOPEN = urlopen
 
 
@@ -223,12 +223,15 @@ def open_public_source(
 
 
 def validate_search_base_url(value: str) -> str:
-    """Valida la URL base del proveedor: http(s), puerto válido, sin credenciales ni query, y sólo loopback."""
+    """Valida la URL base del proveedor: http(s), puerto válido, sin credenciales ni query, y sólo loopback.
+
+    ``parsed.port`` lanza ``ValueError`` si el puerto no es numérico o está fuera de 0-65535.
+    """
     parsed = urlparse(str(value or "").strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("research.webSearch.baseUrl must be an absolute http(s) URL.")
     try:
-        port = parsed.port  # ValueError si no es numérico o está fuera de 0-65535.
+        port = parsed.port
     except ValueError:
         port = 0
     if port == 0:

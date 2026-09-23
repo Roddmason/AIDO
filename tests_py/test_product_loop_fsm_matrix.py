@@ -13,13 +13,19 @@ el stepper del frontend rankea por índice.
 
 from __future__ import annotations
 
+from contextlib import closing
 from itertools import pairwise
+from pathlib import Path
 
 from local_control_center.product_loop.coordinator import (
     ALLOWED_TRANSITIONS,
     PRODUCT_LOOP_STATES,
     TERMINAL_STATES,
+    ProductLoopCoordinator,
 )
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 
 HAPPY_PATH = [
     "goal_received",
@@ -112,3 +118,48 @@ def test_every_state_is_reachable_and_can_terminate() -> None:
                 break
             frontier.extend(ALLOWED_TRANSITIONS.get(current, set()))
         assert terminates, f"State {state} cannot reach any terminal state"
+
+
+def test_qa_running_can_hand_off_to_the_next_story() -> None:
+    """Tras aprobar QA de una historia el loop vuelve a ``executing`` para la siguiente (spec §3.2)."""
+    assert "executing" in ALLOWED_TRANSITIONS["qa_running"]
+
+
+def test_next_story_transition_resets_the_rework_budget(tmp_path: Path) -> None:
+    """``fsm_patch`` reinicia ``reworkRounds`` al pasar de historia: el tope aplica por historia."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_path = tmp_path / "next-story"
+        project_path.mkdir()
+        project = ProjectsRepository(connection).create_project(
+            name="next-story", path=project_path, template_id="other"
+        )
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project["id"], title="Per-story rework budget")
+        for state in (
+            "workspace_check",
+            "git_check",
+            "discovery",
+            "planning",
+            "backlog_ready",
+            "branch_ready",
+            "executing",
+            "qa_running",
+            "reworking",
+            "executing",
+            "qa_running",
+        ):
+            loop = coordinator.transition(loop["id"], to_state=state)
+        assert loop["context"]["fsm"]["usage"]["reworkRounds"] == 1
+
+        loop = coordinator._transition_run_state(
+            loop,
+            to_state="executing",
+            reason="Next story.",
+            trigger="next_story",
+            actor="operator",
+            fsm_patch={"usage": {"reworkRounds": 0}},
+        )
+
+        assert loop["state"] == "executing"
+        assert loop["context"]["fsm"]["usage"]["reworkRounds"] == 0

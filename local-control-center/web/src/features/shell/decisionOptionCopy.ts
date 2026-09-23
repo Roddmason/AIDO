@@ -71,13 +71,13 @@ const OPTION_COPY: Record<string, OptionCopy> = {
 
 /** Visible label for a decision option; unknown options are shown verbatim. */
 export function decisionOptionLabel(option: string, t: Translate): string {
-	const copy = OPTION_COPY[option];
+	const copy = Object.hasOwn(OPTION_COPY, option) ? OPTION_COPY[option] : undefined;
 	return copy ? t(copy.labelKey, copy.labelFallback) : option;
 }
 
 /** One-line description for a decision option, or an empty string when there is none. */
 export function decisionOptionDescription(option: string, t: Translate): string {
-	const copy = OPTION_COPY[option];
+	const copy = Object.hasOwn(OPTION_COPY, option) ? OPTION_COPY[option] : undefined;
 	return copy ? t(copy.descriptionKey, copy.descriptionFallback) : '';
 }
 

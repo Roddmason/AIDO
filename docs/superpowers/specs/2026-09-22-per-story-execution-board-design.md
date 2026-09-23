@@ -76,6 +76,13 @@ diff acumulado base..HEAD → security → análisis → aprobación
 - **Cursor durable:** `durableRun.storyProgress = [{storyId, status, commit, qaVerdict, runs}]` vía el
   patch existente (`coordinator.py:623`). Se diseña para que el enfoque B (un job por historia) lo reuse
   sin migración.
+- **Historia sin tareas (decisión 2026-09-22):** si el Technical Lead LLM deja una historia del PO sin
+  tareas, no se bloquea: esa historia se planifica con el `TechnicalLeadPlanner` determinista (el planner
+  por defecto, `coordinator.py:2299`), sus tareas quedan con `metadata.technicalLeadFallback=true` y se
+  emite el evento de hilo `technical_lead_fallback` `{loopId, storyId}`. Solo si el planner determinista
+  tampoco produce tareas para ella, el loop se bloquea en `technical_lead` antes del primer run.
+- **Commit por historia obligatorio (decisión 2026-09-22):** en un worktree git, un commit fallido bloquea
+  la historia antes del QA. Ante fallos se corrige la causa (policy, identidad git); la guarda no se relaja.
 - **Reintento:** `retry_loop` reutiliza tareas (`coordinator.py:2273-2275`) y el cursor → las historias
   `done` se saltan.
 - **Cancelación:** sin cambios; `_transition_run_state` sigue siendo el único punto de corte y se cruza en
@@ -150,7 +157,8 @@ OpenAPI). **No** se tocan `agent_assignments` (sus estados de inicio disparan ga
 ## 6. Pruebas
 
 - Backend: orden de historias; N historias → N runs con payload acotado; rework por historia; historia
-  `noop`; bloqueo al agotar rework con cursor; reintento que salta `done`; arista `qa_running → executing`
+  `noop`; historia sin tareas del TL LLM planificada por el respaldo determinista (y bloqueo
+  `technical_lead` si el respaldo tampoco la cubre); bloqueo al agotar rework con cursor; reintento que salta `done`; arista `qa_running → executing`
   en la matriz FSM; seguridad/aprobación con diff acumulado; estados escritos y eventos `story_progress`;
   endpoint de tablero (resolución hilo→loop, columnas, payload acotado).
 - Se adaptan los anclajes de semántica de un solo run (`test_product_loop_coordinator.py:3049,3097,3133,
@@ -171,4 +179,7 @@ OpenAPI). **No** se tocan `agent_assignments` (sus estados de inicio disparan ga
 | Job largo con N historias | Progreso k/N visible; cancelación por historia; enfoque B posterior |
 | Código de una historia fallida queda commiteado (commit antes del QA) | La historia queda `blocked`, el loop se detiene; el diff acumulado lo muestra en aprobación |
 | Tests que fijan un solo run | Se adaptan explícitamente, listados en §6 |
+| Workspace no-git + reintento con todas las historias `done` ⇒ bloqueo en `review` | Aceptado (fail-closed, decisión 2026-09-22): sin git no hay diff acumulado que revisar y el guard "sin cambios" bloquea; el operador ve la causa en la tarjeta de bloqueo |
+| TL LLM omite historias | Respaldo con el `TechnicalLeadPlanner` determinista + evento `technical_lead_fallback`; bloqueo `technical_lead` solo si el respaldo tampoco planifica |
+| Commit por historia falla | Bloquea la historia (fail-closed); se corrige la causa raíz, nunca se relaja la guarda |
 | Ancho: explorer + tablero + chat + inspector | Inspector no se auto-abre en modo desarrollo; `@container` |

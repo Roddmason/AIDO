@@ -47,10 +47,17 @@ la detección con un UA de navegador.
   la configuración del contenedor). Setting `research.webSearch.provider` (`searxng` | `duckduckgo`) y
   `research.webSearch.baseUrl` (default `http://127.0.0.1:8888`), validados (loopback o allowlist).
 - `assert_external_boundary()` y límites de bytes/timeout existentes se conservan.
+- **Riesgo residual aceptado (decisión de arquitectura 2026-09-22): SSRF por DNS rebinding sobre
+  `baseUrl`.** El default es loopback literal `127.0.0.1` y la validación se mantiene en loopback/allowlist;
+  si el operador configura un nombre (p. ej. `localhost` o un host futuro de la allowlist), el intervalo
+  entre la validación y la conexión permite que el nombre resuelva a otra IP. Conectar por IP fijada
+  (pinned-IP connect con SNI) queda **fuera de alcance**; el riesgo se documenta y se acepta porque el
+  setting sólo lo escribe el operador local y el default no resuelve DNS.
 - **Diagnóstico honesto:** una respuesta no-200 o página de desafío se reporta como
   `research_provider_blocked` ("el proveedor de búsqueda bloqueó la consulta"), distinta de "sin fuentes".
 - Levantar SearXNG: contenedor Docker oficial `searxng/searxng` en `127.0.0.1:8888` con `format json`
-  habilitado. **La descarga de la imagen se confirma con el operador antes de ejecutarla.**
+  habilitado. **La descarga de la imagen (`docker pull searxng/searxng`) es un paso de operador con
+  confirmación explícita al momento de ejecutarla (la pide el orquestador); sin "sí" queda pendiente.**
 - Copy de la tarjeta de bloqueo de research sin la frase "high-impact decision" cuando el research viene
   del intake (hoy es engañosa).
 
@@ -95,7 +102,9 @@ Jobs hijos creados `running` sin lease (`agent.product_owner`, `agent.architect`
 lease (`product_owner_agent.py:1532-1539`, `requeue_expired_jobs` exige `lease_expires_at IS NOT NULL`,
 `jobs_approvals/repository.py:884-895`). **Diseño:** al recuperar o completar el padre, fallar sus hijos
 `running` sin lease (enlazados por `workflow_run_id` o `parentJobId` que se escribe al crearlos) con motivo
-`parent_lease_expired`, y cerrar sus `agent_runs`. Limpieza única del zombi existente `job-31a6b390`.
+`parent_lease_expired`, y cerrar sus `agent_runs`. Limpieza única del zombi existente `job-31a6b390`:
+escribe en la BD viva, así que es un paso de operador con confirmación explícita al momento de ejecutarlo
+(la pide el orquestador) y exige un respaldo de `platform.sqlite` inmediatamente antes de la escritura.
 
 ### 2.9 Rojos preexistentes
 

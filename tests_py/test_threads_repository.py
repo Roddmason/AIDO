@@ -183,6 +183,25 @@ def test_running_thread_cannot_be_soft_deleted(tmp_path: Path) -> None:
             repo.soft_delete_thread(thread["id"], reason="cleanup", actor="operator")
 
 
+def test_running_thread_cannot_be_archived(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Running thread",
+        )
+        repo.set_status(thread["id"], "running")
+
+        with pytest.raises(ValueError, match="running"):
+            repo.archive_thread(thread["id"], reason="cleanup", actor="operator")
+
+        assert repo.get_thread(thread["id"])["status"] == "running"
+
+
 def test_owner_type_must_be_known(tmp_path: Path) -> None:
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)

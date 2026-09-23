@@ -359,6 +359,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "thread": thread,
                 "auditEvent": latest_thread_audit(thread_id, "thread.archived", thread["projectId"]),
             }
+        except ThreadLifecycleError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:

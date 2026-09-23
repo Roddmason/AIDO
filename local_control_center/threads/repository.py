@@ -33,7 +33,7 @@ from local_control_center.threads.contracts import (
 # Append-only tables whose per-thread ``sequence`` is computed by ``_next_sequence``. The set is an
 # allowlist so the table name can never reach the SQL string from anywhere but this module.
 _SEQUENCE_TABLES = frozenset({"thread_messages", "thread_agent_events"})
-_ACTIVE_DELETE_BLOCKING_STATUSES = frozenset({"queued", "running"})
+_ACTIVE_LIFECYCLE_BLOCKING_STATUSES = frozenset({"queued", "running"})
 _UNUSABLE_WORKSPACE_STATUSES = ("archived", "deleted")
 
 
@@ -323,7 +323,12 @@ class ThreadsRepository:
         return self.get_thread(thread_id)
 
     def archive_thread(self, thread_id: str, reason: str, actor: str) -> dict[str, Any]:
-        """Archiva el hilo sin tocar mensajes/artifacts y registra ``thread.archived``."""
+        """Archiva el hilo sin tocar mensajes/artifacts y registra ``thread.archived``.
+
+        Un hilo ``queued``/``running`` tiene un job en curso: archivarlo lo dejaria ejecutando
+        detras de un estado que el panel interpreta como "sin job" (ver StepState 'stopped' en
+        ThreadExecutionPanel.tsx). Se bloquea con el mismo criterio que ``soft_delete_thread``.
+        """
         reason_text = _required_text(reason, "Lifecycle reason is required")
         actor_name = _required_text(actor, "Lifecycle actor is required")
         timestamp = utc_now()
@@ -331,6 +336,10 @@ class ThreadsRepository:
             current = self.get_thread(thread_id)
             if current["deletedAt"] or current["status"] == "deleted":
                 raise ValueError("Deleted thread cannot be archived")
+            if current["status"] in _ACTIVE_LIFECYCLE_BLOCKING_STATUSES:
+                raise ThreadLifecycleError(
+                    f"Thread {thread_id} is {current['status']} and cannot be archived until it stops."
+                )
             self.connection.execute(
                 """
                 UPDATE project_threads
@@ -391,7 +400,7 @@ class ThreadsRepository:
         timestamp = utc_now()
         with self._transaction():
             current = self.get_thread(thread_id)
-            if current["status"] in _ACTIVE_DELETE_BLOCKING_STATUSES:
+            if current["status"] in _ACTIVE_LIFECYCLE_BLOCKING_STATUSES:
                 raise ThreadLifecycleError(
                     f"Thread {thread_id} is {current['status']} and cannot be deleted until it stops."
                 )

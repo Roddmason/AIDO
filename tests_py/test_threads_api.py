@@ -246,6 +246,26 @@ def test_running_thread_delete_returns_blocking_reason(tmp_path: Path) -> None:
         runtime.close()
 
 
+def test_running_thread_archive_returns_blocking_reason(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        ThreadsRepository(runtime.connection).set_status(thread["id"], "running")
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/archive",
+            headers=headers,
+            json={"reason": "cleanup", "actor": "operator"},
+        )
+
+        assert response.status_code == 409
+        assert "running" in response.json()["detail"]
+    finally:
+        runtime.close()
+
+
 def test_post_message_queues_product_loop_job_and_returns_incremental_run(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:

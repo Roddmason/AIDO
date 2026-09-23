@@ -1169,3 +1169,110 @@ def capture_git_diff(
         "patchSizeBytes": len(patch.encode("utf-8")),
         "truncated": len(patch) > 12000,
     }
+
+
+def _usable_base_ref(ref: str) -> bool:
+    return (
+        bool(ref)
+        and ref != "HEAD"
+        and not ref.startswith("-")
+        and ".." not in ref
+        and not any(character.isspace() for character in ref)
+    )
+
+
+def capture_cumulative_diff(
+    workspace_path: Path,
+    *,
+    base_refs: list[str],
+    connection: sqlite3.Connection,
+    root: Path,
+    project_id: str,
+    workspace_id: str,
+    task_id: str = "cumulative_diff",
+) -> dict[str, Any]:
+    """Captura el diff acumulado de la rama del workspace desde su base (``<base>...HEAD``).
+
+    Es la evidencia que Security y la aprobación revisan cuando el loop ejecuta varias historias:
+    cada historia deja su commit en la rama estable del hilo y este diff las cubre todas. Prueba
+    ``base_refs`` en orden (rama base configurada y, como respaldo, el commit desde el que se creó
+    el worktree) y usa el primero que ``rev-parse --verify`` resuelve; ``HEAD``, refs vacías o con
+    forma de opción se descartan. El rango de tres puntos equivale a ``merge-base(base)..HEAD`` sin
+    requerir ``merge-base`` (no allowlisted). Ese rango excluye el working tree, así que ``status``
+    devuelve lo que queda sin commitear (``status --porcelain=v1``) para que el consumidor rechace
+    un diff incompleto. Los comandos de estado van por el ToolBroker; el patch íntegro se lee con
+    ``run_git`` de solo lectura, igual que ``capture_git_diff``, porque el broker trunca salidas
+    largas. Fail-closed: sin git, sin base resoluble o con un comando fallido devuelve un estado
+    distinto de ``captured`` en lugar de un diff parcial.
+    """
+    if not git_available():
+        return {"kind": "git_diff", "state": "degraded_git_unavailable", "statusRaw": "", "status": []}
+    traces: list[dict[str, Any]] = []
+
+    def brokered(args: list[str], suffix: str) -> dict[str, Any]:
+        result = run_brokered_git(
+            connection=connection,
+            root=root,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            cwd=workspace_path,
+            args=args,
+            task_id=f"{task_id}.{suffix}",
+        )
+        traces.append(result["trace"])
+        return result
+
+    base_ref: str | None = None
+    for candidate in base_refs:
+        ref = str(candidate or "").strip()
+        if _usable_base_ref(ref) and brokered(["rev-parse", "--verify", ref], "base")["returnCode"] == 0:
+            base_ref = ref
+            break
+    if base_ref is None:
+        return {
+            "kind": "git_diff",
+            "state": "capture_failed",
+            "stderr": "No base ref resolved for the cumulative diff.",
+            "files": [],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    revision_range = f"{base_ref}...HEAD"
+    name_result = brokered(["diff", "--name-only", revision_range], "name_only")
+    stat_result = brokered(["diff", "--stat", revision_range], "stat")
+    branch_result = brokered(["branch", "--show-current"], "branch")
+    head_result = brokered(["rev-parse", "HEAD"], "head")
+    status_result = brokered(["status", "--porcelain=v1"], "status")
+    patch_direct = run_git(["-C", str(workspace_path), "diff", revision_range])
+    if name_result["returnCode"] != 0 or status_result["returnCode"] != 0 or patch_direct.returncode != 0:
+        return {
+            "kind": "git_diff",
+            "state": "capture_failed",
+            "stderr": (name_result["stderr"] or status_result["stderr"] or patch_direct.stderr or "").strip()[
+                :2000
+            ]
+            or name_result["reason"]
+            or status_result["reason"],
+            "files": [],
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
+    patch = patch_direct.stdout
+    return {
+        "kind": "git_diff",
+        "state": "captured",
+        "baseRef": base_ref,
+        "branch": branch_result["stdout"].strip() if branch_result["returnCode"] == 0 else None,
+        "headCommit": head_result["stdout"].strip() if head_result["returnCode"] == 0 else None,
+        "statusRaw": status_result["stdout"],
+        "status": _parse_porcelain_status(status_result["stdout"]),
+        "nameOnly": [line.strip() for line in name_result["stdout"].splitlines() if line.strip()],
+        "diffStat": stat_result["stdout"][:4000] if stat_result["returnCode"] == 0 else "",
+        "patch": patch[:12000],
+        "patchFull": patch,
+        "patchSizeBytes": len(patch.encode("utf-8")),
+        "truncated": len(patch) > 12000,
+        "toolCalls": traces,
+        "policyDecisionIds": _policy_ids(traces),
+    }

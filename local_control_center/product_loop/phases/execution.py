@@ -491,7 +491,12 @@ def capture_review_evidence(
                 )
             return blocked_result
     if not review["changedFiles"]:
-        if run.active_story_tasks is not None and runtime_status in {"completed", "evidence_ready"}:
+        # Un rework no repite el cambio ya commiteado de la historia: si QA sigue fallando, decide
+        # el gate de QA (rondas y causa real), no el guard de "sin trabajo".
+        rework_still_failing_qa = run.rework_round > 0 and runtime_status == "qa_failed"
+        if run.active_story_tasks is not None and (
+            runtime_status in {"completed", "evidence_ready"} or rework_still_failing_qa
+        ):
             run.runtime_status = runtime_status
             run.evidence_ids = evidence_ids
             run.review = review

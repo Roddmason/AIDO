@@ -403,6 +403,7 @@ class _UserMessageRun:
     story_reviews: list[dict[str, Any]] = field(default_factory=list)
     story_qa_results: list[Any] = field(default_factory=list)
     story_evidence_ids: list[str] = field(default_factory=list)
+    cumulative_patch_artifact_id: str = ""
 
 
 def is_terminal(state: str) -> bool:
@@ -4517,8 +4518,9 @@ class ProductLoopCoordinator:
 
         El ArchitectAgent corre solo cuando el intent (architecture/refactor/migration) o el riesgo
         (high/critical) lo ameritan — donde su contrato post-diff funciona, alimentado con el
-        patchArtifactId real. El DevOpsAgent corre solo con project.quality.devopsChecksEnabled y
-        usa project.quality.gateCommands como quality scripts (reactivando el setting huerfano).
+        patchArtifactId real (el diff acumulado del run cuando existe). El DevOpsAgent corre solo
+        con project.quality.devopsChecksEnabled y usa project.quality.gateCommands como quality
+        scripts (reactivando el setting huerfano).
         Ambos son advisory: sus veredictos quedan en el contexto durable y la evidencia para la
         aprobacion humana, replicando la asimetria de issue_to_pr donde el architect no bloquea; un
         fallo de esta fase deja evento y el run continua.
@@ -4529,7 +4531,7 @@ class ProductLoopCoordinator:
             intents = {str(item).strip().lower() for item in intent.get("intents") or []}
             risk = str(intent.get("risk") or "").strip().lower()
             reviews: dict[str, Any] = {}
-            patch_artifact_id = str(
+            patch_artifact_id = getattr(run, "cumulative_patch_artifact_id", "") or str(
                 ((run.runtime_result or {}).get("diffSummary") or {}).get("patchArtifactId") or ""
             )
             architect_runtime = assigned_runtime(run.request_meta, "architect")

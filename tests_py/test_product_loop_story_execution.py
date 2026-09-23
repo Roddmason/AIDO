@@ -21,12 +21,16 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop import coordinator as coordinator_module
 from local_control_center.product_loop.coordinator import DEFAULT_AUTO_REWORK_ROUNDS, ProductLoopCoordinator
+from local_control_center.security_policy.git_command_runner import git_available
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.workspaces_projects import git_worktrees
+from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.test_product_loop_coordinator import (
     _AssessmentRunner,
     _ControlledRuntime,
+    _git_workspace_project,
     _GitGate,
     _product_owner_result,
     _ProductOwnerRunner,
@@ -338,3 +342,112 @@ def test_a_story_uncovered_by_llm_and_fallback_blocks_before_any_developer_run(
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "technical_lead"
         assert "Setup reminders" in result["reason"]
         assert runtime.run_payloads == []
+
+
+class _WorkspaceWritingRuntime(_PerStoryRuntime):
+    """Escribe un archivo real por historia en el worktree asignado, como haría un runtime de código."""
+
+    def __init__(self, connection: Any, root: Path) -> None:
+        super().__init__()
+        self.connection = connection
+        self.root = root
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        position = self.story_position(payload)
+        workspace = WorkspacesRepository(self.connection, root=self.root).get_workspace(
+            payload["workspaceId"]
+        )
+        relative = f"src/story_{position}.py"
+        target = Path(workspace["path"]) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"STORY = {position}\n", encoding="utf-8")
+        self.changed_by_story[position] = [relative]
+        return super().run(payload)
+
+
+def test_security_and_approval_review_the_cumulative_git_diff(tmp_path: Path) -> None:
+    if not git_available():
+        pytest.skip("git CLI is required for the cumulative worktree diff")
+    security = _SecurityGate()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "cumulative-git")
+        runtime = _WorkspaceWritingRuntime(connection, tmp_path)
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
+
+        assert result["status"] == "awaiting_approval"
+        review = result["loop"]["context"]["durableRun"]["review"]
+        assert review["state"] == "captured"
+        assert review["changedFiles"] == ["src/story_1.py", "src/story_2.py"]
+        artifact_id = security.run_payloads[0]["diffArtifactId"]
+        assert artifact_id
+        artifact = EvidenceRepository(connection).get_artifact_by_id(artifact_id)
+        assert artifact["kind"] == "git_patch"
+        assert artifact["metadata"]["name"] == "product-loop-cumulative.diff"
+        patch = Path(artifact["path"]).read_text(encoding="utf-8")
+        assert "src/story_1.py" in patch
+        assert "src/story_2.py" in patch
+        approval = result["loop"]["context"]["durableRun"]["approval"]
+        assert approval["patchArtifactIds"] == [artifact_id]
+        jobs = JobsRepository(connection)
+        assert jobs.get_job(approval["jobId"])["payload"]["patchArtifactIds"] == [artifact_id]
+        assert jobs.get_action_request(approval["actionRequestId"])["payload"]["patchArtifactIds"] == [
+            artifact_id
+        ]
+
+
+def test_a_story_commit_failure_blocks_before_qa_and_security(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not git_available():
+        pytest.skip("git CLI is required for the per-story commit")
+    security = _SecurityGate()
+
+    def failing_commit(**_kwargs: Any) -> dict[str, Any]:
+        return {"status": "commit_failed", "stderr": "forced commit failure"}
+
+    monkeypatch.setattr(git_worktrees, "commit_workspace_changes", failing_commit)
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "commit-failure")
+        runtime = _WorkspaceWritingRuntime(connection, tmp_path)
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "review"
+        assert "commit" in result["reason"].lower()
+        assert "forced commit failure" in result["reason"]
+        assert len(runtime.run_payloads) == 1
+        assert security.run_payloads == []
+        first = runtime.story_order[0]
+        assert BacklogRepository(connection).get_user_story(first)["status"] == "blocked"
+
+
+def test_uncommitted_work_blocks_the_cumulative_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not git_available():
+        pytest.skip("git CLI is required for the cumulative worktree diff")
+    security = _SecurityGate()
+
+    def commit_that_leaves_the_tree_dirty(**_kwargs: Any) -> dict[str, Any]:
+        return {"status": "committed", "commit": "0" * 40}
+
+    monkeypatch.setattr(git_worktrees, "commit_workspace_changes", commit_that_leaves_the_tree_dirty)
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "cumulative-dirty")
+        runtime = _WorkspaceWritingRuntime(connection, tmp_path)
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "review"
+        assert "uncommitted" in result["reason"].lower()
+        assert "src/" in result["reason"]
+        assert security.run_payloads == []

@@ -110,7 +110,9 @@ def run_security_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRun
     security_agent = run.security_runner or SecurityAgentRunner(
         coordinator.connection, root=run.effective_root
     )
-    patch_artifact_id = str((runtime_result.get("diffSummary") or {}).get("patchArtifactId") or "")
+    patch_artifact_id = run.cumulative_patch_artifact_id or str(
+        (runtime_result.get("diffSummary") or {}).get("patchArtifactId") or ""
+    )
     security_payload: dict[str, Any] = {
         "projectId": project_id,
         "workspaceId": workspace["id"],

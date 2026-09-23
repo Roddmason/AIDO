@@ -22,7 +22,9 @@ def finalize_delivery_approval(coordinator: ProductLoopCoordinator, run: _UserMe
     """Registra la evidencia de seguridad, crea la aprobación de entrega y estaciona el loop.
 
     Cierra el camino feliz: evidencia consolidada, job + ActionRequest de aprobación, y las
-    transiciones ``review_ready`` → ``awaiting_approval`` con su evento de hilo.
+    transiciones ``review_ready`` → ``awaiting_approval`` con su evento de hilo. La aprobación
+    referencia el artefacto ``git_patch`` del diff acumulado de todas las historias
+    (``patchArtifactIds``) cuando el run lo capturó.
     """
     from local_control_center.product_loop.coordinator import (
         _diff_ref_from_review,
@@ -123,6 +125,8 @@ def finalize_delivery_approval(coordinator: ProductLoopCoordinator, run: _UserMe
         "diffRefs": [diff_ref],
         "changedFiles": review["changedFiles"],
     }
+    if run.cumulative_patch_artifact_id:
+        approval_payload["patchArtifactIds"] = [run.cumulative_patch_artifact_id]
     try:
         approval_job = coordinator.jobs.create_job(
             project_id=project_id,
@@ -172,6 +176,7 @@ def finalize_delivery_approval(coordinator: ProductLoopCoordinator, run: _UserMe
         "actionRequestId": approval_action["id"],
         "evidenceRefs": approval_evidence_ids,
         "diffRefs": [diff_ref],
+        "patchArtifactIds": approval_payload.get("patchArtifactIds") or [],
     }
     loop = coordinator._transition_run_state(
         loop,

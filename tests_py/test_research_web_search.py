@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import socket
+import struct
 import threading
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request
 
 import pytest
@@ -27,6 +29,7 @@ from local_control_center.research.web_search import (
     ResearchWebSearchError,
     assert_public_source_url,
     configured_web_search_provider,
+    open_public_source,
     searxng_web_search_provider,
     validate_search_base_url,
 )
@@ -128,11 +131,86 @@ def test_searxng_down_is_a_typed_network_failure_not_a_block() -> None:
     assert str(caught.value).startswith("ResearchAgent web search failed:")
 
 
+@contextmanager
+def _dropping_server(*, reset: bool) -> Iterator[str]:
+    """Acepta la conexión y la corta sin responder, como el proxy de Docker con SearXNG reiniciando."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    listener.settimeout(5)
+
+    def serve() -> None:
+        with suppress(OSError):
+            connection, _address = listener.accept()
+            with connection:
+                connection.recv(65536)
+                if reset:
+                    connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    try:
+        yield f"http://127.0.0.1:{listener.getsockname()[1]}"
+    finally:
+        worker.join(timeout=5)
+        listener.close()
+
+
+@pytest.mark.parametrize("reset", [False, True], ids=["accept-then-close", "accept-then-reset"])
+def test_searxng_dropping_the_connection_is_a_typed_network_failure(reset: bool) -> None:
+    """``RemoteDisconnected`` / ``ConnectionResetError`` tras conectar no pueden escapar sin tipar."""
+    with _dropping_server(reset=reset) as base_url, pytest.raises(ResearchWebSearchError) as caught:
+        searxng_web_search_provider(base_url)("python asyncio", 5)
+
+    assert not isinstance(caught.value, ResearchProviderBlockedError)
+    assert str(caught.value).startswith("ResearchAgent web search failed:")
+
+
 def _resolve_to(address: str):
     def fake_getaddrinfo(*_args, **_kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 443))]
 
     return fake_getaddrinfo
+
+
+def test_unresolvable_source_name_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unresolvable(*_args, **_kwargs):
+        raise socket.gaierror(11001, "getaddrinfo failed")
+
+    monkeypatch.setattr(web_search_module.socket, "getaddrinfo", unresolvable)
+    with pytest.raises(ResearchSourceUrlError):
+        assert_public_source_url("https://rebind.example/doc")
+
+
+def test_source_connection_revalidates_the_address_it_connects_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DNS rebinding: pública al validar la URL, loopback al conectar ⇒ se rechaza sin conectar."""
+    answers = iter(["151.101.0.223", "127.0.0.1"])
+
+    def rebinding(host, port, *_args, **_kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers), port))]
+
+    def forbidden_connect(*_args, **_kwargs):
+        raise AssertionError("a rebound address must never be connected to")
+
+    monkeypatch.setattr(web_search_module.socket, "getaddrinfo", rebinding)
+    monkeypatch.setattr(web_search_module.socket, "create_connection", forbidden_connect)
+    with pytest.raises(ResearchSourceUrlError):
+        open_public_source("http://rebind.example/doc", headers={}, timeout=5)
+
+
+def test_source_connection_is_pinned_to_the_validated_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    connected: list[tuple[str, int]] = []
+
+    def recording_connect(address, *_args, **_kwargs):
+        connected.append(address)
+        raise ConnectionRefusedError("recorded")
+
+    monkeypatch.setattr(web_search_module.socket, "getaddrinfo", _resolve_to("151.101.0.223"))
+    monkeypatch.setattr(web_search_module.socket, "create_connection", recording_connect)
+    with pytest.raises(URLError):
+        open_public_source("https://docs.python.org/3/", headers={}, timeout=5)
+
+    assert connected == [("151.101.0.223", 443)]
 
 
 @pytest.mark.parametrize(
@@ -193,6 +271,8 @@ def test_search_base_url_accepts_only_loopback_without_credentials() -> None:
         "http://example.com:8888",
         "http://user:secret@127.0.0.1:8888",
         "http://127.0.0.1:8888/?token=x",
+        "http://127.0.0.1:bad",
+        "http://127.0.0.1:99999",
         "file:///etc/passwd",
         "",
     ):
@@ -208,8 +288,9 @@ def test_search_settings_are_registered_and_validated() -> None:
     assert provider.enum == ("searxng", "duckduckgo")
     assert base_url is not None and base_url.default == "http://127.0.0.1:8888"
     assert validate_value(base_url, "http://localhost:8888/") == "http://localhost:8888"
-    with pytest.raises(ValueError):
-        validate_value(base_url, "http://10.0.0.5:8888")
+    for rejected in ("http://10.0.0.5:8888", "http://127.0.0.1:bad"):
+        with pytest.raises(ValueError):
+            validate_value(base_url, rejected)
 
 
 def test_configured_provider_follows_the_setting(tmp_path: Path) -> None:

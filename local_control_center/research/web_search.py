@@ -9,8 +9,8 @@ consulta), nunca como "sin fuentes"; una caída de red o timeout es ``ResearchWe
 para que el runner responda ``research_blocked`` en vez de reventar el job. Nunca se evade la detección
 de bots de un tercero cambiando el User-Agent. La URL base sólo puede apuntar a loopback; las fuentes
 que el agente descarga, en cambio, sólo pueden apuntar a hosts públicos (``assert_public_source_url``),
-revalidando cada redirect. Este módulo es la única fuente de las constantes y del fetch acotado que
-comparten ambos proveedores.
+revalidando cada redirect y conectando a la misma IP que se validó en cada salto. Este módulo es la
+única fuente de las constantes y del fetch acotado que comparten ambos proveedores.
 
 @author Rodrigo Mason
 """
@@ -21,11 +21,20 @@ import json
 import socket
 import sqlite3
 from collections.abc import Callable
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import (
+    HTTPHandler,
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    ProxyHandler,
+    Request,
+    build_opener,
+    urlopen,
+)
 
 from local_control_center.process_supervision.context import assert_external_boundary
 from local_control_center.shared.redaction import redact_secrets
@@ -78,28 +87,85 @@ def _literal_address(host: str) -> IPv4Address | IPv6Address | None:
         return None
 
 
-def _host_addresses(host: str, port: int) -> set[IPv4Address | IPv6Address]:
-    """Direcciones a las que conectaría la descarga; vacío si el nombre no resuelve."""
+def _host_addresses(host: str, port: int) -> list[IPv4Address | IPv6Address]:
+    """Direcciones a las que conectaría la descarga, en el orden del resolver; vacío si no resuelve."""
     literal = _literal_address(host)
     if literal is not None:
-        return {literal}
+        return [literal]
     if host == "localhost" or host.endswith(".localhost"):
-        return {ip_address("127.0.0.1")}
+        return [ip_address("127.0.0.1")]
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, UnicodeError):
-        return set()
-    return {_unmapped(ip_address(str(info[4][0]).split("%", 1)[0])) for info in infos}
+        return []
+    resolved = (_unmapped(ip_address(str(info[4][0]).split("%", 1)[0])) for info in infos)
+    return list(dict.fromkeys(resolved))
+
+
+def _public_addresses(host: str, port: int) -> list[IPv4Address | IPv6Address]:
+    """Direcciones del host si todas son globales; falla cerrado si no resuelve o alguna no lo es."""
+    addresses = _host_addresses(host.lower(), port)
+    if not addresses:
+        raise ResearchSourceUrlError(f"ResearchAgent source host does not resolve: {host}.")
+    if any(not address.is_global for address in addresses):
+        raise ResearchSourceUrlError(f"ResearchAgent source URL must target a public host: {host}.")
+    return addresses
+
+
+def _connect_to_public_address(
+    address: tuple[str, int], timeout: Any, source_address: Any = None
+) -> socket.socket:
+    """Conecta a una IP recién validada: la resolución que se valida es la misma a la que se conecta."""
+    host, port = address
+    errors: list[OSError] = []
+    for public in _public_addresses(host, port):
+        try:
+            return socket.create_connection((str(public), port), timeout, source_address)
+        except OSError as error:
+            errors.append(error)
+    raise errors[-1]
+
+
+class _PinnedHTTPConnection(HTTPConnection):
+    """HTTP que conecta a la IP pública validada en el mismo paso, sin una segunda resolución."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_to_public_address
+
+
+class _PinnedHTTPSConnection(HTTPSConnection):
+    """HTTPS fijado a la IP validada; SNI, certificado y ``Host`` siguen usando el nombre original."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_to_public_address
+
+
+class _PinnedHTTPHandler(HTTPHandler):
+    """Abre cada salto HTTP (incluidos los redirects) con ``_PinnedHTTPConnection``."""
+
+    def http_open(self, req: Request) -> Any:
+        """Descarga HTTP conectando sólo a la IP pública validada."""
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(HTTPSHandler):
+    """Abre cada salto HTTPS (incluidos los redirects) con ``_PinnedHTTPSConnection``."""
+
+    def https_open(self, req: Request) -> Any:
+        """Descarga HTTPS conectando sólo a la IP pública validada."""
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
 def assert_public_source_url(url: str) -> None:
     """Rechaza fuentes que no sean http(s) hacia hosts públicos.
 
-    Bloquea credenciales embebidas y todo destino cuya dirección literal o resuelta (A/AAAA) no sea
-    global: loopback, RFC 1918, link-local (``169.254.169.254``, metadata de nube), CGNAT, ULA y
-    reservadas, incluida la IPv4 mapeada en IPv6. Un nombre que no resuelve se deja pasar porque la
-    descarga fallará igual con el mismo resolver; el intervalo entre esta resolución y la conexión
-    (DNS rebinding) queda como riesgo residual documentado.
+    Bloquea credenciales embebidas, nombres que no resuelven y todo destino cuya dirección literal o
+    resuelta (A/AAAA) no sea global: loopback, RFC 1918, link-local (``169.254.169.254``, metadata de
+    nube), CGNAT, ULA y reservadas, incluida la IPv4 mapeada en IPv6. Es la validación previa; la
+    conexión real vuelve a resolver, valida y conecta a esa misma IP (``_PinnedHTTPConnection``), así
+    que un DNS rebinding entre ambas resoluciones no alcanza un host interno.
     """
     parsed = urlparse(str(url or "").strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -110,9 +176,7 @@ def assert_public_source_url(url: str) -> None:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
     except ValueError as error:
         raise ResearchSourceUrlError("ResearchAgent source URL has an invalid port.") from error
-    host = parsed.hostname.lower()
-    if any(not address.is_global for address in _host_addresses(host, port)):
-        raise ResearchSourceUrlError(f"ResearchAgent source URL must target a public host: {host}.")
+    _public_addresses(parsed.hostname, port)
 
 
 class PublicRedirectHandler(HTTPRedirectHandler):
@@ -132,7 +196,10 @@ class PublicRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_PUBLIC_SOURCE_OPENER = build_opener(PublicRedirectHandler())
+# Sin proxies del entorno: con proxy la IP conectada sería la del proxy y el fijado no protegería nada.
+_PUBLIC_SOURCE_OPENER = build_opener(
+    ProxyHandler({}), PublicRedirectHandler(), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
+)
 _STANDARD_URLOPEN = urlopen
 
 
@@ -156,10 +223,16 @@ def open_public_source(
 
 
 def validate_search_base_url(value: str) -> str:
-    """Valida la URL base del proveedor: http(s), sin credenciales ni query, y sólo loopback."""
+    """Valida la URL base del proveedor: http(s), puerto válido, sin credenciales ni query, y sólo loopback."""
     parsed = urlparse(str(value or "").strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("research.webSearch.baseUrl must be an absolute http(s) URL.")
+    try:
+        port = parsed.port  # ValueError si no es numérico o está fuera de 0-65535.
+    except ValueError:
+        port = 0
+    if port == 0:
+        raise ValueError("research.webSearch.baseUrl has an invalid port.")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("research.webSearch.baseUrl must not carry credentials, query or fragment.")
     if parsed.hostname.lower() not in LOOPBACK_HOSTS:
@@ -196,8 +269,10 @@ def fetch_search_response(
     """Ejecuta la consulta acotada y devuelve ``(cuerpo, charset)``.
 
     HTTP distinto de 200 ⇒ ``ResearchProviderBlockedError``; red, timeout o cuerpo sobre el límite ⇒
-    ``ResearchWebSearchError``. ``opener`` conserva la costura de los tests que parchean ``urlopen``
-    del módulo que llama.
+    ``ResearchWebSearchError``. La red incluye todo ``OSError`` (``urllib`` no envuelve el que ocurre
+    al leer la respuesta, p. ej. ``ConnectionResetError``) y ``HTTPException`` (``RemoteDisconnected``,
+    ``IncompleteRead``). ``opener`` conserva la costura de los tests que parchean ``urlopen`` del
+    módulo que llama.
     """
     try:
         assert_external_boundary()
@@ -208,7 +283,7 @@ def fetch_search_response(
     except HTTPError as error:
         error.close()
         raise ResearchProviderBlockedError(provider, f"HTTP {error.code}") from error
-    except (URLError, TimeoutError) as error:
+    except (OSError, HTTPException) as error:
         raise ResearchWebSearchError(f"ResearchAgent web search failed: {error}") from error
     if status != 200:
         raise ResearchProviderBlockedError(provider, f"HTTP {status}")

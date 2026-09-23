@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from local_control_center.agents.model_execution_health import VALIDATION_TTL_SECONDS
 from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.evidence.artifacts import write_text_artifact
@@ -34,6 +35,7 @@ from local_control_center.remediations.payloads import (
 )
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
+from local_control_center.runtime_team.validation import runtime_validated_within
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -865,6 +867,8 @@ class BlockerRemediationService:
             execution = self._approve_resource_decision(action=action, payload=execution_payload)
         elif action_type == "continue_plan_only":
             execution = self._continue_plan_only(action=action)
+        elif action_type == "revalidate_runtime":
+            execution = self._revalidate_runtime(action=action, payload=execution_payload, platform=platform)
         else:
             execution = {
                 "status": "blocked",
@@ -1033,6 +1037,7 @@ class BlockerRemediationService:
             "answer_question",
             "approve_resource_decision",
             "retry_loop",
+            "revalidate_runtime",
         }
 
     def _retry_failed_worker_job_if_needed(self, *, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1566,6 +1571,98 @@ class BlockerRemediationService:
                 return execution
         except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
             return {**blocked, "reason": str(error)}
+
+    def _revalidate_runtime(
+        self, *, action: dict[str, Any], payload: dict[str, Any], platform: Any
+    ) -> dict[str, Any]:
+        """Encola una ``models.validate_runtime`` por runtime vencido o reanuda el retry si ya responden.
+
+        Una operación por runtime deja que ``operation_workload`` reserve la clase de cada proveedor
+        (CLI, API o GPU local). La remediación queda ``pending`` (estado ``validating``) hasta que
+        ``resume_after_runtime_validation`` la re-ejecuta con todos sus runtimes validados.
+        """
+        runtime_ids = [str(item) for item in payload.get("runtimeIds") or [] if str(item).strip()]
+        if not runtime_ids:
+            return {"status": "blocked", "action": "revalidate_runtime", "reason": "runtimeIds is required."}
+        stale = [
+            provider_id
+            for provider_id in runtime_ids
+            if not runtime_validated_within(self.connection, provider_id, VALIDATION_TTL_SECONDS)
+        ]
+        if not stale:
+            return self._resume_runtime_team_retry(action)
+        registered = (getattr(platform, "execution_handlers", None) or {}).get("models.validate_runtime")
+        if registered is None:
+            return {
+                "status": "blocked",
+                "action": "revalidate_runtime",
+                "reason": "The models.validate_runtime operation is not registered in this process.",
+            }
+        from local_control_center.executions.router import enqueue_registered_operation
+
+        accepted = [
+            enqueue_registered_operation(
+                platform,
+                registered[0],
+                {"provider_id": provider_id, "body": {"projectId": action["projectId"]}},
+                project_id=action["projectId"],
+            )
+            for provider_id in stale
+        ]
+        return {
+            "status": "validating",
+            "action": "revalidate_runtime",
+            "runtimeIds": stale,
+            "executionIds": [str(item.get("executionId") or "") for item in accepted],
+            "reason": "Runtime tests queued; the run resumes when every runtime answers.",
+        }
+
+    def _resume_runtime_team_retry(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Reanuda el ``retry_loop`` pendiente del mismo loop cuando el equipo ya está validado."""
+        retry_action = next(
+            (
+                item
+                for item in self.repository.list_for_thread(action["threadId"])
+                if item["actionType"] == "retry_loop"
+                and item["loopId"] == action["loopId"]
+                and item["status"] == "pending"
+            ),
+            None,
+        )
+        if retry_action is None:
+            return {
+                "status": "completed",
+                "action": "revalidate_runtime",
+                "reason": "Runtimes revalidated; there is no pending retry to resume.",
+            }
+        retry = self._retry_loop(action=retry_action, payload={})
+        if retry.get("status") in {"completed", "queued"}:
+            self.repository.mark_status(retry_action["id"], "resolved")
+        return {**retry, "action": "revalidate_runtime", "retry": retry}
+
+    def resume_after_runtime_validation(self, provider_id: str) -> list[dict[str, Any]]:
+        """Re-ejecuta las re-pruebas pendientes que incluyen ``provider_id`` y ya tienen todo validado.
+
+        Lo invoca el handler de ``models.validate_runtime`` tras un ``validated``; una re-prueba con
+        otro runtime aún vencido sigue esperando su propia validación.
+        """
+        rows = self.connection.execute(
+            """SELECT id FROM remediation_actions
+               WHERE action_type = 'revalidate_runtime' AND status = 'pending'
+               ORDER BY created_at ASC, rowid ASC"""
+        ).fetchall()
+        resumed: list[dict[str, Any]] = []
+        for row in rows:
+            action = self.repository.get(row["id"])
+            runtime_ids = [str(item) for item in (action["payload"] or {}).get("runtimeIds") or []]
+            if provider_id not in runtime_ids:
+                continue
+            if all(
+                runtime_validated_within(self.connection, runtime_id, VALIDATION_TTL_SECONDS)
+                for runtime_id in runtime_ids
+            ):
+                resumed.append(self.execute(action["id"], platform=None))
+        return resumed
 
     def _retry_loop(self, *, action: dict[str, Any], payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if action.get("stage") == "research":
@@ -3354,6 +3451,8 @@ class BlockerRemediationService:
         status = str(details.get("status") or "").lower()
         if stage == "review":
             return "review_diff_unavailable"
+        if stage == "runtime_team":
+            return "runtime_team_validation_expired"
         if stage == "gitleaks":
             if status == "configuration_required" or "not found" in text:
                 return "gitleaks_missing"

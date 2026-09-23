@@ -45,6 +45,7 @@ BLOCKER_TYPES = (
     "functionality_memory_decision_required",
     "thread_similarity_decision_required",
     "thread_intake_decision_required",
+    "runtime_team_validation_expired",
 )
 BlockerType = Literal[
     "runtime_risk_review_required",
@@ -82,6 +83,7 @@ BlockerType = Literal[
     "functionality_memory_decision_required",
     "thread_similarity_decision_required",
     "thread_intake_decision_required",
+    "runtime_team_validation_expired",
 ]
 
 REMEDIATION_ACTION_TYPES = (
@@ -102,6 +104,7 @@ REMEDIATION_ACTION_TYPES = (
     "retry_loop",
     "view_diff",
     "save_patch",
+    "revalidate_runtime",
 )
 RemediationActionType = Literal[
     "approve_runtime_risk",
@@ -121,6 +124,7 @@ RemediationActionType = Literal[
     "retry_loop",
     "view_diff",
     "save_patch",
+    "revalidate_runtime",
 ]
 
 REMEDIATION_STATUSES = ("pending", "resolved", "dismissed", "failed")

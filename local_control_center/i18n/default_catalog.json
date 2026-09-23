@@ -11152,6 +11152,18 @@
       "en": "Every agent step that uses this runtime stays blocked until it authenticates.",
       "es": "Cada paso de agente que use este runtime queda bloqueado hasta que se autentique."
     },
+    "app.threads.remediation.blocker.runtime_team_validation_expired.title": {
+      "en": "Thread AI team needs a fresh test",
+      "es": "El equipo IA del hilo necesita una prueba reciente"
+    },
+    "app.threads.remediation.blocker.runtime_team_validation_expired.explanation": {
+      "en": "A runtime assigned to this thread no longer has a valid test with its current configuration.",
+      "es": "Un runtime asignado a este hilo ya no tiene una prueba válida con su configuración actual."
+    },
+    "app.threads.remediation.blocker.runtime_team_validation_expired.impact": {
+      "en": "AIDO will not switch to another runtime on its own; the run stays blocked until you re-test it.",
+      "es": "AIDO no cambiará a otro runtime por su cuenta; la ejecución sigue bloqueada hasta que lo vuelvas a probar."
+    },
     "app.threads.remediation.blocker.runtime_output_invalid.title": {
       "en": "Runtime returned invalid output",
       "es": "El runtime devolvió una salida inválida"
@@ -11599,6 +11611,10 @@
     "app.threads.remediation.action.retryLoop": {
       "en": "Retry loop",
       "es": "Reintentar loop"
+    },
+    "app.threads.remediation.action.revalidateRuntime": {
+      "en": "Re-test runtime",
+      "es": "Re-probar runtime"
     },
     "app.threads.remediation.action.applyResearch": {
       "en": "Apply research",

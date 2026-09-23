@@ -1546,6 +1546,30 @@ def _thread_intake_decision_required_specs(context: BlockerPayloadContext) -> li
     ]
 
 
+def _runtime_team_validation_expired_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    """Re-prueba los runtimes vencidos del equipo del hilo; el retry queda para después de editar."""
+    runtime_ids = [str(item) for item in context.details.get("runtimeIds") or [] if str(item).strip()]
+    specs: list[dict[str, Any]] = []
+    if runtime_ids:
+        specs.append(
+            {
+                "actionType": "revalidate_runtime",
+                "title": "Re-test runtime",
+                "description": "Queue a real round trip per stale runtime; the run resumes once every runtime answers.",
+                "payload": {"runtimeIds": runtime_ids},
+            }
+        )
+    specs.append(
+        {
+            "actionType": "retry_loop",
+            "title": "Retry loop",
+            "description": "Retry after editing the thread's AI team or re-testing its runtimes.",
+            "payload": {"retryTarget": "runtime_team"},
+        }
+    )
+    return specs
+
+
 Builder = Callable[[BlockerPayloadContext], list[dict[str, Any]]]
 
 PAYLOAD_BUILDERS: dict[str, Builder] = {
@@ -1584,4 +1608,5 @@ PAYLOAD_BUILDERS: dict[str, Builder] = {
     "functionality_memory_decision_required": _functionality_memory_decision_required_specs,
     "thread_similarity_decision_required": _thread_similarity_decision_required_specs,
     "thread_intake_decision_required": _thread_intake_decision_required_specs,
+    "runtime_team_validation_expired": _runtime_team_validation_expired_specs,
 }

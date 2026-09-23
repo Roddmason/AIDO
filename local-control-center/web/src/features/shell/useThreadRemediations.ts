@@ -6,6 +6,8 @@
  * thread changes or the caller bumps `refreshSignal` (so a `blocked` event on the stream re-pulls the
  * fresh repair actions), and tracks a single `busyId` so only the clicked button shows its spinner.
  * Reads keep the previous cards visible during a background refetch — no full-panel skeleton flash.
+ * A successful `execute` also wakes the thread's event stream so the restarted work shows up without
+ * waiting for the idle poll.
  * @author Rodrigo Mason
  */
 
@@ -25,6 +27,7 @@ import {
 	type BlockerCardModel,
 	buildBlockerCards,
 } from './remediationPresentation';
+import { wakeThreadEventStream } from './useThreadEventStream';
 
 export type ThreadRemediationsHandle = {
 	cards: BlockerCardModel[];
@@ -119,12 +122,13 @@ export function useThreadRemediations(
 					{ awaitRefresh: false },
 				);
 				await refetch();
+				if (threadId) wakeThreadEventStream(threadId);
 				return result;
 			} finally {
 				setBusyId(null);
 			}
 		},
-		[busyId, mutate, refetch],
+		[busyId, mutate, refetch, threadId],
 	);
 
 	const dismiss = useCallback(

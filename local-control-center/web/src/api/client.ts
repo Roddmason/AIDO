@@ -131,6 +131,9 @@ export type ThreadMemoryRecallResponse =
 export type ThreadCostPerformanceResponse =
 	OperationResponse<'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get'>;
 export type ThreadCostPerformanceRecord = ThreadCostPerformanceResponse['costPerformance'];
+export type ThreadBoardResponse =
+	OperationResponse<'get_thread_board_api_v1_threads__thread_id__board_get'>;
+export type ThreadBoardCard = ThreadBoardResponse['columns'][number]['cards'][number];
 export type WorkerStatusResponse = OperationResponse<'worker_status_api_v1_workers_status_get'>;
 export type WorkerRunOnceResponse =
 	OperationResponse<'worker_run_once_api_v1_workers_run_once_post'>;
@@ -1318,6 +1321,17 @@ export function getThreadCostPerformance(threadId: string, signal?: AbortSignal)
 		'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get',
 		ThreadCostPerformanceResponse
 	>('thread_cost_performance_api_v1_threads__thread_id__cost_performance_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Reads the per-story board of the thread's latest planned loop; a read, so no token needed. */
+export function getThreadBoard(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_board_api_v1_threads__thread_id__board_get',
+		ThreadBoardResponse
+	>('get_thread_board_api_v1_threads__thread_id__board_get', {
 		pathParams: { thread_id: threadId },
 		signal,
 	});

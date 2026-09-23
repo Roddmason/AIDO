@@ -1,6 +1,7 @@
 /**
  * Polls a thread's append-only event log incrementally so the Threads view can render a live console
- * without blocking on the background Product Loop job.
+ * without blocking on the background Product Loop job. An explicit operator action can wake an idle
+ * stream through `wakeThreadEventStream`.
  * @author Rodrigo Mason
  */
 import { useEffect, useRef, useState } from 'react';
@@ -12,6 +13,18 @@ const POLL_INTERVAL_MS = 1000;
 const IDLE_POLL_INTERVAL_MS = 15000;
 const MAX_RENDERED_EVENTS = 300;
 const EMPTY_BOOTSTRAP_POLLS = 5;
+
+/** Wakers of the mounted streams, by thread: an explicit action (a retry) asks for an immediate poll. */
+const streamWakers = new Map<string, Set<() => void>>();
+
+/**
+ * Polls `threadId`'s mounted event streams right away and restores their fast cadence. Used after an
+ * operator action that restarts work (a remediation such as `retry_loop`), so an idle stream on its
+ * 15 s cadence reflects the first story transition within one fast poll instead of up to 15 s later.
+ */
+export function wakeThreadEventStream(threadId: string): void {
+	for (const wake of streamWakers.get(threadId) ?? []) wake();
+}
 
 export type ThreadEventStreamState = {
 	events: ThreadAgentEvent[];
@@ -53,8 +66,15 @@ export function useThreadEventStream(
 		setError('');
 		lastSeqRef.current = 0;
 		let emptyPolls = 0;
+		let inFlight = false;
+		let wakeRequested = false;
+		const schedule = (delay: number) => {
+			timer = window.setTimeout(poll, wakeRequested ? 0 : delay);
+			wakeRequested = false;
+		};
 
 		const poll = async () => {
+			inFlight = true;
 			try {
 				const page = await getThreadEvents(threadId, lastSeqRef.current, MAX_RENDERED_EVENTS);
 				if (!active) return;
@@ -69,8 +89,7 @@ export function useThreadEventStream(
 				setRunning(page.running);
 				setLoading(false);
 				setError('');
-				timer = window.setTimeout(
-					poll,
+				schedule(
 					page.running || emptyPolls < EMPTY_BOOTSTRAP_POLLS
 						? POLL_INTERVAL_MS
 						: IDLE_POLL_INTERVAL_MS,
@@ -80,11 +99,28 @@ export function useThreadEventStream(
 				setError(pollError instanceof Error ? pollError.message : 'thread_events_unavailable');
 				setRunning(false);
 				setLoading(false);
-				timer = window.setTimeout(poll, IDLE_POLL_INTERVAL_MS);
+				schedule(IDLE_POLL_INTERVAL_MS);
+			} finally {
+				inFlight = false;
 			}
 		};
+		const wake = () => {
+			if (!active) return;
+			emptyPolls = 0;
+			if (inFlight) {
+				wakeRequested = true;
+				return;
+			}
+			if (timer) window.clearTimeout(timer);
+			void poll();
+		};
+		const wakers = streamWakers.get(threadId) ?? new Set<() => void>();
+		wakers.add(wake);
+		streamWakers.set(threadId, wakers);
 		void poll();
 		return () => {
+			wakers.delete(wake);
+			if (!wakers.size) streamWakers.delete(threadId);
 			active = false;
 			if (timer) window.clearTimeout(timer);
 		};

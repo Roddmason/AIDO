@@ -359,3 +359,20 @@ def test_request_meta_helpers_scope_each_role():
     assert restrict_to_allowlist(["codex_cli"], None) == ["codex_cli"]
     narrowed_to_nothing = {RUNTIME_TEAM_METADATA_KEY: {"allowedRuntimes": [], "roleRuntimes": {}}}
     assert role_allowlist(narrowed_to_nothing, "developer") == []
+
+
+def test_unassigned_roles_follow_the_product_owner_runtime_so_selection_has_one_candidate():
+    """Con 2+ runtimes, aido_lead/technical_lead no deben competir entre todo el conjunto.
+
+    Jev bloquea con ``confidence_below_threshold`` cuando elige entre dos candidatos (visto en vivo
+    2026-09-23); el reparto del operador debe decidir, así que heredan el runtime del PO.
+    """
+    meta = {
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["claude_code_cli", "codex_cli"],
+            "roleRuntimes": {"product_owner": "codex_cli", "developer": "claude_code_cli"},
+        }
+    }
+    assert role_allowlist(meta, None) == ["codex_cli"]
+    assert role_allowlist(meta, "architect") == ["codex_cli"]
+    assert role_allowlist(meta, "developer") == ["claude_code_cli"]

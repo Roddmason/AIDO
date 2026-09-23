@@ -80,7 +80,7 @@ def team_role_for(role: str, *, kind: str = "", capabilities: Iterable[str] = ()
     """Traduce un rol del scheduler (o el rol de failover) al rol del equipo que lo gobierna.
 
     Devuelve ``None`` para roles sin asignación propia (aido_lead, qa_engineer, technical_lead...):
-    esos quedan confinados al conjunto completo del hilo, no a un runtime único.
+    ``role_allowlist`` los confina al runtime del PO.
     """
     normalized = str(role or "").strip().lower()
     caps = {str(item).strip().lower() for item in capabilities}

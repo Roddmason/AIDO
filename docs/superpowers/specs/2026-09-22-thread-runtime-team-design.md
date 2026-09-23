@@ -124,7 +124,7 @@ Roles obligatorios: `product_owner` y `developer`. Roles opcionales: `architect`
 
 | Sitio | Cambio |
 |---|---|
-| `_team_resource_request` (`coordinator.py:2934`) | `allowed_provider_ids = allowlist del hilo`; para roles asignados, allowlist de **un** proveedor |
+| `_team_resource_request` (`coordinator.py:2934`) | para roles asignados, allowlist de **un** proveedor; roles sin asignación propia (aido_lead, technical_lead, opcional vacío) heredan el runtime del PO (enmienda 2026-09-23: con 2+ candidatos Jev bloqueaba por `confidence_below_threshold`) |
 | `_product_owner_resource_selection` (`:3267/:3311`) | intersección con la allowlist; si hay `roleRuntimes.product_owner`, solo ese |
 | `_failover_replacement` (`:4840`) | el reemplazo solo dentro de la allowlist del hilo; un rol asignado no hace failover a otro proveedor → bloquea |
 | `_security_execution_resource` (`:3411`) | allowlist de un proveedor si está asignado; sin asignar → sin análisis de modelo (solo scanners deterministas) |

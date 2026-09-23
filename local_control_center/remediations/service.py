@@ -1579,7 +1579,9 @@ class BlockerRemediationService:
 
         Una operación por runtime deja que ``operation_workload`` reserve la clase de cada proveedor
         (CLI, API o GPU local). La remediación queda ``pending`` (estado ``validating``) hasta que
-        ``resume_after_runtime_validation`` la re-ejecuta con todos sus runtimes validados.
+        ``resume_after_runtime_validation`` la re-ejecuta con todos sus runtimes validados. Las
+        ejecuciones encoladas se persisten en ``validationExecutions`` del payload: re-ejecutar la
+        acción mientras una prueba sigue en curso la reutiliza en vez de gastar otra cuota del CLI.
         """
         runtime_ids = [str(item) for item in payload.get("runtimeIds") or [] if str(item).strip()]
         if not runtime_ids:
@@ -1600,22 +1602,40 @@ class BlockerRemediationService:
             }
         from local_control_center.executions.router import enqueue_registered_operation
 
-        accepted = [
-            enqueue_registered_operation(
-                platform,
-                registered[0],
-                {"provider_id": provider_id, "body": {"projectId": action["projectId"]}},
-                project_id=action["projectId"],
+        known = dict((action.get("payload") or {}).get("validationExecutions") or {})
+        execution_ids: dict[str, str] = {}
+        for provider_id in stale:
+            in_flight = self._in_flight_execution(known.get(provider_id))
+            execution_ids[provider_id] = in_flight or str(
+                enqueue_registered_operation(
+                    platform,
+                    registered[0],
+                    {"provider_id": provider_id, "body": {"projectId": action["projectId"]}},
+                    project_id=action["projectId"],
+                ).get("executionId")
+                or ""
             )
-            for provider_id in stale
-        ]
+        self.repository.merge_payload(action["id"], {"validationExecutions": {**known, **execution_ids}})
         return {
             "status": "validating",
             "action": "revalidate_runtime",
             "runtimeIds": stale,
-            "executionIds": [str(item.get("executionId") or "") for item in accepted],
+            "executionIds": [execution_ids[provider_id] for provider_id in stale],
             "reason": "Runtime tests queued; the run resumes when every runtime answers.",
         }
+
+    def _in_flight_execution(self, execution_id: Any) -> str | None:
+        """Devuelve ``execution_id`` si esa ejecución sigue sin estado terminal; ``None`` si no existe."""
+        from local_control_center.executions.models import TERMINAL_STATUSES
+        from local_control_center.executions.repository import ExecutionRepository
+
+        if not str(execution_id or "").strip():
+            return None
+        try:
+            status = ExecutionRepository(self.connection).get(str(execution_id))["status"]
+        except KeyError:
+            return None
+        return None if status in TERMINAL_STATUSES else str(execution_id)
 
     def _resume_runtime_team_retry(self, action: dict[str, Any]) -> dict[str, Any]:
         """Reanuda el ``retry_loop`` pendiente del mismo loop cuando el equipo ya está validado."""

@@ -16,6 +16,7 @@ import pytest
 
 from local_control_center.agents.model_execution_health import record_model_execution
 from local_control_center.executions import router as execution_router
+from local_control_center.executions.repository import ExecutionRepository
 from local_control_center.executions.router import OperationSpec
 from local_control_center.executions.workloads import operation_workload
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
@@ -209,6 +210,35 @@ def test_retest_queues_one_validation_per_stale_runtime_and_keeps_the_run_blocke
         )
     ]
     assert result["remediation"]["status"] == "pending"
+
+
+def test_retest_again_while_a_probe_is_in_flight_does_not_enqueue_another(lane, monkeypatch):
+    service, actions, _project_id, connection = lane
+    enqueued: list[str] = []
+
+    def real_enqueue(platform, spec, arguments, *, result_status_code=200, project_id=None):
+        enqueued.append(arguments["provider_id"])
+        return ExecutionRepository(connection).enqueue(
+            operation=spec.name,
+            workload_class="remote_llm_light",
+            arguments={"sealedInput": "test"},
+            project_id=project_id,
+            cwd=".",
+            result_status_code=result_status_code,
+        )
+
+    monkeypatch.setattr(execution_router, "enqueue_registered_operation", real_enqueue)
+    first = service.execute(actions[0]["id"], platform=_platform())
+    second = service.execute(actions[0]["id"], platform=_platform())
+    assert enqueued == ["codex_cli"]
+    assert second["execution"]["status"] == "validating"
+    assert second["execution"]["executionIds"] == first["execution"]["executionIds"]
+    assert second["remediation"]["status"] == "pending"
+
+    ExecutionRepository(connection).request_cancel(first["execution"]["executionIds"][0], reason="test")
+    third = service.execute(actions[0]["id"], platform=_platform())
+    assert enqueued == ["codex_cli", "codex_cli"]
+    assert third["execution"]["executionIds"] != first["execution"]["executionIds"]
 
 
 def test_a_validated_runtime_resumes_the_pending_retry(lane, monkeypatch):

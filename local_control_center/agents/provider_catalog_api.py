@@ -57,9 +57,10 @@ DEPLOYMENT_MODES_REQUIRING_BASE_URL = frozenset(
 
 # Mismas capabilities que scripts/setup_omniroute.py: `chat` es obligatorio para ejecutar y las
 # filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así que sin
-# esta siembra una cuenta OmniRoute creada desde el wizard queda solo con el `chat` de la familia
-# openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
+# esta siembra una cuenta OmniRoute o llama.cpp creada desde el wizard queda solo con el `chat` de la
+# familia openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
 OMNIROUTE_RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
+BUILD_REVIEW_SEEDED_CATALOG_IDS = frozenset({"omniroute", "llama_cpp"})
 
 
 def _seed_omniroute_runtime_capabilities(connection: Any, *, runtime_id: str) -> None:
@@ -384,7 +385,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     provider = provider_store.upsert_provider_account(account_payload)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
-        if entry.id == "omniroute":
+        if entry.id in BUILD_REVIEW_SEEDED_CATALOG_IDS:
             _seed_omniroute_runtime_capabilities(platform.connection, runtime_id=instance_id)
         audit(
             "provider_catalog.account.upserted",

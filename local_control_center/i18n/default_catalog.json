@@ -1151,6 +1151,102 @@
       "en": "Execution",
       "es": "Ejecución"
     },
+    "app.threads.board.region": {
+      "en": "Story board",
+      "es": "Tablero de historias"
+    },
+    "app.threads.board.progress": {
+      "en": "{done} of {total} stories done",
+      "es": "{done} de {total} historias listas"
+    },
+    "app.threads.board.column.todo": {
+      "en": "To do",
+      "es": "Por hacer"
+    },
+    "app.threads.board.column.inProgress": {
+      "en": "In progress",
+      "es": "En curso"
+    },
+    "app.threads.board.column.qa": {
+      "en": "QA",
+      "es": "Pruebas QA"
+    },
+    "app.threads.board.column.done": {
+      "en": "Done",
+      "es": "Listo"
+    },
+    "app.threads.board.empty.todo": {
+      "en": "Nothing waiting",
+      "es": "Nada pendiente"
+    },
+    "app.threads.board.empty.inProgress": {
+      "en": "No story in progress",
+      "es": "Ninguna historia en curso"
+    },
+    "app.threads.board.empty.qa": {
+      "en": "Nothing under QA",
+      "es": "Nada en pruebas"
+    },
+    "app.threads.board.empty.done": {
+      "en": "No story done yet",
+      "es": "Aún no hay historias listas"
+    },
+    "app.threads.board.stage.planning": {
+      "en": "Planning",
+      "es": "Planificación"
+    },
+    "app.threads.board.stage.executing": {
+      "en": "Executing stories",
+      "es": "Ejecutando historias"
+    },
+    "app.threads.board.stage.security": {
+      "en": "Security review",
+      "es": "Revisión de seguridad"
+    },
+    "app.threads.board.stage.approval": {
+      "en": "Awaiting approval",
+      "es": "Esperando aprobación"
+    },
+    "app.threads.board.stage.delivered": {
+      "en": "Delivered",
+      "es": "Entregado"
+    },
+    "app.threads.board.stage.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueado"
+    },
+    "app.threads.board.generalTasks": {
+      "en": "General tasks",
+      "es": "Tareas generales"
+    },
+    "app.threads.board.storyLine": {
+      "en": "As {asA}, I want {iWant} so that {soThat}",
+      "es": "Como {asA}, quiero {iWant} para {soThat}"
+    },
+    "app.threads.board.blockedFallback": {
+      "en": "Blocked: QA or the runtime could not finish this story.",
+      "es": "Bloqueada: QA o el runtime no pudieron terminar esta historia."
+    },
+    "app.threads.board.outcomeNoop": {
+      "en": "No changes needed",
+      "es": "Sin cambios necesarios"
+    },
+    "app.threads.board.outcomeCarried": {
+      "en": "Done in a previous run",
+      "es": "Lista en una ejecución anterior"
+    },
+    "app.threads.board.criteria": {
+      "en": "Acceptance criteria ({count})",
+      "es": "Criterios de aceptación ({count})"
+    },
+    "app.threads.board.tasks": {
+      "en": "Tasks",
+      "es": "Tareas"
+    },
+    "app.threads.event.story_progress": {
+      "en": "Story progress",
+      "es": "Avance de historia"
+    },
     "app.threads.consoleLoading": {
       "en": "syncing",
       "es": "sincronizando"

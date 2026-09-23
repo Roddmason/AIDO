@@ -15,7 +15,9 @@ Criterios de éxito verificables:
 1. El panel lista todos los runtimes configurados; el checkbox solo se habilita si el runtime pasó una
    prueba de ida y vuelta en los últimos 30 minutos con la configuración actual.
 2. Con 1 runtime seleccionado, ese runtime queda asignado a todos los roles para los que es elegible;
-   con N, el reparto automático distribuye y el operador puede editar cada rol.
+   si es elegible para PO y Developer, el hilo ya puede enviarse ("si selecciono 1 hace todo"). Con N,
+   el reparto automático distribuye y el operador puede editar cada rol. Solo PO y Developer son
+   obligatorios; Arquitecto y Seguridad son opcionales (§3.4).
 3. El product loop del hilo **solo** usa runtimes del conjunto seleccionado y, por rol, el asignado.
    Un runtime fuera del conjunto no puede ser elegido ni por failover.
 4. Si al momento de ejecutar un runtime asignado dejó de estar validado, el loop se bloquea con una
@@ -80,8 +82,14 @@ Se agrega a la lista paralela de la UI (`features/runtime-setup/runtimeSetup.ts`
 ### 3.3 Candidatos y elegibilidad por rol
 
 `GET /api/v1/runtime/team-candidates?projectId=` devuelve por runtime configurado y habilitado:
-`providerId, label, kind (cli|api|gateway|local), validation {status: validated|stale|failed|running|never,
+`providerId, label, kind (cli|api|gateway|local), validation {status: validated|stale|failed|running|never|policy_denied,
 checkedAt, latencyMs, reason}, eligibleRoles[]`.
+
+Un runtime que `RuntimeConfigRepository.runtime_policy_decision` (`runtime_integrations/repository.py:186`)
+deniega para el proyecto (`project.runtime.allowedProviders`, modo del proyecto, `runtime.cli.enabled`,
+`runtime.remote.enabled`, etc.) se devuelve con `validation.status = policy_denied` y la causa de la
+política en `reason`: nunca es seleccionable en ese proyecto, queda fuera del reparto sugerido y el PATCH
+del §3.4 lo rechaza aunque tenga una validación vigente de otro proyecto.
 
 Elegibilidad (regla dura, calculada en backend, no en la UI):
 
@@ -90,7 +98,9 @@ Elegibilidad (regla dura, calculada en backend, no en la UI):
 | `product_owner` | CLI de PO o familia en `PRODUCT_OWNER_AGENT_MODEL_RUNTIMES` (`product_owner_agent_contract.py:27-47`) |
 | `developer` | capacidad `code_edit` (CLI o API vía `workspace_patch`) |
 | `architect` | capacidad `chat` |
-| `security` | capacidad `chat` o `code_review` |
+| `security` | capacidad `chat` **y** `code_review`/`review` (predicado `is_security_model_runtime` del runner + capacidad `review` que `AIResourceManager` exige al rol) |
+
+Roles obligatorios: `product_owner` y `developer`. Roles opcionales: `architect` y `security`.
 
 ### 3.4 Configuración del hilo
 
@@ -102,7 +112,12 @@ Elegibilidad (regla dura, calculada en backend, no en la UI):
 - **Sellado al enviar mensaje** (donde hoy se sella `teamMode`, `threads/coordinator.py:928`): el backend
   re-verifica cada runtime con `runtime_validated_within` y lo intersecta con
   `project.runtime.allowedProviders` (`settings/registry.py:123`). **Solo restringe, nunca amplía.** Un rol
-  sin runtime válido → el mensaje se rechaza con 422 y causa legible (no se encola nada).
+  **obligatorio** (PO o Developer) sin runtime válido → el mensaje se rechaza con 422 y causa legible (no se
+  encola nada).
+- **Roles opcionales:** Arquitecto y Seguridad pueden quedar sin asignar y no bloquean el envío. Arquitecto
+  sin asignar → `ArchitectAgent` no corre para este hilo (revisión `skipped` con causa). Seguridad sin
+  asignar → la fase de seguridad corre solo sus scanners deterministas (gitleaks, semgrep, chequeos
+  locales) sin análisis de modelo.
 - Sin selección explícita → comportamiento actual (sin allowlist), para no romper hilos existentes.
 
 ### 3.5 Aplicación en el product loop
@@ -112,8 +127,8 @@ Elegibilidad (regla dura, calculada en backend, no en la UI):
 | `_team_resource_request` (`coordinator.py:2934`) | `allowed_provider_ids = allowlist del hilo`; para roles asignados, allowlist de **un** proveedor |
 | `_product_owner_resource_selection` (`:3267/:3311`) | intersección con la allowlist; si hay `roleRuntimes.product_owner`, solo ese |
 | `_failover_replacement` (`:4840`) | el reemplazo solo dentro de la allowlist del hilo; un rol asignado no hace failover a otro proveedor → bloquea |
-| `_security_execution_resource` (`:3411`) | allowlist de un proveedor si está asignado |
-| Arquitecto (`:4413`) | pasar `preferredRuntime` (el runner ya lo lee, `architect_agent.py:~657`) y validar pertenencia |
+| `_security_execution_resource` (`:3411`) | allowlist de un proveedor si está asignado; sin asignar → sin análisis de modelo (solo scanners deterministas) |
+| Arquitecto (`:4413`) | pasar `preferredRuntime` (el runner ya lo lee, `architect_agent.py:~657`) y validar pertenencia; sin asignar → no corre (`skipped`) |
 
 Runtime asignado que dejó de estar validado al ejecutar → bloqueo con remediación **"Re-probar runtime"**
 que encola `models.validate_runtime` y, si pasa, reanuda el retry existente.
@@ -128,8 +143,11 @@ seleccionados y validados, en orden de importancia de rol:
 2. **PO** ← el siguiente runtime elegible distinto; si no hay, reusa.
 3. **Arquitecto**, **Seguridad** ← los restantes en orden; si se acaban, reciclan desde el primero.
 
-Con 1 runtime: ese runtime en todos los roles donde sea elegible. Un rol sin ningún elegible entre los
-seleccionados queda marcado y bloquea el envío. El operador puede cambiar cualquier asignación.
+Con 1 runtime: ese runtime en todos los roles donde sea elegible; si cubre PO y Developer, el hilo puede
+enviarse. Un rol **obligatorio** (PO o Developer) sin ningún elegible entre los seleccionados queda marcado
+y bloquea el envío. Un rol **opcional** (Arquitecto o Seguridad) sin elegibles queda sin asignar y no
+bloquea (efecto en §3.4). Los runtimes `policy_denied` nunca entran al reparto. El operador puede cambiar
+cualquier asignación o dejar vacío un rol opcional.
 
 ### 3.7 UI
 
@@ -138,7 +156,9 @@ seleccionados queda marcado y bloquea el envío. El operador puede cambiar cualq
   latencia, "Probar" por fila. **Al abrir el panel se prueban automáticamente los vencidos** (el operador
   eligió esta política; las filas CLI muestran que la prueba consume cuota).
 - Grilla rol → runtime (`SelectField` por rol, solo opciones elegibles y seleccionadas), con el reparto
-  automático precargado y botón "Repartir automáticamente".
+  automático precargado y botón "Repartir automáticamente". Solo PO y Developer marcan error si faltan;
+  Arquitecto y Seguridad muestran ayuda de rol opcional con su efecto (§3.4).
+- Fila `policy_denied`: checkbox y "Probar" deshabilitados, con la causa de la política del proyecto.
 - QA, DevOps y Tech Lead se muestran como filas fijas "AIDO (determinista)".
 - Copy vía `t()` y claves bilingües (`i18n/default_catalog.json`); sin literales gateados.
 
@@ -153,12 +173,14 @@ seleccionados queda marcado y bloquea el envío. El operador puede cambiar cualq
 ## 5. Pruebas
 
 - Unit: predicado de frescura (vigente/vencida/fingerprint distinto/fallo posterior), elegibilidad por
-  rol, reparto automático (1, 2, 4 runtimes; rol sin elegibles).
-- Integración: `validate-runtime` API y CLI (CLI con el runner mockeado en el borde del proceso), PATCH
-  run-configuration, sellado que rechaza runtimes no validados, `allowed_provider_ids` aplicado en PO,
+  rol (Seguridad exige `chat` y revisión), reparto automático (1, 2, 4 runtimes; rol opcional sin
+  elegibles no bloquea, rol obligatorio sin elegibles sí).
+- Integración: `validate-runtime` API y CLI (CLI con el runner mockeado en el borde del proceso), candidatos
+  con `policy_denied`, PATCH run-configuration, sellado que rechaza runtimes no validados, `allowed_provider_ids` aplicado en PO,
   equipo, failover y seguridad; arquitecto recibe `preferredRuntime`.
 - Contrato: OpenAPI regenerado (endpoint nuevo + `EXECUTION_OPERATIONS`), catálogo con `llama_cpp`.
-- Web: spec Playwright del panel (checkbox deshabilitado sin validación, reparto, envío).
+- Web: spec Playwright del panel (checkbox deshabilitado sin validación, reparto, envío con un solo runtime
+  que cubre PO y Developer).
 
 ## 6. Fuera de alcance
 

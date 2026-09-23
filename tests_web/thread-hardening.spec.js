@@ -162,3 +162,16 @@ test('Threads: a queued run waiting for machine capacity shows the readable reas
 	await expect(execution.getByRole('region', { name: 'Waiting for worker' })).toHaveCount(0);
 	await expect(banner).toContainText('This machine does not have enough free RAM right now');
 });
+
+test('Threads: without an active job the pipeline stops the last active step', async ({ page }) => {
+	const execution = await openMockThread(page, {
+		id: 'thread-hardening-stopped', title: 'Hardening stopped pipeline', status: 'open',
+		events: [
+			{ sequence: 1, type: 'runtime_check' },
+			{ sequence: 2, type: 'git_check' },
+			{ sequence: 3, type: 'branch_ready' },
+		],
+	});
+	await expect(execution.locator('.thread-pipeline-step', { hasText: 'Branch ready' })).toHaveAttribute('data-state', 'stopped');
+	await expect(execution.locator('.thread-pipeline-step[data-state="active"]')).toHaveCount(0);
+});

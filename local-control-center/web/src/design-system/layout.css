@@ -2085,6 +2085,14 @@
 	background: var(--color-status-danger);
 }
 
+.thread-pipeline-step[data-state="stopped"] {
+	color: var(--color-text-secondary);
+}
+
+.thread-pipeline-step[data-state="stopped"] .thread-pipeline-dot {
+	background: var(--color-status-warning);
+}
+
 .thread-execution-log {
 	display: grid;
 	gap: var(--space-1);

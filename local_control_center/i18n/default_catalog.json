@@ -1059,6 +1059,10 @@
       "en": "blocked",
       "es": "bloqueado"
     },
+    "app.threads.stepState.stopped": {
+      "en": "stopped",
+      "es": "detenido"
+    },
     "app.threads.blockersTitle": {
       "en": "Blockers",
       "es": "Bloqueos"

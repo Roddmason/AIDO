@@ -1247,6 +1247,10 @@
       "en": "Story progress",
       "es": "Avance de historia"
     },
+    "app.threads.event.technical_lead_fallback": {
+      "en": "Technical lead fallback",
+      "es": "Reserva de líder técnico"
+    },
     "app.threads.consoleLoading": {
       "en": "syncing",
       "es": "sincronizando"

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from local_control_center.agents.endpoint_locality import (
     catalog_entry_for_account,
     credential_transport_allowed,
+    effective_connection,
     endpoint_locality,
     endpoint_network_scope,
     is_acceptable_declaration_host,
@@ -21,8 +24,16 @@ from local_control_center.agents.local_runtime_causes import (
     local_runtime_cause_of,
 )
 from local_control_center.agents.provider_catalog import LocalRuntimeProfile, provider_catalog_entry
+from local_control_center.agents.providers.factory import ProviderAdapterFactory
 
 DECLARED_AT = "2026-09-23T12:00:00Z"
+CONNECTION_ENV_VARS = (
+    "AIDO_OLLAMA_BASE_URL",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_HOST",
+    "AIDO_OPENAI_COMPATIBLE_BASE_URL",
+    "AIDO_OPENAI_COMPATIBLE_API_KEY",
+)
 
 
 def _llama(base_url: str, **extra) -> dict:
@@ -295,9 +306,133 @@ def test_bearer_never_travels_over_plain_http_to_a_non_local_host(account, allow
     assert credential_transport_allowed(account, resolver=_no_dns) is allowed
 
 
-def test_builtin_ollama_without_url_uses_the_adapter_default(monkeypatch):
-    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
-    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+@pytest.fixture
+def clean_connection_env(monkeypatch):
+    for name in CONNECTION_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def _canonical_ollama(base_url: str, **extra) -> dict:
+    return {
+        "providerId": "ollama",
+        "providerType": "local",
+        "providerFamily": "ollama",
+        "apiFormat": "ollama",
+        "baseUrl": base_url,
+        "metadata": {},
+        **extra,
+    }
+
+
+def _canonical_openai_compatible(base_url: str, **extra) -> dict:
+    return {
+        "providerId": "openai_compatible",
+        "providerType": "local",
+        "providerFamily": "openai_compatible",
+        "apiFormat": "openai_compatible",
+        "providerCatalogId": "llama_cpp",
+        "baseUrl": base_url,
+        "metadata": {},
+        **extra,
+    }
+
+
+@pytest.mark.parametrize("persisted_url", ["http://127.0.0.1:11434", ""], ids=["loopback-persisted", "empty"])
+def test_env_ollama_url_overrides_the_persisted_url_like_the_adapter(clean_connection_env, persisted_url):
+    clean_connection_env.setenv("AIDO_OLLAMA_BASE_URL", "http://ollama.example.com:11434")
+    account = _canonical_ollama(persisted_url, credentialRef="env:TOKEN")
+    assert effective_connection(account) == ("http://ollama.example.com:11434", "env:TOKEN")
+    assert endpoint_locality(account, resolver=_no_dns) == "remote"
+    assert is_self_hosted_inference(account, resolver=_no_dns) is False
+    assert credential_transport_allowed(account, resolver=_no_dns) is False
+
+
+def test_legacy_local_ollama_without_url_takes_the_env_url_of_its_adapter(clean_connection_env):
+    clean_connection_env.setenv("AIDO_OLLAMA_BASE_URL", "http://ollama.example.com:11434")
+    account = {**_canonical_ollama(""), "providerId": "local_ollama"}
+    assert effective_connection(account)[0] == "http://ollama.example.com:11434"
+    assert endpoint_locality(account, resolver=_no_dns) == "remote"
+
+
+def test_env_openai_compatible_url_overrides_the_persisted_loopback_url(clean_connection_env):
+    clean_connection_env.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", "http://llm.example.com/v1")
+    account = _canonical_openai_compatible("http://127.0.0.1:8082/v1", credentialRef="env:TOKEN")
+    assert endpoint_locality(account, resolver=_no_dns) == "remote"
+    assert is_local_model_runtime(account, resolver=_no_dns) is False
+    assert is_self_hosted_inference(account, resolver=_no_dns) is False
+    assert credential_transport_allowed(account, resolver=_no_dns) is False
+
+
+def test_env_api_key_counts_as_a_bearer_for_transport(clean_connection_env):
+    clean_connection_env.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "dummy-value")
+    account = _canonical_openai_compatible("http://llm.example.com/v1")
+    assert effective_connection(account) == (
+        "http://llm.example.com/v1",
+        "env:AIDO_OPENAI_COMPATIBLE_API_KEY",
+    )
+    assert credential_transport_allowed(account, resolver=_no_dns) is False
+    assert credential_transport_allowed({**account, "baseUrl": "http://127.0.0.1:8082/v1"}) is True
+
+
+def test_endpoint_scoped_accounts_ignore_the_family_env_configuration(clean_connection_env):
+    clean_connection_env.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", "http://llm.example.com/v1")
+    clean_connection_env.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "dummy-value")
+    account = {**_canonical_openai_compatible("http://127.0.0.1:8082/v1"), "providerId": "llama-test"}
+    assert effective_connection(account) == ("http://127.0.0.1:8082/v1", "")
+    assert endpoint_locality(account, resolver=_no_dns) == "loopback"
+
+
+@pytest.mark.parametrize(
+    "account,env",
+    [
+        (
+            _canonical_ollama("http://127.0.0.1:11434"),
+            {"AIDO_OLLAMA_BASE_URL": "http://ollama.example.com:11434"},
+        ),
+        (
+            _canonical_openai_compatible("http://127.0.0.1:8082/v1", credentialRef="env:TOKEN"),
+            {
+                "AIDO_OPENAI_COMPATIBLE_BASE_URL": "http://llm.example.com/v1",
+                "AIDO_OPENAI_COMPATIBLE_API_KEY": "dummy-value",
+            },
+        ),
+        (_canonical_openai_compatible("http://127.0.0.1:8082/v1", credentialRef="env:TOKEN"), {}),
+        ({**_canonical_openai_compatible("http://127.0.0.1:8082/v1"), "providerId": "llama-test"}, {}),
+        (
+            {
+                "providerId": "openai",
+                "providerType": "api",
+                "providerFamily": "openai",
+                "apiFamily": "chat_completions",
+                "baseUrl": "",
+                "credentialRef": "env:TOKEN",
+            },
+            {},
+        ),
+    ],
+    ids=[
+        "ollama-env-url",
+        "compatible-env-url-and-key",
+        "compatible-persisted",
+        "endpoint-scoped",
+        "family-default",
+    ],
+)
+def test_connection_matches_the_adapter_factory_resolution(clean_connection_env, account, env):
+    for name, value in env.items():
+        clean_connection_env.setenv(name, value)
+    connection = sqlite3.connect(":memory:")
+    try:
+        factory_base_url, factory_credential_ref = ProviderAdapterFactory(
+            connection
+        )._connection_configuration(account)
+    finally:
+        connection.close()
+    assert effective_connection(account) == (factory_base_url or "", factory_credential_ref or "")
+
+
+def test_builtin_ollama_without_url_uses_the_adapter_default(clean_connection_env):
     account = {
         "providerId": "ollama",
         "providerType": "local",

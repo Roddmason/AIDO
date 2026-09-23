@@ -43,6 +43,8 @@ export type ThreadExecutionPanelProps = {
 	onFocusDecision: () => void;
 	/** Opens a Settings section — the recovery path for settings-kind remediation actions. */
 	onOpenSettings: (section?: string) => void;
+	/** `strip` compacts the panel into a horizontal band above the story board (development mode). */
+	presentation?: 'column' | 'strip';
 };
 
 const PIPELINE_STEPS = [
@@ -62,6 +64,9 @@ const PIPELINE_STEPS = [
 		fallback: 'Awaiting approval',
 	},
 ] as const;
+
+/** Step index of `executing`: from here on the thread is in development (board layout). */
+export const EXECUTING_STEP_INDEX = PIPELINE_STEPS.findIndex((step) => step.id === 'executing');
 
 /** Maps every pipeline event type onto the index of the step it makes current. Planning-phase
  *  states (discovery → backlog) sit between git_check and branch_ready, so they point at the
@@ -112,6 +117,8 @@ type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'stopped';
 const IDLE_THREAD_STATUSES = new Set(['open', 'archived']);
 
 type PipelineSnapshot = {
+	/** Index of the step the newest milestone made current (>= PIPELINE_STEPS.length once delivered). */
+	current: number;
 	states: StepState[];
 	/** Sequence of the newest milestone event, used to decide whether a `blocked` event is current. */
 	lastMilestoneSeq: number;
@@ -126,7 +133,7 @@ type PipelineSnapshot = {
  * (so a QA rework honestly moves the pipeline back to "executing"); the two readiness checks are
  * unordered peers, so each one counts as done as soon as its own event was seen.
  */
-function derivePipeline(
+export function derivePipeline(
 	events: ThreadAgentEvent[],
 	threadStatus: string,
 	remediationStage: string,
@@ -189,6 +196,7 @@ function derivePipeline(
 		return 'pending';
 	});
 	return {
+		current,
 		states,
 		lastMilestoneSeq,
 		blocked: isBlocked,
@@ -275,6 +283,7 @@ export function ThreadExecutionPanel({
 	onOpenApprovals,
 	onFocusDecision,
 	onOpenSettings,
+	presentation = 'column',
 }: ThreadExecutionPanelProps) {
 	const { t } = useI18n();
 
@@ -313,6 +322,7 @@ export function ThreadExecutionPanel({
 	return (
 		<m.aside
 			className="thread-execution-pane"
+			data-presentation={presentation}
 			aria-label={t('app.threads.consoleRegion', 'Execution console')}
 			initial={{ opacity: 0, y: 6 }}
 			animate={{

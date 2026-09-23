@@ -572,7 +572,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 
 		await test.step('6. sin runtime, el worker bloquea y persiste una reparación ejecutable', async () => {
 			const runNow = page
-				.getByRole('region', { name: /Waiting for worker|Esperando worker/ })
+				.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
 				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
 			await expect(runNow).toBeVisible({ timeout: 20_000 });
 			await runNow.click();
@@ -694,7 +694,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			).toBeVisible({ timeout: 30_000 });
 
 			const runNow = page
-				.getByRole('region', { name: /Waiting for worker|Esperando worker/ })
+				.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
 				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
 			await expect(runNow).toBeVisible({ timeout: 30_000 });
 			await runNow.click();

@@ -40,14 +40,17 @@ _DELIVERY_EVIDENCE_CONDITION = """
     EXISTS (
         SELECT 1 FROM product_loops l
         WHERE l.project_id = {project_id}
+          AND l.state = 'delivered'
           AND json_extract(l.context, '$.durableRun.thread.projectThreadId') = {thread_id}
-          AND (
-            l.state = 'delivered'
-            OR EXISTS (
-                SELECT 1 FROM product_briefs b
-                WHERE b.project_id = l.project_id AND b.initiative_id = l.initiative_id AND b.status = 'approved'
-            )
-          )
+    )
+    OR EXISTS (
+        SELECT 1 FROM product_briefs b
+        CROSS JOIN product_loops l
+        WHERE b.project_id = {project_id}
+          AND b.status = 'approved'
+          AND l.project_id = b.project_id
+          AND l.initiative_id = b.initiative_id
+          AND json_extract(l.context, '$.durableRun.thread.projectThreadId') = {thread_id}
     )
     OR EXISTS (
         SELECT 1 FROM thread_similarity_events e
@@ -59,7 +62,13 @@ _DELIVERY_EVIDENCE_CONDITION = """
 """
 """Condición SQL: el hilo ``{thread_id}`` del proyecto ``{project_id}`` tiene un loop entregado, un brief
 aprobado de su iniciativa, o una decisión explícita del operador (``mark_similarity`` con una acción
-distinta de ``create_new_anyway``) sobre ese candidato — todo acotado a ese mismo proyecto."""
+distinta de ``create_new_anyway``) sobre ese candidato — todo acotado a ese mismo proyecto.
+
+``context`` puede pesar decenas de MB por loop, así que ``json_extract`` sólo se evalúa en loops que
+pueden aportar evidencia: el estado ``delivered`` entra por ``idx_product_loops_project_state`` y el
+``CROSS JOIN`` fija el brief aprobado como tabla externa (SQLite respeta ese orden), de modo que la
+iniciativa se compara antes de parsear. Un ``OR`` con subconsulta en el mismo ``WHERE`` no sirve:
+SQLite difiere los términos con subconsulta hasta después de ``json_extract``."""
 MAX_FILE_PATHS = 50
 MAX_PERFORMANCE_NOTES = 20
 _PATH_PATTERN = re.compile(
@@ -437,9 +446,9 @@ class ThreadSimilarityService:
         """
         if not thread_id or not project_id:
             return False
-        condition = _DELIVERY_EVIDENCE_CONDITION.format(thread_id="?", project_id="?")
+        condition = _DELIVERY_EVIDENCE_CONDITION.format(thread_id=":thread_id", project_id=":project_id")
         row = self.connection.execute(
-            f"SELECT {condition} AS delivered", (project_id, thread_id, project_id, thread_id)
+            f"SELECT {condition} AS delivered", {"project_id": project_id, "thread_id": thread_id}
         ).fetchone()
         return bool(row[0])
 

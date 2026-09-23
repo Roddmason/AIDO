@@ -845,7 +845,10 @@ class BlockerRemediationService:
         elif action_type == "run_worker_once":
             execution = self._request_worker_batch(execution_payload)
         elif action_type == "check_network_access":
-            execution = self._check_network_access()
+            execution = self._check_network_access(
+                project_id=str(execution_payload.get("projectId") or action.get("projectId") or "").strip()
+                or None
+            )
         elif action_type in {
             "git_init",
             "add_remote",
@@ -1076,14 +1079,22 @@ class BlockerRemediationService:
             "reason": f"Worker remediation cannot run job {job_id} while it is {job['status']}.",
         }
 
-    @staticmethod
-    def _check_network_access() -> dict[str, Any]:
-        """Probe the same public HTTPS endpoint ResearchAgent uses for web-search discovery."""
+    def _check_network_access(self, *, project_id: str | None) -> dict[str, Any]:
+        """Probe the web-search provider ResearchAgent is configured to use (SearXNG or DuckDuckGo)."""
         from urllib.error import HTTPError, URLError
         from urllib.request import Request, urlopen
 
-        endpoint = "https://duckduckgo.com/html/"
-        request = Request(endpoint, headers={"User-Agent": "AIDO-ResearchAgent/1.0"})
+        from local_control_center.research.web_search import SEARCH_USER_AGENT, configured_search_probe_url
+
+        try:
+            endpoint = configured_search_probe_url(self.connection, project_id=project_id)
+        except ValueError as error:
+            return {
+                "status": "blocked",
+                "action": "check_network_access",
+                "reason": f"Research web-search provider is misconfigured: {error}",
+            }
+        request = Request(endpoint, headers={"User-Agent": SEARCH_USER_AGENT})
         try:
             with urlopen(request, timeout=5) as response:
                 return {

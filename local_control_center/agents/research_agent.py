@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from collections.abc import Callable
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -41,6 +40,21 @@ from local_control_center.research.source_policy import (
     require_citations,
     trust_rank,
 )
+from local_control_center.research.web_search import (
+    DUCKDUCKGO_HTML_ENDPOINT,
+    DUCKDUCKGO_PROVIDER,
+    SEARCH_USER_AGENT,
+    ResearchProviderBlockedError,
+    ResearchSourceUrlError,
+    ResearchWebSearchError,
+    WebSearchProvider,
+    configured_web_search_provider,
+    fetch_search_response,
+    open_public_source,
+    publisher_from_url,
+    redacted_search_query,
+    search_candidate_limit,
+)
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -54,11 +68,6 @@ MAX_SOURCE_BYTES = 1_000_000
 FETCH_TIMEOUT_SECONDS = 20
 MAX_RESEARCH_SOURCES = 50
 DEFAULT_WEB_SEARCH_MAX_SOURCES = 5
-WEB_SEARCH_TIMEOUT_SECONDS = 10
-MAX_WEB_SEARCH_BYTES = 512_000
-WEB_SEARCH_RESULT_BUFFER_MULTIPLIER = 4
-DUCKDUCKGO_HTML_ENDPOINT = "https://duckduckgo.com/html/"
-WebSearchProvider = Callable[[str, int], list[dict[str, Any]]]
 
 
 def _source_policy_rank(source: dict[str, Any]) -> int:
@@ -122,39 +131,23 @@ def _normalize_search_result_url(raw_url: str) -> str | None:
     return url
 
 
-def _publisher_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    host = (parsed.hostname or parsed.netloc or "").lower()
-    return host[4:] if host.startswith("www.") else host
-
-
 def _duckduckgo_web_search_provider(query: str, max_sources: int) -> list[dict[str, Any]]:
-    safe_query = str(redact_secrets(query)).strip()
-    if not safe_query or safe_query == "[redacted]":
-        raise ResearchAgentValidationError("ResearchAgent web search query is empty after secret redaction.")
-    candidate_limit = min(MAX_RESEARCH_SOURCES, max(max_sources * WEB_SEARCH_RESULT_BUFFER_MULTIPLIER, 10))
-    request_url = f"{DUCKDUCKGO_HTML_ENDPOINT}?{urlencode({'q': safe_query})}"
+    """Descubre fuentes con el HTML simple de DuckDuckGo; un rechazo o desafío es un bloqueo tipado."""
+    candidate_limit = search_candidate_limit(max_sources)
+    request_url = f"{DUCKDUCKGO_HTML_ENDPOINT}?{urlencode({'q': redacted_search_query(query)})}"
     request = Request(
         request_url,
         headers={
-            "User-Agent": "AIDO-ResearchAgent/1.0",
+            "User-Agent": SEARCH_USER_AGENT,
             "Accept": "text/html",
         },
     )
-    try:
-        assert_external_boundary()
-        with urlopen(request, timeout=WEB_SEARCH_TIMEOUT_SECONDS) as response:
-            content = response.read(MAX_WEB_SEARCH_BYTES + 1)
-            if len(content) > MAX_WEB_SEARCH_BYTES:
-                raise ResearchAgentValidationError(
-                    "ResearchAgent web search response exceeds the fetch limit."
-                )
-            content_type = response.headers.get_content_charset() or "utf-8"
-    except (HTTPError, URLError, TimeoutError) as error:
-        raise ResearchAgentValidationError(f"ResearchAgent web search failed: {error}") from error
-
+    content, charset = fetch_search_response(request, provider=DUCKDUCKGO_PROVIDER, opener=urlopen)
+    text = content.decode(charset, errors="replace")
     parser = _DuckDuckGoResultParser()
-    parser.feed(content.decode(content_type, errors="replace"))
+    parser.feed(text)
+    if not parser.results and "anomaly" in text.lower():
+        raise ResearchProviderBlockedError(DUCKDUCKGO_PROVIDER, "anti-bot challenge page")
     sources: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     for result in parser.results:
@@ -165,8 +158,8 @@ def _duckduckgo_web_search_provider(query: str, max_sources: int) -> list[dict[s
         sources.append(
             {
                 "url": url,
-                "title": result.get("title") or _publisher_from_url(url),
-                "publisher": _publisher_from_url(url),
+                "title": result.get("title") or publisher_from_url(url),
+                "publisher": publisher_from_url(url),
                 "sourceType": "web_search",
             }
         )
@@ -180,23 +173,21 @@ class ResearchAgentValidationError(ValueError):
 
 
 def _fetch_url_text(url: str) -> str:
-    """Obtiene texto de una fuente HTTP(S) acotada, sin credenciales incrustadas ni esquemas locales."""
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ResearchAgentValidationError("ResearchAgent source URL must be absolute HTTP(S).")
-    if parsed.username or parsed.password:
-        raise ResearchAgentValidationError("ResearchAgent source URL must not contain credentials.")
-    host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "::1"}:
-        raise ResearchAgentValidationError("ResearchAgent source URL must not target loopback hosts.")
-    request = Request(url, headers={"User-Agent": "AIDO-ResearchAgent/1.0"})
+    """Obtiene texto de una fuente HTTP(S) pública y acotada; revalida el destino y cada redirect."""
     try:
         assert_external_boundary()
-        with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+        with open_public_source(
+            url,
+            headers={"User-Agent": SEARCH_USER_AGENT},
+            timeout=FETCH_TIMEOUT_SECONDS,
+            urlopen_override=urlopen,
+        ) as response:
             content = response.read(MAX_SOURCE_BYTES + 1)
             if len(content) > MAX_SOURCE_BYTES:
                 raise ResearchAgentValidationError("ResearchAgent source content exceeds the fetch limit.")
             content_type = response.headers.get_content_charset() or "utf-8"
+    except ResearchSourceUrlError as error:
+        raise ResearchAgentValidationError(str(error)) from error
     except (HTTPError, URLError, TimeoutError) as error:
         raise ResearchAgentValidationError(f"ResearchAgent source fetch failed: {error}") from error
     return content.decode(content_type, errors="replace")
@@ -228,7 +219,7 @@ class ResearchAgentRunner:
     ):
         self.connection = connection
         self.root = root
-        self.web_search_provider = web_search_provider or _duckduckgo_web_search_provider
+        self.web_search_provider = web_search_provider
         self.agents = AgentsRepository(connection)
         self.jobs = JobsRepository(connection)
         self.evidence = EvidenceRepository(connection)
@@ -313,10 +304,12 @@ class ResearchAgentRunner:
             )
         if not self._web_search_allowed(metadata):
             raise ResearchAgentValidationError("ResearchAgent web search is disabled by policy.")
-        if self.web_search_provider is None:
-            raise ResearchAgentValidationError("ResearchAgent web search provider is not configured.")
-
-        discovered = self.web_search_provider(query, self._max_sources(payload))
+        provider = self.web_search_provider or configured_web_search_provider(
+            self.connection,
+            project_id=str(payload.get("projectId") or "").strip() or None,
+            duckduckgo=_duckduckgo_web_search_provider,
+        )
+        discovered = provider(query, self._max_sources(payload))
         if not isinstance(discovered, list):
             raise ResearchAgentValidationError("ResearchAgent web search provider must return a source list.")
         if not discovered:
@@ -523,6 +516,16 @@ class ResearchAgentRunner:
         if status != "research_blocked":
             return {}
         reason_text = reason.lower()
+        if "search provider blocked the query" in reason_text:
+            return {
+                "action": "research_provider_blocked",
+                "summary": "The web search provider refused the query; this is not a lack of sources.",
+                "steps": [
+                    "Start the local SearXNG instance with the JSON format enabled.",
+                    "Or choose another web search provider in Settings > Research.",
+                    "Retry ResearchAgent with the same query.",
+                ],
+            }
         if "network" in reason_text or "urlopen" in reason_text or "timed out" in reason_text:
             return {
                 "action": "check_network_access",
@@ -832,7 +835,7 @@ class ResearchAgentRunner:
             status, reason = self._status_from_policy(
                 citation_check=citation_check, conflict_findings=conflict_findings
             )
-        except (ResearchAgentValidationError, ResearchPolicyError) as error:
+        except (ResearchAgentValidationError, ResearchPolicyError, ResearchWebSearchError) as error:
             status = "research_blocked"
             reason = str(error)
             citation_check = {
@@ -1013,6 +1016,7 @@ class ResearchAgentRunner:
             "conflictFindings": conflict_findings,
             "discrepancies": conflict_findings,
             "reportArtifact": report_artifact,
+            "remediation": remediation,
             "researchRun": research_run,
             "researchFindings": research_findings,
         }

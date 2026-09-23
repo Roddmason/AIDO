@@ -313,6 +313,23 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.research.trustedDomains",
     ),
     SettingDescriptor(
+        key="research.webSearch.provider",
+        section="research",
+        project_section="internet",
+        type="enum",
+        default="searxng",
+        enum=("searxng", "duckduckgo"),
+        label_key="app.settings.research.webSearchProvider",
+    ),
+    SettingDescriptor(
+        key="research.webSearch.baseUrl",
+        section="research",
+        project_section="internet",
+        type="string",
+        default="http://127.0.0.1:8888",
+        label_key="app.settings.research.webSearchBaseUrl",
+    ),
+    SettingDescriptor(
         key="security.gitleaks.enforced",
         section="security",
         project_section="security",
@@ -502,6 +519,10 @@ def validate_value(descriptor: SettingDescriptor, value: Any) -> Any:
                 DecisionConfig(**{field: value})
             except ValueError:
                 raise ValueError("invalid_decision_engine_setting") from None
+    if descriptor.key == "research.webSearch.baseUrl":
+        from local_control_center.research.web_search import validate_search_base_url
+
+        return validate_search_base_url(value if isinstance(value, str) else "")
     if descriptor.type == "enum":
         if value not in (descriptor.enum or ()):
             raise ValueError(

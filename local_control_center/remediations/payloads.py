@@ -23,6 +23,7 @@ from local_control_center.agents.runtime_provider_config import (
     known_provider_default_base_url,
 )
 from local_control_center.agents.runtime_readiness import HOST_CAPACITY_BLOCKERS
+from local_control_center.research.web_search import PROVIDER_BLOCKED_CODE
 from local_control_center.runtime_integrations.repository import is_ollama_runtime_id
 from local_control_center.shared.redaction import redact_secrets
 
@@ -741,6 +742,11 @@ def _research_recovery_payload(details: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, dict)
         ]
 
+    remediation = details.get("remediation") if isinstance(details, dict) else None
+    remediation_action = remediation.get("action") if isinstance(remediation, dict) else None
+    if isinstance(remediation_action, str) and remediation_action:
+        payload["researchRemediation"] = remediation_action
+
     policy = details.get("researchPolicy") if isinstance(details, dict) else None
     if isinstance(policy, dict):
         payload["researchPolicy"] = policy
@@ -1333,6 +1339,22 @@ def _product_owner_output_invalid_specs(context: BlockerPayloadContext) -> list[
 
 def _research_required_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
     research_recovery_payload = context.research_recovery_payload
+    if research_recovery_payload.get("researchRemediation") == PROVIDER_BLOCKED_CODE:
+        return [
+            {
+                "actionType": "open_settings_section",
+                "title": "Open research settings",
+                "description": "Choose a web search provider that accepts the query, such as your own SearXNG.",
+                "payload": {"section": "research", **research_recovery_payload},
+                "primary": True,
+            },
+            {
+                "actionType": "run_worker_once",
+                "title": "Run research worker once",
+                "description": "Retry the ResearchAgent job after the search provider accepts queries.",
+                "payload": research_recovery_payload,
+            },
+        ]
     if _research_requires_network_check(context.reason, context.details):
         return [
             {

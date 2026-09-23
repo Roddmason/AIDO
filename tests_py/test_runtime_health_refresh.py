@@ -18,6 +18,7 @@ import pytest
 from local_control_center.agents.runtime_health_refresh import (
     CLI_HEALTH_OPERATION,
     PROVIDER_HEALTH_OPERATION,
+    HealthRefreshBackoff,
     enqueue_stale_health_checks,
     needs_refresh,
     stale_health_targets,
@@ -362,7 +363,9 @@ def test_refresh_deduplicates_targets_within_one_batch_and_allows_terminal_retry
         assert first["enqueued"] == 1, first
         runtime.connection.execute("UPDATE operational_executions SET status='completed'")
 
-        result = enqueue_stale_health_checks(runtime, statuses=statuses)
+        result = enqueue_stale_health_checks(
+            runtime, statuses=statuses, now=datetime.now(UTC) + timedelta(seconds=61)
+        )
 
         assert result["enqueued"] == 1, result
         assert result["pending"] == 0
@@ -562,5 +565,113 @@ def test_cli_health_rejects_executable_changed_during_detection(
         if result is not None:
             assert result["health"]["status"] == "unknown"
             assert "configuration changed" in result["health"]["message"].lower()
+    finally:
+        runtime.close()
+
+
+def _iso_at(moment: datetime) -> str:
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def test_unproductive_refresh_backs_off_exponentially_and_fresh_evidence_resets_it(tmp_path: Path) -> None:
+    """Con el token vencido el check termina sin renovar la evidencia: no puede reencolarse cada ciclo.
+
+    Medido en vivo: 233 checks de claude_code_cli contra 62 de codex_cli en la misma ventana.
+    """
+    runtime = _platform(tmp_path)
+    try:
+        start = datetime.now(UTC)
+        stale = [_status(id="claude_code_cli", kind="cli", healthCheckedAt=None)]
+
+        def refresh_at(seconds: float, statuses: list[dict] | None = None) -> dict:
+            result = enqueue_stale_health_checks(
+                runtime, statuses=statuses or stale, now=start + timedelta(seconds=seconds)
+            )
+            runtime.connection.execute("UPDATE operational_executions SET status='completed'")
+            return result
+
+        assert refresh_at(0)["enqueued"] == 1
+        cooling = refresh_at(30)
+        assert cooling["enqueued"] == 0
+        assert cooling["coolingDown"] == ["claude_code_cli"]
+        assert refresh_at(61)["enqueued"] == 1
+        assert refresh_at(360)["enqueued"] == 0
+        assert refresh_at(362)["enqueued"] == 1
+        assert refresh_at(1261)["enqueued"] == 0
+        assert refresh_at(1263)["enqueued"] == 1
+        assert refresh_at(2164)["enqueued"] == 1
+
+        fresh = [
+            _status(
+                id="claude_code_cli",
+                kind="cli",
+                healthStatus="healthy",
+                healthCheckedAt=_iso_at(start + timedelta(seconds=2170)),
+            )
+        ]
+        assert refresh_at(2175, fresh)["enqueued"] == 0
+        assert refresh_at(2180)["enqueued"] == 1
+    finally:
+        runtime.close()
+
+
+def test_fresh_but_unhealthy_evidence_does_not_reset_the_backoff(tmp_path: Path) -> None:
+    """Cada health check escribe su marca aunque el runtime quede unhealthy: esa marca no es un éxito.
+
+    ``ProviderAccountsRepository.record_health_check`` escribe ``lastHealthCheckAt`` para cualquier
+    desenlace y readiness exige además ``healthStatus == "healthy"``; reiniciar el cooldown con una
+    marca fresca pero unhealthy devolvería el objetivo al primer escalón en cada ciclo.
+    """
+    runtime = _platform(tmp_path)
+    try:
+        start = datetime.now(UTC)
+        backoff = HealthRefreshBackoff()
+        stale = [_status(id="claude_code_cli", kind="cli", healthCheckedAt=None)]
+        unhealthy_fresh = [
+            _status(
+                id="claude_code_cli",
+                kind="cli",
+                healthStatus="unhealthy",
+                healthCheckedAt=_iso_at(start + timedelta(seconds=65)),
+            )
+        ]
+
+        def refresh_at(seconds: float, statuses: list[dict]) -> dict:
+            result = enqueue_stale_health_checks(
+                runtime, statuses=statuses, now=start + timedelta(seconds=seconds), backoff=backoff
+            )
+            runtime.connection.execute("UPDATE operational_executions SET status='completed'")
+            return result
+
+        assert refresh_at(0, stale)["enqueued"] == 1
+        assert refresh_at(61, stale)["enqueued"] == 1
+        assert refresh_at(70, unhealthy_fresh)["enqueued"] == 0
+        cooling = refresh_at(300, stale)
+        assert cooling["enqueued"] == 0
+        assert cooling["coolingDown"] == ["claude_code_cli"]
+        assert refresh_at(362, stale)["enqueued"] == 1
+    finally:
+        runtime.close()
+
+
+def test_a_cancelled_refresh_counts_as_unproductive(tmp_path: Path) -> None:
+    """Una ejecución cancelada no renovó la evidencia: escala el cooldown igual que un fallo."""
+    runtime = _platform(tmp_path)
+    try:
+        start = datetime.now(UTC)
+        backoff = HealthRefreshBackoff()
+        stale = [_status(id="codex_cli", kind="cli", healthCheckedAt=None)]
+
+        def refresh_at(seconds: float) -> dict:
+            result = enqueue_stale_health_checks(
+                runtime, statuses=stale, now=start + timedelta(seconds=seconds), backoff=backoff
+            )
+            runtime.connection.execute("UPDATE operational_executions SET status='cancelled'")
+            return result
+
+        assert refresh_at(0)["enqueued"] == 1
+        assert refresh_at(30)["coolingDown"] == ["codex_cli"]
+        assert refresh_at(61)["enqueued"] == 1
+        assert refresh_at(300)["coolingDown"] == ["codex_cli"]
     finally:
         runtime.close()

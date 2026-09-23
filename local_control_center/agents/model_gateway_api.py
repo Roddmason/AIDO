@@ -192,9 +192,9 @@ def _resolve_test_prompt_model(
     """Devuelve el modelo a probar: el solicitado o el primer modelo habilitado del catálogo del proveedor."""
     if requested:
         return requested
-    for model in store.list_models():
-        if model.get("providerId") == provider_id and model.get("enabled"):
-            return str(model.get("model"))
+    model = store.first_enabled_model(provider_id)
+    if model is not None:
+        return model
     raise HTTPException(
         status_code=400,
         detail=f"Provider {provider_id} has no enabled model; sync or select a model before testing.",

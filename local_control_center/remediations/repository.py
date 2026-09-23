@@ -459,3 +459,18 @@ class RemediationActionsRepository:
         if updated.rowcount == 0:
             raise KeyError(f"Remediation action not found: {action_id}")
         return self.get(action_id)
+
+    def merge_payload(self, action_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """Fusiona ``patch`` (claves de primer nivel, redactado) en el payload persistido de la acción."""
+        with immediate_transaction(self.connection):
+            row = self.connection.execute(
+                "SELECT payload_json FROM remediation_actions WHERE id = ?", (action_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError(f"Remediation action not found: {action_id}")
+            merged = {**json_loads(row["payload_json"], {}), **redact_secrets(patch)}
+            self.connection.execute(
+                "UPDATE remediation_actions SET payload_json = ? WHERE id = ?",
+                (json_dumps(merged), action_id),
+            )
+        return self.get(action_id)

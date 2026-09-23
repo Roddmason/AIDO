@@ -344,13 +344,16 @@ def assigned_runtime(request_meta: Mapping[str, Any] | None, team_role: str) -> 
 def role_allowlist(request_meta: Mapping[str, Any] | None, team_role: str | None) -> list[str] | None:
     """Allowlist dura para ``AIResourceRequest.allowed_provider_ids``.
 
-    ``None`` sin equipo (comportamiento previo); un proveedor único para un rol asignado; el
-    conjunto completo del hilo para roles sin asignación propia.
+    ``None`` sin equipo (comportamiento previo); un proveedor único para un rol asignado. Un rol sin
+    asignación propia (aido_lead, technical_lead, opcional vacío) hereda el runtime del PO: con dos o
+    más candidatos Jev bloquea por ``confidence_below_threshold`` y el reparto del operador, no su
+    umbral, debe decidir. Sin PO asignado se conserva el conjunto completo del hilo.
     """
     team = runtime_team_of(request_meta)
     if team is None:
         return None
-    assigned = team[ROLE_RUNTIMES_KEY].get(team_role) if team_role else None
+    role_runtimes = team[ROLE_RUNTIMES_KEY]
+    assigned = (role_runtimes.get(team_role) if team_role else None) or role_runtimes.get("product_owner")
     return [assigned] if assigned else list(team[ALLOWED_RUNTIMES_KEY])
 
 

@@ -605,9 +605,19 @@ def test_research_brief_preserves_guided_approval_contract(lane, existing_approv
 
 
 @pytest.mark.parametrize("git_dirty", [False, True])
-def test_real_planning_reuses_persisted_backlog_and_assessment_after_current_git_gate(lane, git_dirty):
+def test_real_planning_reuses_persisted_backlog_and_assessment_after_current_git_gate(
+    lane, git_dirty, monkeypatch
+):
     from local_control_center.agents.product_owner_agent import persist_product_owner_backlog
     from local_control_center.backlog.repository import BacklogRepository
+    from local_control_center.product_loop import coordinator as coordinator_module
+
+    class EmptyDeterministicPlanner:
+        def plan(self, payload):
+            return {"agent_tasks": [], "task_dependencies": []}
+
+    # The deterministic TechnicalLead fallback also stays empty so the run stops at technical_lead.
+    monkeypatch.setattr(coordinator_module, "TechnicalLeadPlanner", EmptyDeterministicPlanner)
 
     case = lane("backlog_ready")
     backlog = BacklogRepository(case.connection)

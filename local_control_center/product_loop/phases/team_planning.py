@@ -155,6 +155,13 @@ def plan_team_and_resources(
             },
             thread_id=thread_id,
         )
+    for story_id in raw_plan.get("technicalLeadFallbackStoryIds") or []:
+        coordinator._record_thread_event(
+            thread_id=thread_id,
+            event_type="technical_lead_fallback",
+            agent_role="technical_lead",
+            payload={"loopId": loop["id"], "storyId": story_id},
+        )
     if not agent_tasks:
         return coordinator._block_run(
             loop,

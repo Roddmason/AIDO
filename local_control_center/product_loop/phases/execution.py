@@ -16,7 +16,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
 
-__all__ = ["capture_review_evidence", "execute_developer_phase", "prepare_developer_execution"]
+__all__ = [
+    "aggregate_story_reviews",
+    "block_without_changed_files",
+    "capture_cumulative_review",
+    "capture_review_evidence",
+    "execute_developer_phase",
+    "prepare_developer_execution",
+]
 
 
 def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=None):
@@ -267,7 +274,7 @@ def execute_developer_phase(
     workspace = run.workspace
     execution_resource = run.execution_resource
     effective_preferred_runtime = run.effective_preferred_runtime
-    agent_tasks = run.agent_tasks
+    agent_tasks = run.active_story_tasks if run.active_story_tasks is not None else run.agent_tasks
     team_schedule = run.team_schedule
     team_assignments = run.team_assignments
     product_owner_output_record = run.product_owner_output_record
@@ -473,46 +480,13 @@ def capture_review_evidence(
                 )
             return blocked_result
     if not review["changedFiles"]:
-        reason = (
-            "Product Loop runtime completed without real changed files in the assigned worktree."
-            if workspace["isolationType"] == "git_worktree"
-            else "Product Loop runtime completed without changed files evidence."
-        )
-        blocked_result = coordinator._block_run(
-            loop,
-            stage="review",
-            reason=reason,
-            actor=actor,
-            details={
-                "status": str(review.get("state") or "diff_unavailable"),
-                "reason": reason,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "runtimeStatus": runtime_status,
-                "runtimeResult": runtime_result,
-                "review": review,
-                "teamSchedule": team_schedule,
-                "agentTaskIds": [task["id"] for task in agent_tasks],
-            },
-            thread_id=thread_id,
-        )
-        evidence_ref = str((blocked_result.get("evidencePackage") or {}).get("id") or "").strip()
-        if evidence_ref:
-            resource_learning = coordinator._record_resource_learning_best_effort(
-                project_id=project_id,
-                loop_id=loop["id"],
-                team_schedule=team_schedule,
-                runtime_result=runtime_result,
-                evidence_ref=evidence_ref,
-                success=False,
-                rework=True,
-                quality_score=0.0,
-            )
-            blocked_result = coordinator._attach_resource_learning_to_result(
-                blocked_result,
-                resource_learning,
-            )
-        return blocked_result
+        if run.active_story_tasks is not None and runtime_status in {"completed", "evidence_ready"}:
+            run.runtime_status = runtime_status
+            run.evidence_ids = evidence_ids
+            run.review = review
+            run.story_noop = True
+            return None
+        return block_without_changed_files(coordinator, run, review, runtime_status=runtime_status)
     if workspace["isolationType"] == "git_worktree" and review.get("changedFiles"):
         # El trabajo capturado como evidencia se persiste como commit real en la rama de la HU,
         # para que el aterrizaje (merge/PR) tenga commits y no solo un patch. Best-effort: si el
@@ -532,5 +506,105 @@ def capture_review_evidence(
         review = {**review, "commit": commit_result}
     run.runtime_status = runtime_status
     run.evidence_ids = evidence_ids
+    run.review = review
+    return None
+
+
+def block_without_changed_files(
+    coordinator: ProductLoopCoordinator,
+    run: _UserMessageRun,
+    review: dict[str, Any],
+    *,
+    runtime_status: str,
+) -> dict[str, Any]:
+    """Bloquea el run en ``review`` cuando no hay archivos cambiados reales y registra el learning.
+
+    Guard fail-closed de "el runtime terminó sin trabajo": lo usan la captura por historia (runtime
+    no sano sin cambios) y el cierre acumulado (ninguna historia del run dejó cambios).
+    """
+    workspace = run.workspace
+    reason = (
+        "Product Loop runtime completed without real changed files in the assigned worktree."
+        if workspace["isolationType"] == "git_worktree"
+        else "Product Loop runtime completed without changed files evidence."
+    )
+    blocked_result = coordinator._block_run(
+        run.loop,
+        stage="review",
+        reason=reason,
+        actor=run.actor,
+        details={
+            "status": str(review.get("state") or "diff_unavailable"),
+            "reason": reason,
+            "workspaceId": workspace["id"],
+            "workspacePath": workspace["path"],
+            "runtimeStatus": runtime_status,
+            "runtimeResult": run.runtime_result,
+            "review": review,
+            "teamSchedule": run.team_schedule,
+            "agentTaskIds": [task["id"] for task in run.agent_tasks],
+        },
+        thread_id=run.thread_id,
+    )
+    evidence_ref = str((blocked_result.get("evidencePackage") or {}).get("id") or "").strip()
+    if evidence_ref:
+        resource_learning = coordinator._record_resource_learning_best_effort(
+            project_id=run.project_id,
+            loop_id=run.loop["id"],
+            team_schedule=run.team_schedule,
+            runtime_result=run.runtime_result,
+            evidence_ref=evidence_ref,
+            success=False,
+            rework=True,
+            quality_score=0.0,
+        )
+        blocked_result = coordinator._attach_resource_learning_to_result(blocked_result, resource_learning)
+    return blocked_result
+
+
+def aggregate_story_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
+    """Une las reviews por historia del run en una vista acumulada (archivos únicos en orden)."""
+    changed: list[str] = []
+    patches: list[str] = []
+    stats: list[str] = []
+    tool_calls: list[Any] = []
+    policy_ids: list[Any] = []
+    for review in reviews:
+        for path in review.get("changedFiles") or []:
+            if path not in changed:
+                changed.append(path)
+        if review.get("patch"):
+            patches.append(str(review["patch"]))
+        if review.get("diffStat"):
+            stats.append(str(review["diffStat"]))
+        tool_calls.extend(review.get("toolCalls") or [])
+        policy_ids.extend(review.get("policyDecisionIds") or [])
+    last = reviews[-1] if reviews else {}
+    patch = "\n".join(patches)
+    return {
+        "state": last.get("state") or "runtime_reported",
+        "changedFiles": changed,
+        "branch": last.get("branch"),
+        "headCommit": last.get("headCommit"),
+        "diffStat": "\n".join(stats)[:4000],
+        "patch": patch[:12000],
+        "patchSizeBytes": sum(int(review.get("patchSizeBytes") or 0) for review in reviews),
+        "truncated": len(patch) > 12000 or any(bool(review.get("truncated")) for review in reviews),
+        "toolCalls": tool_calls,
+        "policyDecisionIds": policy_ids,
+    }
+
+
+def capture_cumulative_review(
+    coordinator: ProductLoopCoordinator, run: _UserMessageRun
+) -> dict[str, Any] | None:
+    """Consolida la evidencia de review de todas las historias del run antes de Security.
+
+    Devuelve el bloqueo ``review`` cuando ninguna historia dejó cambios; si no, deja en
+    ``run.review`` la vista acumulada que consumen Security y la aprobación.
+    """
+    review = aggregate_story_reviews(run.story_reviews)
+    if not review["changedFiles"]:
+        return block_without_changed_files(coordinator, run, review, runtime_status=run.runtime_status)
     run.review = review
     return None

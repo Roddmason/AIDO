@@ -227,6 +227,24 @@ def test_build_board_places_cards_and_counts_progress() -> None:
     assert board["progress"] == {"done": 1, "total": 3}
 
 
+def test_build_board_does_not_place_a_done_story_with_a_pending_task_in_done() -> None:
+    stories = {"s1": _story("s1", status="done")}
+    tasks = [_task("t1", "s1", status="todo")]
+
+    board = build_board(
+        loop_id="loop-1",
+        loop_state="executing",
+        agent_tasks=tasks,
+        stories_by_id=stories,
+        criteria_by_story={},
+        progress_by_story={},
+    )
+
+    by_column = {column["id"]: [card["storyId"] for card in column["cards"]] for column in board["columns"]}
+    assert by_column == {"todo": ["s1"], "in_progress": [], "qa": [], "done": []}
+    assert board["progress"] == {"done": 0, "total": 1}
+
+
 def test_empty_board_has_four_empty_columns() -> None:
     board = empty_board()
 

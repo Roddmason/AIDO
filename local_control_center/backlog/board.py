@@ -220,9 +220,13 @@ def _normalized(value: Any) -> str:
 
 def _batch_status(batch: dict[str, Any]) -> str:
     story = batch.get("story")
+    tasks = batch.get("tasks") or []
     if story is not None:
-        return str(story.get("status") or "")
-    statuses = {str(task.get("status") or "") for task in batch.get("tasks") or []}
+        story_status = str(story.get("status") or "")
+        tasks_done = all(str(task.get("status") or "") == STORY_STATUS_DONE for task in tasks)
+        if story_status != STORY_STATUS_DONE or tasks_done:
+            return story_status
+    statuses = {str(task.get("status") or "") for task in tasks}
     if statuses == {STORY_STATUS_DONE}:
         return STORY_STATUS_DONE
     for status in (STORY_STATUS_BLOCKED, STORY_STATUS_QA, STORY_STATUS_IN_PROGRESS):

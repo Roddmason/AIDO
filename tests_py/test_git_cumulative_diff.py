@@ -11,7 +11,10 @@ from typing import Any
 import pytest
 
 from local_control_center.security_policy.git_command_runner import git_available, run_git
-from local_control_center.workspaces_projects.git_worktrees import capture_cumulative_diff
+from local_control_center.workspaces_projects.git_worktrees import (
+    _usable_base_ref,
+    capture_cumulative_diff,
+)
 from tests_py.test_git_diff_capture import _workspace_with_repo
 from tests_py.test_workspace_isolation_contract import make_app as make_app
 
@@ -98,6 +101,19 @@ def test_cumulative_diff_without_story_commits_is_captured_and_empty(
     assert diff["nameOnly"] == []
     assert diff["patchFull"] == ""
     assert diff["status"] == []
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["HEAD", "@", "HEAD^", "HEAD~2", "base@{upstream}", "", "-evil", "a..b", "a b"],
+)
+def test_usable_base_ref_rejects_head_equivalents_and_relative_forms(ref: str) -> None:
+    assert _usable_base_ref(ref) is False
+
+
+@pytest.mark.parametrize("ref", ["devbase", "missing-base", "release/1.0", "a1b2c3d"])
+def test_usable_base_ref_accepts_plain_branch_and_sha_names(ref: str) -> None:
+    assert _usable_base_ref(ref) is True
 
 
 def test_cumulative_diff_reports_uncommitted_work_outside_the_range(

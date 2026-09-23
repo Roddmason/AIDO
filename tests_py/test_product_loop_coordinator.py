@@ -4713,7 +4713,14 @@ def test_run_user_message_security_intent_creates_security_and_pentester_assignm
         assert runtime.run_payloads == []
 
 
-def test_run_user_message_does_not_execute_developer_without_backlog_tasks(tmp_path: Path) -> None:
+def test_run_user_message_does_not_execute_developer_without_backlog_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _EmptyDeterministicPlanner:
+        def plan(self, payload: dict[str, Any]) -> dict[str, Any]:
+            return {"agent_tasks": [], "task_dependencies": []}
+
+    monkeypatch.setattr(product_loop_coordinator, "TechnicalLeadPlanner", _EmptyDeterministicPlanner)
     runtime = _ControlledRuntime()
     git = _GitGate()
     technical_lead = _TechnicalLeadPlanner(generate_tasks=False)

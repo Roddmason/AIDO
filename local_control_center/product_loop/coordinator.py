@@ -104,6 +104,7 @@ from .phases import execution as execution_phase
 from .phases import intake as intake_phase
 from .phases import qa_gate as qa_gate_phase
 from .phases import security as security_phase
+from .phases import story_loop as story_loop_phase
 from .phases import team_planning as team_planning_phase
 from .phases.analysis import analyze_run_consistency
 from .phases.plan import PLANNED, SKIPPED_LOW_RISK, plan_phase_decision, technical_plan_view
@@ -397,6 +398,11 @@ class _UserMessageRun:
     diff_ref: dict[str, Any] = field(default_factory=dict)
     security_evidence: dict[str, Any] = field(default_factory=dict)
     resource_learning: dict[str, Any] = field(default_factory=dict)
+    active_story_tasks: list[dict[str, Any]] | None = None
+    story_noop: bool = False
+    story_reviews: list[dict[str, Any]] = field(default_factory=list)
+    story_qa_results: list[Any] = field(default_factory=list)
+    story_evidence_ids: list[str] = field(default_factory=list)
 
 
 def is_terminal(state: str) -> bool:
@@ -2320,6 +2326,12 @@ class ProductLoopCoordinator:
         else:
             specs = planned
             dependency_specs = []
+        if technical_lead_runner is not None and hasattr(technical_lead_runner, "generate_agent_tasks"):
+            specs, dependency_specs, fallback_story_ids = self._with_deterministic_fallback(
+                payload, stories, list(specs or []), list(dependency_specs or [])
+            )
+            if plan_sink is not None and fallback_story_ids:
+                plan_sink["technicalLeadFallbackStoryIds"] = fallback_story_ids
         tasks: list[dict[str, Any]] = []
         valid_specs: list[tuple[dict[str, Any], str, str]] = []
         for spec in specs or []:
@@ -2399,6 +2411,41 @@ class ProductLoopCoordinator:
                 }
             )
         return tasks
+
+    def _with_deterministic_fallback(
+        self,
+        payload: dict[str, Any],
+        stories: list[dict[str, Any]],
+        specs: list[Any],
+        dependency_specs: list[Any],
+    ) -> tuple[list[Any], list[Any], list[str]]:
+        """Completa con el ``TechnicalLeadPlanner`` determinista las historias que el TL LLM dejó sin tareas.
+
+        Decisión de arquitecto 2026-09-22: una historia del PO sin tareas no bloquea si el planner
+        determinista (el planner por defecto) la cubre; sus tareas quedan marcadas con
+        ``metadata.technicalLeadFallback``. Si tampoco la cubre, la fase por historia bloquea en
+        ``technical_lead`` (``phases/story_loop.py``). Un error del planner se propaga y la fase de
+        planificación bloquea en ``technical_lead`` (``phases/team_planning.py:138-156``).
+        """
+        covered = {str(spec.get("storyId") or "").strip() for spec in specs if isinstance(spec, dict)}
+        uncovered = [story for story in stories if str(story.get("id") or "") not in covered]
+        if not uncovered:
+            return specs, dependency_specs, []
+        fallback = TechnicalLeadPlanner().plan({**payload, "userStories": uncovered})
+        fallback_specs = [
+            {**spec, "metadata": {**dict(spec.get("metadata") or {}), "technicalLeadFallback": True}}
+            for spec in fallback.get("agent_tasks") or []
+            if isinstance(spec, dict)
+        ]
+        planned_story_ids = {str(spec.get("storyId") or "").strip() for spec in fallback_specs}
+        fallback_story_ids = [
+            str(story["id"]) for story in uncovered if str(story["id"]) in planned_story_ids
+        ]
+        return (
+            [*specs, *fallback_specs],
+            [*dependency_specs, *(fallback.get("task_dependencies") or [])],
+            fallback_story_ids,
+        )
 
     def _team_mode(self, request_meta: dict[str, Any]) -> str:
         mode = (
@@ -4278,19 +4325,12 @@ class ProductLoopCoordinator:
         if result is not None:
             return result
         run.base_task_id = run.task_id
-        while True:
-            result = self._execute_developer_phase(run)
-            if result is not None:
-                return result
-            result = self._capture_review_evidence(run)
-            if result is not None:
-                return result
-            result = self._evaluate_qa_gate(run)
-            if result is not None:
-                return result
-            if run.should_rework:
-                continue
-            break
+        result = story_loop_phase.run_story_batches(self, run)
+        if result is not None:
+            return result
+        result = self._capture_cumulative_review(run)
+        if result is not None:
+            return result
         result = self._run_security_phase(run)
         if result is not None:
             return result
@@ -5115,6 +5155,9 @@ class ProductLoopCoordinator:
 
     def _capture_review_evidence(self, run: _UserMessageRun) -> dict[str, Any] | None:
         return execution_phase.capture_review_evidence(self, run)
+
+    def _capture_cumulative_review(self, run: _UserMessageRun) -> dict[str, Any] | None:
+        return execution_phase.capture_cumulative_review(self, run)
 
     def start(
         self,

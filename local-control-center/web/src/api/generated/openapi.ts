@@ -403,6 +403,7 @@ export type RolePolicyPatchRequest = { "allowApi"?: boolean; "allowCli"?: boolea
 export type RolePolicyRecord = { "allowApi": boolean; "allowCli": boolean; "allowLocal": boolean; "allowRemote": boolean; "allowUnknownCost": boolean; "blocked": Array<JsonObject>; "createdAt": string; "escalation": Array<JsonObject>; "fallback": Array<JsonObject>; "id": string; "maxCostPerTaskUsd": number; "maxTokensPerRun": number; "preferred": Array<JsonObject>; "requireApprovalForUnknownCost": boolean; "requiresApprovalForReasoningMax": boolean; "requiresApprovalOverUsd"?: null | number; "role": string; "routingProfileId": string; "updatedAt": string };
 export type RolePolicyResponse = { "rolePolicy": RolePolicyRecord };
 export type RolePolicyUpsertRequest = { "allowApi"?: boolean; "allowCli"?: boolean; "allowLocal"?: boolean; "allowRemote"?: boolean; "allowUnknownCost"?: boolean; "blocked"?: Array<JsonObject>; "escalation"?: Array<JsonObject>; "fallback"?: Array<JsonObject>; "id"?: null | string; "maxCostPerTaskUsd"?: number; "maxTokensPerRun"?: number; "preferred"?: Array<JsonObject>; "requireApprovalForUnknownCost"?: boolean; "requiresApprovalForReasoningMax"?: boolean; "requiresApprovalOverUsd"?: null | number; "role": string; "routingProfileId"?: null | string };
+export type RoleRuntimesRecord = { "architect"?: null | string; "developer"?: null | string; "product_owner"?: null | string; "security"?: null | string };
 export type RouteExecuteResponse = { "content"?: null | string; "routing": RoutingPreviewResponse; "usage"?: UsageLedgerRecord | null };
 export type RoutingCandidateRecord = { "effort"?: null | string; "estimatedCostUsd"?: null | number; "freeTier"?: boolean; "model": string; "priceKnown"?: boolean; "pricingSource"?: string; "pricingStaleness"?: string; "provider": string; "runtime": string; "score": number; "scoreBreakdown": Record<string, number> };
 export type RoutingDecisionRecord = { "agentId"?: null | string; "candidates": Array<JsonObject>; "createdAt": string; "decisionReason": string; "estimatedCostUsd"?: null | number; "estimatedTokens"?: null | number; "id": string; "jobId"?: null | string; "mode": string; "policyResult": JsonObject; "rejected": Array<JsonObject>; "role": string; "scoreBreakdown": JsonObject; "selectedEffort"?: null | string; "selectedModel"?: null | string; "selectedProvider"?: null | string; "selectedRuntime"?: null | string; "taskId"?: null | string; "taskType": string; "workflowRunId"?: null | string; "workflowStepId"?: null | string };
@@ -426,6 +427,9 @@ export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fin
 export type RuntimeProviderSafety = { "network"?: "blocked_by_default" | "runtime_policy_gated" | "remote_calls_disabled_by_default" | "local_only"; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
 export type RuntimeProviderStatus = { "authenticated"?: boolean; "available": boolean; "blockerType"?: null | string; "blockingReasons"?: Array<string>; "canEditWorkspace"?: boolean; "canRunPrompt"?: boolean; "canRunVersionCheck"?: boolean; "capabilities"?: Array<string>; "compatibility"?: JsonObject | null; "configurationWarnings"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "effectiveStatus"?: string; "executable": boolean; "globallyEnabled"?: boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "healthy"?: boolean; "id": string; "installed"?: boolean; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastCheckedAt"?: null | string; "lastError"?: string; "loginCommand"?: string; "policyAllowed"?: boolean; "productOwnerExecutable"?: boolean; "projectEnabled"?: boolean; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "resourceAdmissible"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string; "versionVerified"?: boolean };
 export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "configurationWarnings"?: Array<string>; "developerAgent": DeveloperAgentStatus; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual"> };
+export type RuntimeTeamCandidateRecord = { "eligibleRoles": Array<"product_owner" | "developer" | "architect" | "security">; "kind": "cli" | "api" | "gateway" | "local"; "label": string; "providerId": string; "validation": RuntimeTeamValidationRecord };
+export type RuntimeTeamCandidatesResponse = { "candidates": Array<RuntimeTeamCandidateRecord>; "freshnessSeconds": number; "suggestedRoleRuntimes": RoleRuntimesRecord };
+export type RuntimeTeamValidationRecord = { "checkedAt"?: null | string; "latencyMs"?: null | number; "model"?: null | string; "reason"?: null | string; "status": "validated" | "stale" | "failed" | "never" | "policy_denied" };
 export type RuntimeValidationRequest = { "projectId"?: null | string };
 export type RuntimeValidationResponse = { "validation": RuntimeValidationResultRecord };
 export type RuntimeValidationResultRecord = { "checkedAt": string; "evidence"?: null | string; "kind": string; "latencyMs"?: null | number; "model"?: null | string; "providerId": string; "reason"?: null | string; "status": "validated" | "failed" | "deferred" };
@@ -777,6 +781,7 @@ export const API_ENDPOINTS = [
 	{"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
 	{"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	{"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
+	{"method": "GET", "operationId": "list_runtime_team_candidates_api_v1_runtime_team_candidates_get", "path": "/api/v1/runtime/team-candidates", "summary": "List Runtime Team Candidates"},
 	{"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	{"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
 	{"method": "GET", "operationId": "sandbox_status_api_v1_sandbox_status_get", "path": "/api/v1/sandbox/status", "summary": "Sandbox Status"},
@@ -1004,6 +1009,7 @@ export type OperationRequestBodies = {
 	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": never,
 	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": never,
 	"list_runtime_providers_api_v1_runtime_providers_get": never,
+	"list_runtime_team_candidates_api_v1_runtime_team_candidates_get": never,
 	"list_sessions_api_v1_legacy_sessions_get": never,
 	"list_skills_api_v1_skills_get": never,
 	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": never,
@@ -1275,6 +1281,7 @@ export type OperationResponseBodies = {
 	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": RoutingProfilesListResponse,
 	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": RuntimeProviderConfigurationResponse,
 	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
+	"list_runtime_team_candidates_api_v1_runtime_team_candidates_get": RuntimeTeamCandidatesResponse,
 	"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse,
 	"list_skills_api_v1_skills_get": SkillsListResponse,
 	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": RemediationListResponse,
@@ -1550,6 +1557,7 @@ export type OperationResultBodies = {
 	"list_routing_profiles_api_v1_model_gateway_routing_profiles_get": RoutingProfilesListResponse,
 	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": RuntimeProviderConfigurationResponse,
 	"list_runtime_providers_api_v1_runtime_providers_get": RuntimeProvidersResponse,
+	"list_runtime_team_candidates_api_v1_runtime_team_candidates_get": RuntimeTeamCandidatesResponse,
 	"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse,
 	"list_skills_api_v1_skills_get": SkillsListResponse,
 	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": RemediationListResponse,
@@ -1875,6 +1883,7 @@ export const OPERATIONS_BY_ID = {
 	"update_risk_api_v1_risks__risk_id__patch": {"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
 	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": {"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	"list_runtime_providers_api_v1_runtime_providers_get": {"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
+	"list_runtime_team_candidates_api_v1_runtime_team_candidates_get": {"method": "GET", "operationId": "list_runtime_team_candidates_api_v1_runtime_team_candidates_get", "path": "/api/v1/runtime/team-candidates", "summary": "List Runtime Team Candidates"},
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": {"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": {"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
 	"sandbox_status_api_v1_sandbox_status_get": {"method": "GET", "operationId": "sandbox_status_api_v1_sandbox_status_get", "path": "/api/v1/sandbox/status", "summary": "Sandbox Status"},

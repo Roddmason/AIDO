@@ -6787,6 +6787,24 @@ def test_run_user_message_records_thread_events_when_thread_id_is_provided(tmp_p
         assert events[-1]["payload"]["loopId"] == result["loop"]["id"]
 
 
+def _seed_delivered_loop(connection, project_id: str, thread_id: str) -> None:
+    """La funcionalidad sólo cuenta como existente si su hilo entregó: siembra ese loop entregado."""
+    connection.execute(
+        """
+        INSERT INTO product_loops
+            (id, project_id, initiative_id, title, state, previous_state, status, context, version,
+             created_at, updated_at)
+        VALUES (?, ?, NULL, 'Delivered loop', 'delivered', 'awaiting_approval', 'active', ?, 1,
+                '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+        """,
+        (
+            f"loop-delivered-{thread_id}",
+            project_id,
+            json.dumps({"durableRun": {"thread": {"projectThreadId": thread_id}}}),
+        ),
+    )
+
+
 def test_run_user_message_blocks_existing_functionality_before_runtime_execution(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
@@ -6801,6 +6819,7 @@ def test_run_user_message_blocks_existing_functionality_before_runtime_execution
             summary="Delivered filters for active workspace dashboard.",
         )
         repo.set_status(existing["id"], "resolved")
+        _seed_delivered_loop(connection, project["id"], existing["id"])
         ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
@@ -6868,6 +6887,36 @@ def test_run_user_message_blocks_existing_functionality_before_runtime_execution
         assert repo.list_decisions(thread_id)[0]["status"] == "resolved"
 
 
+def test_run_user_message_ignores_functionality_from_a_thread_that_never_delivered(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "undelivered-functionality")
+        repo = ThreadsRepository(connection)
+        existing = repo.create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-existing",
+            title="Workspace dashboard filters",
+            summary="Cancelled before it ran.",
+        )
+        repo.set_status(existing["id"], "archived")
+        ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
+
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Improve the workspace dashboard filters and add a performance pass.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+    assert result["loop"]["context"]["durableRun"].get("blockedStage") != "functionality_memory"
+    assert "existingFunctionality" not in result["loop"]["context"]["durableRun"]
+
+
 def test_run_user_message_nested_functionality_decision_skips_existing_functionality_gate(
     tmp_path: Path,
 ) -> None:
@@ -6886,6 +6935,7 @@ def test_run_user_message_nested_functionality_decision_skips_existing_functiona
             summary="Delivered filters for active workspace dashboard.",
         )
         repo.set_status(existing["id"], "resolved")
+        _seed_delivered_loop(connection, project["id"], existing["id"])
         ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 
@@ -6925,6 +6975,7 @@ def test_run_user_message_blocks_existing_functionality_when_thread_event_persis
             summary="Delivered filters for active workspace dashboard.",
         )
         repo.set_status(existing["id"], "resolved")
+        _seed_delivered_loop(connection, project["id"], existing["id"])
         ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
 
         event_calls = {"functionality_detected": 0}
@@ -6989,6 +7040,7 @@ def test_run_user_message_blocks_existing_functionality_when_thread_status_persi
             summary="Delivered filters for active workspace dashboard.",
         )
         repo.set_status(existing["id"], "resolved")
+        _seed_delivered_loop(connection, project["id"], existing["id"])
         ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
 
         status_calls = {"waiting_decision": 0}
@@ -7063,6 +7115,7 @@ def test_run_user_message_blocks_existing_functionality_with_generic_retry_when_
             summary="Delivered filters for active workspace dashboard.",
         )
         repo.set_status(existing["id"], "resolved")
+        _seed_delivered_loop(connection, project["id"], existing["id"])
         ThreadMemoryService(connection).reindex_thread_memory(existing["id"])
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
 

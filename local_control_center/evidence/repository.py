@@ -18,6 +18,42 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
+IMMUTABLE_EVIDENCE_JSON_COLUMNS = {
+    "test_results": "testResults",
+    "logs": "logs",
+    "diff_refs": "diffRefs",
+    "screenshot_refs": "screenshotRefs",
+}
+"""Columnas JSON de ``evidence_packages`` que se escriben al crear el paquete y nunca se actualizan."""
+
+_EVIDENCE_HEAD_COLUMNS = (
+    "id",
+    "project_id",
+    "workflow_run_id",
+    "workflow_step_id",
+    "agent_id",
+    "agent_run_id",
+    "job_id",
+    "workspace_id",
+    "runtime_id",
+    "task_id",
+    "test_plan",
+    "acceptance_checklist",
+    "risk_notes",
+    "artifact_ids",
+    "diff_summary",
+    "runtime_health",
+    "model_calls",
+    "tool_calls",
+    "policy_decisions",
+    "approvals",
+    "artifact_refs",
+    "hashes",
+    "evidence_source",
+    "qa_verdict",
+    "created_at",
+)
+
 
 def _redact_diff_refs(diff_refs: list[Any]) -> list[Any]:
     redacted: list[Any] = []
@@ -517,6 +553,55 @@ class EvidenceRepository:
                 (limit,) if limit is not None else (),
             ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
+
+    def list_evidence_package_heads(self, *, limit: int) -> list[dict[str, Any]]:
+        """Lista los N paquetes más recientes sin leer sus columnas JSON inmutables y pesadas.
+
+        Esas columnas vuelven como listas vacías; quien las necesite las pide por id con
+        ``immutable_evidence_fields``. El orden es el mismo de ``list_evidence_packages``.
+        """
+        placeholders = ", ".join(f"'[]' AS {column}" for column in IMMUTABLE_EVIDENCE_JSON_COLUMNS)
+        rows = self.connection.execute(
+            f"SELECT {', '.join(_EVIDENCE_HEAD_COLUMNS)}, {placeholders} "
+            "FROM evidence_packages ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row_to_evidence_package(row) for row in rows]
+
+    def immutable_evidence_fields(self, package_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Decodifica las columnas inmutables de los paquetes pedidos, indexadas por id."""
+        if not package_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in package_ids)
+        columns = ", ".join(IMMUTABLE_EVIDENCE_JSON_COLUMNS)
+        rows = self.connection.execute(
+            f"SELECT id, {columns} FROM evidence_packages WHERE id IN ({placeholders})",
+            tuple(package_ids),
+        ).fetchall()
+        return {
+            row["id"]: {
+                field: json_loads(row[column], [])
+                for column, field in IMMUTABLE_EVIDENCE_JSON_COLUMNS.items()
+            }
+            for row in rows
+        }
+
+    def list_test_result_ids(self, *, limit: int) -> list[str]:
+        """Ids de los N resultados de test más recientes; sus filas no se modifican tras insertarse."""
+        rows = self.connection.execute(
+            "SELECT id FROM test_results ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    def load_test_results(self, result_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Decodifica los resultados de test pedidos, indexados por id."""
+        if not result_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in result_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM test_results WHERE id IN ({placeholders})", tuple(result_ids)
+        ).fetchall()
+        return {row["id"]: row_to_test_result(row) for row in rows}
 
     def list_evidence_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
         """Lista los paquetes asociados a un conjunto de workflow runs; vacío si no se pide ninguno."""

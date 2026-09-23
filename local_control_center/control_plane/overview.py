@@ -11,6 +11,8 @@ proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
 from __future__ import annotations
 
 import sqlite3
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +120,88 @@ def _compact_overview_record(record: dict[str, Any]) -> dict[str, Any]:
     return {key: _compact_embedded_value(value, depth=_COMPACT_DEPTH) for key, value in record.items()}
 
 
+OVERVIEW_IMMUTABLE_CACHE_ENTRIES = 1_024
+
+
+class _ImmutableRecordCache:
+    """LRU de fragmentos ya compactados de filas inmutables, por base, tipo e id.
+
+    Paquetes de evidencia y resultados de test cargan blobs de varios MB que no cambian después
+    de insertarse; decodificarlos y compactarlos en cada poll de 5 s dominaba el costo del
+    overview. El fragmento guardado es exactamente el que produce ``_compact_overview_record``.
+    """
+
+    def __init__(self, capacity: int) -> None:
+        self.capacity = capacity
+        self._entries: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple[str, str, str]) -> dict[str, Any] | None:
+        """Devuelve el fragmento y lo marca como recién usado, o ``None`` si no está."""
+        with self._lock:
+            value = self._entries.get(key)
+            if value is not None:
+                self._entries.move_to_end(key)
+            return value
+
+    def put(self, key: tuple[str, str, str], value: dict[str, Any]) -> None:
+        """Guarda el fragmento y descarta el menos usado al superar la capacidad."""
+        with self._lock:
+            self._entries[key] = value
+            self._entries.move_to_end(key)
+            while len(self._entries) > self.capacity:
+                self._entries.popitem(last=False)
+
+
+_IMMUTABLE_RECORDS = _ImmutableRecordCache(OVERVIEW_IMMUTABLE_CACHE_ENTRIES)
+
+
+def _database_identity(connection: sqlite3.Connection) -> str:
+    """Archivo de la base principal: separa las cachés de distintas bases del mismo proceso."""
+    row = connection.execute("PRAGMA database_list").fetchone()
+    return str(row[2] or f"memory-{id(connection)}")
+
+
+def _overview_evidence_packages(
+    connection: sqlite3.Connection, evidence: EvidenceRepository
+) -> list[dict[str, Any]]:
+    """Paquetes recientes compactados; las columnas inmutables salen de la caché cuando existen."""
+    database = _database_identity(connection)
+    heads = evidence.list_evidence_package_heads(limit=OVERVIEW_EVIDENCE_LIMIT)
+    missing = [
+        head["id"] for head in heads if _IMMUTABLE_RECORDS.get((database, "evidence", head["id"])) is None
+    ]
+    for package_id, fields in evidence.immutable_evidence_fields(missing).items():
+        _IMMUTABLE_RECORDS.put((database, "evidence", package_id), _compact_overview_record(fields))
+    packages: list[dict[str, Any]] = []
+    for head in heads:
+        immutable = _IMMUTABLE_RECORDS.get((database, "evidence", head["id"])) or {}
+        compacted = _compact_overview_record(head)
+        packages.append({key: immutable.get(key, value) for key, value in compacted.items()})
+    return packages
+
+
+def _overview_test_results(
+    connection: sqlite3.Connection, evidence: EvidenceRepository
+) -> list[dict[str, Any]]:
+    """Resultados de test recientes compactados, leídos del disco sólo la primera vez."""
+    database = _database_identity(connection)
+    result_ids = evidence.list_test_result_ids(limit=OVERVIEW_TEST_RESULT_LIMIT)
+    missing = [
+        result_id
+        for result_id in result_ids
+        if _IMMUTABLE_RECORDS.get((database, "test_result", result_id)) is None
+    ]
+    for result_id, record in evidence.load_test_results(missing).items():
+        _IMMUTABLE_RECORDS.put((database, "test_result", result_id), _compact_overview_record(record))
+    records: list[dict[str, Any]] = []
+    for result_id in result_ids:
+        cached = _IMMUTABLE_RECORDS.get((database, "test_result", result_id))
+        if cached is not None:
+            records.append(cached)
+    return records
+
+
 def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
     """Devuelve el proyecto del cwd, creandolo si falta; no audita (variante para overview)."""
     projects = ProjectsRepository(connection)
@@ -181,15 +265,9 @@ def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str |
         "policyRevisions": security_policy.list_policy_revisions(limit=OVERVIEW_POLICY_REVISION_LIMIT),
         "permissionGrants": security_policy.list_grants(limit=OVERVIEW_PERMISSION_GRANT_LIMIT),
         "sandboxProfiles": security_policy.list_sandbox_profiles(),
-        "evidencePackages": [
-            _compact_overview_record(record)
-            for record in evidence.list_evidence_packages(limit=OVERVIEW_EVIDENCE_LIMIT)
-        ],
+        "evidencePackages": _overview_evidence_packages(connection, evidence),
         "artifacts": evidence.list_all_artifacts(limit=OVERVIEW_ARTIFACT_LIMIT),
-        "testResultRecords": [
-            _compact_overview_record(record)
-            for record in evidence.list_all_test_results(limit=OVERVIEW_TEST_RESULT_LIMIT)
-        ],
+        "testResultRecords": _overview_test_results(connection, evidence),
         "agentProfiles": agents.list_agent_profiles(),
         "agentRuns": [
             _compact_overview_record(record)

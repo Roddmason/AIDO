@@ -11652,6 +11652,30 @@
       "en": "Existing decisions stay unchanged; a version is not accepted automatically.",
       "es": "Las decisiones existentes se conservan; no se acepta una versión automáticamente."
     },
+    "app.threads.remediation.blocker.research_intake.title": {
+      "en": "Research could not answer",
+      "es": "La investigación no pudo responder"
+    },
+    "app.threads.remediation.blocker.research_intake.explanation": {
+      "en": "ResearchAgent could not complete this question. Review the reported cause before retrying.",
+      "es": "ResearchAgent no pudo completar esta pregunta. Revisa la causa informada antes de reintentar."
+    },
+    "app.threads.remediation.blocker.research_intake.impact": {
+      "en": "No code is changed; the question stays open until research completes.",
+      "es": "No se cambia código; la pregunta queda abierta hasta que la investigación termine."
+    },
+    "app.threads.remediation.blocker.research_provider_blocked.title": {
+      "en": "The search provider blocked the query",
+      "es": "El proveedor de búsqueda bloqueó la consulta"
+    },
+    "app.threads.remediation.blocker.research_provider_blocked.explanation": {
+      "en": "The web search provider refused this query, so ResearchAgent got no sources. It is not a lack of results.",
+      "es": "El proveedor de búsqueda web rechazó esta consulta, por eso ResearchAgent no obtuvo fuentes. No es falta de resultados."
+    },
+    "app.threads.remediation.blocker.research_provider_blocked.impact": {
+      "en": "The question stays unanswered until research uses a provider that accepts it, such as your own SearXNG.",
+      "es": "La pregunta queda sin respuesta hasta que la investigación use un proveedor que la acepte, como tu propio SearXNG."
+    },
     "app.threads.remediation.blocker.workspace_root_missing.title": {
       "en": "Workspace root missing",
       "es": "Falta la raíz del workspace"

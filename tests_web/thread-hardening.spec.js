@@ -107,3 +107,36 @@ test('Threads: intake questions render from their i18n key with readable options
 	await expect(decision.getByRole('button', { name: 'Diagnosticar', exact: true })).toBeVisible();
 	await expect(decision.getByRole('button', { name: 'Implementar', exact: true })).toBeVisible();
 });
+
+test('Threads: an intake research blocked by the search provider explains the real cause', async ({ page }) => {
+	const execution = await openMockThread(page, {
+		id: 'thread-hardening-provider', title: 'Hardening research provider', status: 'blocked',
+		events: [
+			{ sequence: 1, type: 'research_running' },
+			{ sequence: 2, type: 'blocked', payload: { stage: 'research', reason: 'The web search provider blocked the query (searxng: HTTP 403).' } },
+		],
+		remediations: [{
+			id: 'remediation-research-settings', stage: 'research', blockerType: 'research_required',
+			actionType: 'open_settings_section',
+			payload: { section: 'research', status: 'research_blocked', researchRemediation: 'research_provider_blocked' },
+		}],
+	});
+	await expect(execution.getByText('The search provider blocked the query', { exact: true })).toBeVisible();
+	await expect(execution.getByText(/validated technical decision/)).toHaveCount(0);
+});
+
+test('Threads: a failed intake research does not talk about technical decisions', async ({ page }) => {
+	const execution = await openMockThread(page, {
+		id: 'thread-hardening-research', title: 'Hardening research failure', status: 'blocked',
+		events: [
+			{ sequence: 1, type: 'research_running' },
+			{ sequence: 2, type: 'blocked', payload: { stage: 'research', reason: 'ResearchAgent web search returned no sources.' } },
+		],
+		remediations: [{
+			id: 'remediation-research-worker', stage: 'research', blockerType: 'research_required',
+			actionType: 'run_worker_once', payload: { status: 'research_blocked' },
+		}],
+	});
+	await expect(execution.getByText('Research could not answer', { exact: true })).toBeVisible();
+	await expect(execution.getByText(/validated technical decision/)).toHaveCount(0);
+});

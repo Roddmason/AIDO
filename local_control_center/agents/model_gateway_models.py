@@ -58,6 +58,16 @@ class GatewayStrictModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
+class LocalDeclarationRecord(BaseModel):
+    """Declaración auditada de que un endpoint no loopback corre en este equipo (WSL/Docker)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    declared_by: str = Field(alias="declaredBy")
+    declared_at: str = Field(alias="declaredAt")
+    host: str
+
+
 class ProviderAccountRecord(BaseModel):
     """Cuenta de proveedor persistida con su credential ref, salud y metadatos."""
 
@@ -81,6 +91,9 @@ class ProviderAccountRecord(BaseModel):
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str = Field(alias="lastError")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provider_catalog_id: str | None = Field(default=None, alias="providerCatalogId")
+    local_declaration: LocalDeclarationRecord | None = Field(default=None, alias="localDeclaration")
+    local_concurrency_limit: int | None = Field(default=None, alias="localConcurrencyLimit")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 

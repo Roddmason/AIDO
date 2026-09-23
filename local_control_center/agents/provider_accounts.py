@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.provider_catalog import provider_catalog_entry
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -100,8 +102,38 @@ PROVIDER_ACCOUNT_COLUMNS = """
     id, provider_id, display_name, provider_type, api_format, provider_family,
     deployment_mode, api_family, adapter_profile, terms_mode, pricing_mode, base_url, credential_ref,
     enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
+    provider_catalog_id, local_declaration_json, local_concurrency_limit,
     created_at, updated_at
 """
+
+MAX_LOCAL_CONCURRENCY_LIMIT = 16
+LOCAL_DECLARATION_FIELDS = ("declaredBy", "declaredAt", "host")
+SERVER_ONLY_METADATA_KEYS = frozenset({"providerCatalogId"})
+
+
+def sanitize_client_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Quita de la metadata lo que solo el servidor puede afirmar: identidad de catálogo y localidad local.
+
+    `endpointKind="remote"` se conserva porque solo restringe (P4/R13); cualquier otro valor se descarta
+    porque declarar un endpoint local exige el endpoint auditado de declaración.
+    """
+    sanitized = {
+        key: value for key, value in dict(metadata or {}).items() if key not in SERVER_ONLY_METADATA_KEYS
+    }
+    if str(sanitized.get("endpointKind") or "").strip().lower() != "remote":
+        sanitized.pop("endpointKind", None)
+    return sanitized
+
+
+def _optional_column(row: sqlite3.Row, column: str) -> Any:
+    return row[column] if column in row.keys() else None
+
+
+def _optional_json_column(row: sqlite3.Row, column: str) -> Any:
+    raw = _optional_column(row, column)
+    return json_loads(raw, None) if raw else None
+
+
 MODEL_CATALOG_COLUMNS = """
     id, provider_id, model, display_name, model_family, api_family, context_window,
     max_output_tokens, supports_tools, supports_json, supports_streaming, supports_vision,
@@ -163,6 +195,9 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "metadata": redact_secrets(json_loads(row["metadata_json"], {}))
         if "metadata_json" in row.keys()
         else {},
+        "providerCatalogId": _optional_column(row, "provider_catalog_id"),
+        "localDeclaration": _optional_json_column(row, "local_declaration_json"),
+        "localConcurrencyLimit": _optional_column(row, "local_concurrency_limit"),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -283,7 +318,7 @@ class ProviderAccountStore:
         terms_mode = _value_or_existing(body, existing, "termsMode", "unspecified")
         pricing_mode = _value_or_existing(body, existing, "pricingMode", "unknown")
         provider_type = _value_or_existing(body, existing, "providerType", "api")
-        metadata = redact_secrets(body.get("metadata") or {})
+        metadata = redact_secrets(sanitize_client_metadata(body.get("metadata")))
         base_url = validate_provider_base_url(
             body.get("baseUrl"),
             provider_family=provider_family,
@@ -371,6 +406,69 @@ class ProviderAccountStore:
             merged["lastHealthCheckAt"] = None
             merged["lastError"] = ""
         return self.upsert_provider_account(merged)
+
+    def set_provider_catalog_id(self, provider_id: str, catalog_id: str) -> dict[str, Any]:
+        """Fija la identidad de catálogo (campo del servidor) de una cuenta existente.
+
+        La llaman el alta desde catálogo y el router de endpoints locales, nunca un payload del cliente.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si el id no pertenece al catálogo.
+        """
+        entry = provider_catalog_entry(catalog_id)
+        if entry is None:
+            raise ValueError(f"Unknown provider catalog id: {catalog_id}")
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET provider_catalog_id = ?, updated_at = ? WHERE provider_id = ?",
+            (entry.id, utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
+
+    def set_local_declaration(
+        self, provider_id: str, declaration: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        """Guarda, o retira con None, la declaración local auditada `{declaredBy, declaredAt, host}`.
+
+        La valida el endpoint auditado de declaración; aquí solo se exige la forma completa.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si falta algún campo de la declaración.
+        """
+        payload = None
+        if declaration is not None:
+            missing = [
+                field for field in LOCAL_DECLARATION_FIELDS if not str(declaration.get(field) or "").strip()
+            ]
+            if missing:
+                raise ValueError(f"Local declaration is missing: {', '.join(missing)}")
+            payload = json_dumps(
+                {field: str(declaration[field]).strip() for field in LOCAL_DECLARATION_FIELDS}
+            )
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET local_declaration_json = ?, updated_at = ? WHERE provider_id = ?",
+            (payload, utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
+
+    def set_local_concurrency_limit(self, provider_id: str, limit: int | None) -> dict[str, Any]:
+        """Fija cuántas llamadas simultáneas acepta el endpoint local; None vuelve al default de 1.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si el límite está fuera de 1..MAX_LOCAL_CONCURRENCY_LIMIT.
+        """
+        if limit is not None and not 1 <= int(limit) <= MAX_LOCAL_CONCURRENCY_LIMIT:
+            raise ValueError(f"localConcurrencyLimit must be between 1 and {MAX_LOCAL_CONCURRENCY_LIMIT}.")
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET local_concurrency_limit = ?, updated_at = ? WHERE provider_id = ?",
+            (None if limit is None else int(limit), utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
 
     def list_models(self, provider_id: str | None = None) -> list[dict[str, Any]]:
         """List catalog models, optionally filtered to one provider, ordered by provider then model."""

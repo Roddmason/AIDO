@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 76
+CURRENT_SCHEMA_VERSION = 77
 
 
 def _execute_atomic_statements(
@@ -137,7 +137,65 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase74_schema(connection)
     init_phase75_schema(connection)
     init_phase76_schema(connection)
+    init_phase77_schema(connection)
     seed_platform_catalogs(connection)
+
+
+def init_phase77_schema(connection: sqlite3.Connection) -> None:
+    """Fase 77: identidad de catálogo, declaración local y concurrencia pasan a campos del servidor.
+
+    `providerCatalogId` vivía en la metadata que el cliente reescribe; desde aquí solo lo escriben el alta
+    desde catálogo y el router de endpoints locales. La metadata se sanea: se retira `providerCatalogId` y un
+    `endpointKind="local"` (declarar local exige el endpoint auditado); `"remote"` se conserva porque solo
+    restringe. Las cuentas llama.cpp existentes reciben su fila propia de `runtime_installations` (antes
+    heredaban la fila compartida y deshabilitada de la familia). Idempotente: se re-ejecuta sin efectos.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 77").fetchone():
+        return
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(provider_accounts)")}
+    statements: list[tuple[str, tuple[object, ...]]] = [
+        (f"ALTER TABLE provider_accounts ADD COLUMN {name} {sql_type}", ())
+        for name, sql_type in (
+            ("provider_catalog_id", "TEXT"),
+            ("local_declaration_json", "TEXT"),
+            ("local_concurrency_limit", "INTEGER"),
+        )
+        if name not in columns
+    ]
+    now = utc_now()
+    statements += [
+        (
+            """UPDATE provider_accounts
+            SET provider_catalog_id = json_extract(metadata_json, '$.providerCatalogId')
+            WHERE provider_catalog_id IS NULL AND json_valid(metadata_json)
+              AND json_type(metadata_json, '$.providerCatalogId') = 'text'""",
+            (),
+        ),
+        (
+            """UPDATE provider_accounts SET metadata_json = json_remove(metadata_json, '$.providerCatalogId')
+            WHERE json_valid(metadata_json) AND json_type(metadata_json, '$.providerCatalogId') IS NOT NULL""",
+            (),
+        ),
+        (
+            """UPDATE provider_accounts SET metadata_json = json_remove(metadata_json, '$.endpointKind')
+            WHERE json_valid(metadata_json) AND json_extract(metadata_json, '$.endpointKind') = 'local'""",
+            (),
+        ),
+        (
+            """INSERT OR IGNORE INTO runtime_installations
+                (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                 preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                 configuration_source, metadata, created_at, updated_at)
+            SELECT 'runtime-installation-' || provider_id, provider_id, 'local', NULL, NULL, enabled,
+                   '["chat"]', '["analyst","product_owner","developer","technical_lead"]', 'unknown',
+                   NULL, NULL, NULL, 'local_runtime_catalog',
+                   json_object('providerId', provider_id, 'catalogId', provider_catalog_id), ?, ?
+            FROM provider_accounts WHERE provider_catalog_id = 'llama_cpp'""",
+            (now, now),
+        ),
+        ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (77, now)),
+    ]
+    _execute_atomic_statements(connection, statements)
 
 
 def init_phase76_schema(connection: sqlite3.Connection) -> None:

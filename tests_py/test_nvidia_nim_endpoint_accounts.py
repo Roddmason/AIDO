@@ -387,14 +387,14 @@ def test_catalog_preset_creates_distinct_nvidia_instances_with_explicit_modes(
     assert hosted_account["deploymentMode"] == "hosted_trial"
     assert hosted_account["termsMode"] == "evaluation"
     assert hosted_account["baseUrl"] == "https://integrate.api.nvidia.com/v1"
-    assert hosted_account["metadata"]["providerCatalogId"] == "nvidia_nim"
+    assert hosted_account["providerCatalogId"] == "nvidia_nim"
     assert partner_account["providerId"] == "nvidia-partner-prod"
     assert partner_account["providerFamily"] == "nvidia_nim"
     assert partner_account["deploymentMode"] == "partner_paid"
     assert partner_account["apiFamily"] == "embeddings"
     assert partner_account["termsMode"] == "accepted"
     assert partner_account["pricingMode"] == "configured"
-    assert partner_account["metadata"]["providerCatalogId"] == "nvidia_nim"
+    assert partner_account["providerCatalogId"] == "nvidia_nim"
 
 
 @pytest.mark.parametrize(
@@ -605,7 +605,7 @@ def test_catalog_request_without_instance_id_preserves_legacy_canonical_upsert(
     assert first.json()["provider"]["providerId"] == "nvidia_nim"
     assert updated.json()["provider"]["providerId"] == "nvidia_nim"
     assert updated.json()["provider"]["displayName"] == "Updated NVIDIA canonical name"
-    assert updated.json()["provider"]["metadata"]["providerCatalogId"] == "nvidia_nim"
+    assert updated.json()["provider"]["providerCatalogId"] == "nvidia_nim"
 
 
 def test_noncanonical_account_sync_resolves_nvidia_preset_and_stays_endpoint_scoped(
@@ -627,7 +627,7 @@ def test_noncanonical_account_sync_resolves_nvidia_preset_and_stays_endpoint_sco
         },
     )
     assert created.status_code == 201, created.text
-    assert created.json()["provider"]["metadata"]["providerCatalogId"] == "nvidia_nim"
+    assert created.json()["provider"]["providerCatalogId"] == "nvidia_nim"
 
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         runtime_repo = RuntimeConfigRepository(connection)

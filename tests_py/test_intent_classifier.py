@@ -140,6 +140,11 @@ CHANGE_PROMPTS = (
     "Compara la versión actual con la anterior y corrige el bug de sesión",
     "Corrige el bug de memoria sin modificar la API pública",
     "Fix the crash on startup; compare with the previous release",
+    "Fix the login bug but do not modify the public API",
+    "Corrige el bug de sesion y no cambies la API publica",
+    "Implementa el endpoint y no modifiques los tests",
+    "Implement this thread only for admins",
+    "Add a spread only view",
 )
 RESEARCH_PROMPTS = (
     "Investiga qué tests cubren el login",
@@ -163,6 +168,18 @@ def test_read_only_questions_are_research_only(prompt: str) -> None:
     assert decision.research_only is True
     assert "research" in decision.intents
     assert decision.plan_mode not in {"ask", "blocked"}
+
+
+@pytest.mark.parametrize("prompt", ["Implement this thread only for admins", "Add a spread only view"])
+def test_read_only_marker_needs_word_boundaries(prompt: str) -> None:
+    assert classify(prompt).scores["research"] == 0
+
+
+def test_read_only_marker_still_matches_as_a_whole_phrase() -> None:
+    decision = classify("Review the auth module in read only mode")
+
+    assert decision.scores["research"] == 1
+    assert decision.research_only is True
 
 
 def test_spanish_research_vocabulary_matches_with_and_without_accents() -> None:

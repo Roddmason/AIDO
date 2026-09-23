@@ -317,6 +317,28 @@ def test_a_rework_without_changes_is_verified_by_qa_not_closed_as_noop(tmp_path:
         ]
 
 
+def test_a_rework_without_new_changes_and_failing_qa_exhausts_rework_on_the_qa_cause(tmp_path: Path) -> None:
+    """Visto en vivo 2026-09-23: el rework no repite el cambio ya commiteado y QA sigue fallando.
+
+    Debe agotar el presupuesto de rework y bloquear en ``qa_rework`` con la causa de QA, no en
+    ``review`` como "sin archivos cambiados" tras la primera ronda.
+    """
+    runtime = _StoryOneAttemptsRuntime(
+        [(["src/story_1.py"], "failed"), ([], "failed"), ([], "failed")], qa_failures={1: 99}
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-rework-qa-still-failing")
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime)
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
+        suffixes = [payload["taskId"].split(":", 1)[1] for payload in runtime.run_payloads]
+        assert suffixes == ["s1", *[f"s1:r{round_}" for round_ in range(1, DEFAULT_AUTO_REWORK_ROUNDS + 1)]]
+
+
 def test_approval_carries_the_qa_and_evidence_of_every_story(tmp_path: Path) -> None:
     runtime = _PerStoryRuntime()
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:

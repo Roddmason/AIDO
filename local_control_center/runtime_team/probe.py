@@ -115,16 +115,11 @@ class RuntimeValidationService:
     ) -> None:
         """Deja evidencia fallida salvo que la prueba ya la haya dejado desde ``started_at``.
 
-        Sin modelo probado usa el último modelo registrado del proveedor; sin registro previo no hay
-        validación que invalidar y no se escribe nada.
+        La deduplicación se acota al modelo probado: un éxito concurrente de otro modelo no puede
+        ocultar la falla. Sin modelo probado usa el último modelo registrado del proveedor; sin
+        registro previo no hay validación que invalidar y no se escribe nada.
         """
-        if (
-            started_at is not None
-            and self.connection.execute(
-                "SELECT 1 FROM model_execution_health WHERE provider_id = ? AND started_at >= ? LIMIT 1",
-                (provider_id, started_at),
-            ).fetchone()
-        ):
+        if started_at is not None and self._recorded_since(provider_id, model, started_at):
             return
         evidence_model = model or self._last_recorded_model(provider_id)
         if evidence_model is None:
@@ -138,6 +133,15 @@ class RuntimeValidationService:
             configuration_fingerprint=fingerprint,
             started_at=started_at,
         )
+
+    def _recorded_since(self, provider_id: str, model: str | None, started_at: str) -> bool:
+        """Indica si ya hay evidencia del proveedor (y del modelo, si se probó uno) desde ``started_at``."""
+        row = self.connection.execute(
+            """SELECT 1 FROM model_execution_health
+               WHERE provider_id = ? AND started_at >= ? AND (? IS NULL OR model = ?) LIMIT 1""",
+            (provider_id, started_at, model, model),
+        ).fetchone()
+        return row is not None
 
     def _failed(
         self,

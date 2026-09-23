@@ -58,7 +58,8 @@ def runtime_validation_state(
     """Clasifica la última ejecución registrada del runtime: validated, stale, failed o never.
 
     Una falla posterior invalida cualquier éxito anterior y un cambio de configuración vuelve
-    ``stale`` la evidencia, igual que ``model_validation_rejection`` pero a nivel de runtime.
+    ``stale`` la evidencia (también la fallida, para que se vuelva a probar), en el mismo orden que
+    ``model_validation_rejection`` pero a nivel de runtime.
     """
     row = connection.execute(
         """SELECT model, configuration_fingerprint, success, started_at, observed_at
@@ -76,10 +77,10 @@ def runtime_validation_state(
         else None
     )
     evidence = {"checked_at": row["observed_at"], "latency_ms": latency, "model": row["model"]}
-    if not row["success"]:
-        return RuntimeValidationState("failed", reason="runtime_validation_failed", **evidence)
     if row["configuration_fingerprint"] != provider_configuration_fingerprint(connection, provider_id):
         return RuntimeValidationState("stale", reason="runtime_validation_configuration_changed", **evidence)
+    if not row["success"]:
+        return RuntimeValidationState("failed", reason="runtime_validation_failed", **evidence)
     age = ((now or datetime.now(UTC)) - started).total_seconds() if started else -1.0
     if not 0 <= age < max_age_seconds:
         return RuntimeValidationState("stale", reason="runtime_validation_expired", **evidence)

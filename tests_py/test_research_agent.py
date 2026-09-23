@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import socket
 from contextlib import ExitStack, closing
+from http.client import IncompleteRead, RemoteDisconnected
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -204,6 +205,61 @@ def test_research_agent_blocks_when_internet_source_cannot_be_fetched(
     assert body["sources"] == []
     assert body["agentRun"]["status"] == "blocked"
     assert body["evidencePackage"]["qaVerdict"] == "blocked"
+
+
+class _DroppedConnectionResponse(_FetchedResponse):
+    """Respuesta cuya lectura del cuerpo se corta: ``urllib`` no envuelve ese error en ``URLError``."""
+
+    def __init__(self, error: Exception):
+        super().__init__("")
+        self.error = error
+
+    def read(self, _limit: int) -> bytes:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "dropped",
+    [
+        ConnectionResetError(10054, "connection reset by peer"),
+        IncompleteRead(b"partial", 1024),
+        RemoteDisconnected("remote end closed connection"),
+    ],
+    ids=["connection-reset", "incomplete-read", "remote-disconnected"],
+)
+def test_research_agent_blocks_when_source_connection_drops_mid_read(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dropped: Exception
+) -> None:
+    """Un corte al leer la fuente termina en ``research_blocked``, nunca en un job reventado."""
+    monkeypatch.setattr(
+        research_agent_module, "urlopen", lambda *_args, **_kwargs: _DroppedConnectionResponse(dropped)
+    )
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="research-dropped")
+    docs_url = "https://docs.python.org/3/library/asyncio-task.html"
+
+    response = client.post(
+        "/api/v1/agents/research/runs",
+        headers=headers,
+        json=research_request(
+            project,
+            workspace,
+            sources=[{"url": docs_url, "publisher": "Python Software Foundation"}],
+            conclusions=[
+                {
+                    "statement": "Python asyncio TaskGroup is available.",
+                    "citations": [docs_url],
+                    "webBased": True,
+                }
+            ],
+        ),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "research_blocked"
+    assert body["reason"] == f"ResearchAgent source fetch failed: {dropped}"
+    assert body["agentRun"]["status"] == "blocked"
 
 
 def test_research_agent_fetches_official_source_and_persists_research_sources(

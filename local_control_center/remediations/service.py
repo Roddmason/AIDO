@@ -3493,7 +3493,7 @@ class BlockerRemediationService:
             if status == "configuration_required" or "not found" in text:
                 return "gitleaks_missing"
             return "gitleaks_failed"
-        if stage == "qa":
+        if stage in {"qa", "qa_rework"}:
             return "qa_failed"
         if stage == "runtime":
             if any(token in reason_text for token in ("auth", "login", "not authenticated")):

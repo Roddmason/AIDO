@@ -89,6 +89,11 @@ import {
 } from '../runtime-team/runtimeTeamModel';
 import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
+import {
+	decisionOptionDescription,
+	decisionOptionLabel,
+	decisionPromptText,
+} from './decisionOptionCopy';
 import { GitBranchBar } from './GitBranchBar';
 import { ThreadExecutionPanel } from './ThreadExecutionPanel';
 import { ownerIdForProject } from './threadOwner';
@@ -574,7 +579,7 @@ export function ThreadConversation({
 											</span>
 										) : null}
 									</div>
-									<p>{decision.prompt}</p>
+									<p>{decisionPromptText(decision, t)}</p>
 									<div className="thread-decision-options">
 										{decision.options.map((option) => (
 											<Button
@@ -583,10 +588,22 @@ export function ThreadConversation({
 												disabled={busy}
 												onClick={() => resolveDecision(decision.id, option)}
 											>
-												{option}
+												{decisionOptionLabel(option, t)}
 											</Button>
 										))}
 									</div>
+									{decision.options.some((option) => decisionOptionDescription(option, t)) ? (
+										<ul className="thread-decision-option-help">
+											{decision.options.map((option) => {
+												const description = decisionOptionDescription(option, t);
+												return description ? (
+													<li key={option}>
+														<strong>{decisionOptionLabel(option, t)}</strong> {description}
+													</li>
+												) : null;
+											})}
+										</ul>
+									) : null}
 								</m.section>
 							))}
 

@@ -32,6 +32,7 @@ import {
 import { useI18n } from '../../i18n/I18nProvider';
 import { formatTime, redactVisibleSecret } from '../../lib/format';
 import { listStagger, panelTransition } from '../../motion/variants';
+import { decisionOptionLabel } from './decisionOptionCopy';
 import {
 	type BlockerActionModel,
 	type BlockerCardModel,
@@ -709,7 +710,7 @@ function ThreadBlockerCard({
 						</option>
 						{options.map((option) => (
 							<option key={option} value={option}>
-								{option}
+								{decisionOptionLabel(option, t)}
 							</option>
 						))}
 					</SelectField>

@@ -174,7 +174,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "branch_ready": {"executing", "blocked", "cancelled"},
     "iteration_planning": {"branch_ready", "executing", "blocked", "cancelled"},
     "executing": {"qa_running", "blocked", "cancelled"},
-    "qa_running": {"security_running", "reworking", "blocked", "cancelled"},
+    "qa_running": {"security_running", "reworking", "executing", "blocked", "cancelled"},
     "security_running": {"quality_review", "review_ready", "blocked", "cancelled"},
     "review_ready": {"awaiting_approval", "reworking", "blocked", "cancelled"},
     "quality_review": {"review_ready", "awaiting_approval", "reworking", "blocked", "cancelled"},
@@ -1138,7 +1138,13 @@ class ProductLoopCoordinator:
         context_patch: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
         thread_id: str | None = None,
+        fsm_patch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Transiciona el loop registrando evento de loop y de hilo; punto único de cancelación.
+
+        ``fsm_patch`` se mezcla sobre ``context['fsm']`` en la misma transaccion (lo usa la arista
+        ``next_story`` para reiniciar ``reworkRounds`` por historia).
+        """
         # Cooperative cancellation checkpoint. Every durable stage advance funnels through here, so a
         # cancel lands within one stage instead of letting the claimed worker run to completion beside
         # its replacement run — which is what would make two Product Loops share a thread.
@@ -1152,6 +1158,7 @@ class ProductLoopCoordinator:
             trigger=trigger,
             context_patch=context_patch,
             metadata=metadata,
+            _fsm_patch=fsm_patch,
         )
         self._record_loop_event(
             project_id=updated["projectId"],

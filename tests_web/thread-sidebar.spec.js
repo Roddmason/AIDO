@@ -146,12 +146,43 @@ test('Sidebar: a queued thread cannot be deleted and explains the blocker', asyn
 
 	const deleteItem = page.getByRole('menuitem', { name: /Delete|Eliminar/ });
 	await expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
-	await expect(page.getByText(/stop the run first|detén el run primero/)).toBeVisible();
+	await expect(deleteItem.getByText(/stop the run first|detén el run primero/)).toBeVisible();
 	// Selecting the disabled item is a no-op: no confirm dialog and the row stays listed. The
 	// forced click bypasses Playwright's enabled-actionability wait on the aria-disabled item.
 	await deleteItem.click({ force: true });
 	await expect(page.getByRole('dialog', { name: /Delete thread|Eliminar hilo/ })).toHaveCount(0);
 	await expect(threadRow(page, title)).toBeVisible();
+});
+
+test('Sidebar: a queued thread cannot be archived and explains the blocker', async ({ page }) => {
+	const title = `Sidebar archive blocked ${Date.now()}`;
+	const { token, thread } = await createThreadViaApi(page, title);
+	// Same blocking state as the delete case above: a job in flight must not be hidden by an
+	// archive that leaves it running behind a status the pipeline reads as "no job" (see
+	// ThreadExecutionPanel's IDLE_THREAD_STATUSES / StepState 'stopped').
+	const message = await page.request.post(`/api/v1/threads/${thread.id}/messages`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: { content: `Add an audit endpoint covering sidebar archive blocking ${Date.now()}` },
+	});
+	expect(message.ok()).toBe(true);
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await ensureWorkspaceOpen(page);
+	await openThreadMenu(page, title);
+
+	const archiveItem = page.getByRole('menuitem', { name: /Archive|Archivar/ });
+	await expect(archiveItem).toHaveAttribute('aria-disabled', 'true');
+	await expect(archiveItem.getByText(/stop the run first|detén el run primero/)).toBeVisible();
+	await archiveItem.click({ force: true });
+	await expect(page.getByText(/Thread archived|Hilo archivado/)).toHaveCount(0);
+	await expect(threadRow(page, title)).toBeVisible();
+
+	const archiveResponse = await page.request.post(`/api/v1/threads/${thread.id}/archive`, {
+		headers: { 'X-Local-Control-Token': token },
+		data: { reason: 'Attempted while running', actor: 'operator' },
+	});
+	expect(archiveResponse.status()).toBe(409);
 });
 
 test('Sidebar: the show-archived toggle reveals archived threads', async ({ page }) => {

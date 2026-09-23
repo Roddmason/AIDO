@@ -575,6 +575,10 @@
       "en": "Running thread — stop the run first.",
       "es": "Hilo en ejecución — detén el run primero."
     },
+    "app.shell.threads.menu.archiveBlocked": {
+      "en": "Running thread — stop the run first.",
+      "es": "Hilo en ejecución — detén el run primero."
+    },
     "app.shell.threads.renameLabel": {
       "en": "New thread title",
       "es": "Nuevo título del hilo"

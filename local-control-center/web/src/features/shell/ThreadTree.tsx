@@ -60,8 +60,8 @@ type ThreadTreeProps = {
 	actions: ThreadRowActions;
 };
 
-/** Statuses where the run must stop before a delete is allowed (mirrors the server 409 rule). */
-const DELETE_BLOCKING_STATUSES = new Set(['queued', 'running']);
+/** Statuses where the run must stop before a delete or archive is allowed (mirrors the server 409 rule). */
+const LIFECYCLE_BLOCKING_STATUSES = new Set(['queued', 'running']);
 
 function matchesNeedle(thread: Thread, needle: string) {
 	return String(thread.title ?? '')
@@ -223,7 +223,7 @@ function ThreadRow({ thread, archived, active, actions, onSelect }: ThreadRowPro
 	const [renaming, setRenaming] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 
-	const deleteBlocked = DELETE_BLOCKING_STATUSES.has(String(thread.status));
+	const lifecycleBlocked = LIFECYCLE_BLOCKING_STATUSES.has(String(thread.status));
 	const menuLabel = t('app.shell.threads.menu.label', 'Thread actions');
 
 	const commitRename = (value: string) => {
@@ -251,8 +251,8 @@ function ThreadRow({ thread, archived, active, actions, onSelect }: ThreadRowPro
 		icon: Trash2,
 		tone: 'danger',
 		separated: true,
-		disabled: deleteBlocked,
-		note: deleteBlocked
+		disabled: lifecycleBlocked,
+		note: lifecycleBlocked
 			? t('app.shell.threads.menu.deleteBlocked', 'Running thread — stop the run first.')
 			: undefined,
 		onSelect: () => actions.requestDelete(thread),
@@ -292,6 +292,10 @@ function ThreadRow({ thread, archived, active, actions, onSelect }: ThreadRowPro
 					id: 'archive',
 					label: t('app.shell.threads.menu.archive', 'Archive'),
 					icon: Archive,
+					disabled: lifecycleBlocked,
+					note: lifecycleBlocked
+						? t('app.shell.threads.menu.archiveBlocked', 'Running thread — stop the run first.')
+						: undefined,
 					onSelect: () => actions.archive(thread),
 				},
 				{

@@ -593,6 +593,25 @@ class BacklogRepository:
         ).fetchall()
         return [row_to_user_story(row) for row in rows]
 
+    def list_user_stories_for_output(
+        self, project_id: str, product_owner_output_id: str
+    ) -> list[dict[str, Any]]:
+        """Lista las historias emitidas por un output del PO en su orden de emisión.
+
+        El orden de emisión es el de inserción (``rowid``): ``persist_product_owner_backlog`` crea las
+        filas recorriendo ``output["userStories"]``. Es el desempate del orden de ejecución por
+        historia y la fuente de las historias del tablero (incluidas las que no tienen tareas).
+        """
+        rows = self.connection.execute(
+            """
+            SELECT * FROM user_stories
+            WHERE project_id = ? AND json_extract(metadata, '$.productOwnerOutputId') = ?
+            ORDER BY rowid ASC
+            """,
+            (project_id, product_owner_output_id),
+        ).fetchall()
+        return [row_to_user_story(row) for row in rows]
+
     def update_user_story(self, story_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una user story, incrementa su versión y devuelve el registro.
 

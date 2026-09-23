@@ -17,6 +17,7 @@ import type { ThreadAgentEvent, ThreadDecision, ThreadMessage } from '../../api/
 import { Button, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { EASE_OUT } from '../../motion/variants';
+import { describeReasonCode } from '../runtime-setup/reasonCopy';
 import { ThreadBlockerList } from './ThreadBlockerCard';
 import { MESSAGE_META, safeRecord, textValue } from './threadPresentation';
 import type { ThreadRemediationsHandle } from './useThreadRemediations';
@@ -204,6 +205,52 @@ type BlockerCard = {
 /** The queued banner already offers "Run now", so the worker remediation is hidden in this host. */
 const REMEDIATION_EXCLUDE_IN_PANEL = ['worker_not_running'] as const;
 
+/** Reason code of the newest `resource_wait` the governor reported after the last hand-off to a worker. */
+function latestResourceWait(events: ThreadAgentEvent[]): string {
+	let code = '';
+	for (const event of events) {
+		if (event.type === 'resource_wait')
+			code = textValue(safeRecord(event.payload).reasonCode) ?? '';
+		else if (event.type === 'worker_claimed' || event.type === 'run_queued') code = '';
+	}
+	return code;
+}
+
+type QueuedBannerCopy = { label: string; title: string; body: string };
+
+/**
+ * Accessible name, title and body of the queued banner: starting, waiting for machine capacity, or for a worker.
+ * The starting state keeps the historical "Waiting for worker" region name that existing specs locate.
+ */
+function queuedBannerCopy(
+	workerBusy: boolean,
+	resourceWaitCode: string,
+	t: Translate,
+): QueuedBannerCopy {
+	if (workerBusy) {
+		return {
+			label: t('app.threads.waitingWorkerTitle', 'Waiting for worker'),
+			title: t('app.threads.startingRunTitle', 'Starting run'),
+			body: t(
+				'app.threads.startingRun',
+				'Starting this run — progress appears in the execution log below.',
+			),
+		};
+	}
+	if (resourceWaitCode) {
+		return {
+			label: t('app.threads.waitingCapacityTitle', 'Waiting for machine capacity'),
+			title: t('app.threads.waitingCapacityTitle', 'Waiting for machine capacity'),
+			body: `${t('app.threads.waitingCapacity', 'Waiting for machine capacity:')} ${describeReasonCode(resourceWaitCode, t)}`,
+		};
+	}
+	return {
+		label: t('app.threads.waitingWorkerTitle', 'Waiting for worker'),
+		title: t('app.threads.waitingWorkerTitle', 'Waiting for worker'),
+		body: t('app.threads.waitingWorker', 'Queued: waiting for a worker to pick this run up.'),
+	};
+}
+
 /** Everything AIDO is doing for this thread, rendered as its own panel next to the transcript. */
 export function ThreadExecutionPanel({
 	threadStatus,
@@ -246,6 +293,8 @@ export function ThreadExecutionPanel({
 	});
 
 	const consoleEntries = useMemo(() => mergeConsoleEntries(events, messages), [events, messages]);
+	const resourceWaitCode = useMemo(() => latestResourceWait(events), [events]);
+	const queuedCopy = queuedBannerCopy(workerBusy, resourceWaitCode, t);
 	const workerIsRunning = workerStatus?.running === true;
 	const showRunNow = waitingForWorker && !workerIsRunning;
 	// A blocked run whose blocker the backend never mapped to a remediation still deserves a repair
@@ -286,23 +335,9 @@ export function ThreadExecutionPanel({
 			) : null}
 
 			{waitingForWorker ? (
-				<section
-					className="thread-queued-banner"
-					aria-label={t('app.threads.waitingWorkerTitle', 'Waiting for worker')}
-				>
-					<strong>
-						{workerBusy
-							? t('app.threads.startingRunTitle', 'Starting run')
-							: t('app.threads.waitingWorkerTitle', 'Waiting for worker')}
-					</strong>
-					<p>
-						{workerBusy
-							? t(
-									'app.threads.startingRun',
-									'Starting this run — progress appears in the execution log below.',
-								)
-							: t('app.threads.waitingWorker', 'Queued: waiting for a worker to pick this run up.')}
-					</p>
+				<section className="thread-queued-banner" aria-label={queuedCopy.label}>
+					<strong>{queuedCopy.title}</strong>
+					<p>{queuedCopy.body}</p>
 					{showRunNow ? (
 						<>
 							<p className="thread-queued-hint">
@@ -599,6 +634,7 @@ function eventTitle(type: string): string {
 		run_queued: 'Run queued',
 		worker_started: 'Worker started',
 		worker_claimed: 'Worker assigned',
+		resource_wait: 'Waiting for capacity',
 		worker_idle: 'Worker idle',
 		worker_failed: 'Worker failed',
 		worker_paused: 'Worker paused',

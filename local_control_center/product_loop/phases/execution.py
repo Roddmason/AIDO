@@ -87,7 +87,21 @@ def prepare_developer_execution(
     agent_tasks = run.agent_tasks
     team_schedule = run.team_schedule
     runtime = runtime_runner or DeveloperAgentRunner(coordinator.connection, root=effective_root)
-    execution_resource = coordinator._developer_execution_resource(team_schedule)
+    execution_resource = coordinator._developer_execution_resource(team_schedule, run.request_meta)
+    assignment_blocker = coordinator._developer_assignment_blocker(run.request_meta, execution_resource)
+    if assignment_blocker is not None:
+        return coordinator._block_run(
+            loop,
+            stage="resource_manager",
+            reason=assignment_blocker["reason"],
+            actor=actor,
+            details={
+                "resourceBlockers": [assignment_blocker],
+                "teamSchedule": team_schedule,
+                "agentTaskIds": [task["id"] for task in agent_tasks],
+            },
+            thread_id=thread_id,
+        )
     mapping_blockers = (
         coordinator._developer_execution_resource_mapping_blockers(team_schedule)
         if not execution_resource

@@ -125,7 +125,7 @@ def run_security_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRun
     constitution_prompt = render_constitution_prompt(run.constitution)
     if constitution_prompt:
         security_payload["constitution"] = constitution_prompt
-    security_resource = coordinator._security_execution_resource(team_schedule)
+    security_resource = coordinator._security_execution_resource(team_schedule, run.request_meta)
     if security_resource:
         security_payload["runModelAnalysis"] = True
         security_payload["preferredRuntime"] = security_resource["preferredRuntime"]

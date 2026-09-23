@@ -73,6 +73,13 @@ from local_control_center.quality.plans import iteration_scripts
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.configuration import (
+    assigned_runtime,
+    restrict_to_allowlist,
+    role_allowlist,
+    runtime_team_of,
+)
+from local_control_center.runtime_team.roles import team_role_for
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
@@ -2931,6 +2938,9 @@ class ProductLoopCoordinator:
         profile = self._profile_by_role(project_id).get(role) or {}
         task = self._task_for_assignment(role, agent_tasks)
         policy = self._resource_role_policy(role)
+        team_role = team_role_for(
+            role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
+        )
         return AIResourceRequest(
             project_id=project_id,
             workflow_run_id=loop_id,
@@ -2944,6 +2954,7 @@ class ProductLoopCoordinator:
             else str(team_schedule.get("mode") or "balanced"),
             context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
             required_capabilities=self._resource_required_capabilities(role_plan),
+            allowed_provider_ids=role_allowlist(request_meta, team_role),
             privacy_level=self._resource_privacy_level(request_meta),
             budget_remaining_usd=role_plan.get("budgetUsd"),
             max_tokens=role_plan.get("maxTokens"),
@@ -3265,6 +3276,9 @@ class ProductLoopCoordinator:
         ]
         model_provider_ids = {str(row["provider_id"]) for row in model_provider_rows}
         allowed_provider_ids = sorted(PRODUCT_OWNER_AGENT_CLI_RUNTIMES | model_provider_ids)
+        allowed_provider_ids = restrict_to_allowlist(
+            allowed_provider_ids, role_allowlist(request_meta, "product_owner")
+        )
         preferred_provider_ids: list[str] = []
         ordered_contract_providers: list[str] = []
         for runtime_family in PRODUCT_OWNER_AGENT_RUNTIME_ORDER:
@@ -3375,7 +3389,12 @@ class ProductLoopCoordinator:
             }
         return public_decision, None
 
-    def _developer_execution_resource(self, team_schedule: dict[str, Any]) -> dict[str, Any]:
+    def _developer_execution_resource(
+        self, team_schedule: dict[str, Any], request_meta: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        assigned = assigned_runtime(request_meta, "developer")
+        if assigned:
+            return self._assigned_developer_execution_resource(team_schedule, assigned)
         roles = [
             role_plan
             for role_plan in team_schedule.get("roles") or []
@@ -3394,27 +3413,75 @@ class ProductLoopCoordinator:
             preferred_runtime = self._developer_runtime_id_for_resource_selection(selected)
             if not preferred_runtime:
                 continue
-            return redact_secrets(
-                {
-                    "role": role_plan.get("role"),
-                    "providerId": selected.get("providerId"),
-                    "model": selected.get("model"),
-                    "runtime": selected.get("runtime"),
-                    "preferredRuntime": preferred_runtime,
-                    "decisionReason": decision.get("decisionReason"),
-                    "estimatedCostUsd": decision.get("estimatedCostUsd"),
-                    "usageStatus": decision.get("usageStatus"),
-                }
-            )
+            return self._developer_resource_record(role_plan, decision, selected, preferred_runtime)
         return {}
 
-    def _security_execution_resource(self, team_schedule: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _developer_resource_record(
+        role_plan: dict[str, Any], decision: dict[str, Any], selected: dict[str, Any], preferred_runtime: str
+    ) -> dict[str, Any]:
+        """Recurso de ejecución del developer, redactado, a partir de una decisión real del schedule."""
+        return redact_secrets(
+            {
+                "role": role_plan.get("role"),
+                "providerId": selected.get("providerId"),
+                "model": selected.get("model"),
+                "runtime": selected.get("runtime"),
+                "preferredRuntime": preferred_runtime,
+                "decisionReason": decision.get("decisionReason"),
+                "estimatedCostUsd": decision.get("estimatedCostUsd"),
+                "usageStatus": decision.get("usageStatus"),
+            }
+        )
+
+    def _assigned_developer_execution_resource(
+        self, team_schedule: dict[str, Any], assigned: str
+    ) -> dict[str, Any]:
+        """Recurso del developer asignado por el hilo, solo si AIResourceManager lo seleccionó de verdad.
+
+        Sin una decisión real (política, costo o aprobación la dejaron fuera) devuelve ``{}`` y
+        ``_developer_assignment_blocker`` bloquea: nunca se fabrica una selección que salte los
+        blockers del gestor ni se usa otro runtime del schedule.
+        """
+        for role_plan in team_schedule.get("roles") or []:
+            decision = role_plan.get("resourceDecision") or {}
+            selected = decision.get("selected") or {}
+            if not isinstance(selected, dict) or str(selected.get("providerId") or "").strip() != assigned:
+                continue
+            preferred_runtime = self._developer_runtime_id_for_resource_selection(selected)
+            if not preferred_runtime:
+                continue
+            return self._developer_resource_record(role_plan, decision, selected, preferred_runtime)
+        return {}
+
+    def _developer_assignment_blocker(
+        self, request_meta: dict[str, Any] | None, execution_resource: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Bloqueo cuando el hilo asignó un developer que AIResourceManager no seleccionó para ejecutar."""
+        assigned = assigned_runtime(request_meta, "developer")
+        if not assigned or str(execution_resource.get("providerId") or "").strip() == assigned:
+            return None
+        return {
+            "role": "developer",
+            "reason": (
+                f"The thread runtime team assigns {assigned} to development, but AIResourceManager did not "
+                "select it for execution; AIDO will not switch to another runtime on its own."
+            ),
+            "decision": {},
+        }
+
+    def _security_execution_resource(
+        self, team_schedule: dict[str, Any], request_meta: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Devuelve el runtime de modelo que el schedule eligió para el rol de seguridad, si lo hay.
 
         El análisis de modelo del SecurityAgent es asistencia opcional sobre veredictos que siguen
         siendo deterministas, así que solo se activa cuando la selección de recursos del rol ya
         resolvió un runtime de modelo ejecutable; sin él, el agente corre solo sus scanners.
+        Con equipo de runtimes en el hilo, solo el runtime asignado a seguridad puede analizar.
         """
+        team_configured = runtime_team_of(request_meta) is not None
+        assigned = assigned_runtime(request_meta, "security")
         for role_plan in team_schedule.get("roles") or []:
             capabilities = set(role_plan.get("capabilities") or [])
             role = str(role_plan.get("role") or "")
@@ -3423,6 +3490,8 @@ class ProductLoopCoordinator:
             selected = (role_plan.get("resourceDecision") or {}).get("selected") or {}
             provider_id = str(selected.get("providerId") or "").strip()
             if not self._is_model_runtime_provider(provider_id):
+                continue
+            if team_configured and provider_id != assigned:
                 continue
             return {"preferredRuntime": provider_id, "model": selected.get("model")}
         return {}
@@ -4406,12 +4475,21 @@ class ProductLoopCoordinator:
             patch_artifact_id = str(
                 ((run.runtime_result or {}).get("diffSummary") or {}).get("patchArtifactId") or ""
             )
+            architect_runtime = assigned_runtime(run.request_meta, "architect")
+            architect_unassigned = runtime_team_of(run.request_meta) is not None and not architect_runtime
             if patch_artifact_id and (
                 intents & self._ARCHITECT_REVIEW_INTENTS or risk in self._ARCHITECT_REVIEW_RISKS
             ):
-                try:
-                    architect = ArchitectAgentRunner(self.connection, root=run.effective_root).run(
-                        {
+                if architect_unassigned:
+                    reviews["architect"] = {
+                        "status": "skipped",
+                        "verdict": "",
+                        "reason": "The thread runtime team assigns no architect runtime.",
+                        "evidencePackageId": "",
+                    }
+                else:
+                    try:
+                        architect_payload: dict[str, Any] = {
                             "projectId": run.project_id,
                             "workspaceId": run.workspace["id"],
                             "taskId": f"{run.task_id}.architect",
@@ -4424,15 +4502,21 @@ class ProductLoopCoordinator:
                             "testResults": run.qa_results,
                             "constitution": render_constitution_prompt(run.constitution) or None,
                         }
-                    )
-                    reviews["architect"] = {
-                        "status": str(architect.get("status") or ""),
-                        "verdict": str(architect.get("verdict") or ""),
-                        "reason": str(architect.get("reason") or ""),
-                        "evidencePackageId": str((architect.get("evidencePackage") or {}).get("id") or ""),
-                    }
-                except Exception as error:
-                    reviews["architect"] = {"status": "failed", "reason": redact_secrets(str(error))}
+                        if architect_runtime:
+                            architect_payload["preferredRuntime"] = architect_runtime
+                        architect = ArchitectAgentRunner(self.connection, root=run.effective_root).run(
+                            architect_payload
+                        )
+                        reviews["architect"] = {
+                            "status": str(architect.get("status") or ""),
+                            "verdict": str(architect.get("verdict") or ""),
+                            "reason": str(architect.get("reason") or ""),
+                            "evidencePackageId": str(
+                                (architect.get("evidencePackage") or {}).get("id") or ""
+                            ),
+                        }
+                    except Exception as error:
+                        reviews["architect"] = {"status": "failed", "reason": redact_secrets(str(error))}
             devops_enabled = bool(
                 resolve_setting_value(
                     connection=self.connection,
@@ -4847,6 +4931,9 @@ class ProductLoopCoordinator:
                         risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
                         routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
                         required_capabilities=["chat"],
+                        allowed_provider_ids=role_allowlist(
+                            getattr(run, "request_meta", None), team_role_for(role)
+                        ),
                         preferred_provider_ids=policy["preferredProviderIds"],
                         preferred_resources=policy["preferredResources"],
                         blocked_resources=policy["blockedResources"],

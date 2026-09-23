@@ -101,8 +101,24 @@ export function mergeRoleRuntimes(
 	return merged;
 }
 
-export function missingRequiredRoles(roleRuntimes: RoleRuntimes): TeamRole[] {
-	return REQUIRED_TEAM_ROLES.filter((role) => !roleRuntimes[role]);
+/**
+ * Required roles without an assigned runtime, or assigned to a stale/failed/unvalidated runtime.
+ * A runtime that becomes non-validated (stale, failed) after being assigned blocks Save.
+ */
+export function missingRequiredRoles(
+	roleRuntimes: RoleRuntimes,
+	candidates?: readonly RuntimeTeamCandidate[],
+): TeamRole[] {
+	return REQUIRED_TEAM_ROLES.filter((role) => {
+		const assignedProvider = roleRuntimes[role];
+		if (!assignedProvider) return true;
+		// If candidates are provided, verify the assigned runtime is validated and eligible.
+		if (candidates) {
+			const candidate = candidates.find((c) => c.providerId === assignedProvider);
+			if (candidate?.validation.status !== 'validated') return true;
+		}
+		return false;
+	});
 }
 
 export function validationTone(status: ValidationView): StatusTone {

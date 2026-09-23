@@ -215,7 +215,7 @@ export function RuntimeTeamPanel({
 		);
 	};
 
-	const missing = allowed.length > 0 ? missingRequiredRoles(roles) : [];
+	const missing = allowed.length > 0 ? missingRequiredRoles(roles, candidates) : [];
 
 	const save = async () => {
 		setSaving(true);

@@ -983,7 +983,7 @@ class RuntimeStatusService:
                         executable_sources.get(provider_id),
                     )
                 )
-            elif provider_type in API_RUNTIME_KINDS:
+            elif provider_type == "local" or provider_type in API_RUNTIME_KINDS:
                 statuses.append(
                     _api_provider_status(
                         self.connection,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.settings.registry import descriptor_for, validate_value
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.threads.repository import ThreadsRepository
 
 GIB = 1024**3
 
@@ -350,3 +352,53 @@ def test_hard_floor_records_cancellation_request_for_nonessential_workload(tmp_p
     assert len(violations) == 1
     assert violations[0].action == "cancel_non_essential_workload"
     assert violations[0].execution_id == "remote-one"
+
+
+def test_resource_wait_is_written_once_per_reason_and_reaches_the_thread(tmp_path: Path) -> None:
+    """El governor reevalúa cada ~2 s: sólo un cambio de motivo es noticia para el job y el hilo."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="AIDO", path=tmp_path, template_id="other"
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-capacity",
+            title="Capacity wait",
+            summary="",
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"], kind="thread.product_loop.run", payload={"threadId": thread["id"]}
+        )["job"]
+        governor = HostResourceGovernor(connection)
+        for _ in range(5):
+            governor.admit(
+                _request(job["id"], "agent_cli", job_id=job["id"]),
+                snapshot=_healthy_snapshot(available_memory_bytes=4 * GIB),
+            )
+        governor.admit(
+            _request(job["id"], "agent_cli", job_id=job["id"]),
+            snapshot=_healthy_snapshot(available_memory_bytes=12 * GIB),
+        )
+        job_events = [
+            event
+            for event in JobsRepository(connection).list_events(project["id"])
+            if event["type"] == "job.resource_wait"
+        ]
+        thread_events = [
+            event
+            for event in ThreadsRepository(connection).list_events(thread["id"])
+            if event["type"] == "resource_wait"
+        ]
+
+    assert Counter(event["payload"]["reasonCode"] for event in job_events) == {
+        "hard_memory_floor": 1,
+        "minimum_free_memory": 1,
+    }
+    assert [event["payload"]["reasonCode"] for event in thread_events] == [
+        "hard_memory_floor",
+        "minimum_free_memory",
+    ]
+    assert thread_events[0]["payload"]["jobId"] == job["id"]
+    assert thread_events[0]["agentRole"] == "worker"

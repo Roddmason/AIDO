@@ -488,6 +488,11 @@ export type ThreadAgentEventRecord = { "agentRole"?: null | string; "createdAt":
 export type ThreadArchiveRequest = { "actor"?: string; "reason": string };
 export type ThreadArchiveResponse = { "auditEvent": AuditEventRecord; "thread": ThreadRecord };
 export type ThreadArtifactRecord = { "artifactId": string; "createdAt": string; "id": string; "kind": string; "messageId"?: null | string; "metadata": JsonObject; "projectId": string; "threadId": string; "title": string };
+export type ThreadBoardCard = { "acceptanceCriteria": Array<string>; "asA": string; "blocked": boolean; "blockedReason"?: null | string; "column": "todo" | "in_progress" | "qa" | "done"; "iWant": string; "index": number; "outcome"?: null | string; "priority": string; "runtime"?: null | string; "soThat": string; "status": string; "storyId": string; "synthetic": boolean; "tasks": Array<ThreadBoardTask>; "title": string };
+export type ThreadBoardColumn = { "cards": Array<ThreadBoardCard>; "id": "todo" | "in_progress" | "qa" | "done" };
+export type ThreadBoardProgress = { "done": number; "total": number };
+export type ThreadBoardResponse = { "columns": Array<ThreadBoardColumn>; "loopId"?: null | string; "loopState"?: null | string; "progress": ThreadBoardProgress; "stage": "planning" | "executing" | "security" | "approval" | "delivered" | "blocked" };
+export type ThreadBoardTask = { "id": string; "role": string; "status": string; "title": string };
 export type ThreadBudgetUsedRecord = { "callCount": number; "capScope"?: null | string; "costStatus": "actual" | "estimated" | "mixed" | "partial" | "unknown"; "perRunCapUsd"?: null | number; "usedUsd"?: null | number };
 export type ThreadCancelRequest = { "actor"?: null | string; "reason"?: null | string };
 export type ThreadCancelResponse = { "cancelledJobIds": Array<string>; "thread": ThreadRecord };
@@ -809,6 +814,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	{"method": "PATCH", "operationId": "update_thread_api_v1_threads__thread_id__patch", "path": "/api/v1/threads/{thread_id}", "summary": "Update Thread"},
 	{"method": "POST", "operationId": "archive_thread_api_v1_threads__thread_id__archive_post", "path": "/api/v1/threads/{thread_id}/archive", "summary": "Archive Thread"},
+	{"method": "GET", "operationId": "get_thread_board_api_v1_threads__thread_id__board_get", "path": "/api/v1/threads/{thread_id}/board", "summary": "Get Thread Board"},
 	{"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	{"method": "GET", "operationId": "thread_cost_performance_api_v1_threads__thread_id__cost_performance_get", "path": "/api/v1/threads/{thread_id}/cost-performance", "summary": "Thread Cost Performance"},
 	{"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
@@ -962,6 +968,7 @@ export type OperationRequestBodies = {
 	"get_settings_api_v1_settings_get": never,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": never,
 	"get_thread_api_v1_threads__thread_id__get": never,
+	"get_thread_board_api_v1_threads__thread_id__board_get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
 	"git_branches_api_v1_projects__project_id__git_branches_get": never,
 	"git_diff_api_v1_projects__project_id__git_diff_get": never,
@@ -1235,6 +1242,7 @@ export type OperationResponseBodies = {
 	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
 	"get_thread_api_v1_threads__thread_id__get": ThreadDetailResponse,
+	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
@@ -1512,6 +1520,7 @@ export type OperationResultBodies = {
 	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
 	"get_thread_api_v1_threads__thread_id__get": ThreadDetailResponse,
+	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
@@ -1915,6 +1924,7 @@ export const OPERATIONS_BY_ID = {
 	"get_thread_api_v1_threads__thread_id__get": {"method": "GET", "operationId": "get_thread_api_v1_threads__thread_id__get", "path": "/api/v1/threads/{thread_id}", "summary": "Get Thread"},
 	"update_thread_api_v1_threads__thread_id__patch": {"method": "PATCH", "operationId": "update_thread_api_v1_threads__thread_id__patch", "path": "/api/v1/threads/{thread_id}", "summary": "Update Thread"},
 	"archive_thread_api_v1_threads__thread_id__archive_post": {"method": "POST", "operationId": "archive_thread_api_v1_threads__thread_id__archive_post", "path": "/api/v1/threads/{thread_id}/archive", "summary": "Archive Thread"},
+	"get_thread_board_api_v1_threads__thread_id__board_get": {"method": "GET", "operationId": "get_thread_board_api_v1_threads__thread_id__board_get", "path": "/api/v1/threads/{thread_id}/board", "summary": "Get Thread Board"},
 	"cancel_execution_api_v1_threads__thread_id__cancel_post": {"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	"thread_cost_performance_api_v1_threads__thread_id__cost_performance_get": {"method": "GET", "operationId": "thread_cost_performance_api_v1_threads__thread_id__cost_performance_get", "path": "/api/v1/threads/{thread_id}/cost-performance", "summary": "Thread Cost Performance"},
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": {"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},

@@ -436,6 +436,64 @@ class StorySpecResponse(BaseModel):
     prompt_text: str = Field(alias="promptText")
 
 
+ThreadBoardColumnId = Literal["todo", "in_progress", "qa", "done"]
+ThreadBoardStage = Literal["planning", "executing", "security", "approval", "delivered", "blocked"]
+
+
+class ThreadBoardTask(BaseModel):
+    """Tarea de agente dentro de una tarjeta del tablero (rol y estado persistido)."""
+
+    id: str
+    title: str
+    role: str
+    status: str
+
+
+class ThreadBoardCard(BaseModel):
+    """Tarjeta del tablero: una historia con su estado, marca de bloqueo, runtime y tareas."""
+
+    story_id: str = Field(alias="storyId")
+    index: int
+    synthetic: bool
+    title: str
+    as_a: str = Field(alias="asA")
+    i_want: str = Field(alias="iWant")
+    so_that: str = Field(alias="soThat")
+    priority: str
+    status: str
+    column: ThreadBoardColumnId
+    blocked: bool
+    blocked_reason: str | None = Field(default=None, alias="blockedReason")
+    outcome: str | None = None
+    runtime: str | None = None
+    acceptance_criteria: list[str] = Field(alias="acceptanceCriteria")
+    tasks: list[ThreadBoardTask]
+
+
+class ThreadBoardColumn(BaseModel):
+    """Columna del tablero (Por hacer, En curso, QA, Listo) con sus tarjetas en orden de ejecución."""
+
+    id: ThreadBoardColumnId
+    cards: list[ThreadBoardCard]
+
+
+class ThreadBoardProgress(BaseModel):
+    """Progreso del loop del hilo: historias terminadas sobre el total."""
+
+    done: int
+    total: int
+
+
+class ThreadBoardResponse(BaseModel):
+    """Tablero por historia del hilo: loop resuelto, etapa, cuatro columnas y progreso."""
+
+    loop_id: str | None = Field(default=None, alias="loopId")
+    loop_state: str | None = Field(default=None, alias="loopState")
+    stage: ThreadBoardStage
+    columns: list[ThreadBoardColumn]
+    progress: ThreadBoardProgress
+
+
 class ProductLoopStartRequest(BaseModel):
     """Cuerpo para arrancar un product loop en ``goal_received``, con su política de gobierno opcional."""
 

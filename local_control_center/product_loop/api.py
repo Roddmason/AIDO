@@ -42,8 +42,10 @@ from .models import (
     ProductLoopStateResponse,
     ProductLoopTransitionRequest,
     StorySpecResponse,
+    ThreadBoardResponse,
 )
 from .repository import ProductLoopRepository
+from .thread_board import ThreadBoardService
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -137,6 +139,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=f"User story not found in project: {story_id}")
         spec = build_story_spec(backlog, story_id)
         return {**spec, "promptText": render_story_spec_prompt([spec])}
+
+    @router.get("/api/v1/threads/{thread_id}/board", response_model=ThreadBoardResponse)
+    def get_thread_board(thread_id: str) -> dict[str, Any]:
+        """Devuelve el tablero por historia del loop planificado del hilo (lectura acotada, sin token)."""
+        try:
+            return ThreadBoardService(platform.connection).board(thread_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post(
         "/api/v1/projects/{project_id}/product-loop",

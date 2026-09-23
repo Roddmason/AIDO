@@ -184,6 +184,10 @@ class JobsRepository:
         (+ `job.approval_required`) y, cuando aplica, la action request. El status inicial es
         `approval_required` si requiere gating, si no `queued`.
 
+        Un job creado ya `running` dentro de la ejecución de otro job recibe `parentJobId`, pero sólo
+        si ese id existe en `jobs`: `connection_execution_scope` también puede traer un agent_run_id,
+        y enlazarlo haría que el reaper viera como huérfano a un hijo vivo.
+
         Returns:
             Dict con el job creado, los eventos emitidos y las action requests generadas.
         """
@@ -200,8 +204,6 @@ class JobsRepository:
         needs_approval = kind in SENSITIVE_JOB_KINDS or payload.get("approvalRequired") is True
         resolved_status = status or ("approval_required" if needs_approval else "queued")
         parent_job_id = _current_parent_job_id()
-        # `connection_execution_scope` may carry an agent_run_id: only a real job is a provable parent,
-        # otherwise the reaper would see a live child as orphaned.
         if (
             resolved_status == "running"
             and parent_job_id

@@ -1,4 +1,7 @@
-"""Effective project role restrictions and their execution-time seal."""
+"""Effective project role restrictions and their execution-time seal.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

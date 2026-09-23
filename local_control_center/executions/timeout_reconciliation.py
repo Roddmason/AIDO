@@ -1,4 +1,7 @@
-"""Close a proven stopped Product Loop without replaying its interrupted workspace."""
+"""Close a proven stopped Product Loop without replaying its interrupted workspace.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

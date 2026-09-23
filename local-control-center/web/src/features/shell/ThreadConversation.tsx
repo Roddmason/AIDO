@@ -11,6 +11,10 @@
  * runtime, runtime readiness chip, git branch/scan). When the "New thread" sentinel is active the same box creates a real
  * thread and sends its first message; the title is derived automatically from the first line. Real
  * data only — settings, git and threads all come from their APIs.
+ * Once the thread reaches execution with a planned backlog the live body switches to the development
+ * layout (`data-mode="board"`): the story board ({@link ThreadBoard}) takes the main area, the
+ * execution panel becomes a strip above it and the transcript + composer move to a side column; a
+ * Chat | Board toggle overrides the automatic choice per thread.
  * @author Rodrigo Mason
  */
 import {
@@ -66,6 +70,7 @@ import {
 	Button,
 	Dialog,
 	EmptyState,
+	SegmentedControl,
 	Skeleton,
 	StatusChip,
 	StatusDot,
@@ -95,7 +100,9 @@ import {
 	decisionPromptText,
 } from './decisionOptionCopy';
 import { GitBranchBar } from './GitBranchBar';
+import { ThreadBoard } from './ThreadBoard';
 import { ThreadExecutionPanel } from './ThreadExecutionPanel';
+import { type BoardMode, latestBoardRefreshSequence } from './threadBoardModel';
 import { ownerIdForProject } from './threadOwner';
 import {
 	arrayValue,
@@ -105,9 +112,12 @@ import {
 	TRANSCRIPT_KINDS,
 	textValue,
 } from './threadPresentation';
+import { useShellInspector } from './useShellInspector';
+import { useThreadBoard } from './useThreadBoard';
 import { useThreadConversation } from './useThreadConversation';
 import { useThreadEventStream } from './useThreadEventStream';
 import { useThreadRemediations } from './useThreadRemediations';
+import { useThreadStage } from './useThreadStage';
 
 type ThreadConversationProps = {
 	overview: Overview;
@@ -208,6 +218,37 @@ export function ThreadConversation({
 	// Refetch the blocker remediations whenever a new execution event lands (a `blocked` event brings
 	// fresh repair actions) so the cards stay in sync with the live pipeline without manual polling.
 	const remediations = useThreadRemediations(activeThreadId, mutate, latestEventSequence);
+	// Development mode: the story board takes the main area once the loop executes stories.
+	const stageEvents = useMemo(
+		() => mergeConsoleEvents(detail?.events ?? [], eventStream.events),
+		[detail?.events, eventStream.events],
+	);
+	const stage = useThreadStage(
+		stageEvents,
+		eventStream.threadStatus ?? detail?.thread.status ?? '',
+	);
+	const board = useThreadBoard(activeThreadId, latestBoardRefreshSequence(stageEvents));
+	const [manualBoardModes, setManualBoardModes] = useState<Record<string, BoardMode>>({});
+	const manualBoardMode = activeThreadId ? manualBoardModes[activeThreadId] : undefined;
+	const boardAvailable = (board.data?.progress.total ?? 0) > 0;
+	const boardMode: BoardMode = boardAvailable
+		? (manualBoardMode ?? (stage.inDevelopment ? 'board' : 'chat'))
+		: 'chat';
+	const selectBoardMode = useCallback(
+		(mode: BoardMode) => {
+			if (!activeThreadId) return;
+			setManualBoardModes((current) => ({ ...current, [activeThreadId]: mode }));
+		},
+		[activeThreadId],
+	);
+	const shellInspector = useShellInspector();
+	const inspectorFoldedForRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!activeThreadId || boardMode !== 'board' || manualBoardMode) return;
+		if (inspectorFoldedForRef.current === activeThreadId) return;
+		inspectorFoldedForRef.current = activeThreadId;
+		shellInspector?.collapseInspector();
+	}, [activeThreadId, boardMode, manualBoardMode, shellInspector]);
 	const decisionRef = useRef<HTMLElement | null>(null);
 	const composerDockRef = useRef<HTMLDivElement | null>(null);
 
@@ -505,7 +546,7 @@ export function ThreadConversation({
 		const executionMessages = detail.messages.filter(
 			(message) => !TRANSCRIPT_KINDS.has(message.kind),
 		);
-		const consoleEvents = mergeConsoleEvents(detail.events, eventStream.events);
+		const consoleEvents = stageEvents;
 		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
 		const latestQueueSequence =
 			consoleEvents.findLast(
@@ -529,12 +570,26 @@ export function ThreadConversation({
 						<MessageSquare aria-hidden="true" size={16} />
 						<h2>{detail.thread.title}</h2>
 					</div>
-					<StatusChip tone={threadStatusTone(threadStatus)}>
-						{threadStatus.replace(/_/g, ' ')}
-					</StatusChip>
+					<div className="thread-conversation-actions">
+						{boardAvailable ? (
+							<SegmentedControl<BoardMode>
+								className="thread-mode-toggle"
+								label={t('app.threads.board.modeLabel', 'Thread view')}
+								value={boardMode}
+								onChange={selectBoardMode}
+								options={[
+									{ value: 'chat', label: t('app.threads.board.modeChat', 'Chat') },
+									{ value: 'board', label: t('app.threads.board.modeBoard', 'Board') },
+								]}
+							/>
+						) : null}
+						<StatusChip tone={threadStatusTone(threadStatus)}>
+							{threadStatus.replace(/_/g, ' ')}
+						</StatusChip>
+					</div>
 				</header>
 
-				<div className="thread-live-body">
+				<div className="thread-live-body" data-mode={boardMode}>
 					<div className="thread-transcript-pane">
 						<section
 							className="thread-live-scroll"
@@ -664,7 +719,11 @@ export function ThreadConversation({
 						onOpenApprovals={onOpenApprovals}
 						onFocusDecision={focusDecision}
 						onOpenSettings={onOpenSettings}
+						presentation={boardMode === 'board' ? 'strip' : 'column'}
 					/>
+					{boardMode === 'board' && board.data ? (
+						<ThreadBoard board={board.data} error={board.error} />
+					) : null}
 				</div>
 
 				<ThreadNewObjectiveDialog

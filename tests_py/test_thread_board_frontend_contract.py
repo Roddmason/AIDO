@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "local-control-center" / "web" / "src"
 SHELL = WEB / "features" / "shell"
+APP = WEB / "app"
 CLIENT = WEB / "api" / "client.ts"
 LAYOUT_CSS = WEB / "design-system" / "layout.css"
 
@@ -75,3 +76,20 @@ def test_thread_board_component_never_reuses_review_board_classes() -> None:
     css = _read(LAYOUT_CSS)
     assert "@container thread-board" in css
     assert ".thread-board-column-scroll" in css
+
+
+def test_thread_conversation_switches_into_board_mode() -> None:
+    source = _read(SHELL / "ThreadConversation.tsx")
+    assert "data-mode={boardMode}" in source
+    assert "<ThreadBoard" in source
+    assert "presentation={boardMode === 'board' ? 'strip' : 'column'}" in source
+    shell = _read(APP / "AppShell.tsx")
+    assert "<ShellInspectorContext.Provider value={shellInspectorContext}>" in shell
+    css = _read(LAYOUT_CSS)
+    assert '.thread-live-body[data-mode="board"]' in css
+    assert "@container thread-live" in css
+    assert ".thread-transcript-pane" in css
+    assert ".thread-live-scroll" in css
+    assert ".thread-composer-dock" in css
+    assert ".thread-execution-pane" in css
+    assert ".thread-pipeline-step" in css

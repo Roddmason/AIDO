@@ -1251,6 +1251,18 @@
       "en": "Technical lead fallback",
       "es": "Reserva de líder técnico"
     },
+    "app.threads.board.modeLabel": {
+      "en": "Thread view",
+      "es": "Vista del hilo"
+    },
+    "app.threads.board.modeChat": {
+      "en": "Chat",
+      "es": "Conversación"
+    },
+    "app.threads.board.modeBoard": {
+      "en": "Board",
+      "es": "Tablero"
+    },
     "app.threads.consoleLoading": {
       "en": "syncing",
       "es": "sincronizando"

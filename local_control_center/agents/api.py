@@ -18,6 +18,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.runtime_team.candidates import RuntimeTeamCandidatesService
+from local_control_center.runtime_team.contracts import RuntimeTeamCandidatesResponse
 from local_control_center.shared.event_bus import EventBus
 
 from .architect_agent import ArchitectAgentRunner
@@ -1256,6 +1258,21 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def list_runtime_providers(projectId: str | None = None) -> dict[str, Any]:
         """Evalúa readiness síncrono en el pool de FastAPI sin bloquear el event loop."""
         return RuntimeStatusService(platform.connection).runtime_provider_status(project_id=projectId)
+
+    @router.get("/api/v1/runtime/team-candidates", response_model=RuntimeTeamCandidatesResponse)
+    def list_runtime_team_candidates(
+        projectId: str | None = None, selected: str | None = None
+    ) -> dict[str, Any]:
+        """Runtimes para el equipo del hilo: validación de 30 min, veto de política, roles y reparto.
+
+        ``selected`` (ids separados por coma) acota el reparto a la selección actual del panel.
+        """
+        selected_ids = (
+            None if selected is None else [item.strip() for item in selected.split(",") if item.strip()]
+        )
+        return RuntimeTeamCandidatesService(platform.connection).list_candidates(
+            project_id=projectId, selected=selected_ids
+        )
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
     async def list_runtime_provider_configuration() -> dict[str, Any]:

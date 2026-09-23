@@ -1171,13 +1171,23 @@ def capture_git_diff(
     }
 
 
+_UNSAFE_BASE_REF_CHARACTERS = frozenset("^~@{}")
+
+
 def _usable_base_ref(ref: str) -> bool:
+    """Rechaza ``HEAD`` y cualquier forma relativa u operador de revisión sobre ella.
+
+    Además del literal ``HEAD``, ``@`` es su alias directo y ``HEAD^``/``HEAD~2``/``base@{upstream}``
+    narrowean el rango a los últimos commits en vez de cubrir todo el historial acumulado. Rechazar
+    ``^ ~ @ { }`` cierra esas formas sin bloquear nombres de rama o SHAs legítimos.
+    """
     return (
         bool(ref)
         and ref != "HEAD"
         and not ref.startswith("-")
         and ".." not in ref
         and not any(character.isspace() for character in ref)
+        and not any(character in _UNSAFE_BASE_REF_CHARACTERS for character in ref)
     )
 
 

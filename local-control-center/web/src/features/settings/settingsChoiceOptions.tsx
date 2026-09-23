@@ -16,6 +16,7 @@ import {
 	Hand,
 	Layers,
 	Scale,
+	Server,
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
@@ -142,6 +143,14 @@ export const RUNTIME_MODE_OPTIONS: ReadonlyArray<ChoiceCardOption> = [
 		titleFallback: 'CLI runtime',
 		descKey: 'app.settings.enum.mode.cliDesc',
 		descFallback: 'Drive installed CLI runtimes on this machine.',
+	},
+	{
+		value: 'local',
+		icon: Server,
+		titleKey: 'app.settings.enum.mode.local',
+		titleFallback: 'Local runtimes',
+		descKey: 'app.settings.enum.mode.localDesc',
+		descFallback: 'Run models on local servers such as llama.cpp, LM Studio, vLLM or Ollama.',
 	},
 	{
 		value: 'ollama',

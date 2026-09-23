@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 77
+CURRENT_SCHEMA_VERSION = 78
 
 
 def _execute_atomic_statements(
@@ -138,7 +138,33 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase75_schema(connection)
     init_phase76_schema(connection)
     init_phase77_schema(connection)
+    init_phase78_schema(connection)
     seed_platform_catalogs(connection)
+
+
+def init_phase78_schema(connection: sqlite3.Connection) -> None:
+    """Fase 78: `runtime.local.enabled` nace con el valor que el operador dio a `runtime.ollama.enabled`.
+
+    Ollama deja de ser el único runtime local y su interruptor pasa a sub-interruptor. Sembrar el nuevo desde
+    el anterior evita que quien apagó Ollama encuentre los runtimes locales encendidos tras actualizar. Solo se
+    siembra una vez: después manda lo que el operador fije.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 78").fetchone():
+        return
+    now = utc_now()
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """INSERT OR IGNORE INTO settings_value
+                    (key, scope, scope_id, value_json, updated_at, assigned_by)
+                SELECT 'runtime.local.enabled', scope, scope_id, value_json, ?, assigned_by
+                FROM settings_value WHERE key = 'runtime.ollama.enabled' AND scope = 'general'""",
+                (now,),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (78, now)),
+        ],
+    )
 
 
 def init_phase77_schema(connection: sqlite3.Connection) -> None:

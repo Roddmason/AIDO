@@ -45,7 +45,7 @@ from .runtime_provider_config import (
 from .runtime_readiness import CREDENTIAL_PROVIDER_KINDS
 from .runtime_registry import RuntimeRegistry
 
-RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
+RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual", "local"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
 # Una cuenta CLI validada se re-sondea pasado este TTL para captar credenciales que vencieron
 # después de la validación (p.ej. token OAuth de Claude): sin esto el veredicto queda pegado

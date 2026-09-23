@@ -529,7 +529,10 @@ def test_gpu_readiness_counts_only_sufficient_verified_gpu_parent(tmp_path, monk
         }
         policy = {
             "allowed": True,
-            "policy": {"global": {"ollamaEnabled": True}, "project": {"remoteEnabled": True}},
+            "policy": {
+                "global": {"localEnabled": True, "ollamaEnabled": True},
+                "project": {"remoteEnabled": True},
+            },
         }
         before = runtime.connection.total_changes
         with execution_scope(

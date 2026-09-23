@@ -106,7 +106,10 @@ const BLOCKED_STAGE_INDEX: Record<string, number> = {
 	worker: 3,
 };
 
-type StepState = 'pending' | 'active' | 'done' | 'blocked';
+type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'stopped';
+
+/** Thread states with no job in flight: nothing is running, so no step can still be active. */
+const IDLE_THREAD_STATUSES = new Set(['open', 'archived']);
 
 type PipelineSnapshot = {
 	states: StepState[];
@@ -174,9 +177,13 @@ function derivePipeline(
 		current = BLOCKED_STAGE_INDEX[blockedStage] ?? MILESTONE_INDEX[blockedStage] ?? current;
 	}
 	const doneAll = current >= PIPELINE_STEPS.length || threadStatus === 'resolved';
+	const idle = !isBlocked && IDLE_THREAD_STATUSES.has(threadStatus);
 	const states = PIPELINE_STEPS.map((_, index): StepState => {
 		if (doneAll) return 'done';
-		if (index === current) return isBlocked ? 'blocked' : 'active';
+		if (index === current) {
+			if (isBlocked) return 'blocked';
+			return idle ? 'stopped' : 'active';
+		}
 		if (index <= 1 && seenChecks.has(index)) return 'done';
 		if (index < current) return 'done';
 		return 'pending';

@@ -202,3 +202,16 @@ def test_architect_receives_the_assigned_runtime_or_is_skipped(coordinator, tmp_
     assert reviews[-1]["architect"]["status"] == "skipped"
     coordinator._run_team_review_phase(_review_run(tmp_path, {}))
     assert "preferredRuntime" not in payloads[-1]
+
+
+def test_assigned_developer_ignores_other_roles_on_the_same_runtime(coordinator):
+    """Roles no-developer que el schedule ordena antes (aido_lead, architect) no suplantan al developer."""
+    lead = _schedule_role("aido_lead", "reason", ["planning"], "codex_cli", "cli")
+    lead["resourceDecision"]["selected"]["model"] = "lead-model"
+    architect = _schedule_role("architect", "reason", ["architecture"], "codex_cli", "cli")
+    architect["resourceDecision"]["selected"]["model"] = "architect-model"
+    build = _schedule_role("backend_engineer", "build", ["code_edit"], "codex_cli", "cli")
+    build["resourceDecision"]["selected"]["model"] = "build-model"
+    resource = coordinator._developer_execution_resource({"roles": [lead, architect, build]}, TEAM)
+    assert (resource["role"], resource["model"]) == ("backend_engineer", "build-model")
+    assert coordinator._developer_execution_resource({"roles": [lead, architect]}, TEAM) == {}

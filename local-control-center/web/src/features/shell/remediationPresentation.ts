@@ -93,6 +93,56 @@ const WORKER_EXECUTION_INTERRUPTED: BlockerCopy = {
 	impactFallback: 'Workspace changes are preserved. Reviewing them does not restart the run.',
 };
 
+/** Research the thread intake launched: it has no loop and no technical decision to adopt. */
+const RESEARCH_INTAKE_BLOCKED: BlockerCopy = {
+	titleKey: 'app.threads.remediation.blocker.research_intake.title',
+	titleFallback: 'Research could not answer',
+	explanationKey: 'app.threads.remediation.blocker.research_intake.explanation',
+	explanationFallback:
+		'ResearchAgent could not complete this question. Review the reported cause before retrying.',
+	impactKey: 'app.threads.remediation.blocker.research_intake.impact',
+	impactFallback: 'No code is changed; the question stays open until research completes.',
+	settingsSection: 'research',
+	settingsLabelKey: 'app.threads.remediation.action.openResearch',
+	settingsLabelFallback: 'Open research',
+};
+
+/** The web search provider refused the query: a provider problem, not a lack of sources. */
+const RESEARCH_PROVIDER_BLOCKED: BlockerCopy = {
+	titleKey: 'app.threads.remediation.blocker.research_provider_blocked.title',
+	titleFallback: 'The search provider blocked the query',
+	explanationKey: 'app.threads.remediation.blocker.research_provider_blocked.explanation',
+	explanationFallback:
+		'The web search provider refused this query, so ResearchAgent got no sources. It is not a lack of results.',
+	impactKey: 'app.threads.remediation.blocker.research_provider_blocked.impact',
+	impactFallback:
+		'The question stays unanswered until research uses a provider that accepts it, such as your own SearXNG.',
+	settingsSection: 'research',
+	settingsLabelKey: 'app.threads.remediation.action.openResearch',
+	settingsLabelFallback: 'Open research',
+};
+
+/** Picks one card's copy; worker execution and intake research have their own variants. */
+function blockerCopyFor(
+	first: RemediationActionRecord,
+	records: RemediationActionRecord[],
+): BlockerCopy {
+	if (first.stage === 'worker' && first.blockerType === 'runtime_execution_failed') {
+		return records.some((record) => payloadString(record.payload, 'interruptedExecutionId'))
+			? WORKER_EXECUTION_INTERRUPTED
+			: WORKER_EXECUTION_FAILED;
+	}
+	if (first.blockerType === 'research_required' && !first.loopId) {
+		return records.some(
+			(record) =>
+				payloadString(record.payload, 'researchRemediation') === 'research_provider_blocked',
+		)
+			? RESEARCH_PROVIDER_BLOCKED
+			: RESEARCH_INTAKE_BLOCKED;
+	}
+	return BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER;
+}
+
 /** Plain-language copy for every blocker type the backend can raise. */
 export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 	runtime_risk_review_required: {
@@ -691,12 +741,7 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 	const cards: BlockerCardModel[] = [];
 	for (const [key, records] of groups) {
 		const first = records[0];
-		const baseCopy =
-			first.stage === 'worker' && first.blockerType === 'runtime_execution_failed'
-				? records.some((record) => payloadString(record.payload, 'interruptedExecutionId'))
-					? WORKER_EXECUTION_INTERRUPTED
-					: WORKER_EXECUTION_FAILED
-				: (BLOCKER_COPY[first.blockerType] ?? GENERIC_BLOCKER);
+		const baseCopy = blockerCopyFor(first, records);
 		const routingPolicyRepair =
 			first.blockerType === 'resource_manager_unconfigured' &&
 			records.some(

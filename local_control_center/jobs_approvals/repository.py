@@ -26,6 +26,23 @@ from local_control_center.shared.time import add_millis, utc_now
 
 from .models import SENSITIVE_JOB_KINDS
 
+NESTED_AGENT_JOB_KINDS = (
+    "agent.product_owner",
+    "agent.architect",
+    "agent.devops",
+    "agent.developer",
+    "agent.project_assessment",
+)
+"""Kinds de agentes anidados que se crean `running` sin lease dentro del job del worker."""
+
+
+def _current_parent_job_id() -> str | None:
+    """Devuelve el execution id del contexto actual, candidato a job padre de un job hijo inline."""
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+    context = CURRENT_EXECUTION.get()
+    return context.execution_id if context is not None and context.execution_id else None
+
 
 class StaleWorkerFenceError(RuntimeError):
     """Indica que un worker perdió liderazgo y ya no puede mutar el run reclamado."""
@@ -182,6 +199,16 @@ class JobsRepository:
         job_id = f"job-{uuid.uuid4()}"
         needs_approval = kind in SENSITIVE_JOB_KINDS or payload.get("approvalRequired") is True
         resolved_status = status or ("approval_required" if needs_approval else "queued")
+        parent_job_id = _current_parent_job_id()
+        # `connection_execution_scope` may carry an agent_run_id: only a real job is a provable parent,
+        # otherwise the reaper would see a live child as orphaned.
+        if (
+            resolved_status == "running"
+            and parent_job_id
+            and "parentJobId" not in payload
+            and self._query_one("SELECT 1 FROM jobs WHERE id = ?", (parent_job_id,)) is not None
+        ):
+            payload = {**payload, "parentJobId": parent_job_id}
         self.connection.execute(
             """
             INSERT INTO jobs
@@ -973,7 +1000,84 @@ class JobsRepository:
                 event_type="job.requeued",
                 payload={"reason": "lease_expired"},
             )
+        self.fail_orphaned_child_jobs(now_iso=now_value)
         return recovered
+
+    def fail_orphaned_child_jobs(
+        self, *, parent_job_id: str | None = None, now_iso: str | None = None
+    ) -> list[str]:
+        """Falla los jobs hijos inline que quedaron `running` sin lease cuando su padre ya no corre.
+
+        Un hijo creado `running` dentro de otro job no tiene lease propio y ``requeue_expired_jobs``
+        nunca lo ve. Sólo se actúa con vínculo comprobable: si su ``parentJobId`` apunta a un job que
+        ya no está `running` (terminó, se reencoló o no existe), el hijo es un zombi y se marca
+        `failed` con motivo `parent_lease_expired`, cerrando sus `agent_runs` y `job_runs`. Un hijo
+        sin ``parentJobId`` nunca se falla por antigüedad (``workflow_run_id`` identifica el product
+        loop, no el job padre); el saneamiento histórico va por ``fail_legacy_orphan_child_jobs``.
+        Usa la transacción del caller.
+        """
+        now_value = now_iso or utc_now()
+        placeholders = ",".join("?" for _ in NESTED_AGENT_JOB_KINDS)
+        rows = self.connection.execute(
+            f"""
+            SELECT child.id FROM jobs child
+            LEFT JOIN jobs parent ON parent.id = json_extract(child.payload, '$.parentJobId')
+            WHERE child.status = 'running'
+              AND child.lease_expires_at IS NULL
+              AND child.kind IN ({placeholders})
+              AND json_extract(child.payload, '$.parentJobId') IS NOT NULL
+              AND (? IS NULL OR json_extract(child.payload, '$.parentJobId') = ?)
+              AND (parent.id IS NULL OR parent.status <> 'running')
+            ORDER BY child.created_at ASC, child.rowid ASC
+            """,
+            (*NESTED_AGENT_JOB_KINDS, parent_job_id, parent_job_id),
+        ).fetchall()
+        return [self._fail_orphan_child(str(row["id"]), now_value) for row in rows]
+
+    def fail_legacy_orphan_child_jobs(
+        self, job_ids: Iterable[str], *, now_iso: str | None = None
+    ) -> list[str]:
+        """Saneamiento histórico: falla hijos zombi anteriores a ``parentJobId`` por id explícito.
+
+        Cada id sólo se falla si sigue `running`, sin lease, con kind anidado y sin ``parentJobId``;
+        cualquier otro (inexistente, terminado, con padre vivo o con vínculo) se ignora. El operador
+        entrega los ids tras inspeccionarlos (Task 15); nunca se invoca con una consulta amplia.
+        """
+        requested = [str(job_id) for job_id in job_ids if str(job_id).strip()]
+        if not requested:
+            return []
+        now_value = now_iso or utc_now()
+        kind_placeholders = ",".join("?" for _ in NESTED_AGENT_JOB_KINDS)
+        id_placeholders = ",".join("?" for _ in requested)
+        rows = self.connection.execute(
+            f"""
+            SELECT id FROM jobs
+            WHERE id IN ({id_placeholders})
+              AND status = 'running'
+              AND lease_expires_at IS NULL
+              AND kind IN ({kind_placeholders})
+              AND json_extract(payload, '$.parentJobId') IS NULL
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (*requested, *NESTED_AGENT_JOB_KINDS),
+        ).fetchall()
+        return [self._fail_orphan_child(str(row["id"]), now_value) for row in rows]
+
+    def _fail_orphan_child(self, child_id: str, now_value: str) -> str:
+        """Marca el hijo `failed` por `parent_lease_expired` y cierra sus `agent_runs`/`job_runs` abiertos."""
+        self.update_job_status(child_id, status="failed", metadata={"reason": "parent_lease_expired"})
+        self.connection.execute(
+            "UPDATE agent_runs SET status = 'failed', updated_at = ? WHERE job_id = ? AND status = 'running'",
+            (now_value, child_id),
+        )
+        self.connection.execute(
+            """
+            UPDATE job_runs SET status = 'failed', completed_at = ?, summary = 'parent_lease_expired'
+            WHERE job_id = ? AND status = 'running'
+            """,
+            (now_value, child_id),
+        )
+        return child_id
 
     def complete_job_run(
         self,
@@ -1073,6 +1177,7 @@ class JobsRepository:
             event_type=f"job.{job_status}",
             payload={"summary": clean_summary, "metadata": clean_metadata},
         )
+        self.fail_orphaned_child_jobs(parent_job_id=job_id, now_iso=timestamp)
         return {
             "job": job,
             "run": row_to_job_run(self._query_one("SELECT * FROM job_runs WHERE id = ?", (run_id,))),

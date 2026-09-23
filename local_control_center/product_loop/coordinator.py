@@ -3441,9 +3441,18 @@ class ProductLoopCoordinator:
 
         Sin una decisión real (política, costo o aprobación la dejaron fuera) devuelve ``{}`` y
         ``_developer_assignment_blocker`` bloquea: nunca se fabrica una selección que salte los
-        blockers del gestor ni se usa otro runtime del schedule.
+        blockers del gestor ni se usa otro runtime del schedule. Solo cuentan los roles que el equipo
+        gobierna como developer: otro rol (aido_lead, architect) pudo elegir el mismo runtime con otro
+        modelo o presupuesto y no debe suplantar la decisión de desarrollo.
         """
         for role_plan in team_schedule.get("roles") or []:
+            team_role = team_role_for(
+                str(role_plan.get("role") or ""),
+                kind=str(role_plan.get("kind") or ""),
+                capabilities=role_plan.get("capabilities") or [],
+            )
+            if team_role != "developer":
+                continue
             decision = role_plan.get("resourceDecision") or {}
             selected = decision.get("selected") or {}
             if not isinstance(selected, dict) or str(selected.get("providerId") or "").strip() != assigned:

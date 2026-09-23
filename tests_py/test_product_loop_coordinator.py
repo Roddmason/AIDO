@@ -7448,12 +7448,15 @@ def test_run_user_message_opens_rework_when_qa_fails(tmp_path: Path) -> None:
             technical_lead_runner=technical_lead,
         )
 
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
         assert result["status"] == "blocked"
         assert result["loop"]["state"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
         assert result["loop"]["context"]["durableRun"]["rework"]["source"] == "qa"
         assert result["loop"]["context"]["durableRun"]["rework"]["reason"] == result["reason"]
         assert "reworking" in [item["toState"] for item in result["transitions"]]
+        assert ("qa_failed", "retry_loop") in actions
 
 
 def test_qa_failed_blocks_when_resource_learning_persistence_crashes(
@@ -8584,11 +8587,14 @@ def test_qa_failure_exhausts_auto_rework_and_blocks_the_loop(tmp_path: Path) -> 
             security_runner=_SecurityGate(),
         )
 
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
         assert result["status"] == "blocked"
         assert result["loop"]["state"] == "blocked"
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "qa_rework"
         assert len(runtime.run_payloads) == 1 + DEFAULT_AUTO_REWORK_ROUNDS
         assert result["loop"]["context"]["fsm"]["usage"]["reworkRounds"] == 1 + DEFAULT_AUTO_REWORK_ROUNDS
+        assert ("qa_failed", "retry_loop") in actions
 
 
 def test_operator_max_rework_policy_overrides_default(

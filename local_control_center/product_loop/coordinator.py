@@ -1149,7 +1149,7 @@ class ProductLoopCoordinator:
     ) -> dict[str, Any]:
         """Transiciona el loop registrando evento de loop y de hilo; punto único de cancelación.
 
-        ``fsm_patch`` se mezcla sobre ``context['fsm']`` en la misma transaccion (lo usa la arista
+        ``fsm_patch`` se mezcla sobre ``context['fsm']`` en la misma transacción (lo usa la arista
         ``next_story`` para reiniciar ``reworkRounds`` por historia).
         """
         # Cooperative cancellation checkpoint. Every durable stage advance funnels through here, so a
@@ -2426,7 +2426,7 @@ class ProductLoopCoordinator:
         determinista (el planner por defecto) la cubre; sus tareas quedan marcadas con
         ``metadata.technicalLeadFallback``. Si tampoco la cubre, la fase por historia bloquea en
         ``technical_lead`` (``phases/story_loop.py``). Un error del planner se propaga y la fase de
-        planificación bloquea en ``technical_lead`` (``phases/team_planning.py:138-156``).
+        planificación bloquea en ``technical_lead`` (``phases/team_planning.plan_team_and_resources``).
         """
         covered = {str(spec.get("storyId") or "").strip() for spec in specs if isinstance(spec, dict)}
         uncovered = [story for story in stories if str(story.get("id") or "") not in covered]

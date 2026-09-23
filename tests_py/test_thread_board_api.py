@@ -191,6 +191,46 @@ def test_thread_board_reads_the_most_recent_planned_loop(
     assert [card["title"] for column in body["columns"] for card in column["cards"]] == ["Newer story"]
 
 
+def test_thread_board_ignores_loops_of_another_project(
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, client, _headers = make_app(tmp_path, monkeypatch)
+    seeded = _seed(store, tmp_path)
+    foreign_path = tmp_path / "foreign-project"
+    foreign_path.mkdir()
+    foreign = store.create_project(name="foreign-project", path=foreign_path, template_id="other")
+    backlog = BacklogRepository(store.connection)
+    foreign_epic = backlog.create_epic({"projectId": foreign["id"], "title": "Foreign"})
+    foreign_story = backlog.create_user_story(
+        {
+            "projectId": foreign["id"],
+            "epicId": foreign_epic["id"],
+            "title": "Foreign story",
+            "asA": "operator",
+            "iWant": "a foreign loop",
+            "soThat": "it never leaks",
+            "acceptanceCriteria": ["Foreign works."],
+        }
+    )
+    foreign_task = backlog.create_agent_task(
+        {"projectId": foreign["id"], "storyId": foreign_story["id"], "title": "Foreign", "role": "developer"}
+    )
+    ProductLoopRepository(store.connection).create_loop(
+        {
+            "projectId": foreign["id"],
+            "title": "Foreign loop",
+            "state": "executing",
+            "status": "active",
+            "context": _durable(seeded["thread"]["id"], [foreign_task], []),
+        }
+    )
+    store.connection.commit()
+
+    body = client.get(f"/api/v1/threads/{seeded['thread']['id']}/board").json()
+
+    assert body["loopId"] == seeded["loop"]["id"]
+
+
 def test_thread_board_without_a_planned_loop_is_an_empty_planning_board(
     make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

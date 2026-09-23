@@ -15,7 +15,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
 
-__all__ = ["evaluate_qa_gate"]
+__all__ = ["evaluate_qa_gate", "qa_evidence_passes"]
+
+_NON_PASSING_QA_VERDICTS = {"failed", "blocked", "not_started"}
+
+
+def qa_evidence_passes(runtime_result: dict[str, Any]) -> bool:
+    """Indica si el runtime no trae señales de QA que el gate bloquearía o mandaría a rework.
+
+    Mismo criterio que ``evaluate_qa_gate`` para veredicto y resultados: todos los ``qaResults``
+    en ``passed`` y un ``qaVerdict`` fuera de ``failed``/``blocked``/``not_started``.
+    """
+    qa_results = runtime_result.get("qaResults") if isinstance(runtime_result.get("qaResults"), list) else []
+    qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
+    return qa_verdict not in _NON_PASSING_QA_VERDICTS and all(
+        isinstance(result, dict) and str(result.get("status") or "").strip().lower() == "passed"
+        for result in qa_results
+    )
 
 
 def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) -> dict[str, Any] | None:

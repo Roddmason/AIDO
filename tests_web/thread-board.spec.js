@@ -209,6 +209,17 @@ test('Threads: a thread in execution switches to the story board and back to cha
 		expect(await pane.evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0);
 		await expectComposerReachable(page);
 		await expectComposerFits(page);
+		// At 1440 px the board runs two lanes wide enough to show each task title, and the composer
+		// leaves the chat column a usable transcript instead of a sliver.
+		const titleWidths = await board
+			.locator('.thread-board-task-title')
+			.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
+		expect(titleWidths.length).toBeGreaterThan(0);
+		for (const width of titleWidths) expect(width).toBeGreaterThanOrEqual(96);
+		const transcriptHeight = await page
+			.locator('.thread-live-scroll')
+			.evaluate((node) => node.getBoundingClientRect().height);
+		expect(transcriptHeight).toBeGreaterThanOrEqual(240);
 
 		await page.getByRole('radio', { name: 'Chat' }).click();
 		await expect(body).toHaveAttribute('data-mode', 'chat');

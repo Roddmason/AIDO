@@ -343,31 +343,28 @@ def match_carried_over(
 ) -> set[str]:
     """Empareja uno a uno las historias actuales con las entradas ``done`` del loop de origen.
 
-    Primero por ``storyId`` (misma fila reutilizada) y después por huella de spec (filas nuevas del
-    mismo contenido). Cada entrada del origen consume a lo sumo una historia actual, en orden de
-    ejecución: dos historias idénticas con una sola terminada dejan la otra pendiente.
+    Dos pasadas: primero todas las coincidencias por ``storyId`` (misma fila reutilizada) y después,
+    para las historias aún sin pareja, por huella de spec (filas nuevas del mismo contenido). Así una
+    historia anterior con la misma huella no consume la entrada exacta de una posterior. Cada entrada
+    del origen consume a lo sumo una historia actual, en orden de ejecución: dos historias idénticas
+    con una sola terminada dejan la otra pendiente.
     """
     remaining = [entry for entry in done_entries if entry.get("status") == STORY_STATUS_DONE]
+    candidates = [batch for batch in batches if batch.get("story") is not None]
     carried: set[str] = set()
-    for batch in batches:
-        if batch.get("story") is None:
-            continue
-        match = next(
-            (entry for entry in remaining if str(entry.get("storyId") or "") == batch["storyId"]), None
-        )
-        if match is None:
-            fingerprint = fingerprints.get(batch["storyId"]) or ""
-            match = next(
-                (
-                    entry
-                    for entry in remaining
-                    if fingerprint and str(entry.get("fingerprint") or "") == fingerprint
-                ),
-                None,
-            )
+
+    def consume(story_id: str, field: str, value: str) -> None:
+        match = next((entry for entry in remaining if str(entry.get(field) or "") == value), None)
         if match is not None:
             remaining.remove(match)
-            carried.add(batch["storyId"])
+            carried.add(story_id)
+
+    for batch in candidates:
+        consume(batch["storyId"], "storyId", batch["storyId"])
+    for batch in candidates:
+        fingerprint = fingerprints.get(batch["storyId"]) or ""
+        if fingerprint and batch["storyId"] not in carried:
+            consume(batch["storyId"], "fingerprint", fingerprint)
     return carried
 
 

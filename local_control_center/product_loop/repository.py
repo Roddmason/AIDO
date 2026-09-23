@@ -146,22 +146,25 @@ class ProductLoopRepository:
             rows = self.connection.execute("SELECT * FROM product_loops ORDER BY updated_at DESC").fetchall()
         return [row_to_product_loop(row) for row in rows]
 
-    def latest_planned_loop_for_thread(self, thread_id: str) -> dict[str, Any] | None:
+    def latest_planned_loop_for_thread(self, thread_id: str, *, project_id: str) -> dict[str, Any] | None:
         """Loop más reciente del hilo que ya tiene tareas planificadas (``durableRun.agentTasks``).
 
-        El vínculo hilo→loop vive en ``context.durableRun.thread.projectThreadId``. Se desempata por
-        ``rowid`` (orden de inserción) y no por timestamps de igual milésima. Devuelve ``None`` si el
-        hilo no tiene ningún loop planificado. Lectura de una sola sentencia: no abre transacción.
+        El vínculo hilo→loop vive en ``context.durableRun.thread.projectThreadId``; ``project_id`` (el
+        proyecto del hilo) acota la búsqueda por índice a los loops de ese proyecto, así el costo de
+        parsear ``context`` no crece con los loops del resto de proyectos. Se desempata por ``rowid``
+        (orden de inserción) y no por timestamps de igual milésima. Devuelve ``None`` si el hilo no
+        tiene ningún loop planificado. Lectura de una sola sentencia: no abre transacción.
         """
         row = self.connection.execute(
             """
             SELECT * FROM product_loops
-            WHERE json_extract(context, '$.durableRun.thread.projectThreadId') = ?
+            WHERE project_id = ?
+              AND json_extract(context, '$.durableRun.thread.projectThreadId') = ?
               AND json_array_length(json_extract(context, '$.durableRun.agentTasks')) > 0
             ORDER BY rowid DESC
             LIMIT 1
             """,
-            (thread_id,),
+            (project_id, thread_id),
         ).fetchone()
         return row_to_product_loop(row) if row else None
 

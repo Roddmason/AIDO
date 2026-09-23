@@ -121,8 +121,9 @@ export function useThreadRemediations(
 					(token) => executeRemediation(token, action.remediation?.id ?? '', payload),
 					{ awaitRefresh: false },
 				);
-				await refetch();
+				// Wake the event stream first: the refresh SLA must not wait on the remediation refetch.
 				if (threadId) wakeThreadEventStream(threadId);
+				await refetch();
 				return result;
 			} finally {
 				setBusyId(null);

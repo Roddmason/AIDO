@@ -14,15 +14,18 @@ import re
 import sqlite3
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.tool_broker import ToolBroker
-from local_control_center.security_policy.git_command_runner import git_available, run_git
+from local_control_center.security_policy.git_command_runner import git_available, run_git, run_git_capture
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 
 from .locations import project_workspaces_root
+
+if TYPE_CHECKING:
+    import subprocess
 
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_COMMAND_TIMEOUT_SECONDS = 30
@@ -1174,6 +1177,10 @@ def capture_git_diff(
 _UNSAFE_BASE_REF_CHARACTERS = frozenset("^~@{}")
 
 
+CUMULATIVE_DIFF_CAPTURE_LIMIT_BYTES = 16 * 1024 * 1024
+"""Tope de lectura de cada salida del diff acumulado; superarlo falla cerrado (``capture_truncated``)."""
+
+
 def _usable_base_ref(ref: str) -> bool:
     """Rechaza ``HEAD`` y cualquier forma relativa u operador de revisión sobre ella.
 
@@ -1189,6 +1196,23 @@ def _usable_base_ref(ref: str) -> bool:
         and not any(character.isspace() for character in ref)
         and not any(character in _UNSAFE_BASE_REF_CHARACTERS for character in ref)
     )
+
+
+def _cumulative_read_failure(
+    reads: dict[str, tuple[subprocess.CompletedProcess[str], bool]],
+) -> tuple[str, str] | None:
+    """Devuelve ``(estado, motivo)`` si una lectura del diff acumulado falló o quedó truncada."""
+    for result, _truncated in reads.values():
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:2000]
+            return "capture_failed", stderr or f"git exited with {result.returncode}"
+    truncated = [name for name, (_result, was_truncated) in reads.items() if was_truncated]
+    if truncated:
+        return (
+            "capture_truncated",
+            f"cumulative diff output exceeded {CUMULATIVE_DIFF_CAPTURE_LIMIT_BYTES} bytes: {', '.join(truncated)}",
+        )
+    return None
 
 
 def capture_cumulative_diff(
@@ -1210,10 +1234,12 @@ def capture_cumulative_diff(
     forma de opción se descartan. El rango de tres puntos equivale a ``merge-base(base)..HEAD`` sin
     requerir ``merge-base`` (no allowlisted). Ese rango excluye el working tree, así que ``status``
     devuelve lo que queda sin commitear (``status --porcelain=v1``) para que el consumidor rechace
-    un diff incompleto. Los comandos de estado van por el ToolBroker; el patch íntegro se lee con
-    ``run_git`` de solo lectura, igual que ``capture_git_diff``, porque el broker trunca salidas
-    largas. Fail-closed: sin git, sin base resoluble o con un comando fallido devuelve un estado
-    distinto de ``captured`` en lugar de un diff parcial.
+    un diff incompleto. La resolución de la base, el stat, la rama y HEAD van por el ToolBroker; el
+    listado de archivos, el status y el patch íntegro se leen de solo lectura con
+    ``run_git_capture`` y un tope alto explícito, porque el broker trunca salidas largas.
+    Fail-closed: sin git, sin base resoluble, con un comando fallido o con una salida que supera
+    ``CUMULATIVE_DIFF_CAPTURE_LIMIT_BYTES`` devuelve un estado distinto de ``captured`` en lugar de
+    un diff parcial.
     """
     if not git_available():
         return {"kind": "git_diff", "state": "degraded_git_unavailable", "statusRaw": "", "status": []}
@@ -1249,35 +1275,41 @@ def capture_cumulative_diff(
             "policyDecisionIds": _policy_ids(traces),
         }
     revision_range = f"{base_ref}...HEAD"
-    name_result = brokered(["diff", "--name-only", revision_range], "name_only")
     stat_result = brokered(["diff", "--stat", revision_range], "stat")
     branch_result = brokered(["branch", "--show-current"], "branch")
     head_result = brokered(["rev-parse", "HEAD"], "head")
-    status_result = brokered(["status", "--porcelain=v1"], "status")
-    patch_direct = run_git(["-C", str(workspace_path), "diff", revision_range])
-    if name_result["returnCode"] != 0 or status_result["returnCode"] != 0 or patch_direct.returncode != 0:
+    reads = {
+        name: run_git_capture(
+            ["-C", str(workspace_path), *args], capture_limit=CUMULATIVE_DIFF_CAPTURE_LIMIT_BYTES
+        )
+        for name, args in (
+            ("nameOnly", ["diff", "--name-only", revision_range]),
+            ("status", ["status", "--porcelain=v1"]),
+            ("patch", ["diff", revision_range]),
+        )
+    }
+    failure = _cumulative_read_failure(reads)
+    if failure is not None:
         return {
             "kind": "git_diff",
-            "state": "capture_failed",
-            "stderr": (name_result["stderr"] or status_result["stderr"] or patch_direct.stderr or "").strip()[
-                :2000
-            ]
-            or name_result["reason"]
-            or status_result["reason"],
+            "state": failure[0],
+            "stderr": failure[1],
             "files": [],
             "toolCalls": traces,
             "policyDecisionIds": _policy_ids(traces),
         }
-    patch = patch_direct.stdout
+    name_stdout = reads["nameOnly"][0].stdout
+    status_stdout = reads["status"][0].stdout
+    patch = reads["patch"][0].stdout
     return {
         "kind": "git_diff",
         "state": "captured",
         "baseRef": base_ref,
         "branch": branch_result["stdout"].strip() if branch_result["returnCode"] == 0 else None,
         "headCommit": head_result["stdout"].strip() if head_result["returnCode"] == 0 else None,
-        "statusRaw": status_result["stdout"],
-        "status": _parse_porcelain_status(status_result["stdout"]),
-        "nameOnly": [line.strip() for line in name_result["stdout"].splitlines() if line.strip()],
+        "statusRaw": status_stdout,
+        "status": _parse_porcelain_status(status_stdout),
+        "nameOnly": [line.strip() for line in name_stdout.splitlines() if line.strip()],
         "diffStat": stat_result["stdout"][:4000] if stat_result["returnCode"] == 0 else "",
         "patch": patch[:12000],
         "patchFull": patch,

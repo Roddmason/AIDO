@@ -67,14 +67,18 @@ export const BOARD_STAGE_META: Record<BoardStage, CopyMeta> = {
 	blocked: { labelKey: 'app.threads.board.stage.blocked', fallback: 'Blocked', tone: 'danger' },
 };
 
-/** Thread events after which the board can have moved (story transitions and delivery stages). */
+/** Thread events after which the board can have moved (story transitions, delivery stages and the
+ *  stops — block, cancel, rework — that do not always emit a `story_progress`). */
 export const BOARD_REFRESH_EVENT_TYPES: ReadonlySet<string> = new Set([
 	'story_progress',
 	'executing',
+	'reworking',
 	'qa_running',
 	'security_running',
 	'awaiting_approval',
 	'delivered',
+	'blocked',
+	'cancelled',
 ]);
 
 /** Sequence of the newest board-relevant event; a new value means the board must be refetched. */

@@ -37,8 +37,8 @@ class ThreadBoardService:
         Raises:
             KeyError: si el hilo no existe.
         """
-        self.threads.get_thread(thread_id)
-        loop = self.loops.latest_planned_loop_for_thread(thread_id)
+        thread = self.threads.get_thread(thread_id)
+        loop = self.loops.latest_planned_loop_for_thread(thread_id, project_id=thread["projectId"])
         if loop is None:
             return empty_board()
         durable = dict((loop.get("context") or {}).get("durableRun") or {})

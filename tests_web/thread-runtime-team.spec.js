@@ -90,8 +90,17 @@ function candidatesBody(nimValidation, selected) {
 	};
 }
 
-async function mockRuntimeTeam(page, { probeSucceeds }) {
+async function mockRuntimeTeam(page, { probeSucceeds, holdPatch = false }) {
 	const state = { nimValidation: STALE, probes: [], patches: [], order: [] };
+	// When holdPatch is set, the run-configuration route parks on this promise before fulfilling, so a
+	// test can prove the message POST really waits for the PATCH response instead of only being fired
+	// after the PATCH request; state.releasePatch lets the test open the gate when it is ready to check
+	// what happens next.
+	state.patchGate = holdPatch
+		? new Promise((resolve) => {
+				state.releasePatch = resolve;
+			})
+		: Promise.resolve();
 	page.on('request', (request) => {
 		const url = request.url();
 		if (url.includes('/run-configuration')) state.order.push('patch');
@@ -129,6 +138,7 @@ async function mockRuntimeTeam(page, { probeSucceeds }) {
 		const body = route.request().postDataJSON();
 		state.patches.push(body);
 		const threadId = route.request().url().split('/threads/')[1].split('/')[0];
+		await state.patchGate;
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
@@ -172,7 +182,7 @@ test('a successful automatic re-test makes the runtime selectable', async ({ pag
 test('saving and sending with a single runtime covering PO and Developer omits Security from the PATCH', async ({
 	page,
 }) => {
-	const state = await mockRuntimeTeam(page, { probeSucceeds: false });
+	const state = await mockRuntimeTeam(page, { probeSucceeds: false, holdPatch: true });
 	const panel = await openNewThreadTeamPanel(page);
 	await panel.getByRole('checkbox', { name: /Claude Code CLI/ }).check();
 	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('claude_code_cli');
@@ -188,6 +198,11 @@ test('saving and sending with a single runtime covering PO and Developer omits S
 	const objective = `Runtime team single-runtime spec ${Date.now()}`;
 	await page.getByLabel('Message AIDO').fill(objective);
 	await page.getByRole('button', { name: 'Create thread' }).click();
+	// The PATCH request has fired but its response is parked behind patchGate: prove the message POST
+	// really waits for it to resolve, not just for it to be dispatched.
+	await expect.poll(() => state.patches.length).toBe(1);
+	expect(state.order).not.toContain('message');
+	state.releasePatch();
 	// The draft textarea still shows the objective while the thread is being created, so wait for
 	// the intake view itself to be replaced before trusting a match on that text.
 	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden({
@@ -208,7 +223,7 @@ test('saving and sending with a single runtime covering PO and Developer omits S
 test('adding a runtime redistributes the automatic roles and a role pinned by hand survives it', async ({
 	page,
 }) => {
-	const state = await mockRuntimeTeam(page, { probeSucceeds: false });
+	const state = await mockRuntimeTeam(page, { probeSucceeds: false, holdPatch: true });
 	const panel = await openNewThreadTeamPanel(page);
 	await panel.getByRole('checkbox', { name: /Claude Code CLI/ }).check();
 	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('claude_code_cli');
@@ -229,6 +244,11 @@ test('adding a runtime redistributes the automatic roles and a role pinned by ha
 	const objective = `Runtime team spec ${Date.now()}`;
 	await page.getByLabel('Message AIDO').fill(objective);
 	await page.getByRole('button', { name: 'Create thread' }).click();
+	// The PATCH request has fired but its response is parked behind patchGate: prove the message POST
+	// really waits for it to resolve, not just for it to be dispatched.
+	await expect.poll(() => state.patches.length).toBe(1);
+	expect(state.order).not.toContain('message');
+	state.releasePatch();
 	// The draft textarea still shows the objective while the thread is being created, so wait for
 	// the intake view itself to be replaced before trusting a match on that text.
 	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden({
@@ -253,11 +273,15 @@ test('a role edited by hand stays pinned while the automatic roles follow the ne
 	await expect(panel.getByRole('checkbox', { name: /NVIDIA NIM/ })).toBeEnabled();
 	await panel.getByRole('checkbox', { name: /Claude Code CLI/ }).check();
 	await panel.getByRole('checkbox', { name: /OmniRoute/ }).check();
-	await expect(panel.getByRole('combobox', { name: 'Architect' })).toHaveValue('claude_code_cli');
-	await panel.getByRole('combobox', { name: 'Architect' }).selectOption('claude_code_cli');
+	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('omniroute');
+	// Pin Product Owner by hand to a value that differs from the current automatic split — a genuine
+	// edit, not a no-op re-selection of the value the combobox already holds.
+	await panel.getByRole('combobox', { name: 'Product Owner' }).selectOption('claude_code_cli');
 	await panel.getByRole('checkbox', { name: /NVIDIA NIM/ }).check();
-	await expect(panel.getByRole('combobox', { name: 'Security' })).toHaveValue('nvidia_nim');
-	await expect(panel.getByRole('combobox', { name: 'Architect' })).toHaveValue('claude_code_cli');
-	await panel.getByRole('button', { name: 'Assign automatically' }).click();
+	// The wider selection would automatically move Product Owner to NVIDIA NIM (see SPLITS); the
+	// manual pin holds instead, while Architect (never touched by hand) follows the new split.
 	await expect(panel.getByRole('combobox', { name: 'Architect' })).toHaveValue('omniroute');
+	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('claude_code_cli');
+	await panel.getByRole('button', { name: 'Assign automatically' }).click();
+	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('nvidia_nim');
 });

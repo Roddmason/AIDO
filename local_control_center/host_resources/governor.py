@@ -10,6 +10,7 @@ from typing import Any
 
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
 
 from .models import (
@@ -206,13 +207,20 @@ class HostResourceGovernor:
     ) -> None:
         if not job_id:
             return
-        row = self.connection.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = self.connection.execute("SELECT status, payload FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row is None:
             return
         current = str(row["status"])
         if status == "resource_wait" and current not in {"queued", "resource_wait"}:
             return
         if status == "queued" and current != "resource_wait":
+            return
+        payload = json_loads(row["payload"], {})
+        if (
+            status == "resource_wait"
+            and current == "resource_wait"
+            and _last_reason_code(payload) == decision.reason_code
+        ):
             return
         JobsRepository(self.connection).update_job_status(
             job_id,
@@ -224,6 +232,31 @@ class HostResourceGovernor:
                 "leaseId": decision.lease.id if decision.lease else None,
             },
         )
+        if status == "resource_wait":
+            self._record_thread_resource_wait(job_id, payload, decision)
+
+    def _record_thread_resource_wait(
+        self, job_id: str, payload: dict[str, Any], decision: ResourceAdmissionDecision
+    ) -> None:
+        """Avisa al hilo dueño del job por qué espera capacidad; un hilo ya borrado se omite."""
+        thread_id = str(payload.get("threadId") or "").strip()
+        if not thread_id:
+            return
+        from local_control_center.threads.repository import ThreadsRepository
+
+        try:
+            ThreadsRepository(self.connection).record_event(
+                thread_id=thread_id,
+                type="resource_wait",
+                agent_role="worker",
+                payload={
+                    "jobId": job_id,
+                    "reasonCode": decision.reason_code,
+                    "reason": decision.reason,
+                },
+            )
+        except KeyError:
+            return
 
     def recover_expired(self, *, now_iso: str | None = None) -> list[ResourceLease]:
         """Recupera leases vencidas dentro de una transacción breve."""
@@ -289,3 +322,9 @@ class HostResourceGovernor:
                     )
                 )
         return violations
+
+
+def _last_reason_code(payload: dict[str, Any]) -> str | None:
+    """Motivo de admisión que el governor ya dejó escrito en ``payload.result`` del job."""
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return str(result.get("reasonCode")) if isinstance(result, dict) and result.get("reasonCode") else None

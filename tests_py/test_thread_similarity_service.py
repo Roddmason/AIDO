@@ -12,8 +12,13 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_dumps
+from local_control_center.threads.coordinator import ThreadCoordinator
 from local_control_center.threads.repository import ThreadsRepository
-from local_control_center.threads.similarity import ThreadSimilarityService
+from local_control_center.threads.similarity import (
+    HIGH_SIMILARITY_THRESHOLD,
+    ThreadMemoryService,
+    ThreadSimilarityService,
+)
 
 SIMILARITY_TABLES = {"thread_memory_index", "thread_similarity_events"}
 
@@ -334,3 +339,48 @@ def test_set_summary_refreshes_similarity_index(tmp_path: Path) -> None:
         assert row["updated_at"] >= thread["updatedAt"]
         index = ThreadSimilarityService(connection).get_index(thread["id"])
         assert "Deterministic summary payload" in index["summary"]
+
+
+def test_open_thread_that_never_delivered_is_still_suggested_for_the_same_goal(tmp_path: Path) -> None:
+    """El intake sugiere un hilo abierto y nunca entregado; el bloqueo por funcionalidad lo ignora.
+
+    Reproduce la semilla de ``tests_web/threads.spec.js``: el primer mensaje pasa por el intake
+    real (``classification_completed`` + ``team_planned``) y la ejecución se cancela. La tarjeta de
+    similitud depende de ``find_similar`` y debe superar ``HIGH_SIMILARITY_THRESHOLD``; el bloqueo
+    "Existing functionality detected" (``find_existing_functionality``) exige evidencia de entrega.
+    """
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        goal = "Add an invoice export endpoint with streaming batches 1790175961545"
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project_id, owner_type="workspace", owner_id=project_id, title=goal
+        )
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+        coordinator.post_message(
+            thread_id=thread["id"],
+            content=goal,
+            project_assessment={
+                "runtimeStatus": {
+                    "providers": [
+                        {"id": "codex_cli", "executable": True, "available": True, "canEditWorkspace": True}
+                    ]
+                }
+            },
+        )
+        coordinator.cancel_execution(
+            thread_id=thread["id"],
+            reason="Seed similarity recall without leaving an active run in the web test.",
+        )
+
+        candidates = ThreadSimilarityService(connection).find_similar(
+            project_id=project_id, query=goal, limit=1
+        )
+
+        assert [item["threadId"] for item in candidates] == [thread["id"]]
+        assert candidates[0]["status"] == "open"
+        assert candidates[0]["score"] >= HIGH_SIMILARITY_THRESHOLD
+        assert (
+            ThreadMemoryService(connection).find_existing_functionality(project_id=project_id, query=goal)
+            == []
+        )

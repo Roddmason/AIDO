@@ -2,8 +2,8 @@
 
 **Fecha:** 2026-09-23
 **Estado:** Diseño aprobado por el operador (2026-09-23); enmendado tras crítica adversarial multi-lente
-(arquitectura, seguridad/privacidad, hechos de API, Codex) con 22 hallazgos verificados. Pendiente de revisión de la
-spec y plan.
+(arquitectura, seguridad/privacidad, hechos de API, Codex) con 29 hallazgos verificados; spec aprobada. Plan:
+`docs/superpowers/plans/2026-09-23-local-runtimes.md`.
 **Autor:** Rodrigo Mason (diseño asistido)
 
 ## 1. Objetivo
@@ -15,7 +15,7 @@ runtimes.
 
 **Criterio de éxito verificable:**
 
-1. Con el `llama-server` real del operador (`http://127.0.0.1:8082`, router mode, 4 modelos) AIDO lo agrega
+1. Con el `llama-server` real del operador (`http://127.0.0.1:8082`, router mode, varios modelos con alias) AIDO lo agrega
    desde el asistente, lo marca `healthy`, lista sus modelos con estado de carga, valida el modelo por defecto y
    lo ofrece como candidato del equipo del hilo; un hilo con el PO en llama.cpp llega a brief/backlog ejecutado
    por llama.cpp.
@@ -159,7 +159,9 @@ Las rutas son relativas a la raíz del servidor (`baseUrl` sin el sufijo `/v1`).
 
 Reglas de estado de carga (parseo defensivo; campo ausente ⇒ desconocido):
 
-- `openai_models_status`: `GET /v1/models` → `data[].status.value` (`loaded`/`loading`/`unloaded`), observado en
+- `openai_models_status`: `GET /v1/models` → `data[].status.value` (`loaded`/`loading`/`unloaded`); cada alias de
+  `data[].aliases` comparte el estado de su id canónico (el sync guarda solo ids canónicos y un modelo guardado o
+  sellado bajo un alias se resuelve al canónico), observado en
   vivo en el router del operador; complemento `GET /props` (`role`, `max_instances`, `models_autoload`).
 - `lm_studio_rest`: `GET /api/v1/models` → cargado si `len(loaded_instances) > 0`; si no existe (versiones
   anteriores a 0.4.0), `GET /api/v0/models` → `state == "loaded"`.
@@ -182,7 +184,9 @@ modelos usa `LocalModelStateReader` elegido por `model_state_source` de la entra
   a un adapter y tenga `baseUrl`; la credencial se valida solo si hay `credentialRef` (fail-closed, R4) y aplica
   `runtime_policy_decision` con el kind de `providerType`.
 - **Health check:** `GET liveness_path` (timeout corto) y, si `health_requires_models`, `GET /v1/models` con el id
-  esperado. `503` o estado `loading` ⇒ resultado `model_loading` (no es falla, no abre el cooldown de 300 s). Un
+  esperado. `503` o un modelo habilitado en estado `loading` ⇒ resultado `model_loading` (no es falla, no abre el
+  cooldown de 300 s); en `single_model`, un servidor que no sirve el modelo esperado ⇒ `local_model_load_failed`. La
+  sonda no lee `/props` (sus campos no están documentados; §9). Un
   servidor caído deja de producir "sync OK con 0 modelos": el sync falla con `local_server_unreachable`.
 - **Configuración por (cuenta, modelo):** tabla nueva `local_model_settings` (separada de `model_catalog`, que el
   resync reescribe; `migrations.py:1339-1367`, `provider_accounts.py:413-455`): `provider_id`, `model`,
@@ -207,7 +211,8 @@ modelos usa `LocalModelStateReader` elegido por `model_state_source` de la entra
      id estable) — sin cambio de modelo.
   2. Si no, el por defecto si ∈ `E`; si no, el primero de `E` por `operator_order`. Si no está cargado, la llamada
      usa el autoload del servidor (presupuesto en §4.6) y se registra `local_model_switch`
-     `{runtimeId, fromModel, toModel, role, reason}` en el hilo (si hay) y siempre en la auditoría de la ejecución.
+     `{runtimeId, fromModel, toModel, role, reason}` en el hilo (si hay; también en el failover) y siempre en la
+     auditoría de la ejecución (fuera del product loop, `ai_routing_decisions.policy_result_json.localModelSelections`).
   3. Afinidad entre roles: si otro rol del mismo run ya resolvió un modelo de `E`, se prefiere ese, para no
      serializar cold starts en un router `max_instances=1`.
   4. `E` vacío ⇒ bloqueo `local_model_not_validated` con remediación "Validar modelo"; sin fallback silencioso.

@@ -19,7 +19,9 @@ ventana en la que un sistema sano se reporte bloqueado.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from .runtime_readiness import HEALTH_EVIDENCE_TTL_SECONDS
@@ -42,6 +44,67 @@ gemini en 365 s, nvidia_nim en 357 s y omniroute en 318 s, los tres reportando
 `health_check_required` con la configuracion intacta. Mirar seguido y refrescar solo lo rancio
 deja presupuesto para encolar, admitir y ejecutar antes del vencimiento.
 """
+
+BACKOFF_SCHEDULE_SECONDS = (60, 300, 900)
+"""Espera tras el 1.er, 2.º y 3.er (o posterior) refresco improductivo seguido de un objetivo."""
+
+
+@dataclass
+class _TargetBackoff:
+    """Historial de refrescos improductivos de un objetivo."""
+
+    failures: int = 0
+    awaiting_outcome: bool = False
+    attempted_at: datetime | None = None
+    retry_after: datetime | None = None
+
+
+class HealthRefreshBackoff:
+    """Cooldown exponencial por objetivo para el refresco automático de salud.
+
+    Un refresco es improductivo cuando su ejecución ya no está pendiente y no dejó evidencia
+    vigente y ``healthy``: falló, se canceló o el runtime quedó unhealthy (cada check escribe su
+    marca aunque falle, ``provider_accounts.py:605-630``). Tras cada improductivo el objetivo espera
+    60 s, luego 5 min y después 15 min como máximo, contados desde el intento; solo una evidencia
+    vigente con ``healthStatus == "healthy"`` (el mismo criterio de ``healthy_evidence`` en
+    readiness) lo reinicia. Solo gobierna el refresco automático: el health check que dispara el
+    operador por la API no pasa por aquí.
+    """
+
+    def __init__(self) -> None:
+        self._targets: dict[tuple[str, str], _TargetBackoff] = {}
+
+    def reset(self, target: tuple[str, str]) -> None:
+        """Olvida el historial del objetivo porque su evidencia volvió a estar vigente."""
+        self._targets.pop(target, None)
+
+    def allows(self, target: tuple[str, str], *, now: datetime) -> bool:
+        """Registra el desenlace improductivo pendiente y dice si el objetivo puede encolarse ya."""
+        state = self._targets.get(target)
+        if state is None:
+            return True
+        if state.awaiting_outcome and state.attempted_at is not None:
+            state.awaiting_outcome = False
+            state.failures += 1
+            delay = BACKOFF_SCHEDULE_SECONDS[min(state.failures, len(BACKOFF_SCHEDULE_SECONDS)) - 1]
+            state.retry_after = state.attempted_at + timedelta(seconds=delay)
+        return state.retry_after is None or now >= state.retry_after
+
+    def record_enqueued(self, target: tuple[str, str], *, now: datetime) -> None:
+        """Marca un refresco en vuelo cuyo desenlace se evalúa en el próximo ciclo."""
+        state = self._targets.setdefault(target, _TargetBackoff())
+        state.awaiting_outcome = True
+        state.attempted_at = now
+
+
+_BACKOFF_BY_DATABASE: dict[str, HealthRefreshBackoff] = {}
+
+
+def backoff_for(database: Any) -> HealthRefreshBackoff:
+    """Devuelve el cooldown del proceso para esa base; el worker vive lo suficiente para recordarlo."""
+    key = str(Path(str(database)).resolve(strict=False))
+    return _BACKOFF_BY_DATABASE.setdefault(key, HealthRefreshBackoff())
+
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +135,16 @@ def needs_refresh(status: dict[str, Any], *, now: datetime | None = None) -> boo
     return age >= REFRESH_STALENESS_SECONDS
 
 
+def _refresh_target(status: dict[str, Any]) -> tuple[str, str, str] | None:
+    """``(operación, argumento, runtime)`` de un runtime refrescable, o ``None`` si no aplica."""
+    kind = str(status.get("kind") or "")
+    if kind in SKIPPED_KINDS or not status.get("configured"):
+        return None
+    if kind == "cli":
+        return (CLI_HEALTH_OPERATION, CLI_ARGUMENT, str(status["id"]))
+    return (PROVIDER_HEALTH_OPERATION, PROVIDER_ARGUMENT, str(status["id"]))
+
+
 def stale_health_targets(
     statuses: list[dict[str, Any]], *, now: datetime | None = None
 ) -> list[tuple[str, str, str]]:
@@ -82,18 +155,11 @@ def stale_health_targets(
     porque no es un runtime automatizado y readiness ya lo trata aparte.
     """
     moment = now or datetime.now(UTC)
-    targets: list[tuple[str, str, str]] = []
-    for status in statuses:
-        kind = str(status.get("kind") or "")
-        if kind in SKIPPED_KINDS or not status.get("configured"):
-            continue
-        if not needs_refresh(status, now=moment):
-            continue
-        if kind == "cli":
-            targets.append((CLI_HEALTH_OPERATION, CLI_ARGUMENT, str(status["id"])))
-        else:
-            targets.append((PROVIDER_HEALTH_OPERATION, PROVIDER_ARGUMENT, str(status["id"])))
-    return targets
+    return [
+        target
+        for status in statuses
+        if (target := _refresh_target(status)) is not None and needs_refresh(status, now=moment)
+    ]
 
 
 def _pending_health_checks(platform: Any) -> tuple[int, set[tuple[str, str]], set[str]]:
@@ -144,6 +210,7 @@ def enqueue_stale_health_checks(
     *,
     statuses: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
+    backoff: HealthRefreshBackoff | None = None,
 ) -> dict[str, Any]:
     """Encola un health-check por runtime configurado sin evidencia vigente.
 
@@ -159,14 +226,28 @@ def enqueue_stale_health_checks(
         return {"considered": 0, "enqueued": 0, "failed": 0, "runtimes": [], "pending": 0}
 
     pending, pending_targets, unresolved_operations = _pending_health_checks(platform)
+    moment = now or datetime.now(UTC)
+    cooldown = backoff or backoff_for(platform.db_path)
+    for status in resolved:
+        fresh_target = _refresh_target(status)
+        if (
+            fresh_target is not None
+            and status.get("healthStatus") == "healthy"
+            and not needs_refresh(status, now=moment)
+        ):
+            cooldown.reset((fresh_target[0], fresh_target[2]))
 
-    targets = stale_health_targets(resolved, now=now)
+    targets = stale_health_targets(resolved, now=moment)
     handlers = getattr(platform, "execution_handlers", {}) or {}
     enqueued: list[str] = []
+    cooling: list[str] = []
     failed = 0
     for operation, argument, runtime_id in targets:
         target = (operation, runtime_id)
         if target in pending_targets or operation in unresolved_operations:
+            continue
+        if not cooldown.allows(target, now=moment):
+            cooling.append(runtime_id)
             continue
         registered = handlers.get(operation)
         if registered is None:
@@ -177,6 +258,7 @@ def enqueue_stale_health_checks(
             enqueue_registered_operation(platform, registered[0], {argument: runtime_id})
             enqueued.append(runtime_id)
             pending_targets.add(target)
+            cooldown.record_enqueued(target, now=moment)
         except Exception as error:  # pragma: no cover - un runtime no puede bloquear a los demás
             failed += 1
             logger.warning("Runtime health refresh failed to enqueue %s: %s", runtime_id, error)
@@ -188,6 +270,7 @@ def enqueue_stale_health_checks(
         "failed": failed,
         "runtimes": enqueued,
         "pending": pending,
+        "coolingDown": cooling,
     }
 
 

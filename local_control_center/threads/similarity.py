@@ -69,6 +69,12 @@ pueden aportar evidencia: el estado ``delivered`` entra por ``idx_product_loops_
 ``CROSS JOIN`` fija el brief aprobado como tabla externa (SQLite respeta ese orden), de modo que la
 iniciativa se compara antes de parsear. Un ``OR`` con subconsulta en el mismo ``WHERE`` no sirve:
 SQLite difiere los términos con subconsulta hasta después de ``json_extract``."""
+_NON_INDEXED_EVENT_TYPES = ("team_planned",)
+"""Eventos que describen la configuración del equipo (roles, esquemas, runtimes), no el trabajo.
+
+Su payload es casi idéntico en todos los hilos del proyecto y ocupa la mayor parte del texto
+indexado: diluye el Jaccard y desplaza del top de keywords los términos del objetivo, hasta dejar
+un objetivo duplicado exacto por debajo de ``HIGH_SIMILARITY_THRESHOLD``."""
 MAX_FILE_PATHS = 50
 MAX_PERFORMANCE_NOTES = 20
 _PATH_PATTERN = re.compile(
@@ -734,14 +740,16 @@ class ThreadSimilarityService:
         return " ".join(text_parts)[:MAX_INDEX_TEXT_CHARS]
 
     def _recent_event_text(self, thread_id: str) -> str:
+        """Texto de los últimos eventos del hilo, sin los de ``_NON_INDEXED_EVENT_TYPES``."""
+        excluded = ", ".join("?" for _ in _NON_INDEXED_EVENT_TYPES)
         rows = self.connection.execute(
-            """
+            f"""
             SELECT type, payload, metadata FROM thread_agent_events
-            WHERE thread_id = ?
+            WHERE thread_id = ? AND type NOT IN ({excluded})
             ORDER BY sequence DESC
             LIMIT 5
             """,
-            (thread_id,),
+            (thread_id, *_NON_INDEXED_EVENT_TYPES),
         ).fetchall()
         text_parts: list[str] = []
         for row in rows:

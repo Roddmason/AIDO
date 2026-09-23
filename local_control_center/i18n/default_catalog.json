@@ -815,6 +815,70 @@
       "en": "Decision needed",
       "es": "Decisión requerida"
     },
+    "app.threads.decision.option.continueExisting.label": {
+      "en": "Continue the existing work",
+      "es": "Continuar el trabajo existente"
+    },
+    "app.threads.decision.option.continueExisting.description": {
+      "en": "Resume the thread that already built this functionality.",
+      "es": "Retoma el hilo que ya construyó esta funcionalidad."
+    },
+    "app.threads.decision.option.improveExisting.label": {
+      "en": "Improve what exists",
+      "es": "Mejorar lo existente"
+    },
+    "app.threads.decision.option.improveExisting.description": {
+      "en": "Build on the existing functionality instead of starting over.",
+      "es": "Construye sobre la funcionalidad existente en vez de empezar de cero."
+    },
+    "app.threads.decision.option.performancePass.label": {
+      "en": "Performance pass",
+      "es": "Pasada de rendimiento"
+    },
+    "app.threads.decision.option.performancePass.description": {
+      "en": "Keep the behavior and focus on making it faster.",
+      "es": "Mantiene el comportamiento y se enfoca en hacerlo más rápido."
+    },
+    "app.threads.decision.option.createNewAnyway.label": {
+      "en": "Create a new one anyway",
+      "es": "Crear uno nuevo de todos modos"
+    },
+    "app.threads.decision.option.createNewAnyway.description": {
+      "en": "Ignore the match and start separate work.",
+      "es": "Ignora la coincidencia e inicia un trabajo aparte."
+    },
+    "app.threads.decision.option.diagnosis.label": {
+      "en": "Diagnose",
+      "es": "Diagnosticar"
+    },
+    "app.threads.decision.option.diagnosis.description": {
+      "en": "Investigate the cause before deciding on a change.",
+      "es": "Investiga la causa antes de decidir un cambio."
+    },
+    "app.threads.decision.option.implementation.label": {
+      "en": "Implement",
+      "es": "Implementar"
+    },
+    "app.threads.decision.option.implementation.description": {
+      "en": "Plan and build the change with the agent team.",
+      "es": "Planifica y construye el cambio con el equipo de agentes."
+    },
+    "app.threads.decision.option.research.label": {
+      "en": "Research",
+      "es": "Investigar"
+    },
+    "app.threads.decision.option.research.description": {
+      "en": "Answer from cited web sources; no code is changed.",
+      "es": "Responde con fuentes web citadas; no se cambia código."
+    },
+    "app.threads.decision.option.planOnly.label": {
+      "en": "Continue in plan-only mode",
+      "es": "Continuar en modo solo plan"
+    },
+    "app.threads.decision.option.planOnly.description": {
+      "en": "Produce a plan without executing anything.",
+      "es": "Produce un plan sin ejecutar nada."
+    },
     "app.threads.decisionProgress": {
       "en": "{current} of {total}",
       "es": "{current} de {total}"

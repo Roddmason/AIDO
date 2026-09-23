@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "local-control-center" / "web" / "src"
 SHELL = WEB / "features" / "shell"
 CLIENT = WEB / "api" / "client.ts"
+LAYOUT_CSS = WEB / "design-system" / "layout.css"
 
 
 def _read(path: Path) -> str:
@@ -64,3 +65,13 @@ def test_a_successful_remediation_wakes_the_idle_event_stream() -> None:
     assert "export function wakeThreadEventStream(threadId: string): void" in stream
     assert "const streamWakers = new Map<string, Set<() => void>>();" in stream
     assert "wakeThreadEventStream(threadId);" in remediations
+
+
+def test_thread_board_component_never_reuses_review_board_classes() -> None:
+    source = _read(SHELL / "ThreadBoard.tsx")
+    assert 'className="thread-board"' in source
+    assert "review-board" not in source
+    assert "review-column" not in source
+    css = _read(LAYOUT_CSS)
+    assert "@container thread-board" in css
+    assert ".thread-board-column-scroll" in css

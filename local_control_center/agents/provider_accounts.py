@@ -390,6 +390,13 @@ class ProviderAccountStore:
             ).fetchall()
         return [row_to_model_catalog(row) for row in rows]
 
+    def first_enabled_model(self, provider_id: str) -> str | None:
+        """Devuelve el primer modelo habilitado del catálogo del proveedor, o ``None`` si no hay ninguno."""
+        for model in self.list_models(provider_id):
+            if model.get("enabled"):
+                return str(model.get("model"))
+        return None
+
     def get_model(self, model_id: str) -> dict[str, Any]:
         """Fetch one catalog model by id.
 

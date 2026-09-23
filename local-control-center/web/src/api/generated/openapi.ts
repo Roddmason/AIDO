@@ -522,7 +522,10 @@ export type ThreadNoteResponse = { "message": ThreadMessageRecord; "thread": Thr
 export type ThreadPremiumApprovalRecord = { "costTier"?: null | string; "estimatedCostUsd"?: null | number; "reason": string; "required": boolean; "thresholdUsd"?: null | number };
 export type ThreadQualityReworkRecord = { "benchmarkInsufficientData"?: boolean; "maxReworkRounds"?: null | number; "modelLabel"?: null | string; "modelQaPassRate"?: null | number; "modelReworkRate"?: null | number; "modelSuccessRate"?: null | number; "reworkRounds"?: null | number };
 export type ThreadRecord = { "archivedAt"?: null | string; "archivedBy"?: null | string; "createdAt": string; "deletedAt"?: null | string; "deletedBy"?: null | string; "id": string; "lifecycleReason"?: null | string; "metadata": JsonObject; "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "title": string; "updatedAt": string };
+export type ThreadRunConfigurationRequest = { "allowedRuntimes"?: Array<string>; "roleRuntimes"?: RoleRuntimesRecord };
+export type ThreadRunConfigurationResponse = { "runtimeTeam"?: ThreadRuntimeTeamRecord | null; "threadId": string };
 export type ThreadRunSummary = { "jobId"?: null | string; "loopId"?: null | string; "reason"?: null | string; "status": "queued" | "running" | "blocked" | "awaiting_approval" | "completed" | "failed" };
+export type ThreadRuntimeTeamRecord = { "allowedRuntimes": Array<string>; "roleRuntimes": RoleRuntimesRecord };
 export type ThreadSimilarityArtifactRef = { "artifactId": string; "kind": string; "title": string };
 export type ThreadSimilarityCandidateRecord = { "artifactRefs": Array<ThreadSimilarityArtifactRef>; "keywords": Array<string>; "projectId": string; "reason": string; "score": number; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "threadId": string; "title": string; "updatedAt": string };
 export type ThreadSimilarityEventRecord = { "action": "continue_existing" | "improve_existing" | "performance_pass" | "create_new_anyway"; "candidateThreadId": string; "createdAt": string; "functionalityId"?: string; "id": string; "projectId": string; "reason": string; "score": number; "sourceThreadId": string };
@@ -815,6 +818,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
 	{"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
 	{"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
+	{"method": "PATCH", "operationId": "update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch", "path": "/api/v1/threads/{thread_id}/run-configuration", "summary": "Update Thread Run Configuration"},
 	{"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	{"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	{"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
@@ -1109,6 +1113,7 @@ export type OperationRequestBodies = {
 	"update_risk_api_v1_risks__risk_id__patch": RiskUpdateRequest,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfilePatchRequest,
 	"update_thread_api_v1_threads__thread_id__patch": ThreadUpdateRequest,
+	"update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch": ThreadRunConfigurationRequest,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileUpsertRequest,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionUpsertRequest,
 	"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetCreateRequest,
@@ -1381,6 +1386,7 @@ export type OperationResponseBodies = {
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,
 	"update_thread_api_v1_threads__thread_id__patch": ThreadDetailResponse,
+	"update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch": ThreadRunConfigurationResponse,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
 	"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse,
@@ -1657,6 +1663,7 @@ export type OperationResultBodies = {
 	"update_risk_api_v1_risks__risk_id__patch": RiskResponse,
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": SandboxProfileMutationResponse,
 	"update_thread_api_v1_threads__thread_id__patch": ThreadDetailResponse,
+	"update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch": ThreadRunConfigurationResponse,
 	"upsert_agent_profile_api_v1_agent_profiles_post": AgentProfileResponse,
 	"upsert_ide_connection_api_v1_ide_connections_post": IdeConnectionResponse,
 	"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse,
@@ -1917,6 +1924,7 @@ export const OPERATIONS_BY_ID = {
 	"post_message_api_v1_threads__thread_id__messages_post": {"method": "POST", "operationId": "post_message_api_v1_threads__thread_id__messages_post", "path": "/api/v1/threads/{thread_id}/messages", "summary": "Post Message"},
 	"post_note_api_v1_threads__thread_id__notes_post": {"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
 	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": {"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
+	"update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch": {"method": "PATCH", "operationId": "update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch", "path": "/api/v1/threads/{thread_id}/run-configuration", "summary": "Update Thread Run Configuration"},
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": {"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": {"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": {"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},

@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from local_control_center.runtime_team.contracts import RoleRuntimesRecord
 from local_control_center.shared.schemas import AuditEventRecord
 
 THREAD_OWNER_TYPES = ("workspace", "loop", "story", "agent_task", "review")
@@ -199,6 +200,27 @@ class ThreadUpdateRequest(BaseModel):
     """Cuerpo para mutar el header editable de un hilo."""
 
     title: str | None = None
+
+
+class ThreadRunConfigurationRequest(BaseModel):
+    """Equipo de runtimes del hilo; ``allowedRuntimes`` vacío vuelve al ruteo automático."""
+
+    allowed_runtimes: list[str] = Field(default_factory=list, alias="allowedRuntimes")
+    role_runtimes: RoleRuntimesRecord = Field(default_factory=RoleRuntimesRecord, alias="roleRuntimes")
+
+
+class ThreadRuntimeTeamRecord(BaseModel):
+    """Equipo guardado: runtimes permitidos y runtime asignado por rol."""
+
+    allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
+    role_runtimes: RoleRuntimesRecord = Field(alias="roleRuntimes")
+
+
+class ThreadRunConfigurationResponse(BaseModel):
+    """Resultado del PATCH: el equipo vigente del hilo, o ``None`` si quedó en ruteo automático."""
+
+    thread_id: str = Field(alias="threadId")
+    runtime_team: ThreadRuntimeTeamRecord | None = Field(default=None, alias="runtimeTeam")
 
 
 class ThreadArchiveRequest(BaseModel):

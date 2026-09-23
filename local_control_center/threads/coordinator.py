@@ -36,6 +36,11 @@ from local_control_center.product_loop.metadata import (
     seal_operator_cost_decision,
 )
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.runtime_team.configuration import (
+    RUNTIME_TEAM_DISCARDED_METADATA_KEY,
+    RUNTIME_TEAM_METADATA_KEY,
+    ensure_thread_runtime_team_ready,
+)
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
@@ -74,6 +79,8 @@ _PUBLIC_MESSAGE_PROTECTED_PRODUCT_LOOP_METADATA_KEYS = frozenset(
         "feedbackId",
         "remediationActionId",
         *RESOURCE_COST_POLICY_METADATA_KEYS,
+        RUNTIME_TEAM_METADATA_KEY,
+        RUNTIME_TEAM_DISCARDED_METADATA_KEY,
     }
 )
 
@@ -118,7 +125,11 @@ class ThreadCoordinator:
         user_mode: str = "aido_decide",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Publica el mensaje, clasifica rápido y encola ejecución real cuando es seguro hacerlo."""
+        """Publica el mensaje, clasifica rápido y encola ejecución real cuando es seguro hacerlo.
+
+        El gate del equipo de runtimes corre dentro de la misma transacción que sella el run, así un
+        PATCH concurrente no puede colarse entre la verificación y el sellado.
+        """
         if not content.strip():
             raise ValueError("Message content is required")
         # Resolve the thread up front so a missing id fails before any write.
@@ -150,6 +161,9 @@ class ThreadCoordinator:
         )
 
         with immediate_transaction(self.connection):
+            ensure_thread_runtime_team_ready(
+                self.connection, project_id=existing_thread["projectId"], thread_id=thread_id
+            )
             user_message = self.repository.append_message(
                 thread_id=thread_id,
                 kind="user",

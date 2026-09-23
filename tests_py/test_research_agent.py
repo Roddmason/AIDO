@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import socket
 from contextlib import ExitStack, closing
 from pathlib import Path
@@ -17,6 +18,26 @@ from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads.repository import ThreadsRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture(autouse=True)
+def _public_source_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resuelve los nombres de las fuentes de prueba a una IP pública fija, sin DNS real.
+
+    ``assert_public_source_url`` falla cerrado ante un nombre que no resuelve; sin este doble los
+    tests que descargan ``docs.python.org`` (con ``urlopen`` parcheado) dependerían de la red.
+    """
+    real_getaddrinfo = socket.getaddrinfo
+
+    def fake_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            ipaddress.ip_address(str(host))
+        except ValueError:
+            if str(host).lower() != "localhost":
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("151.101.0.223", port))]
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

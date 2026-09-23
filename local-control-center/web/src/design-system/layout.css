@@ -4639,3 +4639,27 @@
 		max-height: 50dvh;
 	}
 }
+
+/* Chat rows reserve up to 9rem for the author chip; in a narrow transcript that starves the message
+   to a few characters per line (seen at 32px wide with the inspector open at 1440x900). The board
+   chat column is always narrow (<= 30rem) and chat mode narrows with the pane, not the viewport, so
+   both stack the message under its author line, like the phone layout does. */
+.thread-live-body[data-mode="board"] .thread-chat-row {
+	grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
+	gap: var(--space-2);
+}
+
+.thread-live-body[data-mode="board"] .thread-row-content {
+	grid-column: 1 / -1;
+}
+
+@container thread-live (max-width: 56rem) {
+	.thread-live-body[data-mode="chat"] .thread-chat-row {
+		grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
+		gap: var(--space-2);
+	}
+
+	.thread-live-body[data-mode="chat"] .thread-row-content {
+		grid-column: 1 / -1;
+	}
+}

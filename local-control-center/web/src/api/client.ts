@@ -8,7 +8,10 @@
  * @author Rodrigo Mason
  */
 
-import { requestCompletedOperation as requestGeneratedOperation } from './execution-client';
+import {
+	type ExecutionObserver,
+	requestCompletedOperation as requestGeneratedOperation,
+} from './execution-client';
 import type {
 	ApiOperationId,
 	JsonObject,
@@ -58,6 +61,15 @@ export type ModelGatewayTestPromptRequest =
 	MutationBody<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
 export type ModelGatewayTestPromptResponse =
 	OperationResponse<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type RuntimeTeamCandidatesResponse =
+	OperationResponse<'list_runtime_team_candidates_api_v1_runtime_team_candidates_get'>;
+export type RuntimeTeamCandidate = RuntimeTeamCandidatesResponse['candidates'][number];
+export type RuntimeValidationResponse =
+	OperationResponse<'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post'>;
+export type ThreadRunConfigurationRequest =
+	MutationBody<'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch'>;
+export type ThreadRunConfigurationResponse =
+	OperationResponse<'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch'>;
 export type ModelGatewayModelCreateRequest =
 	MutationBody<'create_model_api_v1_model_gateway_models_post'>;
 export type ModelGatewayPricingSnapshotCreateRequest =
@@ -2036,6 +2048,65 @@ export function testPromptModelGatewayProvider(
 		token,
 		pathParams: { provider_id: providerId },
 		body: body ?? {},
+	});
+}
+
+/** Enabled runtimes with their 30-minute validation, eligible roles and the backend split for `selected`. */
+export function getRuntimeTeamCandidates(
+	projectId: string,
+	selected: readonly string[] | null,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'list_runtime_team_candidates_api_v1_runtime_team_candidates_get',
+		RuntimeTeamCandidatesResponse
+	>('list_runtime_team_candidates_api_v1_runtime_team_candidates_get', {
+		query: { projectId, selected: selected === null ? undefined : selected.join(',') },
+		signal,
+	});
+}
+
+/**
+ * Real round trip against one runtime (queued `models.validate_runtime`); requires the write token.
+ * `onExecution` sees each poll of the queued execution, e.g. `resource_wait` with the governor reason.
+ */
+export function validateRuntime(
+	token: string,
+	providerId: string,
+	projectId: string,
+	signal?: AbortSignal,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post',
+		RuntimeValidationResponse
+	>(
+		'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post',
+		{
+			token,
+			pathParams: { provider_id: providerId },
+			body: { projectId },
+			signal,
+		},
+		onExecution,
+	);
+}
+
+/** Sets or clears the thread's AI team; requires the write token. */
+export function updateThreadRunConfiguration(
+	token: string,
+	threadId: string,
+	body: ThreadRunConfigurationRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch',
+		ThreadRunConfigurationResponse
+	>('update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
 	});
 }
 

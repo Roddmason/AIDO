@@ -40,12 +40,16 @@ export class ExecutionObservationError extends Error {
 	}
 }
 
+/** Sees every poll of a queued execution (status and reason) before it settles. */
+export type ExecutionObserver = (execution: ExecutionResponse) => void;
+
 export async function requestCompletedOperation<
 	T extends ApiOperationId,
 	TResponse = OperationResult<T>,
 >(
 	operationId: T,
 	options: GeneratedRequestOptions<OperationRequestBody<T>> = {},
+	onExecution?: ExecutionObserver,
 ): Promise<TResponse> {
 	const response = await requestGeneratedOperation<T, TResponse | ExecutionAccepted>(
 		operationId,
@@ -70,6 +74,7 @@ export async function requestCompletedOperation<
 		if (typeof window !== 'undefined') {
 			window.dispatchEvent(new CustomEvent('aido:execution', { detail: execution }));
 		}
+		onExecution?.(execution);
 		if (execution.status === 'completed' && (execution.resultStatusCode ?? 500) < 400) {
 			return execution.result as TResponse;
 		}

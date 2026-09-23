@@ -110,6 +110,15 @@ def test_a_later_failure_invalidates_a_fresh_success(connection):
     assert _state(connection, API_PROVIDER).status == "failed"
 
 
+def test_a_configuration_change_after_a_failure_makes_it_stale(connection):
+    record_model_execution(connection, API_PROVIDER, "m", False, "test_prompt", started_at=_ago(1))
+    ProviderAccountStore(connection).patch_provider_account(
+        API_PROVIDER, {"baseUrl": "https://fixed.example.invalid/v1"}
+    )
+    state = _state(connection, API_PROVIDER)
+    assert (state.status, state.reason) == ("stale", "runtime_validation_configuration_changed")
+
+
 def test_model_runtime_probe_records_fresh_evidence(connection, monkeypatch):
     ProviderAccountStore(connection).patch_provider_account("ollama", {"enabled": True})
     monkeypatch.setattr(probe, "provider_instance", lambda provider_id, *, connection: _Provider())
@@ -131,6 +140,23 @@ def test_a_failed_probe_invalidates_the_previous_validation(connection, monkeypa
     assert (result["status"], result["reason"]) == ("failed", "runtime_validation_failed")
     assert "daemon down" in result["evidence"]
     assert _state(connection, "ollama").status == "failed"
+    assert model_validation_rejection(connection, "ollama", "local_default") == "model_validation_failed"
+
+
+def test_a_failed_probe_is_recorded_despite_a_concurrent_success_of_another_model(connection, monkeypatch):
+    ProviderAccountStore(connection).patch_provider_account("ollama", {"enabled": True})
+    record_model_execution(connection, "ollama", "local_default", True, "test_prompt", started_at=_ago(1))
+    monkeypatch.setattr(probe, "provider_instance", lambda provider_id, *, connection: _Provider())
+
+    def concurrent_success_then_unrecorded_failure(provider_id, model, *, connection, provider):
+        record_model_execution(connection, provider_id, "other_model", True, "tool_broker")
+        return {"ok": False, "error": "boom", "latencyMs": 5}
+
+    monkeypatch.setattr(
+        model_gateway_api, "_run_provider_test_prompt", concurrent_success_then_unrecorded_failure
+    )
+    result = RuntimeValidationService(connection).validate("ollama", project_id=None)
+    assert result["status"] == "failed"
     assert model_validation_rejection(connection, "ollama", "local_default") == "model_validation_failed"
 
 

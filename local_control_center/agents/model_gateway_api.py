@@ -23,6 +23,8 @@ from local_control_center.executions.router import ExecutionRouter, queued_opera
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.contracts import RuntimeValidationRequest, RuntimeValidationResponse
+from local_control_center.runtime_team.probe import RuntimeValidationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
@@ -918,6 +920,27 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         )
         audit("model_gateway.provider.test_prompt", provider_id, {"model": model, "ok": result["ok"]})
         return {"test": result}
+
+    @router.post("/providers/{provider_id}/validate-runtime", response_model=RuntimeValidationResponse)
+    @queued_operation("models.validate_runtime", workload_class="remote_llm_light")
+    async def validate_runtime(
+        provider_id: str, body: RuntimeValidationRequest, request: Request
+    ) -> dict[str, Any]:
+        """Prueba real de ida y vuelta de un runtime para el equipo del hilo (una operación por runtime).
+
+        La clase de carga se reclasifica por runtime (CLI → agent_cli, loopback → local_gpu_model).
+        Un CLI consume cuota de suscripción; el pedido del operador es la aprobación y queda auditado.
+        """
+        require_write(request)
+        try:
+            result = RuntimeValidationService(platform.connection).validate(
+                provider_id, project_id=body.project_id
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"validation": result}
 
     @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:

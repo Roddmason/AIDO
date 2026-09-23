@@ -16,6 +16,7 @@ INFERENCE_OPERATIONS = frozenset(
         "models.execute_provider_image_editing",
         "models.execute_ai_execution",
         "models.test_prompt",
+        "models.validate_runtime",
         "models.route_execute",
     }
 )

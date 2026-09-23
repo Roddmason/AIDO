@@ -1,9 +1,10 @@
 /**
  * Loads the runtime-team candidates for a project plus the backend's automatic split for the
- * current selection; a changed selection aborts the stale request.
+ * current selection. Only the latest request writes state: a changed selection or a reload
+ * aborts the stale request, and a reload always queries the current selection.
  * @author Rodrigo Mason
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getRuntimeTeamCandidates, type RuntimeTeamCandidatesResponse } from '../../api/client';
 
@@ -15,33 +16,40 @@ export function useRuntimeTeamCandidates(
 	const [data, setData] = useState<RuntimeTeamCandidatesResponse | null>(null);
 	const [failed, setFailed] = useState(false);
 	const selectedKey = selected === null ? null : selected.join(',');
+	const query = useRef({ projectId, selectedKey });
+	const latestRequest = useRef<AbortController | null>(null);
 
-	const load = useCallback(
-		async (signal?: AbortSignal) => {
-			const selection = selectedKey === null ? null : selectedKey.split(',').filter(Boolean);
-			try {
-				const response = await getRuntimeTeamCandidates(projectId, selection, signal);
-				if (!signal?.aborted) {
-					setData(response);
-					setFailed(false);
-				}
-			} catch {
-				if (!signal?.aborted) setFailed(true);
+	const loadLatest = useCallback(async () => {
+		latestRequest.current?.abort();
+		const controller = new AbortController();
+		latestRequest.current = controller;
+		const { projectId: currentProjectId, selectedKey: currentKey } = query.current;
+		const selection = currentKey === null ? null : currentKey.split(',').filter(Boolean);
+		try {
+			const response = await getRuntimeTeamCandidates(
+				currentProjectId,
+				selection,
+				controller.signal,
+			);
+			if (!controller.signal.aborted) {
+				setData(response);
+				setFailed(false);
 			}
-		},
-		[projectId, selectedKey],
-	);
+		} catch {
+			if (!controller.signal.aborted) setFailed(true);
+		}
+	}, []);
 
 	useEffect(() => {
+		query.current = { projectId, selectedKey };
 		if (!enabled) return undefined;
-		const controller = new AbortController();
-		void load(controller.signal);
-		return () => controller.abort();
-	}, [enabled, load]);
+		void loadLatest();
+		return () => latestRequest.current?.abort();
+	}, [enabled, projectId, selectedKey, loadLatest]);
 
 	const reload = useCallback(() => {
-		void load();
-	}, [load]);
+		void loadLatest();
+	}, [loadLatest]);
 
 	return { data, failed, reload };
 }

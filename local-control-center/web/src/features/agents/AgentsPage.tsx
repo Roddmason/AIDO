@@ -39,7 +39,14 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { type AsyncError, resolveAsyncError, toAsyncError } from '../../lib/asyncError';
 import { toneForStatus } from '../../lib/format';
 
-const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual'];
+const runtimeModeOptions: AgentRuntimeMode[] = [
+	'api',
+	'cli',
+	'local',
+	'ollama',
+	'hybrid',
+	'manual',
+];
 const agentRoles: AgentRole[] = [
 	'analyst',
 	'assessor',

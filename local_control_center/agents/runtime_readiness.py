@@ -22,6 +22,8 @@ from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.shared.time import utc_now
 
+from .endpoint_locality import is_local_model_runtime
+
 HEALTH_EVIDENCE_TTL_SECONDS = 300
 
 CREDENTIAL_PROVIDER_KINDS = frozenset({"cli", "api", "gateway"})
@@ -157,13 +159,16 @@ def apply_effective_readiness(
     scope = policy.get("policy", {})
     flags = scope.get("global", {})
     project = scope.get("project", {})
-    flag = "cliEnabled" if kind == "cli" else "remoteEnabled"
-    global_enabled = bool(flags.get(flag))
+    if kind == "cli":
+        global_enabled, project_enabled = bool(flags.get("cliEnabled")), bool(project.get("cliEnabled"))
+    elif is_local_model_runtime(account):
+        global_enabled, project_enabled = bool(flags.get("localEnabled")), True
+    else:
+        global_enabled, project_enabled = bool(flags.get("remoteEnabled")), bool(project.get("remoteEnabled"))
     if status["id"] == "ollama" or account.get("apiFormat") == "ollama":
-        global_enabled = bool(flags.get("ollamaEnabled"))
+        global_enabled &= bool(flags.get("ollamaEnabled"))
     if account.get("providerFamily") == "nvidia_nim":
         global_enabled &= bool(flags.get("nvidiaEnabled"))
-    project_enabled = bool(project.get(flag))
     if kind == "manual":
         global_enabled = bool(account.get("enabled"))
         project_enabled = True

@@ -11211,6 +11211,14 @@
       "en": "Remote APIs (platform-wide)",
       "es": "APIs remotas (toda la plataforma)"
     },
+    "app.settings.runtime.local.enabled": {
+      "en": "Local model runtimes (platform-wide)",
+      "es": "Runtimes de modelos locales (toda la plataforma)"
+    },
+    "app.settings.runtime.local.maxCallSeconds": {
+      "en": "Max seconds per local model call",
+      "es": "Segundos máximos por llamada a un modelo local"
+    },
     "app.settings.runtime.ollama.enabled": {
       "en": "Ollama (platform-wide)",
       "es": "Ollama (toda la plataforma)"
@@ -11334,6 +11342,10 @@
     "app.settings.enum.mode.cli": {
       "en": "CLI runtime",
       "es": "Runtime CLI"
+    },
+    "app.settings.enum.mode.local": {
+      "en": "Local runtimes",
+      "es": "Runtimes locales"
     },
     "app.settings.enum.mode.ollama": {
       "en": "Ollama (local)",
@@ -12407,6 +12419,10 @@
     "app.settings.enum.mode.cliDesc": {
       "en": "Drive installed CLI runtimes on this machine.",
       "es": "Usar los runtimes CLI instalados en esta máquina."
+    },
+    "app.settings.enum.mode.localDesc": {
+      "en": "Run models on local servers such as llama.cpp, LM Studio, vLLM or Ollama.",
+      "es": "Ejecutar modelos en servidores locales como llama.cpp, LM Studio, vLLM u Ollama."
     },
     "app.settings.enum.mode.ollamaDesc": {
       "en": "Run local models through Ollama.",

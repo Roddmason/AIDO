@@ -174,6 +174,7 @@ const SETTING_ENUM_LABELS: Record<string, Record<string, { key: string; fallback
 	'project.runtime.defaultMode': {
 		api: { key: 'app.settings.enum.mode.api', fallback: 'API (direct)' },
 		cli: { key: 'app.settings.enum.mode.cli', fallback: 'CLI runtime' },
+		local: { key: 'app.settings.enum.mode.local', fallback: 'Local runtimes' },
 		ollama: { key: 'app.settings.enum.mode.ollama', fallback: 'Ollama (local)' },
 		hybrid: { key: 'app.settings.enum.mode.hybrid', fallback: 'Hybrid' },
 		manual: { key: 'app.settings.enum.mode.manual', fallback: 'Manual' },

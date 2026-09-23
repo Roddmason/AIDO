@@ -42,7 +42,7 @@ AgentRole = Literal[
     "release_manager",
 ]
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
-RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual"]
+RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual", "local"]
 PolicyStatus = Literal["active", "disabled"]
 RuntimeProviderKind = Literal["api", "gateway", "local", "cli", "manual"]
 RuntimeProviderNetworkPolicy = Literal[

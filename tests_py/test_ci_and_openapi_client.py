@@ -414,7 +414,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         '"developerAgent": DeveloperAgentStatus',
         '"ollama": OllamaRuntimeProviderStatus',
         '"providers": Array<RuntimeProviderStatus>',
-        '"runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual">',
+        '"runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual" | "local">',
     ):
         assert required_field in runtime_providers_line
     assert "export type IssueToPatchRequest" in content

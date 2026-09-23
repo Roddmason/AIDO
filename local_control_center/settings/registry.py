@@ -96,6 +96,24 @@ REGISTRY: list[SettingDescriptor] = [
         label_key="app.settings.runtime.ollama.enabled",
     ),
     SettingDescriptor(
+        key="runtime.local.enabled",
+        section="runtime",
+        project_section=None,
+        type="boolean",
+        default=True,
+        label_key="app.settings.runtime.local.enabled",
+    ),
+    SettingDescriptor(
+        key="runtime.local.maxCallSeconds",
+        section="runtime",
+        project_section=None,
+        type="number",
+        default=900,
+        label_key="app.settings.runtime.local.maxCallSeconds",
+        minimum=30,
+        maximum=3600,
+    ),
+    SettingDescriptor(
         key="runtime.nvidia.enabled",
         section="runtime",
         project_section=None,
@@ -133,7 +151,7 @@ REGISTRY: list[SettingDescriptor] = [
         project_section="runtime",
         type="enum",
         default="hybrid",
-        enum=("api", "cli", "ollama", "hybrid", "manual"),
+        enum=("api", "cli", "local", "ollama", "hybrid", "manual"),
         label_key="app.settings.project.runtime.defaultMode",
     ),
     SettingDescriptor(

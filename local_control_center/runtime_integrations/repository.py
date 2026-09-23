@@ -20,6 +20,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.settings.registry import descriptor_for, validate_value
 from local_control_center.settings.repository import UNSET, SettingsRepository
 from local_control_center.shared.redaction import redact_secrets
@@ -29,6 +30,8 @@ from local_control_center.shared.time import utc_now
 GLOBAL_RUNTIME_SETTINGS = (
     "runtime.cli.enabled",
     "runtime.remote.enabled",
+    "runtime.local.enabled",
+    "runtime.local.maxCallSeconds",
     "runtime.ollama.enabled",
     "runtime.nvidia.enabled",
 )
@@ -144,6 +147,7 @@ class RuntimeConfigRepository:
         global_policy = {
             "cliEnabled": self._resolved_setting(settings, "runtime.cli.enabled"),
             "remoteEnabled": self._resolved_setting(settings, "runtime.remote.enabled"),
+            "localEnabled": self._resolved_setting(settings, "runtime.local.enabled"),
             "ollamaEnabled": self._resolved_setting(settings, "runtime.ollama.enabled"),
             "nvidiaEnabled": self._resolved_setting(settings, "runtime.nvidia.enabled"),
         }
@@ -192,16 +196,26 @@ class RuntimeConfigRepository:
         provider_family: str | None = None,
         account: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return whether SQLite runtime policy allows a provider kind for the project."""
+        """Return whether SQLite runtime policy allows a provider kind for the project.
+
+        Una cuenta `local` elige su interruptor por localidad (`endpoint_locality`): runtime de modelo local
+        verificado ⇒ `runtime.local.enabled` (y `runtime.ollama.enabled` si es Ollama); `local` no verificada
+        (LAN sin declarar, `endpointKind=remote`) ⇒ los mismos interruptores remotos que `api`/`gateway`. Sin
+        cuenta resoluble solo los ids Ollama integrados cuentan como locales (ante la duda, remoto).
+        """
         policy = self.runtime_execution_policy(project_id=project_id)
         provider = str(provider_id)
-        family = str(
-            provider_family
-            or (account or {}).get("providerFamily")
-            or self._provider_family(provider)
-            or provider
-        )
+        resolved_account = account if account is not None else self._provider_account(provider)
+        family = str(provider_family or (resolved_account or {}).get("providerFamily") or provider)
         runtime_kind = "api" if family == "nvidia_nim" else str(kind)
+        ollama = (
+            is_ollama_runtime_id(provider) or str((resolved_account or {}).get("apiFormat") or "") == "ollama"
+        )
+        local_model = runtime_kind == "local" and (
+            is_local_model_runtime(resolved_account)
+            if resolved_account is not None
+            else is_ollama_runtime_id(provider)
+        )
         project_policy = policy["project"]
         allowed_providers = {
             str(item).strip() for item in project_policy.get("allowedProviders") or [] if str(item).strip()
@@ -213,7 +227,9 @@ class RuntimeConfigRepository:
                 "policy": policy,
             }
         mode = str(project_policy.get("defaultMode") or "hybrid")
-        mode_reason = self._mode_block_reason(provider_id=provider, kind=runtime_kind, mode=mode)
+        mode_reason = self._mode_block_reason(
+            provider_id=provider, kind=runtime_kind, mode=mode, local_model=local_model, ollama=ollama
+        )
         if mode_reason:
             return {"allowed": False, "reason": mode_reason, "policy": policy}
 
@@ -231,7 +247,7 @@ class RuntimeConfigRepository:
                     "reason": "project.runtime.cli.enabled is false for this project.",
                     "policy": policy,
                 }
-        elif runtime_kind in REMOTE_RUNTIME_KINDS:
+        elif runtime_kind in REMOTE_RUNTIME_KINDS or (runtime_kind == "local" and not local_model):
             if not global_policy.get("remoteEnabled"):
                 return {
                     "allowed": False,
@@ -250,21 +266,19 @@ class RuntimeConfigRepository:
                     "reason": "project.runtime.remote.enabled is false for this project.",
                     "policy": policy,
                 }
-        if is_ollama_runtime_id(provider) and not global_policy.get("ollamaEnabled"):
+        elif local_model and not global_policy.get("localEnabled"):
+            return {"allowed": False, "reason": "runtime.local.enabled is false.", "policy": policy}
+        if ollama and not global_policy.get("ollamaEnabled"):
             return {"allowed": False, "reason": "runtime.ollama.enabled is false.", "policy": policy}
         return {"allowed": True, "reason": "", "policy": policy}
 
-    def _provider_family(self, provider_id: str) -> str | None:
-        row = self.connection.execute(
-            """
-            SELECT provider_family
-            FROM provider_accounts
-            WHERE provider_id = ? OR id = ?
-            LIMIT 1
-            """,
-            (provider_id, provider_id),
-        ).fetchone()
-        return str(row["provider_family"] or "").strip() or None if row else None
+    def _provider_account(self, provider_id: str) -> dict[str, Any] | None:
+        from local_control_center.agents.provider_accounts import ProviderAccountStore
+
+        try:
+            return ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return None
 
     def _resolved_setting(
         self,
@@ -286,14 +300,16 @@ class RuntimeConfigRepository:
         return descriptor.default
 
     @staticmethod
-    def _mode_block_reason(*, provider_id: str, kind: str, mode: str) -> str:
+    def _mode_block_reason(*, provider_id: str, kind: str, mode: str, local_model: bool, ollama: bool) -> str:
         if mode == "hybrid":
             return ""
         if mode == "cli" and kind != "cli":
             return f"project.runtime.defaultMode=cli blocks provider {provider_id}."
         if mode == "api" and kind not in REMOTE_RUNTIME_KINDS:
             return f"project.runtime.defaultMode=api blocks provider {provider_id}."
-        if mode == "ollama" and not is_ollama_runtime_id(provider_id):
+        if mode == "local" and not local_model:
+            return f"project.runtime.defaultMode=local blocks provider {provider_id}."
+        if mode == "ollama" and not ollama:
             return f"project.runtime.defaultMode=ollama blocks provider {provider_id}."
         if mode == "manual" and kind != "manual":
             return f"project.runtime.defaultMode=manual blocks provider {provider_id}."

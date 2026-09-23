@@ -23,7 +23,7 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.telemetry import record_agent_run
 from local_control_center.shared.time import utc_now
 
-PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual"}
+PRODUCT_RUNTIME_MODES = {"api", "cli", "ollama", "hybrid", "manual", "local"}
 
 
 def row_to_agent_profile(row: sqlite3.Row) -> dict[str, Any]:

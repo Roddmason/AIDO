@@ -10,10 +10,30 @@ module is the immutable product contract for creating those accounts safely.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 from .model_gateway_models import ApiFamily, DeploymentMode, PricingMode, TermsMode
+
+ModelStateSource = Literal["openai_models_status", "lm_studio_rest", "single_model", "none"]
+MultiModelMode = Literal["router", "jit", "single", "unknown"]
+
+
+@dataclass(frozen=True)
+class LocalRuntimeProfile:
+    """Contrato de sondeo de un servidor de inferencia local; las rutas son relativas a la raíz sin `/v1`.
+
+    `health_requires_models` exige además un `/v1/models` no vacío (servidores cuyo liveness no prueba que
+    el engine sirva); `disable_reasoning_body` son campos extra del body que apagan el razonamiento.
+    """
+
+    liveness_path: str
+    health_requires_models: bool
+    model_state_source: ModelStateSource
+    multi_model: MultiModelMode
+    cold_start_timeout_s: int
+    disable_reasoning_body: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +62,7 @@ class ProviderCatalogEntry:
     #: Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del
     #: operador): el sync los omite y apaga los que un sync anterior dejó habilitados.
     excluded_model_prefixes: tuple[str, ...] = ()
+    local_profile: LocalRuntimeProfile | None = None
 
     def public_dict(self) -> dict[str, Any]:
         """Serialize with the camelCase contract used by HTTP clients."""
@@ -174,6 +195,15 @@ GEMINI_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
         ),
     },
 }
+
+LLAMA_CPP_LOCAL_PROFILE = LocalRuntimeProfile(
+    liveness_path="/health",
+    health_requires_models=False,
+    model_state_source="openai_models_status",
+    multi_model="router",
+    cold_start_timeout_s=180,
+    disable_reasoning_body={"chat_template_kwargs": {"enable_thinking": False}},
+)
 
 PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
     ProviderCatalogEntry(
@@ -423,6 +453,7 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         pricing_source="local_runtime_cost_only",
         provider_family="openai_compatible",
         aliases=("llama_server", "llamacpp"),
+        local_profile=LLAMA_CPP_LOCAL_PROFILE,
     ),
     ProviderCatalogEntry(
         id="openai_compatible",

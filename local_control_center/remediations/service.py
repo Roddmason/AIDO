@@ -868,7 +868,7 @@ class BlockerRemediationService:
         elif action_type == "continue_plan_only":
             execution = self._continue_plan_only(action=action)
         elif action_type == "revalidate_runtime":
-            execution = self._revalidate_runtime(action=action, payload=execution_payload, platform=platform)
+            execution = self._revalidate_runtime(action=action, platform=platform)
         else:
             execution = {
                 "status": "blocked",
@@ -1572,9 +1572,7 @@ class BlockerRemediationService:
         except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
             return {**blocked, "reason": str(error)}
 
-    def _revalidate_runtime(
-        self, *, action: dict[str, Any], payload: dict[str, Any], platform: Any
-    ) -> dict[str, Any]:
+    def _revalidate_runtime(self, *, action: dict[str, Any], platform: Any) -> dict[str, Any]:
         """Encola una ``models.validate_runtime`` por runtime vencido o reanuda el retry si ya responden.
 
         Una operación por runtime deja que ``operation_workload`` reserve la clase de cada proveedor
@@ -1582,8 +1580,10 @@ class BlockerRemediationService:
         ``resume_after_runtime_validation`` la re-ejecuta con todos sus runtimes validados. Las
         ejecuciones encoladas se persisten en ``validationExecutions`` del payload: re-ejecutar la
         acción mientras una prueba sigue en curso la reutiliza en vez de gastar otra cuota del CLI.
+        Los runtimes salen solo del payload persistido por el bloqueo; el cliente no puede cambiarlos.
         """
-        runtime_ids = [str(item) for item in payload.get("runtimeIds") or [] if str(item).strip()]
+        stored = action.get("payload") or {}
+        runtime_ids = [str(item) for item in stored.get("runtimeIds") or [] if str(item).strip()]
         if not runtime_ids:
             return {"status": "blocked", "action": "revalidate_runtime", "reason": "runtimeIds is required."}
         stale = [
@@ -1602,7 +1602,7 @@ class BlockerRemediationService:
             }
         from local_control_center.executions.router import enqueue_registered_operation
 
-        known = dict((action.get("payload") or {}).get("validationExecutions") or {})
+        known = dict(stored.get("validationExecutions") or {})
         execution_ids: dict[str, str] = {}
         for provider_id in stale:
             in_flight = self._in_flight_execution(known.get(provider_id))
@@ -1661,10 +1661,12 @@ class BlockerRemediationService:
         return {**retry, "action": "revalidate_runtime", "retry": retry}
 
     def resume_after_runtime_validation(self, provider_id: str) -> list[dict[str, Any]]:
-        """Re-ejecuta las re-pruebas pendientes que incluyen ``provider_id`` y ya tienen todo validado.
+        """Re-ejecuta las re-pruebas que el operador lanzó para ``provider_id`` y ya tienen todo validado.
 
-        Lo invoca el handler de ``models.validate_runtime`` tras un ``validated``; una re-prueba con
-        otro runtime aún vencido sigue esperando su propia validación.
+        Lo invoca el handler de ``models.validate_runtime`` tras un ``validated``. Solo cuenta una
+        re-prueba cuyo "Re-probar" encoló la prueba de ese runtime (``validationExecutions``): una prueba
+        hecha desde el panel del equipo no reanuda loops que el operador no pidió reintentar. Una
+        re-prueba con otro runtime aún vencido sigue esperando su propia validación.
         """
         rows = self.connection.execute(
             """SELECT id FROM remediation_actions
@@ -1674,8 +1676,11 @@ class BlockerRemediationService:
         resumed: list[dict[str, Any]] = []
         for row in rows:
             action = self.repository.get(row["id"])
-            runtime_ids = [str(item) for item in (action["payload"] or {}).get("runtimeIds") or []]
-            if provider_id not in runtime_ids:
+            stored = action["payload"] or {}
+            runtime_ids = [str(item) for item in stored.get("runtimeIds") or []]
+            if provider_id not in runtime_ids or provider_id not in (
+                stored.get("validationExecutions") or {}
+            ):
                 continue
             if all(
                 runtime_validated_within(self.connection, runtime_id, VALIDATION_TTL_SECONDS)

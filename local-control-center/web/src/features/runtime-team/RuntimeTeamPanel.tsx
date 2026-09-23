@@ -124,6 +124,13 @@ export function RuntimeTeamPanel({
 	const { data, failed, reload } = useRuntimeTeamCandidates(projectId, allowed, true);
 	const candidates = data?.candidates ?? [];
 	const autoProbed = useRef(false);
+	// Closing the drawer unmounts the panel: stop polling its probes (the queued test still runs).
+	const unmounted = useRef<AbortController | null>(null);
+	useEffect(() => {
+		const controller = new AbortController();
+		unmounted.current = controller;
+		return () => controller.abort();
+	}, []);
 
 	const setProbe = useCallback((providerId: string, outcome: ProbeOutcome | null) => {
 		setProbes((current) => {
@@ -136,13 +143,14 @@ export function RuntimeTeamPanel({
 
 	const probe = useCallback(
 		async (providerId: string) => {
+			const signal = unmounted.current?.signal;
 			setProbe(providerId, { status: 'running', reason: null, inFlight: true });
 			try {
 				const { validation } = await validateRuntime(
 					token,
 					providerId,
 					projectId,
-					undefined,
+					signal,
 					(execution) => {
 						if (execution.status === 'resource_wait') {
 							setProbe(providerId, {
@@ -160,13 +168,14 @@ export function RuntimeTeamPanel({
 						: { status: validation.status, reason: validation.reason ?? null, inFlight: false },
 				);
 			} catch (error) {
+				if (signal?.aborted) return;
 				setProbe(providerId, {
 					status: 'failed',
 					reason: error instanceof Error ? error.message : String(error),
 					inFlight: false,
 				});
 			} finally {
-				reload();
+				if (!signal?.aborted) reload();
 			}
 		},
 		[token, projectId, reload, setProbe],
@@ -285,6 +294,7 @@ export function RuntimeTeamPanel({
 							<Button
 								loading={running}
 								disabled={denied}
+								aria-label={`${t('app.runtimeTeam.test', 'Test')} ${candidate.label}`}
 								onClick={() => void probe(candidate.providerId)}
 							>
 								{t('app.runtimeTeam.test', 'Test')}

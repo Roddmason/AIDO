@@ -75,6 +75,7 @@ from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.runtime_team.configuration import (
     assigned_runtime,
+    discarded_role_runtime,
     restrict_to_allowlist,
     role_allowlist,
     runtime_team_of,
@@ -4490,10 +4491,16 @@ class ProductLoopCoordinator:
                 intents & self._ARCHITECT_REVIEW_INTENTS or risk in self._ARCHITECT_REVIEW_RISKS
             ):
                 if architect_unassigned:
+                    discarded = discarded_role_runtime(run.request_meta, "architect")
                     reviews["architect"] = {
                         "status": "skipped",
                         "verdict": "",
-                        "reason": "The thread runtime team assigns no architect runtime.",
+                        "reason": (
+                            f"The architect runtime {discarded['providerId']} was discarded when the run "
+                            f"was sealed ({discarded.get('reason') or discarded.get('status')})."
+                            if discarded
+                            else "The thread runtime team assigns no architect runtime."
+                        ),
                         "evidencePackageId": "",
                     }
                 else:

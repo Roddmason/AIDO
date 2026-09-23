@@ -1319,11 +1319,15 @@ function NewThreadComposer({
 	const [reuseBusy, setReuseBusy] = useState<SimilarityReuseMode | null>(null);
 	const [reuseFailed, setReuseFailed] = useState(false);
 	const [runtimeTeam, setRuntimeTeam] = useState<RuntimeTeamSelection | null>(null);
+	const [creating, setCreating] = useState(false);
 	// If thread creation succeeds but the first message fails, retry against the same empty thread.
 	// Navigating before the message is durable would unmount this intake and hide the only error.
+	// `teamSaved` records that the pending thread already holds a team, so switching back to
+	// automatic routing before the retry must clear it instead of skipping the PATCH.
 	const pendingCreatedThreadRef = useRef<{
 		threadId: string;
 		dismissedCandidate: ThreadSimilarityCandidate | null;
+		teamSaved: boolean;
 	} | null>(null);
 
 	// Debounced similar-work lookup. Best-effort by design: failures stay silent and never block
@@ -1359,6 +1363,7 @@ function NewThreadComposer({
 		let pending = pendingCreatedThreadRef.current;
 		const dismissedCandidate = pending?.dismissedCandidate ?? candidate;
 		setFailed(false);
+		setCreating(true);
 		try {
 			if (!pending) {
 				const created = await createThread(token, {
@@ -1367,14 +1372,15 @@ function NewThreadComposer({
 					ownerId: ownerIdForProject(overview, project),
 					title: threadTitle,
 				});
-				pending = { threadId: created.thread.id, dismissedCandidate };
+				pending = { threadId: created.thread.id, dismissedCandidate, teamSaved: false };
 				pendingCreatedThreadRef.current = pending;
 			}
 			if (!pending) throw new Error('Thread creation did not return a durable thread id.');
 			const pendingThreadId = pending.threadId;
-			if (runtimeTeam) {
+			if (runtimeTeam || pending.teamSaved) {
 				// Persist the team before the first message so the backend seals it into that run.
 				await updateThreadRunConfiguration(token, pendingThreadId, runtimeTeamRequest(runtimeTeam));
+				pending.teamSaved = runtimeTeam !== null;
 			}
 			await postThreadMessage(token, pendingThreadId, {
 				content: firstMessage,
@@ -1423,6 +1429,8 @@ function NewThreadComposer({
 			}
 			setFailed(true);
 			throw creationError;
+		} finally {
+			setCreating(false);
 		}
 	};
 
@@ -1493,6 +1501,7 @@ function NewThreadComposer({
 								projectId={project.id}
 								token={token}
 								selection={runtimeTeam}
+								disabled={creating}
 								onChange={setRuntimeTeam}
 							/>
 						}

@@ -501,6 +501,7 @@ function ThreadBlockerCard({
 			if (
 				status === 'completed' ||
 				status === 'queued' ||
+				status === 'validating' ||
 				(!appliesResearch && status === 'awaiting_approval')
 			) {
 				notify({

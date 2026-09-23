@@ -143,3 +143,41 @@ def test_a_validated_probe_resumes_runs_blocked_on_that_runtime(
     )
     assert response.status_code == 200, response.text
     assert resumed == ["deepseek"]
+
+
+def test_a_failed_resume_does_not_turn_a_validated_probe_into_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_TEAM_TEST_KEY", "unit-test-team-key")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_remote_provider(
+        client,
+        headers,
+        "deepseek",
+        base_url="https://example.invalid/v1",
+        credential_ref="env:AIDO_TEAM_TEST_KEY",
+    )
+    with _db() as connection, connection:
+        ProviderAccountStore(connection).upsert_model(
+            {"providerId": "deepseek", "model": "deepseek-chat", "enabled": True}
+        )
+    monkeypatch.setattr(
+        probe,
+        "provider_instance",
+        lambda provider_id, *, connection: SimpleNamespace(
+            chat_completion=lambda request: ModelResponse(
+                providerId="deepseek", model=request.model, content="ok", usage=UsageRecord()
+            )
+        ),
+    )
+
+    def broken_resume(self, provider_id):
+        raise RuntimeError("resume exploded")
+
+    monkeypatch.setattr(BlockerRemediationService, "resume_after_runtime_validation", broken_resume)
+    response = client.post(
+        "/api/v1/model-gateway/providers/deepseek/validate-runtime", json={}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["validation"]["status"] == "validated"

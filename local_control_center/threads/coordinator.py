@@ -128,7 +128,10 @@ class ThreadCoordinator:
         """Publica el mensaje, clasifica rápido y encola ejecución real cuando es seguro hacerlo.
 
         El gate del equipo de runtimes corre dentro de la misma transacción que sella el run, así un
-        PATCH concurrente no puede colarse entre la verificación y el sellado.
+        PATCH concurrente no puede colarse entre la verificación y el sellado. Corre recién cuando el
+        mensaje va a clasificarse para un run nuevo: una respuesta a una decisión pendiente o un bloqueo
+        por similitud no lo exigen (igual que la API de decisiones); si falla, la transacción revierte
+        el mensaje y no se encola nada.
         """
         if not content.strip():
             raise ValueError("Message content is required")
@@ -161,9 +164,6 @@ class ThreadCoordinator:
         )
 
         with immediate_transaction(self.connection):
-            ensure_thread_runtime_team_ready(
-                self.connection, project_id=existing_thread["projectId"], thread_id=thread_id
-            )
             user_message = self.repository.append_message(
                 thread_id=thread_id,
                 kind="user",
@@ -234,6 +234,9 @@ class ThreadCoordinator:
             if composer_resolution is not None:
                 return composer_resolution
 
+            ensure_thread_runtime_team_ready(
+                self.connection, project_id=existing_thread["projectId"], thread_id=thread_id
+            )
             decision = self.classifier.classify(decision_input)
             self.repository.record_event(
                 thread_id=thread_id,
@@ -945,6 +948,14 @@ class ThreadCoordinator:
             metadata=redact_secrets(run_metadata or {}),
             thread_id=thread["id"],
         )
+        discarded = clean_run_metadata.get(RUNTIME_TEAM_DISCARDED_METADATA_KEY)
+        if discarded:
+            self.repository.record_event(
+                thread_id=thread["id"],
+                type="runtime_team_narrowed",
+                agent_role="aido_lead",
+                payload={"messageId": message["id"], "discarded": discarded},
+            )
         plan_only = bool(clean_run_metadata.get("planOnly") or clean_run_metadata.get("plan_only"))
         payload = {
             "threadId": thread["id"],

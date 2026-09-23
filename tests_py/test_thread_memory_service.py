@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -485,3 +486,68 @@ def test_thread_without_delivery_evidence_neither_creates_nor_confirms_functiona
 
     assert legacy_updated_at == "2026-01-01T00:00:00.000Z"
     assert matches == []
+
+
+def test_delivery_evidence_never_parses_the_context_of_loops_without_delivery(tmp_path) -> None:
+    """Regresión perf: el JSON de ``context`` (hasta decenas de MB) sólo se lee en loops candidatos.
+
+    Un loop que no está ``delivered`` ni pertenece a una iniciativa con brief aprobado no puede
+    aportar evidencia, así que su ``context`` no debe parsearse ni en cada intake
+    (``has_delivery_evidence``) ni al materializar (``ensure_project_functionality``).
+    """
+    with (
+        closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection,
+        connection,
+        closing(sqlite3.connect(":memory:")) as delegate,
+    ):
+        context_reads = _count_thread_link_reads(connection, delegate)
+        initialize_platform_schema(connection)
+        project, thread = _archived_functionality_thread(connection, tmp_path)
+        for index in range(30):
+            _delivered_loop(
+                connection,
+                project["id"],
+                f"thread-noise-{index}",
+                state="cancelled",
+                initiative_id=f"initiative-noise-{index}",
+            )
+        _delivered_loop(connection, project["id"], thread["id"], state="blocked")
+        _approved_brief(connection, project["id"], "initiative-noise-0")
+        context_reads[0] = 0
+        service = ThreadMemoryService(connection)
+
+        assert service.has_delivery_evidence(thread["id"], project["id"]) is False
+        reads_per_check = context_reads[0]
+        assert service.ensure_project_functionality(project["id"]) == 0
+
+    assert reads_per_check == 1, "sólo el loop de la iniciativa con brief aprobado"
+    assert context_reads == [2]
+
+
+def _approved_brief(connection, project_id: str, initiative_id: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO product_briefs
+            (id, project_id, initiative_id, title, status, summary, problem_statement, goals,
+             target_users, success_metrics, scope, out_of_scope, version, created_at, updated_at)
+        VALUES (?, ?, ?, 'Brief', 'approved', '', '', '[]', '[]',
+                '[]', '[]', '[]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+        """,
+        (f"brief-{initiative_id}", project_id, initiative_id),
+    )
+
+
+def _count_thread_link_reads(connection, delegate) -> list[int]:
+    """Envuelve ``json_extract`` para contar lecturas del enlace loop→hilo sin cambiar su resultado.
+
+    Se registra antes de preparar cualquier sentencia: las ya cacheadas conservan la función nativa.
+    """
+    reads = [0]
+
+    def counting_json_extract(document, path):
+        if path == "$.durableRun.thread.projectThreadId":
+            reads[0] += 1
+        return delegate.execute("SELECT json_extract(?, ?)", (document, path)).fetchone()[0]
+
+    connection.create_function("json_extract", 2, counting_json_extract, deterministic=True)
+    return reads

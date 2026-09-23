@@ -48,6 +48,7 @@ import {
 	postThreadMessage,
 	postThreadNote,
 	runWorkerOnce,
+	updateThreadRunConfiguration,
 	type WorkerStatusResponse,
 } from '../../api/client';
 import type {
@@ -80,6 +81,12 @@ import {
 	threadIntakeExit,
 	threadLiveEnter,
 } from '../../motion/variants';
+import { RuntimeTeamChip } from '../runtime-team/RuntimeTeamChip';
+import {
+	type RuntimeTeamSelection,
+	readRuntimeTeam,
+	runtimeTeamRequest,
+} from '../runtime-team/runtimeTeamModel';
 import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
 import { GitBranchBar } from './GitBranchBar';
@@ -217,6 +224,15 @@ export function ThreadConversation({
 			setStreamRefreshKey((value) => value + 1);
 		},
 		[send],
+	);
+
+	const saveRuntimeTeam = useCallback(
+		async (selection: RuntimeTeamSelection | null) => {
+			if (!activeThreadId) return;
+			await updateThreadRunConfiguration(token, activeThreadId, runtimeTeamRequest(selection));
+			reload();
+		},
+		[activeThreadId, token, reload],
 	);
 
 	const loadWorkerStatus = useCallback((signal?: AbortSignal) => {
@@ -602,6 +618,15 @@ export function ThreadConversation({
 								onAddNote={addNote}
 								onCancelExecution={cancelExecution}
 								onNewObjective={openNewObjective}
+								teamControl={
+									<RuntimeTeamChip
+										projectId={selectedProject.id}
+										token={token}
+										selection={readRuntimeTeam(detail.thread.metadata)}
+										disabled={isExecuting}
+										onChange={saveRuntimeTeam}
+									/>
+								}
 							/>
 						</div>
 					</div>
@@ -900,6 +925,8 @@ type ThreadComposerBoxProps = {
 	onCancelExecution?: () => void;
 	/** Note-mode escape hatch: hand the typed text to the "new objective" decision modal. */
 	onNewObjective?: (content: string) => void;
+	/** Context-row control for the thread's AI team (chip + drawer), rendered before the git bar. */
+	teamControl?: ReactNode;
 };
 
 /**
@@ -929,6 +956,7 @@ function ThreadComposerBox({
 	onAddNote,
 	onCancelExecution,
 	onNewObjective,
+	teamControl,
 }: ThreadComposerBoxProps) {
 	const { t } = useI18n();
 	const [value, setValue] = useState(initialValue);
@@ -1141,6 +1169,7 @@ function ThreadComposerBox({
 						</span>
 					</button>
 				) : null}
+				{teamControl}
 				<GitBranchBar selectedProject={project} token={token} onRefresh={onGitRefresh} />
 			</div>
 		</form>
@@ -1289,6 +1318,7 @@ function NewThreadComposer({
 	const [candidate, setCandidate] = useState<ThreadSimilarityCandidate | null>(null);
 	const [reuseBusy, setReuseBusy] = useState<SimilarityReuseMode | null>(null);
 	const [reuseFailed, setReuseFailed] = useState(false);
+	const [runtimeTeam, setRuntimeTeam] = useState<RuntimeTeamSelection | null>(null);
 	// If thread creation succeeds but the first message fails, retry against the same empty thread.
 	// Navigating before the message is durable would unmount this intake and hide the only error.
 	const pendingCreatedThreadRef = useRef<{
@@ -1342,6 +1372,10 @@ function NewThreadComposer({
 			}
 			if (!pending) throw new Error('Thread creation did not return a durable thread id.');
 			const pendingThreadId = pending.threadId;
+			if (runtimeTeam) {
+				// Persist the team before the first message so the backend seals it into that run.
+				await updateThreadRunConfiguration(token, pendingThreadId, runtimeTeamRequest(runtimeTeam));
+			}
 			await postThreadMessage(token, pendingThreadId, {
 				content: firstMessage,
 				...(dismissedCandidate
@@ -1454,6 +1488,14 @@ function NewThreadComposer({
 						}
 						onCreateThread={createThreadFromMessage}
 						onValueChange={setDraft}
+						teamControl={
+							<RuntimeTeamChip
+								projectId={project.id}
+								token={token}
+								selection={runtimeTeam}
+								onChange={setRuntimeTeam}
+							/>
+						}
 					/>
 					<div className="thread-similarity-slot" aria-live="polite">
 						<AnimatePresence initial={false}>

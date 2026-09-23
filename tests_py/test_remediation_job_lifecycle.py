@@ -264,3 +264,41 @@ def test_new_loop_in_another_scope_does_not_dismiss_repairs(lane, tmp_path, mism
         _loop(lane, state="runtime_check", thread_id=other["id"])
     listed = lane.service.list_for_thread(thread_id=lane.thread["id"])
     assert next(item for item in listed if item["id"] == old_action["id"])["status"] == "pending"
+
+
+def test_job_failure_enriches_the_pending_generic_worker_action(lane):
+    base = {
+        "project_id": lane.project["id"],
+        "thread_id": lane.thread["id"],
+        "loop_id": None,
+        "stage": "worker",
+        "blocker_type": "worker_not_running",
+        "title": "Run worker once",
+        "description": "This thread is queued, but the local worker is not running.",
+        "action_type": "run_worker_once",
+    }
+    generic = lane.service.repository.create_action(
+        **base, payload={"projectId": lane.project["id"], "threadId": lane.thread["id"]}
+    )
+    failed_job = _job(lane, "failed")
+    enriched = lane.service.repository.create_action(
+        **base,
+        payload={
+            "projectId": lane.project["id"],
+            "threadId": lane.thread["id"],
+            "details": {"jobId": failed_job["id"]},
+        },
+    )
+    other_job = _job(lane, "queued")
+    separate = lane.service.repository.create_action(
+        **base,
+        payload={
+            "projectId": lane.project["id"],
+            "threadId": lane.thread["id"],
+            "details": {"jobId": other_job["id"]},
+        },
+    )
+
+    assert enriched["id"] == generic["id"]
+    assert enriched["payload"]["details"]["jobId"] == failed_job["id"]
+    assert separate["id"] != generic["id"]

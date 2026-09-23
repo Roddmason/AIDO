@@ -108,7 +108,8 @@ class RemediationActionsRepository:
 
         def same_action_identity(row: sqlite3.Row) -> bool:
             existing_payload = json_loads(row["payload_json"], {})
-            if not clean_loop_id and job_id(existing_payload) != job_id(clean_payload):
+            existing_job = job_id(existing_payload)
+            if not clean_loop_id and existing_job and existing_job != job_id(clean_payload):
                 return False
             if action_type == "open_settings_section":
                 return (

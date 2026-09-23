@@ -14,9 +14,9 @@ import sqlite3
 import uuid
 from html import unescape
 from html.parser import HTMLParser
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
@@ -173,7 +173,12 @@ class ResearchAgentValidationError(ValueError):
 
 
 def _fetch_url_text(url: str) -> str:
-    """Obtiene texto de una fuente HTTP(S) pública y acotada; revalida el destino y cada redirect."""
+    """Obtiene texto de una fuente HTTP(S) pública y acotada; revalida el destino y cada redirect.
+
+    Todo fallo de red termina en ``ResearchAgentValidationError``: ``OSError`` cubre ``URLError``,
+    ``HTTPError``, los timeouts y el ``ConnectionResetError`` que ``urllib`` no envuelve al leer el
+    cuerpo; ``HTTPException`` cubre ``IncompleteRead`` y ``RemoteDisconnected``.
+    """
     try:
         assert_external_boundary()
         with open_public_source(
@@ -188,7 +193,7 @@ def _fetch_url_text(url: str) -> str:
             content_type = response.headers.get_content_charset() or "utf-8"
     except ResearchSourceUrlError as error:
         raise ResearchAgentValidationError(str(error)) from error
-    except (HTTPError, URLError, TimeoutError) as error:
+    except (OSError, HTTPException) as error:
         raise ResearchAgentValidationError(f"ResearchAgent source fetch failed: {error}") from error
     return content.decode(content_type, errors="replace")
 

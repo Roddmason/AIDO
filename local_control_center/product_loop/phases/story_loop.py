@@ -7,7 +7,9 @@ rework (la arista ``qa_running → executing`` con trigger ``next_story`` reinic
 Cada cambio de estado se persiste en ``user_stories``/``agent_tasks`` (nunca en
 ``agent_assignments``: sus estados de inicio disparan gates de handoff), en el cursor durable
 ``durableRun.storyProgress`` y como evento de hilo ``story_progress``. Una historia sin cambios queda
-``done`` con ``metadata.outcome=noop``. Los helpers del coordinator se importan de forma diferida para
+``done`` con ``metadata.outcome=noop``. Un reintento (``retryOfLoopId`` del mismo proyecto e hilo)
+salta las historias cuya huella de spec ya quedó ``done`` en el loop de origen
+(``metadata.outcome=carried_over``). Los helpers del coordinator se importan de forma diferida para
 evitar el ciclo de imports (el coordinator importa este módulo al cargar).
 
 @author Rodrigo Mason
@@ -34,10 +36,12 @@ from local_control_center.shared.time import utc_now
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
 
-__all__ = ["run_story_batches"]
+__all__ = ["match_carried_over", "run_story_batches"]
 
 STORY_EVENT_TYPE = "story_progress"
 NOOP_OUTCOME = "noop"
+CARRIED_OVER_OUTCOME = "carried_over"
+MAX_RETRY_HOPS = 5
 
 
 def run_story_batches(coordinator: ProductLoopCoordinator, run: _UserMessageRun) -> dict[str, Any] | None:
@@ -56,9 +60,14 @@ def run_story_batches(coordinator: ProductLoopCoordinator, run: _UserMessageRun)
     if uncovered:
         return _block_uncovered_stories(coordinator, run, uncovered)
     fingerprints = {batch["storyId"]: _batch_fingerprint(coordinator, batch) for batch in batches}
-    pending = [batch for batch in batches if not story_batch_is_done(batch)]
+    carried = _carry_over_from_retry_source(coordinator, run, batches, fingerprints)
+    pending = [
+        batch for batch in batches if batch["storyId"] not in carried and not story_batch_is_done(batch)
+    ]
     positions = {batch["storyId"]: index for index, batch in enumerate(batches, start=1)}
-    _initialize_progress(coordinator, run, batches, pending=pending, fingerprints=fingerprints)
+    _initialize_progress(
+        coordinator, run, batches, pending=pending, fingerprints=fingerprints, carried=carried
+    )
     root_task_id = run.base_task_id
     run.story_qa_results = []
     run.story_evidence_ids = []
@@ -302,6 +311,7 @@ def _initialize_progress(
     *,
     pending: list[dict[str, Any]],
     fingerprints: dict[str, str],
+    carried: set[str],
 ) -> None:
     pending_ids = {batch["storyId"] for batch in pending}
     entries: list[dict[str, Any]] = []
@@ -309,6 +319,9 @@ def _initialize_progress(
         if batch["storyId"] in pending_ids:
             _write_statuses(coordinator, batch, STORY_STATUS_TODO)
             status, outcome = STORY_STATUS_TODO, None
+        elif batch["storyId"] in carried:
+            _write_statuses(coordinator, batch, STORY_STATUS_DONE, outcome=CARRIED_OVER_OUTCOME)
+            status, outcome = STORY_STATUS_DONE, CARRIED_OVER_OUTCOME
         else:
             status = STORY_STATUS_DONE
             outcome = ((batch.get("story") or {}).get("metadata") or {}).get("outcome")
@@ -323,6 +336,83 @@ def _initialize_progress(
             )
         )
     _save_progress(coordinator, run, entries)
+
+
+def match_carried_over(
+    batches: list[dict[str, Any]], fingerprints: dict[str, str], done_entries: list[dict[str, Any]]
+) -> set[str]:
+    """Empareja uno a uno las historias actuales con las entradas ``done`` del loop de origen.
+
+    Primero por ``storyId`` (misma fila reutilizada) y después por huella de spec (filas nuevas del
+    mismo contenido). Cada entrada del origen consume a lo sumo una historia actual, en orden de
+    ejecución: dos historias idénticas con una sola terminada dejan la otra pendiente.
+    """
+    remaining = [entry for entry in done_entries if entry.get("status") == STORY_STATUS_DONE]
+    carried: set[str] = set()
+    for batch in batches:
+        if batch.get("story") is None:
+            continue
+        match = next(
+            (entry for entry in remaining if str(entry.get("storyId") or "") == batch["storyId"]), None
+        )
+        if match is None:
+            fingerprint = fingerprints.get(batch["storyId"]) or ""
+            match = next(
+                (
+                    entry
+                    for entry in remaining
+                    if fingerprint and str(entry.get("fingerprint") or "") == fingerprint
+                ),
+                None,
+            )
+        if match is not None:
+            remaining.remove(match)
+            carried.add(batch["storyId"])
+    return carried
+
+
+def _carry_over_from_retry_source(
+    coordinator: ProductLoopCoordinator,
+    run: _UserMessageRun,
+    batches: list[dict[str, Any]],
+    fingerprints: dict[str, str],
+) -> set[str]:
+    done_entries = _retry_source_progress(coordinator, run)
+    return match_carried_over(batches, fingerprints, done_entries) if done_entries else set()
+
+
+def _retry_source_progress(coordinator: ProductLoopCoordinator, run: _UserMessageRun) -> list[dict[str, Any]]:
+    """Devuelve el ``storyProgress`` del loop de origen más cercano en la cadena de reintentos.
+
+    Sigue ``requestMeta.retryOfLoopId`` hasta ``MAX_RETRY_HOPS`` saltos y se detiene en el primer loop
+    con cursor de historias: un reintento que se bloqueó antes del loop de historias (p. ej. en la
+    puerta de runtime) no tiene cursor y remite a su propio origen. Cada salto exige el mismo proyecto
+    y el mismo hilo; un loop ajeno, inexistente o un ciclo cortan la cadena sin arrastrar nada.
+    """
+    if not run.thread_id:
+        return []
+    source_id = str((run.request_meta or {}).get("retryOfLoopId") or "").strip()
+    visited: set[str] = set()
+    for _hop in range(MAX_RETRY_HOPS):
+        if not source_id or source_id in visited:
+            return []
+        visited.add(source_id)
+        try:
+            source = coordinator.repository.get_loop(source_id)
+        except KeyError:
+            return []
+        durable = coordinator._durable_run_context(source)
+        thread = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+        if source["projectId"] != run.project_id or str(thread.get("projectThreadId") or "") != str(
+            run.thread_id
+        ):
+            return []
+        progress = [entry for entry in durable.get("storyProgress") or [] if isinstance(entry, dict)]
+        if progress:
+            return progress
+        request_meta = durable.get("requestMeta") if isinstance(durable.get("requestMeta"), dict) else {}
+        source_id = str(request_meta.get("retryOfLoopId") or "").strip()
+    return []
 
 
 def _update_progress(

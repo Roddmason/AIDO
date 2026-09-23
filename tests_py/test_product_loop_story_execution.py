@@ -16,11 +16,15 @@ from typing import Any
 
 import pytest
 
+from local_control_center.backlog.board import story_fingerprint
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop import coordinator as coordinator_module
 from local_control_center.product_loop.coordinator import DEFAULT_AUTO_REWORK_ROUNDS, ProductLoopCoordinator
+from local_control_center.product_loop.phases.story_loop import match_carried_over
 from local_control_center.security_policy.git_command_runner import git_available
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -451,3 +455,202 @@ def test_uncommitted_work_blocks_the_cumulative_review(
         assert "uncommitted" in result["reason"].lower()
         assert "src/" in result["reason"]
         assert security.run_payloads == []
+
+
+def _fresh_host_sample(connection: Any) -> None:
+    """Registra una muestra de host fresca antes del reintento.
+
+    La readiness descarta muestras de más de 30 s (``resource_snapshot_stale``) y un reintento real corre
+    con una muestra nueva, no con la del primer run, que en un host cargado ya venció.
+    """
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+
+
+def test_a_retry_skips_stories_already_done_in_the_source_loop(tmp_path: Path) -> None:
+    first_runtime = _PerStoryRuntime(qa_failures={2: 99})
+    retry_runtime = _PerStoryRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-retry")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        blocked = _run(coordinator, project, first_runtime)
+        assert blocked["status"] == "blocked"
+        thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+
+        _fresh_host_sample(connection)
+        retried = _run(
+            coordinator,
+            project,
+            retry_runtime,
+            thread_id=thread_id,
+            run_metadata={
+                "retryOfLoopId": blocked["loop"]["id"],
+                "functionalityDecision": "continue_existing",
+            },
+        )
+
+        assert retried["status"] == "awaiting_approval"
+        assert len(retry_runtime.run_payloads) == 1
+        payload = retry_runtime.run_payloads[0]
+        assert "Setup reminders" in payload["storySpecs"]
+        assert "Readiness checklist" not in payload["storySpecs"]
+        assert payload["taskId"].endswith(":s2")
+        cursor = retried["loop"]["context"]["durableRun"]["storyProgress"]
+        assert [(entry["status"], entry["outcome"]) for entry in cursor] == [
+            ("done", "carried_over"),
+            ("done", None),
+        ]
+
+
+def test_a_retry_follows_the_retry_chain_to_the_last_loop_with_story_progress(tmp_path: Path) -> None:
+    first_runtime = _PerStoryRuntime(qa_failures={2: 99})
+    retry_runtime = _PerStoryRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-retry-chain")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        blocked = _run(coordinator, project, first_runtime)
+        assert blocked["status"] == "blocked"
+        thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        blocked_before_stories = coordinator.repository.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Retry blocked before the story loop",
+                "state": "blocked",
+                "status": "blocked",
+                "context": {
+                    "durableRun": {
+                        "thread": {"projectThreadId": thread_id},
+                        "requestMeta": {"retryOfLoopId": blocked["loop"]["id"]},
+                    }
+                },
+            }
+        )
+
+        _fresh_host_sample(connection)
+        retried = _run(
+            coordinator,
+            project,
+            retry_runtime,
+            thread_id=thread_id,
+            run_metadata={
+                "retryOfLoopId": blocked_before_stories["id"],
+                "functionalityDecision": "continue_existing",
+            },
+        )
+
+        assert retried["status"] == "awaiting_approval"
+        assert len(retry_runtime.run_payloads) == 1
+        assert "Setup reminders" in retry_runtime.run_payloads[0]["storySpecs"]
+        cursor = retried["loop"]["context"]["durableRun"]["storyProgress"]
+        assert [(entry["status"], entry["outcome"]) for entry in cursor] == [
+            ("done", "carried_over"),
+            ("done", None),
+        ]
+
+
+def test_a_retry_marker_from_another_thread_never_skips_stories(tmp_path: Path) -> None:
+    runtime = _PerStoryRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-foreign-retry")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        emitted = _two_story_po().result["userStories"]
+        progress = [
+            {
+                "storyId": f"foreign-{index}",
+                "index": index,
+                "title": story["title"],
+                "status": "done",
+                "fingerprint": story_fingerprint(story, story["acceptanceCriteria"]),
+                "outcome": None,
+            }
+            for index, story in enumerate(emitted, start=1)
+        ]
+        foreign = coordinator.repository.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Foreign loop",
+                "state": "blocked",
+                "status": "blocked",
+                "context": {
+                    "durableRun": {"thread": {"projectThreadId": "thread-foreign"}, "storyProgress": progress}
+                },
+            }
+        )
+
+        result = _run(
+            coordinator,
+            project,
+            runtime,
+            run_metadata={"retryOfLoopId": foreign["id"], "functionalityDecision": "continue_existing"},
+        )
+
+        assert result["status"] == "awaiting_approval"
+        assert len(runtime.run_payloads) == 2
+
+
+def test_a_retry_with_every_story_done_runs_no_developer(tmp_path: Path) -> None:
+    if not git_available():
+        pytest.skip("git CLI is required for the cumulative worktree diff")
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "per-story-retry-all-done")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        blocked = _run(
+            coordinator,
+            project,
+            _WorkspaceWritingRuntime(connection, tmp_path),
+            security=_SecurityGate(verdict="blocked", reason="Critical security finding blocks completion."),
+        )
+        assert blocked["status"] == "blocked"
+        assert {entry["status"] for entry in blocked["loop"]["context"]["durableRun"]["storyProgress"]} == {
+            "done"
+        }
+        thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        retry_runtime = _WorkspaceWritingRuntime(connection, tmp_path)
+
+        _fresh_host_sample(connection)
+        retried = _run(
+            coordinator,
+            project,
+            retry_runtime,
+            thread_id=thread_id,
+            run_metadata={
+                "retryOfLoopId": blocked["loop"]["id"],
+                "functionalityDecision": "continue_existing",
+            },
+        )
+
+        assert retried["status"] == "awaiting_approval"
+        assert retry_runtime.run_payloads == []
+        assert "stories_already_done" in [item.get("trigger") for item in retried["transitions"]]
+        cursor = retried["loop"]["context"]["durableRun"]["storyProgress"]
+        assert [(entry["status"], entry["outcome"]) for entry in cursor] == [
+            ("done", "carried_over"),
+            ("done", "carried_over"),
+        ]
+        assert retried["loop"]["context"]["durableRun"]["review"]["changedFiles"] == [
+            "src/story_1.py",
+            "src/story_2.py",
+        ]
+
+
+def test_carried_over_matching_is_one_to_one_by_fingerprint() -> None:
+    batches = [
+        {"storyId": "current-1", "story": {"id": "current-1"}, "tasks": [{"id": "t1"}]},
+        {"storyId": "current-2", "story": {"id": "current-2"}, "tasks": [{"id": "t2"}]},
+        {"storyId": "current-3", "story": {"id": "current-3"}, "tasks": [{"id": "t3"}]},
+    ]
+    fingerprints = {"current-1": "same", "current-2": "same", "current-3": "other"}
+    done_entries = [{"storyId": "source-1", "status": "done", "fingerprint": "same"}]
+
+    assert match_carried_over(batches, fingerprints, done_entries) == {"current-1"}
+    assert match_carried_over(
+        batches, fingerprints, [{"storyId": "current-3", "status": "done", "fingerprint": ""}]
+    ) == {"current-3"}
+    assert match_carried_over(batches, fingerprints, []) == set()

@@ -11850,7 +11850,7 @@
     },
     "app.threads.remediation.riskReview.field.runtime": {
       "en": "Runtime",
-      "es": "Runtime"
+      "es": "Tiempo de ejecución"
     },
     "app.threads.remediation.riskReview.field.risk": {
       "en": "Risk",
@@ -11878,7 +11878,7 @@
     },
     "app.threads.remediation.riskReview.field.loopId": {
       "en": "Loop",
-      "es": "Loop"
+      "es": "Bucle"
     },
     "app.threads.remediation.riskReview.field.jobId": {
       "en": "Job",

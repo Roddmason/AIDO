@@ -1283,6 +1283,138 @@
       "en": "executable runtime",
       "es": "runtime ejecutable"
     },
+    "app.runtimeTeam.chipAuto": {
+      "en": "AI team · automatic",
+      "es": "Equipo IA · automático"
+    },
+    "app.runtimeTeam.chipCount": {
+      "en": "AI team · {selected} of {total}",
+      "es": "Equipo IA · {selected} de {total}"
+    },
+    "app.runtimeTeam.title": {
+      "en": "AI team for this thread",
+      "es": "Equipo IA de este hilo"
+    },
+    "app.runtimeTeam.intro": {
+      "en": "Only runtimes that answered a real test in the last 30 minutes can join this thread. Expired ones are re-tested when this panel opens.",
+      "es": "Solo pueden sumarse los runtimes que respondieron una prueba real en los últimos 30 minutos. Los vencidos se vuelven a probar al abrir este panel."
+    },
+    "app.runtimeTeam.runtimes": {
+      "en": "Available runtimes",
+      "es": "Runtimes disponibles"
+    },
+    "app.runtimeTeam.cliQuota": {
+      "en": "Testing uses your subscription quota.",
+      "es": "Probarlo consume la cuota de tu suscripción."
+    },
+    "app.runtimeTeam.noRole": {
+      "en": "No team role can use this runtime.",
+      "es": "Ningún rol del equipo puede usar este runtime."
+    },
+    "app.runtimeTeam.test": {
+      "en": "Test",
+      "es": "Probar"
+    },
+    "app.runtimeTeam.status.validated": {
+      "en": "Validated",
+      "es": "Validado"
+    },
+    "app.runtimeTeam.status.stale": {
+      "en": "Expired",
+      "es": "Vencido"
+    },
+    "app.runtimeTeam.status.failed": {
+      "en": "Failed",
+      "es": "Falló"
+    },
+    "app.runtimeTeam.status.never": {
+      "en": "Not tested",
+      "es": "Sin probar"
+    },
+    "app.runtimeTeam.status.running": {
+      "en": "Testing…",
+      "es": "Probando…"
+    },
+    "app.runtimeTeam.status.deferred": {
+      "en": "Deferred",
+      "es": "Diferida"
+    },
+    "app.runtimeTeam.status.policy_denied": {
+      "en": "Blocked by project policy",
+      "es": "Bloqueado por la política del proyecto"
+    },
+    "app.runtimeTeam.roles": {
+      "en": "Role assignment",
+      "es": "Asignación de roles"
+    },
+    "app.runtimeTeam.role.product_owner": {
+      "en": "Product Owner",
+      "es": "Dueño de producto"
+    },
+    "app.runtimeTeam.role.developer": {
+      "en": "Developer",
+      "es": "Desarrollo"
+    },
+    "app.runtimeTeam.role.architect": {
+      "en": "Architect",
+      "es": "Arquitectura"
+    },
+    "app.runtimeTeam.role.security": {
+      "en": "Security",
+      "es": "Seguridad"
+    },
+    "app.runtimeTeam.role.qa": {
+      "en": "QA",
+      "es": "Calidad (QA)"
+    },
+    "app.runtimeTeam.role.devops": {
+      "en": "DevOps",
+      "es": "Operaciones (DevOps)"
+    },
+    "app.runtimeTeam.role.techLead": {
+      "en": "Tech Lead",
+      "es": "Líder técnico"
+    },
+    "app.runtimeTeam.choose": {
+      "en": "Choose a runtime",
+      "es": "Elige un runtime"
+    },
+    "app.runtimeTeam.roleRequired": {
+      "en": "This role needs a runtime before the thread can run.",
+      "es": "Este rol necesita un runtime antes de que el hilo pueda ejecutarse."
+    },
+    "app.runtimeTeam.architectOptional": {
+      "en": "Optional. Without a runtime, the architecture review does not run for this thread.",
+      "es": "Opcional. Sin runtime, la revisión de arquitectura no se ejecuta en este hilo."
+    },
+    "app.runtimeTeam.securityOptional": {
+      "en": "Optional. Without a runtime, security runs only its deterministic scanners.",
+      "es": "Opcional. Sin runtime, seguridad ejecuta solo sus scanners deterministas."
+    },
+    "app.runtimeTeam.deterministic": {
+      "en": "AIDO (deterministic)",
+      "es": "AIDO (determinista)"
+    },
+    "app.runtimeTeam.autoAssign": {
+      "en": "Assign automatically",
+      "es": "Repartir automáticamente"
+    },
+    "app.runtimeTeam.missingRoles": {
+      "en": "Product Owner and Developer need a runtime before the thread can run.",
+      "es": "Product Owner y Developer necesitan un runtime antes de que el hilo pueda ejecutarse."
+    },
+    "app.runtimeTeam.clear": {
+      "en": "Use automatic routing",
+      "es": "Usar ruteo automático"
+    },
+    "app.runtimeTeam.save": {
+      "en": "Save team",
+      "es": "Guardar equipo"
+    },
+    "app.runtimeTeam.loadError": {
+      "en": "Could not load the runtimes. Try again.",
+      "es": "No se pudieron cargar los runtimes. Inténtalo de nuevo."
+    },
     "app.statusBar.git.branchSelect": {
       "en": "Git branch",
       "es": "Rama de Git"

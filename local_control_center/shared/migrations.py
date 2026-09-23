@@ -147,11 +147,18 @@ def init_phase77_schema(connection: sqlite3.Connection) -> None:
     `providerCatalogId` vivía en la metadata que el cliente reescribe; desde aquí solo lo escriben el alta
     desde catálogo y el router de endpoints locales. La metadata se sanea: se retira `providerCatalogId` y un
     `endpointKind="local"` (declarar local exige el endpoint auditado); `"remote"` se conserva porque solo
-    restringe. Las cuentas llama.cpp existentes reciben su fila propia de `runtime_installations` (antes
-    heredaban la fila compartida y deshabilitada de la familia). Idempotente: se re-ejecuta sin efectos.
+    restringe. El backfill promueve `metadata.providerCatalogId` a la columna solo cuando el id es un catálogo
+    conocido y coincide en `providerType`/`apiFormat`/`providerFamily` con la fila (una cuenta remota con un
+    id de catálogo self-hosted incompatible, escrito antes de esta fase por un PATCH de cliente, queda con la
+    columna en NULL en vez de heredar una clasificación de costo/localidad falsa). Las cuentas llama.cpp
+    existentes reciben su fila propia de `runtime_installations` (antes heredaban la fila compartida y
+    deshabilitada de la familia). Idempotente: se re-ejecuta sin efectos.
     """
     if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 77").fetchone():
         return
+
+    from local_control_center.agents.provider_catalog import provider_catalog_entry
+
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(provider_accounts)")}
     statements: list[tuple[str, tuple[object, ...]]] = [
         (f"ALTER TABLE provider_accounts ADD COLUMN {name} {sql_type}", ())
@@ -163,14 +170,28 @@ def init_phase77_schema(connection: sqlite3.Connection) -> None:
         if name not in columns
     ]
     now = utc_now()
+    candidate_rows = connection.execute(
+        """SELECT provider_id, provider_type, api_format, provider_family,
+                  json_extract(metadata_json, '$.providerCatalogId') AS candidate_catalog_id
+           FROM provider_accounts
+           WHERE json_valid(metadata_json) AND json_type(metadata_json, '$.providerCatalogId') = 'text'"""
+    ).fetchall()
+    for row in candidate_rows:
+        entry = provider_catalog_entry(str(row["candidate_catalog_id"] or ""))
+        if (
+            entry is not None
+            and entry.provider_type == row["provider_type"]
+            and entry.api_format == row["api_format"]
+            and entry.provider_family == row["provider_family"]
+        ):
+            statements.append(
+                (
+                    "UPDATE provider_accounts SET provider_catalog_id = ? "
+                    "WHERE provider_id = ? AND provider_catalog_id IS NULL",
+                    (entry.id, row["provider_id"]),
+                )
+            )
     statements += [
-        (
-            """UPDATE provider_accounts
-            SET provider_catalog_id = json_extract(metadata_json, '$.providerCatalogId')
-            WHERE provider_catalog_id IS NULL AND json_valid(metadata_json)
-              AND json_type(metadata_json, '$.providerCatalogId') = 'text'""",
-            (),
-        ),
         (
             """UPDATE provider_accounts SET metadata_json = json_remove(metadata_json, '$.providerCatalogId')
             WHERE json_valid(metadata_json) AND json_type(metadata_json, '$.providerCatalogId') IS NOT NULL""",

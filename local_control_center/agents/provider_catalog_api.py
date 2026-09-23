@@ -393,6 +393,20 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                                 f"/api/v1/model-gateway/providers/{instance_id}."
                             ),
                         )
+                    try:
+                        existing_installation = runtimes().get_installation(instance_id)
+                    except KeyError:
+                        pass
+                    else:
+                        if existing_installation.get("configurationSource") != "local_runtime_catalog":
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    f"Runtime installation already exists: {instance_id}. "
+                                    "Choose a different instance id or remove the existing runtime "
+                                    "installation first."
+                                ),
+                            )
                 provider_store.upsert_provider_account(account_payload)
                 provider = provider_store.set_provider_catalog_id(instance_id, entry.id)
                 if entry.local_profile is not None:

@@ -19,7 +19,12 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from .provider_catalog import ProviderCatalogEntry, provider_catalog_entry
-from .runtime_provider_config import DEFAULT_OLLAMA_BASE_URL
+from .runtime_provider_config import (
+    DEFAULT_OLLAMA_BASE_URL,
+    known_provider_default_base_url,
+    runtime_provider_configuration,
+    runtime_provider_configuration_for_account,
+)
 
 EndpointLocality = Literal["loopback", "declared_local", "remote"]
 NetworkScope = Literal["loopback", "private_network", "declared_local", "public"]
@@ -44,17 +49,54 @@ def _metadata(account: Mapping[str, Any]) -> Mapping[str, Any]:
     return metadata if isinstance(metadata, Mapping) else {}
 
 
+def _legacy_ollama_default_base_url(account: Mapping[str, Any]) -> str:
+    """URL que `OllamaProvider` resuelve para una cuenta Ollama integrada sin URL."""
+    is_ollama_adapter = (
+        str(account.get("providerFamily") or "") in LEGACY_OLLAMA_IDS
+        or str(account.get("apiFormat") or "") == "ollama"
+    )
+    if str(account.get("providerId") or "") not in LEGACY_OLLAMA_IDS or not is_ollama_adapter:
+        return ""
+    configuration = runtime_provider_configuration("ollama")
+    return (
+        (configuration.value("baseUrl") if configuration else None)
+        or os.environ.get("OLLAMA_BASE_URL")
+        or os.environ.get("OLLAMA_HOST")
+        or DEFAULT_OLLAMA_BASE_URL
+    )
+
+
+def effective_connection(account: Mapping[str, Any]) -> tuple[str, str]:
+    """URL base y referencia de credencial que usará el adapter de la cuenta (vacías si no hay).
+
+    Mismo orden que `ProviderAdapterFactory._connection_configuration`: la configuración por entorno de la
+    cuenta canónica (`AIDO_*_BASE_URL`/`AIDO_*_API_KEY`) gana sobre lo persistido; luego la URL de la cuenta,
+    el endpoint oficial de la familia y, para Ollama integrado, el default de `OllamaProvider`. Una cuenta con
+    alcance de endpoint no hereda la configuración global (`runtime_provider_configuration_for_account`).
+    """
+    configuration = runtime_provider_configuration_for_account(account)
+    provider_id = str(account.get("providerId") or "")
+    provider_family = str(account.get("providerFamily") or "")
+    family_default_base_url = (
+        known_provider_default_base_url(provider_family)
+        if str(account.get("apiFamily") or "") in {"chat_completions", "embeddings"}
+        and (provider_id == provider_family or str(account.get("deploymentMode") or "") == "hosted_trial")
+        else None
+    )
+    base_url = (
+        (configuration.value("baseUrl") if configuration else None)
+        or str(account.get("baseUrl") or "").strip()
+        or family_default_base_url
+        or _legacy_ollama_default_base_url(account)
+    )
+    credential_ref = (configuration.configured_env_ref("apiKey") if configuration else None) or str(
+        account.get("credentialRef") or ""
+    ).strip()
+    return base_url, credential_ref
+
+
 def _effective_base_url(account: Mapping[str, Any]) -> str:
-    """URL configurada; una cuenta Ollama integrada sin URL usa la misma que resuelve su adapter."""
-    base_url = str(account.get("baseUrl") or "").strip()
-    if base_url:
-        return base_url
-    if (
-        str(account.get("providerId") or "") in LEGACY_OLLAMA_IDS
-        and str(account.get("apiFormat") or "") == "ollama"
-    ):
-        return os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_BASE_URL
-    return ""
+    return effective_connection(account)[0]
 
 
 def _host(account: Mapping[str, Any]) -> str:
@@ -206,10 +248,14 @@ def is_self_hosted_inference(account: Mapping[str, Any], *, resolver: HostResolv
 
 
 def credential_transport_allowed(account: Mapping[str, Any], *, resolver: HostResolver | None = None) -> bool:
-    """Un bearer solo viaja por `https`, a un host loopback o a un host declarado local por el servidor."""
-    if not str(account.get("credentialRef") or "").strip():
+    """Un bearer solo viaja por `https`, a un host loopback o a un host declarado local por el servidor.
+
+    El bearer y la URL son los que resuelve el adapter: de la cuenta o de la configuración por entorno.
+    """
+    base_url, credential_ref = effective_connection(account)
+    if not credential_ref:
         return True
-    parsed = urlparse(_effective_base_url(account))
+    parsed = urlparse(base_url)
     if parsed.scheme == "https":
         return True
     host = (parsed.hostname or "").lower()

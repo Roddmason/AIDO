@@ -250,6 +250,7 @@ def test_a_validated_runtime_resumes_the_pending_retry(lane, monkeypatch):
         return {"status": "queued", "action": "retry_loop", "jobId": "job-retry"}
 
     monkeypatch.setattr(BlockerRemediationService, "_retry_loop", fake_retry)
+    service.repository.merge_payload(actions[0]["id"], {"validationExecutions": {"codex_cli": "exec-1"}})
     assert service.resume_after_runtime_validation("codex_cli") == []
     assert retried == []
     record_model_execution(connection, "codex_cli", "gpt-5.5", True, "test_prompt")
@@ -267,3 +268,27 @@ def test_retest_without_the_registered_operation_is_blocked_not_silent(lane, mon
     assert result["execution"]["status"] == "blocked"
     assert "models.validate_runtime" in result["execution"]["reason"]
     assert result["remediation"]["status"] == "pending"
+
+
+def test_a_probe_the_operator_did_not_request_from_retest_does_not_resume_the_loop(lane, monkeypatch):
+    service, actions, _project_id, connection = lane
+    monkeypatch.setattr(
+        BlockerRemediationService, "_retry_loop", lambda self, **kwargs: pytest.fail("must not retry")
+    )
+    record_model_execution(connection, "codex_cli", "gpt-5.5", True, "test_prompt")
+    assert service.resume_after_runtime_validation("codex_cli") == []
+    assert service.repository.get(actions[0]["id"])["status"] == "pending"
+    assert service.repository.get(actions[1]["id"])["status"] == "pending"
+
+
+def test_retest_ignores_runtime_ids_sent_by_the_client(lane, monkeypatch):
+    service, actions, _project_id, _connection = lane
+    enqueued: list[str] = []
+
+    def fake_enqueue(platform, spec, arguments, *, result_status_code=200, project_id=None):
+        enqueued.append(arguments["provider_id"])
+        return {"executionId": "exec-1", "jobId": "job", "operation": spec.name, "status": "queued"}
+
+    monkeypatch.setattr(execution_router, "enqueue_registered_operation", fake_enqueue)
+    service.execute(actions[0]["id"], payload={"runtimeIds": ["ollama"]}, platform=_platform())
+    assert enqueued == ["codex_cli"]

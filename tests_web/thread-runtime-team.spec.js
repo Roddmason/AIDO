@@ -285,3 +285,47 @@ test('a role edited by hand stays pinned while the automatic roles follow the ne
 	await panel.getByRole('button', { name: 'Assign automatically' }).click();
 	await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue('nvidia_nim');
 });
+
+test('switching back to automatic routing after a failed first message clears the saved team', async ({
+	page,
+}) => {
+	const state = await mockRuntimeTeam(page, { probeSucceeds: false });
+	let rejectedMessages = 0;
+	await page.route('**/api/v1/threads/*/messages', async (route) => {
+		if (route.request().method() === 'POST' && rejectedMessages === 0) {
+			rejectedMessages += 1;
+			await route.fulfill({
+				status: 422,
+				contentType: 'application/json',
+				body: JSON.stringify({ detail: 'Roles without a freshly validated runtime: developer.' }),
+			});
+			return;
+		}
+		await route.fallback();
+	});
+	const panel = await openNewThreadTeamPanel(page);
+	await panel.getByRole('checkbox', { name: /Claude Code CLI/ }).check();
+	await expect(panel.getByRole('combobox', { name: 'Developer' })).toHaveValue('claude_code_cli');
+	await panel.getByRole('button', { name: 'Save team' }).click();
+	await expect(panel).toBeHidden();
+
+	const objective = `Runtime team automatic retry spec ${Date.now()}`;
+	await page.getByLabel('Message AIDO').fill(objective);
+	await page.getByRole('button', { name: 'Create thread' }).click();
+	await expect(page.getByText('Could not send the message. Try again.')).toBeVisible({ timeout: 20_000 });
+	expect(state.patches).toHaveLength(1);
+
+	await page.getByRole('button', { name: /AI team/ }).click();
+	const reopened = page.getByRole('dialog', { name: 'AI team for this thread' });
+	await reopened.getByRole('button', { name: 'Use automatic routing' }).click();
+	await reopened.getByRole('button', { name: 'Save team' }).click();
+	await expect(reopened).toBeHidden();
+	await expect(page.getByRole('button', { name: 'AI team · automatic' })).toBeVisible();
+	await page.getByRole('button', { name: 'Create thread' }).click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden({
+		timeout: 20_000,
+	});
+	expect(state.patches).toHaveLength(2);
+	expect(state.patches[1]).toEqual({ allowedRuntimes: [], roleRuntimes: {} });
+	expect(state.order.lastIndexOf('patch')).toBeLessThan(state.order.lastIndexOf('message'));
+});

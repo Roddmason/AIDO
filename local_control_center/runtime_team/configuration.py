@@ -118,13 +118,16 @@ def write_thread_runtime_team(
 
     Raises:
         KeyError: el hilo no existe.
-        ValueError: un runtime no está habilitado o la política del proyecto lo deniega, o un rol
-            apunta fuera del conjunto o a un runtime que el contrato de ese rol no acepta.
+        ValueError: un runtime no está habilitado o la política del proyecto lo deniega, un rol
+            apunta fuera del conjunto o a un runtime que el contrato de ese rol no acepta, o llegan
+            roles asignados con un conjunto vacío (pedido contradictorio que abriría el ruteo).
     """
     metadata = _thread_metadata(connection, thread_id)
     if metadata is None:
         raise KeyError(f"Thread not found: {thread_id}")
     allowed = _clean_ids(allowed_runtimes)
+    if not allowed and any(str(provider_id or "").strip() for provider_id in role_runtimes.values()):
+        raise ValueError("Role runtimes require allowedRuntimes; send both empty to use automatic routing.")
     configuration = dict(metadata.get(THREAD_RUN_CONFIGURATION_KEY) or {})
     team: dict[str, Any] | None = None
     if allowed:
@@ -223,6 +226,7 @@ def assess_runtime_team(
 class _EffectiveRuntimeTeam:
     """Equipo del hilo tras la política del proyecto (``narrowed``) y tras la frescura (``fresh``)."""
 
+    configured: dict[str, Any]
     narrowed: dict[str, Any]
     fresh: dict[str, Any]
     excluded: tuple[dict[str, str], ...]
@@ -252,7 +256,9 @@ def _effective_thread_runtime_team(
     fresh = _team_restricted_to(
         narrowed, set(narrowed[ALLOWED_RUNTIMES_KEY]) - {item["providerId"] for item in stale}
     )
-    return _EffectiveRuntimeTeam(narrowed=narrowed, fresh=fresh, excluded=excluded, stale=stale)
+    return _EffectiveRuntimeTeam(
+        configured=team, narrowed=narrowed, fresh=fresh, excluded=excluded, stale=stale
+    )
 
 
 def ensure_thread_runtime_team_ready(
@@ -283,7 +289,7 @@ def seal_thread_runtime_team(
     """Sella en la metadata del run el equipo efectivo del hilo; descarta cualquier valor entrante.
 
     Saca los runtimes vencidos (30 min) y los que excluye el proyecto, y deja lo descartado en
-    ``runtimeTeamDiscarded``. Si sacar los vencidos dejaría PO o Developer sin runtime (un re-sellado
+    ``runtimeTeamDiscarded`` con los roles que el operador les había asignado. Si sacar los vencidos dejaría PO o Developer sin runtime (un re-sellado
     de retry, donde no corre el gate de envío), conserva los vencidos: el gate de ejecución (24 h)
     decide y bloquea con "Re-probar runtime" sobre los runtimes asignados en vez de perder sus ids.
     """
@@ -299,8 +305,29 @@ def seal_thread_runtime_team(
         team, discarded = effective.fresh, effective.excluded + effective.stale
     stamped[RUNTIME_TEAM_METADATA_KEY] = team
     if discarded:
-        stamped[RUNTIME_TEAM_DISCARDED_METADATA_KEY] = [dict(item) for item in discarded]
+        configured_roles = effective.configured[ROLE_RUNTIMES_KEY]
+        stamped[RUNTIME_TEAM_DISCARDED_METADATA_KEY] = [
+            {
+                **item,
+                "roles": [role for role in TEAM_ROLES if configured_roles.get(role) == item["providerId"]],
+            }
+            for item in discarded
+        ]
     return stamped
+
+
+def discarded_runtimes_of(request_meta: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Runtimes que el sellado sacó del equipo del run (vencidos o fuera de la política del proyecto)."""
+    raw = (request_meta or {}).get(RUNTIME_TEAM_DISCARDED_METADATA_KEY)
+    return [dict(item) for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+
+
+def discarded_role_runtime(request_meta: Mapping[str, Any] | None, team_role: str) -> dict[str, Any] | None:
+    """Runtime descartado al sellar que el operador había asignado a ``team_role``, si lo hubo."""
+    return next(
+        (item for item in discarded_runtimes_of(request_meta) if team_role in (item.get("roles") or [])),
+        None,
+    )
 
 
 def runtime_team_of(request_meta: Mapping[str, Any] | None) -> dict[str, Any] | None:

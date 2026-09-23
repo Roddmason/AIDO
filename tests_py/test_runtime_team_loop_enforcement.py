@@ -200,6 +200,22 @@ def test_architect_receives_the_assigned_runtime_or_is_skipped(coordinator, tmp_
     coordinator._run_team_review_phase(_review_run(tmp_path, TEAM))
     assert len(payloads) == 1
     assert reviews[-1]["architect"]["status"] == "skipped"
+    assert reviews[-1]["architect"]["reason"] == "The thread runtime team assigns no architect runtime."
+    discarded_at_seal = {
+        **TEAM,
+        "runtimeTeamDiscarded": [
+            {
+                "providerId": "nvidia_nim",
+                "status": "stale",
+                "reason": "runtime_validation_expired",
+                "roles": ["architect"],
+            }
+        ],
+    }
+    coordinator._run_team_review_phase(_review_run(tmp_path, discarded_at_seal))
+    assert len(payloads) == 1
+    assert "nvidia_nim was discarded" in reviews[-1]["architect"]["reason"]
+    assert "runtime_validation_expired" in reviews[-1]["architect"]["reason"]
     coordinator._run_team_review_phase(_review_run(tmp_path, {}))
     assert "preferredRuntime" not in payloads[-1]
 

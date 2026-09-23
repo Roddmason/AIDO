@@ -9,6 +9,7 @@ ejecutar rutas. La ejecución falla cerrada: exige aprobación, policy SQLite y 
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from contextlib import nullcontext
@@ -125,6 +126,7 @@ from .runtime_registry import RuntimeRegistry
 from .runtime_status import RuntimeStatusService
 from .usage_ledger import UsageLedger
 
+logger = logging.getLogger(__name__)
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
 MAX_TOKENS_PER_RUN = 2_000_000
 SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
@@ -930,7 +932,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
         La clase de carga se reclasifica por runtime (CLI → agent_cli, loopback → local_gpu_model).
         Un CLI consume cuota de suscripción; el pedido del operador es la aprobación y queda auditado.
-        Un runtime validado reanuda los loops bloqueados en runtime_team que solo esperaban esa prueba.
+        Un runtime validado reanuda los loops bloqueados en runtime_team cuyo "Re-probar" esperaba esa
+        prueba; si la reanudación falla, se registra y la validación ya persistida se devuelve igual.
         """
         require_write(request)
         try:
@@ -944,9 +947,14 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         if result["status"] == "validated":
             from local_control_center.remediations.service import BlockerRemediationService
 
-            BlockerRemediationService(
-                platform.connection, root=getattr(platform, "cwd", None)
-            ).resume_after_runtime_validation(provider_id)
+            try:
+                BlockerRemediationService(
+                    platform.connection, root=getattr(platform, "cwd", None)
+                ).resume_after_runtime_validation(provider_id)
+            except Exception:
+                logger.exception(
+                    "runtime_team.resume_after_validation_failed", extra={"providerId": provider_id}
+                )
         return {"validation": result}
 
     @router.get("/models", response_model=ModelCatalogListResponse)

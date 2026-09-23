@@ -20,6 +20,7 @@ from local_control_center.runtime_team.configuration import (
     RuntimeTeamNotReadyError,
     assess_runtime_team,
     assigned_runtime,
+    discarded_role_runtime,
     ensure_thread_runtime_team_ready,
     read_thread_runtime_team,
     restrict_to_allowlist,
@@ -33,8 +34,14 @@ from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.threads.coordinator import ThreadCoordinator
 from local_control_center.threads.repository import ThreadsRepository
 
+RUNTIME_UNAVAILABLE = {
+    "runtimeStatus": {
+        "providers": [{"id": "codex_cli", "executable": False, "available": False, "canEditWorkspace": False}]
+    }
+}
 ROLES = {"developer": "codex_cli", "product_owner": "ollama", "architect": "ollama", "security": "ollama"}
 
 
@@ -110,6 +117,7 @@ def test_an_empty_selection_clears_the_team(lane):
         (["claude_code_cli"], {}, "claude_code_cli"),
         (["codex_cli"], {"product_owner": "ollama"}, "not selected"),
         (["codex_cli", "ollama"], {"security": "codex_cli"}, "not eligible"),
+        ([], {"developer": "codex_cli"}, "require allowedRuntimes"),
     ],
 )
 def test_an_invalid_team_is_rejected(lane, allowed, roles, message):
@@ -187,6 +195,32 @@ def test_the_send_gate_requires_a_fresh_runtime_for_po_and_developer(lane):
     ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
 
 
+def test_an_answer_to_a_pending_decision_is_not_held_by_the_send_gate(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default")
+    coordinator = ThreadCoordinator(connection, root=project["path"])
+    blocked = coordinator.post_message(
+        thread_id=thread["id"],
+        content="Implement the onboarding dashboard.",
+        project_assessment=RUNTIME_UNAVAILABLE,
+    )
+    assert blocked["thread"]["status"] == "waiting_decision"
+    option = blocked["decision"]["options"][0]
+    connection.execute(
+        "UPDATE model_execution_health SET started_at = ?",
+        ((datetime.now(UTC) - timedelta(minutes=31)).isoformat(timespec="microseconds"),),
+    )
+    with pytest.raises(RuntimeTeamNotReadyError):
+        ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    coordinator.post_message(
+        thread_id=thread["id"], content=f"{option}.", project_assessment=RUNTIME_UNAVAILABLE
+    )
+    decisions = ThreadsRepository(connection).list_decisions(thread["id"])
+    assert [decision["status"] for decision in decisions] == ["resolved"]
+
+
 def test_a_stale_optional_runtime_is_dropped_from_the_sealed_team_instead_of_blocking(lane):
     connection, project, thread = lane
     _save(
@@ -206,8 +240,15 @@ def test_a_stale_optional_runtime_is_dropped_from_the_sealed_team_instead_of_blo
         "roleRuntimes": {"product_owner": "codex_cli", "developer": "codex_cli"},
     }
     assert sealed[RUNTIME_TEAM_DISCARDED_METADATA_KEY] == [
-        {"providerId": "ollama", "status": "stale", "reason": "runtime_validation_expired"}
+        {
+            "providerId": "ollama",
+            "status": "stale",
+            "reason": "runtime_validation_expired",
+            "roles": ["security"],
+        }
     ]
+    assert discarded_role_runtime(sealed, "security")["providerId"] == "ollama"
+    assert discarded_role_runtime(sealed, "architect") is None
 
 
 def test_a_reseal_that_would_leave_po_or_developer_uncovered_keeps_the_assigned_runtimes(lane):

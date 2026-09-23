@@ -223,6 +223,28 @@ def test_a_stale_optional_runtime_is_dropped_from_the_sealed_run(tmp_path: Path)
             "roleRuntimes": {"product_owner": "codex_cli", "developer": "codex_cli"},
         }
         assert [item["providerId"] for item in run_metadata["runtimeTeamDiscarded"]] == ["ollama"]
+        narrowed = [
+            event
+            for event in client.get(f"/api/v1/threads/{thread['id']}").json()["events"]
+            if event["type"] == "runtime_team_narrowed"
+        ]
+        assert [item["providerId"] for item in narrowed[0]["payload"]["discarded"]] == ["ollama"]
+        assert narrowed[0]["payload"]["discarded"][0]["roles"] == ["security"]
+    finally:
+        runtime.close()
+
+
+def test_roles_without_selected_runtimes_are_rejected_instead_of_clearing_the_team(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers, thread = _setup(runtime, client, tmp_path)
+        url = f"/api/v1/threads/{thread['id']}/run-configuration"
+        client.patch(url, headers=headers, json=TEAM)
+        response = client.patch(url, headers=headers, json={"allowedRuntimes": [], "roleRuntimes": ROLES})
+        assert response.status_code == 422
+        assert "allowedRuntimes" in response.json()["detail"]
+        metadata = client.get(f"/api/v1/threads/{thread['id']}").json()["thread"]["metadata"]
+        assert metadata["runConfiguration"]["allowedRuntimes"] == TEAM["allowedRuntimes"]
     finally:
         runtime.close()
 

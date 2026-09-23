@@ -25,6 +25,7 @@ from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
+from .endpoint_locality import catalog_entry_for_account
 from .model_gateway_models import (
     COMPACT_ENDPOINT_ID_PATTERN,
     ApiFamily,
@@ -161,21 +162,14 @@ def _catalog_or_404(provider_id: str) -> ProviderCatalogEntry:
 
 
 def _catalog_for_account(account: dict[str, Any]) -> ProviderCatalogEntry:
-    """Resolve an account's preset without deriving family from its endpoint id."""
-    metadata = account.get("metadata")
-    if isinstance(metadata, dict):
-        stored_catalog_id = str(metadata.get("providerCatalogId") or "").strip()
-        if stored_catalog_id:
-            return _catalog_or_404(stored_catalog_id)
-
-    for legacy_catalog_id in (account.get("providerFamily"), account.get("providerId")):
-        entry = provider_catalog_entry(str(legacy_catalog_id or "").strip())
-        if entry is not None:
-            return entry
-    raise HTTPException(
-        status_code=404,
-        detail=f"Provider account has no catalog preset: {account.get('providerId')}",
-    )
+    """Resolve an account's preset from the server-owned catalog id, then the legacy fallbacks."""
+    entry = catalog_entry_for_account(account)
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider account has no catalog preset: {account.get('providerId')}",
+        )
+    return entry
 
 
 def _normalize_base_url(value: str) -> str:
@@ -234,7 +228,6 @@ def _credential_ref_for_request(entry: ProviderCatalogEntry, body: ProviderAccou
 def _catalog_metadata(entry: ProviderCatalogEntry, metadata: dict[str, Any]) -> dict[str, Any]:
     return {
         **metadata,
-        "providerCatalogId": entry.id,
         "providerCatalogVersion": PROVIDER_CATALOG_VERSION,
         "credentialKind": entry.credential_kind,
         "capabilities": list(entry.capabilities),
@@ -242,6 +235,26 @@ def _catalog_metadata(entry: ProviderCatalogEntry, metadata: dict[str, Any]) -> 
         "docsUrl": entry.docs_url,
         "pricingSource": entry.pricing_source,
     }
+
+
+LOCAL_RUNTIME_PREFERRED_ROLES = ("analyst", "product_owner", "developer", "technical_lead")
+
+
+def _upsert_local_runtime_installation(
+    runtime_repo: RuntimeConfigRepository, entry: ProviderCatalogEntry, *, instance_id: str, enabled: bool
+) -> None:
+    """Registra la instalación propia de la instancia local, no la fila compartida de su familia."""
+    runtime_repo.upsert_installation(
+        {
+            "runtimeId": instance_id,
+            "kind": entry.provider_type,
+            "enabled": enabled,
+            "capabilities": ["chat"],
+            "preferredRoles": list(LOCAL_RUNTIME_PREFERRED_ROLES),
+            "configurationSource": "local_runtime_catalog",
+            "metadata": {"providerId": instance_id, "catalogId": entry.id},
+        }
+    )
 
 
 def _validate_catalog_semantics(
@@ -365,10 +378,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         }
         try:
             provider_store = providers()
-            if body.instance_id is None:
-                provider = provider_store.upsert_provider_account(account_payload)
-            else:
-                with immediate_transaction(platform.connection):
+            with immediate_transaction(platform.connection):
+                if body.instance_id is not None:
                     try:
                         provider_store.get_provider_account(instance_id)
                     except KeyError:
@@ -382,7 +393,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                                 f"/api/v1/model-gateway/providers/{instance_id}."
                             ),
                         )
-                    provider = provider_store.upsert_provider_account(account_payload)
+                provider_store.upsert_provider_account(account_payload)
+                provider = provider_store.set_provider_catalog_id(instance_id, entry.id)
+                if entry.local_profile is not None:
+                    _upsert_local_runtime_installation(
+                        runtimes(), entry, instance_id=instance_id, enabled=body.enabled
+                    )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         if entry.id in BUILD_REVIEW_SEEDED_CATALOG_IDS:

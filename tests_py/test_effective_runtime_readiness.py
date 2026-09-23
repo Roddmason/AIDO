@@ -79,7 +79,8 @@ def _configured_omniroute_proxy():
         "apiFormat": entry.api_format,
         "deploymentMode": entry.deployment_mode,
         "baseUrl": entry.default_base_url,
-        "metadata": {"providerCatalogId": entry.id, "endpointKind": "remote"},
+        "providerCatalogId": entry.id,
+        "metadata": {"endpointKind": "remote"},
     }
 
 
@@ -105,7 +106,7 @@ def test_declared_omniroute_proxy_uses_existing_light_budget_without_gpu(deploym
         {"apiFormat": "ollama"},
         {"deploymentMode": "local"},
         {"metadata": {"providerCatalogId": "omniroute", "endpointKind": "local"}},
-        {"metadata": {"endpointKind": "remote"}},
+        {"providerCatalogId": None, "metadata": {"endpointKind": "remote"}},
         {"metadata": {}},
     ],
     ids=[

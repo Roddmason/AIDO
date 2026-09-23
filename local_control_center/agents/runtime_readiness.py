@@ -125,10 +125,10 @@ def provider_workload_class(account: dict) -> WorkloadClass:
     """Clasifica desde el contrato persistido; loopback por sí solo no demuestra un proxy."""
     if account.get("providerType") == "cli":
         return "agent_cli"
-    from .provider_catalog import provider_catalog_entry
+    from .endpoint_locality import catalog_entry_for_account
 
     metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
-    entry = provider_catalog_entry(str(metadata.get("providerCatalogId") or ""))
+    entry = catalog_entry_for_account(account)
     if (
         entry is not None
         and entry.id == "omniroute"

@@ -4549,3 +4549,83 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
+
+/* ---- Thread development mode: story board in the main area, chat as a side column ---- */
+.thread-live-layout {
+	container: thread-live / inline-size;
+}
+
+.thread-conversation-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.thread-live-body[data-mode="board"] {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) clamp(20rem, 30cqw, 28rem);
+	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-areas:
+		"strip chat"
+		"board chat";
+}
+
+.thread-live-body[data-mode="board"] > .thread-transcript-pane {
+	grid-area: chat;
+	min-height: 0;
+	border-left: 1px solid var(--color-border-subtle);
+}
+
+.thread-live-body[data-mode="board"] > .thread-execution-pane {
+	grid-area: strip;
+	max-height: 12rem;
+	border-left: none;
+	border-top: none;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.thread-live-body[data-mode="board"] > .thread-board {
+	grid-area: board;
+	min-height: 0;
+}
+
+.thread-execution-pane[data-presentation="strip"] .thread-pipeline {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
+}
+
+.thread-execution-pane[data-presentation="strip"] .thread-pipeline-step {
+	grid-template-columns: auto auto auto;
+}
+
+/* Narrow center (or a phone): board above, chat below with its own height; the body scrolls so the
+   composer (.thread-composer-dock) is always reachable and never painted over. The chat-mode
+   contract (.thread-live-scroll as the only scroll region) is untouched. Rows are max-content, not
+   auto: the stacked shell gives the body only a sliver of height and auto rows shrink to the items'
+   min-height (0), collapsing the board so its columns paint over the composer. */
+@container thread-live (max-width: 56rem) {
+	.thread-live-body[data-mode="board"] {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: max-content max-content max-content;
+		grid-template-areas:
+			"strip"
+			"board"
+			"chat";
+		min-height: 0;
+		overflow-y: auto;
+	}
+
+	.thread-live-body[data-mode="board"] > .thread-transcript-pane {
+		min-height: 24rem;
+		border-left: none;
+		border-top: 1px solid var(--color-border-subtle);
+	}
+
+	.thread-live-body[data-mode="board"] .thread-board-column-scroll {
+		max-height: 50dvh;
+	}
+}

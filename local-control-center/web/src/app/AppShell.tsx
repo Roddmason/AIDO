@@ -19,6 +19,7 @@ import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-re
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ShellSidebar } from '../features/shell/ShellSidebar';
+import { ShellInspectorContext } from '../features/shell/useShellInspector';
 import { ThreadRefreshContext } from '../features/shell/useThreadRefresh';
 import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
@@ -186,6 +187,17 @@ export function AppShell({
 		}
 	}, [inspectorPanelRef]);
 
+	const collapseInspector = useCallback(() => {
+		if (!isDesktop) return;
+		const handle = inspectorPanelRef.current;
+		if (handle) {
+			if (!handle.isCollapsed()) handle.collapse();
+		} else {
+			setInspectorCollapsed(true);
+		}
+	}, [inspectorPanelRef, isDesktop]);
+	const shellInspectorContext = useMemo(() => ({ collapseInspector }), [collapseInspector]);
+
 	useEffect(() => {
 		if (selectedRunId) expandInspector();
 	}, [selectedRunId, expandInspector]);
@@ -258,7 +270,9 @@ export function AppShell({
 				className={area === 'threads' ? 'content-frame content-frame--full-bleed' : 'content-frame'}
 			>
 				<ThreadRefreshContext.Provider value={threadRefreshContext}>
-					{children}
+					<ShellInspectorContext.Provider value={shellInspectorContext}>
+						{children}
+					</ShellInspectorContext.Provider>
 				</ThreadRefreshContext.Provider>
 			</section>
 		</main>

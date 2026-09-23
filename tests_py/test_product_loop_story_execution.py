@@ -59,6 +59,9 @@ SECOND_STORY = {
 }
 
 
+LEAKED_TOKEN = "ghp_" + "a" * 36
+
+
 def _two_story_po() -> _ProductOwnerRunner:
     result = _product_owner_result("backlog_ready")
     stories = [*result["userStories"], dict(SECOND_STORY)]
@@ -257,6 +260,63 @@ def test_a_story_without_changes_is_closed_as_noop(tmp_path: Path) -> None:
         assert result["loop"]["context"]["durableRun"]["review"]["changedFiles"] == ["src/story_2.py"]
 
 
+class _StoryOneAttemptsRuntime(_PerStoryRuntime):
+    """Runtime que decide, por intento de la historia 1, sus archivos cambiados y su veredicto QA."""
+
+    def __init__(self, attempts: list[tuple[list[str], str]], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.story_one_attempts = list(attempts)
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        verdict = "passed"
+        if self.story_position(payload) == 1 and self.story_one_attempts:
+            changed, verdict = self.story_one_attempts.pop(0)
+            self.changed_by_story[1] = changed
+        result = super().run(payload)
+        result["evidencePackage"] = {**result["evidencePackage"], "qaVerdict": verdict}
+        return result
+
+
+def _assert_story_one_verified_by_qa(
+    connection: Any, runtime: _PerStoryRuntime, result: dict[str, Any]
+) -> None:
+    assert result["status"] == "awaiting_approval"
+    suffixes = [payload["taskId"].split(":", 1)[1] for payload in runtime.run_payloads]
+    assert suffixes == ["s1", "s1:r1", "s2"]
+    assert "story_noop" not in [item.get("trigger") for item in result["transitions"]]
+    story = BacklogRepository(connection).get_user_story(runtime.story_order[0])
+    assert story["status"] == "done"
+    assert story["metadata"].get("outcome") != "noop"
+
+
+def test_a_story_without_changes_but_failing_qa_goes_to_rework_not_noop(tmp_path: Path) -> None:
+    runtime = _StoryOneAttemptsRuntime([([], "failed"), (["src/story_1.py"], "passed")])
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-noop-qa-failed")
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime)
+
+        _assert_story_one_verified_by_qa(connection, runtime, result)
+
+
+def test_a_rework_without_changes_is_verified_by_qa_not_closed_as_noop(tmp_path: Path) -> None:
+    runtime = _StoryOneAttemptsRuntime([(["src/story_1.py"], "passed"), ([], "passed")], qa_failures={1: 1})
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-rework-noop")
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime)
+
+        _assert_story_one_verified_by_qa(connection, runtime, result)
+        assert result["loop"]["context"]["durableRun"]["review"]["changedFiles"] == [
+            "src/story_1.py",
+            "src/story_2.py",
+        ]
+
+
 def test_approval_carries_the_qa_and_evidence_of_every_story(tmp_path: Path) -> None:
     runtime = _PerStoryRuntime()
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
@@ -410,7 +470,7 @@ def test_a_story_commit_failure_blocks_before_qa_and_security(
     security = _SecurityGate()
 
     def failing_commit(**_kwargs: Any) -> dict[str, Any]:
-        return {"status": "commit_failed", "stderr": "forced commit failure"}
+        return {"status": "commit_failed", "stderr": f"forced commit failure: hook echoed {LEAKED_TOKEN}"}
 
     monkeypatch.setattr(git_worktrees, "commit_workspace_changes", failing_commit)
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
@@ -425,6 +485,8 @@ def test_a_story_commit_failure_blocks_before_qa_and_security(
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "review"
         assert "commit" in result["reason"].lower()
         assert "forced commit failure" in result["reason"]
+        assert LEAKED_TOKEN not in result["reason"]
+        assert all(LEAKED_TOKEN not in str(item.get("reason")) for item in result["transitions"])
         assert len(runtime.run_payloads) == 1
         assert security.run_payloads == []
         first = runtime.story_order[0]
@@ -654,3 +716,42 @@ def test_carried_over_matching_is_one_to_one_by_fingerprint() -> None:
         batches, fingerprints, [{"storyId": "current-3", "status": "done", "fingerprint": ""}]
     ) == {"current-3"}
     assert match_carried_over(batches, fingerprints, []) == set()
+
+
+def test_carried_over_matching_prefers_an_exact_story_id_over_an_earlier_fingerprint() -> None:
+    batches = [
+        {"storyId": "current-1", "story": {"id": "current-1"}, "tasks": [{"id": "t1"}]},
+        {"storyId": "current-2", "story": {"id": "current-2"}, "tasks": [{"id": "t2"}]},
+    ]
+    fingerprints = {"current-1": "same", "current-2": "same"}
+    done_entries = [{"storyId": "current-2", "status": "done", "fingerprint": "same"}]
+
+    assert match_carried_over(batches, fingerprints, done_entries) == {"current-2"}
+
+
+def test_a_staged_rename_into_aido_still_blocks_the_cumulative_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not git_available():
+        pytest.skip("git CLI is required for the cumulative worktree diff")
+    security = _SecurityGate()
+    real_capture = git_worktrees.capture_cumulative_diff
+
+    def capture_with_a_rename(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        diff = real_capture(*args, **kwargs)
+        rename = {"status": "R", "path": ".aido/moved.py", "previousPath": "src/story_1.py"}
+        return {**diff, "status": [*(diff.get("status") or []), rename]}
+
+    monkeypatch.setattr(git_worktrees, "capture_cumulative_diff", capture_with_a_rename)
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "cumulative-aido-rename")
+        runtime = _WorkspaceWritingRuntime(connection, tmp_path)
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
+
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "review"
+        assert "src/story_1.py" in result["reason"]
+        assert security.run_payloads == []

@@ -27,6 +27,9 @@ __all__ = [
     "prepare_developer_execution",
 ]
 
+COMMIT_FAILURE_DETAIL_CHARS = 500
+"""Tope del detalle (redactado) de un commit fallido dentro de la razón de bloqueo persistida."""
+
 
 def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=None):
     from local_control_center.process_supervision.context import CURRENT_EXECUTION
@@ -390,13 +393,16 @@ def capture_review_evidence(
     hay archivos cambiados, o ``None`` para continuar al gate de QA. El trabajo capturado se
     persiste como commit en la rama del hilo: en un run por historia el commit es obligatorio (el
     diff acumulado de Security y la aprobación lo necesita) y su fallo bloquea en ``review``; en un
-    run único sigue siendo best-effort.
+    run único sigue siendo best-effort. Una historia sin cambios es ``noop`` (sin QA) solo en su
+    primer intento y sin señales de QA fallido; un rework sin cambios o con QA en rojo sigue al gate
+    de QA, que evalúa el estado vigente del código ya commiteado.
     """
     from local_control_center.product_loop.coordinator import (
         _review_from_diff,
         _review_from_runtime,
         capture_git_diff,
     )
+    from local_control_center.product_loop.phases.qa_gate import qa_evidence_passes
     from local_control_center.shared.redaction import redact_secrets
     from local_control_center.workspaces_projects.git_worktrees import (
         commit_workspace_changes,
@@ -489,7 +495,7 @@ def capture_review_evidence(
             run.runtime_status = runtime_status
             run.evidence_ids = evidence_ids
             run.review = review
-            run.story_noop = True
+            run.story_noop = run.rework_round == 0 and qa_evidence_passes(runtime_result)
             return None
         return block_without_changed_files(coordinator, run, review, runtime_status=runtime_status)
     if workspace["isolationType"] == "git_worktree" and review.get("changedFiles"):
@@ -506,10 +512,13 @@ def capture_review_evidence(
             commit_result = {"status": "commit_failed", "reason": redact_secrets(str(error))}
         review = {**review, "commit": commit_result}
         if run.active_story_tasks is not None and commit_result.get("status") != "committed":
+            commit_output = str(
+                commit_result.get("stderr") or commit_result.get("reason") or commit_result.get("status")
+            )
             reason = (
                 "Product Loop could not commit the story changes to the thread branch, so the "
                 "cumulative diff for Security and approval would be incomplete: "
-                f"{commit_result.get('stderr') or commit_result.get('reason') or commit_result.get('status')}"
+                f"{str(redact_secrets(commit_output))[:COMMIT_FAILURE_DETAIL_CHARS]}"
             )
             return coordinator._block_run(
                 loop,
@@ -659,7 +668,13 @@ def capture_cumulative_review(
             diff = {"kind": "git_diff", "state": "capture_failed", "stderr": str(redact_secrets(str(error)))}
         review = _review_from_diff(diff)
         uncommitted = exclude_aido_artifacts(
-            [str(item.get("path") or "") for item in diff.get("status") or [] if isinstance(item, dict)]
+            [
+                str(item.get(key) or "")
+                for item in diff.get("status") or []
+                if isinstance(item, dict)
+                for key in ("path", "previousPath")
+                if item.get(key)
+            ]
         )
         if review["state"] == "captured" and uncommitted:
             review = {**review, "state": "uncommitted_changes"}

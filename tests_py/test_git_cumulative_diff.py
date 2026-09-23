@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from local_control_center.security_policy.git_command_runner import git_available, run_git
+from local_control_center.workspaces_projects import git_worktrees
 from local_control_center.workspaces_projects.git_worktrees import (
     _usable_base_ref,
     capture_cumulative_diff,
@@ -132,3 +133,19 @@ def test_cumulative_diff_reports_uncommitted_work_outside_the_range(
     assert "TWO = 2" not in diff["patchFull"]
     assert [entry["path"] for entry in diff["status"]] == ["src/story_two.py"]
     assert diff["statusRaw"].strip()
+
+
+def test_cumulative_diff_over_the_capture_limit_fails_closed_instead_of_a_partial_patch(
+    make_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _client, _headers = make_app(tmp_path, monkeypatch)
+    project, workspace = _workspace_with_repo(store, tmp_path, name="cumulative-truncated")
+    worktree = Path(workspace["path"])
+    _commit(worktree, "src/story_one.py", "ONE = 1\n" * 400)
+    monkeypatch.setattr(git_worktrees, "CUMULATIVE_DIFF_CAPTURE_LIMIT_BYTES", 1024)
+
+    diff = _capture(store, tmp_path, project, workspace, ["devbase"])
+
+    assert diff["state"] == "capture_truncated"
+    assert "patch" in diff["stderr"]
+    assert "patchFull" not in diff

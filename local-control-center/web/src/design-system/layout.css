@@ -4522,23 +4522,26 @@
 	list-style: none;
 }
 
+/* The task row wraps: when the column cannot hold the title next to its role and status chip, the
+   title takes its own line instead of shrinking to nothing behind the nowrap metadata. */
 .thread-board-task {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-2);
+	gap: var(--space-1) var(--space-2);
 	min-width: 0;
 	font-size: var(--font-size-xs);
 }
 
 .thread-board-task-title {
-	flex: 1 1 auto;
+	flex: 1 1 10rem;
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 }
 
-@container thread-board (max-width: 44rem) {
+/* Four lanes need ~14rem each to show a card's task rows; below that the board goes to two lanes
+   (a 1440 px desktop with the chat column leaves the board ~50rem wide). */
+@container thread-board (max-width: 60rem) {
 	.thread-board-columns {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
@@ -4566,7 +4569,7 @@
 
 .thread-live-body[data-mode="board"] {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) clamp(20rem, 30cqw, 28rem);
+	grid-template-columns: minmax(0, 1fr) clamp(20rem, 36cqw, 30rem);
 	grid-template-rows: auto minmax(0, 1fr);
 	grid-template-areas:
 		"strip chat"
@@ -4590,6 +4593,13 @@
 .thread-live-body[data-mode="board"] > .thread-board {
 	grid-area: board;
 	min-height: 0;
+}
+
+/* The chat column is narrow: tighter side padding keeps the composer's controls and context row on
+   fewer lines, so the dock does not eat the transcript. */
+.thread-live-body[data-mode="board"] .thread-live-scroll,
+.thread-live-body[data-mode="board"] .thread-composer-dock {
+	padding-inline: var(--space-3);
 }
 
 .thread-execution-pane[data-presentation="strip"] .thread-pipeline {

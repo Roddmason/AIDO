@@ -2,6 +2,8 @@
 
 Callers supply candidates already intersected with the role and executor contracts.
 No endpoint, credential, permission or operator selection is repaired implicitly.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

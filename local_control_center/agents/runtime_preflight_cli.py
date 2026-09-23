@@ -1,4 +1,7 @@
-"""Fixed prompt-only CLI validation through the existing managed subprocess boundary."""
+"""Fixed prompt-only CLI validation through the existing managed subprocess boundary.
+
+@author Rodrigo Mason
+"""
 
 from __future__ import annotations
 

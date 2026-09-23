@@ -1,6 +1,8 @@
 """Verify explicit research adoption against durable decisions and source artifacts.
 
 This module never performs research or inference. Metadata supplied by callers is not authority.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

@@ -1,6 +1,8 @@
 """Scoped risk consent over immutable Jev receipts and an existing planning checkpoint.
 
 No inference, credential changes, cost approvals or OS permission grants occur here.
+
+@author Rodrigo Mason
 """
 
 from __future__ import annotations

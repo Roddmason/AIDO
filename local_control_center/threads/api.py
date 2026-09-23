@@ -17,6 +17,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, HTTPException, Request
 
 from local_control_center.remediations.service import BlockerRemediationService
+from local_control_center.runtime_team.configuration import write_thread_runtime_team
+from local_control_center.runtime_team.facts import load_runtime_facts
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import row_to_audit
 
 from .contracts import (
@@ -40,12 +43,14 @@ from .contracts import (
     ThreadMessageResultResponse,
     ThreadNoteRequest,
     ThreadNoteResponse,
+    ThreadRunConfigurationRequest,
+    ThreadRunConfigurationResponse,
     ThreadSimilarityMarkRequest,
     ThreadSimilarityMarkResponse,
     ThreadSimilarityResponse,
     ThreadUpdateRequest,
 )
-from .coordinator import ThreadBusyError, ThreadCoordinator
+from .coordinator import ACTIVE_EXECUTION_STATUSES, ThreadBusyError, ThreadCoordinator
 from .cost_performance import ThreadCostPerformanceService
 from .memory_recall import ThreadMemoryRecallService
 from .repository import ThreadLifecycleError, ThreadsRepository
@@ -161,6 +166,48 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.patch(
+        "/api/v1/threads/{thread_id}/run-configuration",
+        response_model=ThreadRunConfigurationResponse,
+    )
+    def update_thread_run_configuration(
+        thread_id: str,
+        body: ThreadRunConfigurationRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Fija o limpia el equipo de runtimes del hilo; solo mientras el hilo no está en ejecución.
+
+        Estado, escritura y evento van en un ``BEGIN IMMEDIATE``: serializa contra ``post_message``,
+        que evalúa el gate y sella el run en su propia transacción inmediata.
+        """
+        require_write(request)
+        try:
+            thread = repository().get_thread(thread_id)
+            facts = load_runtime_facts(platform.connection, project_id=thread["projectId"])
+            with immediate_transaction(platform.connection):
+                current = repository().get_thread(thread_id)
+                if current["status"] in ACTIVE_EXECUTION_STATUSES:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Thread {thread_id} is {current['status']}: change its AI team after the current run.",
+                    )
+                team = write_thread_runtime_team(
+                    platform.connection,
+                    thread_id=thread_id,
+                    project_id=current["projectId"],
+                    allowed_runtimes=body.allowed_runtimes,
+                    role_runtimes=body.role_runtimes.model_dump(exclude_none=True),
+                    facts=facts,
+                )
+                repository().record_event(
+                    thread_id=thread_id, type="run_configuration_updated", payload={"runtimeTeam": team}
+                )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"threadId": thread_id, "runtimeTeam": team}
 
     @router.get("/api/v1/threads/similar", response_model=ThreadSimilarityResponse)
     async def find_similar_threads(

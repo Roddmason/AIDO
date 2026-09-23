@@ -8,6 +8,10 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from local_control_center.runtime_team.configuration import (
+    THREAD_RUN_CONFIGURATION_KEY,
+    seal_thread_runtime_team,
+)
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -29,10 +33,6 @@ def strip_untrusted_resource_cost_policy_metadata(metadata: dict[str, Any] | Non
     for key in RESOURCE_COST_POLICY_METADATA_KEYS:
         clean.pop(key, None)
     return clean
-
-
-THREAD_RUN_CONFIGURATION_KEY = "runConfiguration"
-"""Clave dentro de `project_threads.metadata` donde el hilo recuerda lo que el operador eligio."""
 
 
 def _remembered_team_mode(connection: sqlite3.Connection, thread_id: str | None) -> str | None:
@@ -77,7 +77,8 @@ def seal_operator_cost_decision(
     con un modo válido lo respeta, porque elegir el modo por ejecución es legítimo.
     El hilo se mete en el medio de esa cadena: ``mensaje > hilo > proyecto > general > default``.
     Lo que el operador elige explicitamente queda recordado en el hilo, asi que no tiene que
-    repetirlo; un hilo nuevo sigue naciendo con el default del proyecto.
+    repetirlo; un hilo nuevo sigue naciendo con el default del proyecto. El equipo de runtimes del
+    hilo se sella como ``runtimeTeam`` y reemplaza cualquier valor entrante.
 
     ``project.routing.forceLocal`` NO es un default sino un control de privacidad: cuando está
     activo fuerza ``privacyLevel=local_private`` por encima de cualquier metadata, de modo que
@@ -106,4 +107,4 @@ def seal_operator_cost_decision(
         project_id=project_id,
     ):
         stamped["privacyLevel"] = "local_private"
-    return stamped
+    return seal_thread_runtime_team(connection, project_id=project_id, thread_id=thread_id, metadata=stamped)

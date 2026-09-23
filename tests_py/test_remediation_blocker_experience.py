@@ -519,6 +519,7 @@ def test_all_contract_blocker_types_have_specific_repair_actions(tmp_path: Path)
         service = BlockerRemediationService(connection, root=tmp_path)
         details = {
             "runtimeId": "openrouter",
+            "runtimeIds": ["openrouter"],
             "decisionId": "decision-1",
             "clarificationQuestionId": "clarification-1",
             "functionalityId": "functionality-1",

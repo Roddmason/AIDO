@@ -133,10 +133,14 @@ def select_product_owner_resources(
 ) -> dict[str, Any] | None:
     """Selecciona el recurso IA del ProductOwnerAgent y verifica que su runtime sea ejecutable.
 
+    Antes de seleccionar, los runtimes con rol asignado del equipo sellado deben seguir validados
+    (24 h + fingerprint) y no pueden faltar roles; si no, bloquea en la etapa runtime_team.
     Devuelve el resultado terminal de un bloqueo de recurso/runtime o ``None`` para continuar.
     """
+    from local_control_center.agents.model_execution_health import VALIDATION_TTL_SECONDS
     from local_control_center.agents.product_owner_agent_contract import PRODUCT_OWNER_AGENT_ID
     from local_control_center.product_loop.repository import stable_task_suffix
+    from local_control_center.runtime_team.configuration import assess_runtime_team, runtime_team_of
     from local_control_center.shared.redaction import redact_secrets
 
     project_id = run.project_id
@@ -156,6 +160,21 @@ def select_product_owner_resources(
         context_patch=coordinator._durable_run_patch(loop, {"status": "runtime_check"}),
         thread_id=thread_id,
     )
+    runtime_team = runtime_team_of(request_meta)
+    if runtime_team is not None:
+        readiness = assess_runtime_team(
+            coordinator.connection, runtime_team, max_age_seconds=VALIDATION_TTL_SECONDS, only_assigned=True
+        )
+        if not readiness.ready:
+            return coordinator._block_run(
+                loop,
+                stage="runtime_team",
+                reason=readiness.reason(),
+                actor=actor,
+                details=readiness.details(),
+                durable_context={"runtimeTeam": {"status": "blocked", **readiness.details()}},
+                thread_id=thread_id,
+            )
     try:
         product_owner_resource_decision, product_owner_resource_blocker = (
             coordinator._product_owner_resource_selection(

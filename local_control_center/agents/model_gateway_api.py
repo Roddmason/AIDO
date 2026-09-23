@@ -930,6 +930,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
         La clase de carga se reclasifica por runtime (CLI → agent_cli, loopback → local_gpu_model).
         Un CLI consume cuota de suscripción; el pedido del operador es la aprobación y queda auditado.
+        Un runtime validado reanuda los loops bloqueados en runtime_team que solo esperaban esa prueba.
         """
         require_write(request)
         try:
@@ -940,6 +941,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        if result["status"] == "validated":
+            from local_control_center.remediations.service import BlockerRemediationService
+
+            BlockerRemediationService(
+                platform.connection, root=getattr(platform, "cwd", None)
+            ).resume_after_runtime_validation(provider_id)
         return {"validation": result}
 
     @router.get("/models", response_model=ModelCatalogListResponse)

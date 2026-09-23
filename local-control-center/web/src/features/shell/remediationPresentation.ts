@@ -471,6 +471,16 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		impactKey: 'app.threads.remediation.blocker.thread_intake_decision_required.impact',
 		impactFallback: 'The loop is not queued until you pick one of the offered options.',
 	},
+	runtime_team_validation_expired: {
+		titleKey: 'app.threads.remediation.blocker.runtime_team_validation_expired.title',
+		titleFallback: 'Thread AI team needs a fresh test',
+		explanationKey: 'app.threads.remediation.blocker.runtime_team_validation_expired.explanation',
+		explanationFallback:
+			'A runtime assigned to this thread no longer has a valid test with its current configuration.',
+		impactKey: 'app.threads.remediation.blocker.runtime_team_validation_expired.impact',
+		impactFallback:
+			'AIDO will not switch to another runtime on its own; the run stays blocked until you re-test it.',
+	},
 };
 
 /** Button label + execution kind for every backend action type. */
@@ -562,6 +572,11 @@ export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 	save_patch: {
 		labelKey: 'app.threads.remediation.action.savePatch',
 		labelFallback: 'Save patch',
+		kind: 'execute',
+	},
+	revalidate_runtime: {
+		labelKey: 'app.threads.remediation.action.revalidateRuntime',
+		labelFallback: 'Re-test runtime',
 		kind: 'execute',
 	},
 };

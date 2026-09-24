@@ -53,22 +53,24 @@ def runtime_validation_state(
     provider_id: str,
     *,
     max_age_seconds: int,
+    model: str | None = None,
     now: datetime | None = None,
 ) -> RuntimeValidationState:
-    """Clasifica la última ejecución registrada del runtime: validated, stale, failed o never.
+    """Clasifica la última ejecución registrada del runtime (o de uno de sus modelos).
 
-    Una falla posterior invalida cualquier éxito anterior y un cambio de configuración vuelve
-    ``stale`` la evidencia (también la fallida, para que se vuelva a probar), en el mismo orden que
-    ``model_validation_rejection`` pero a nivel de runtime.
+    Devuelve validated, stale, failed o never. Con ``model`` solo cuenta la evidencia de ese modelo, así la
+    falla de otro modelo del mismo servidor no invalida la validación del sellado. Una falla posterior
+    invalida cualquier éxito anterior y un cambio de configuración vuelve ``stale`` la evidencia (también la
+    fallida, para que se vuelva a probar), en el mismo orden que ``model_validation_rejection``.
     """
     row = connection.execute(
         """SELECT model, configuration_fingerprint, success, started_at, observed_at
-           FROM model_execution_health WHERE provider_id = ?
+           FROM model_execution_health WHERE provider_id = ? AND (? IS NULL OR model = ?)
            ORDER BY started_at DESC, id DESC LIMIT 1""",
-        (provider_id,),
+        (provider_id, model, model),
     ).fetchone()
     if row is None:
-        return RuntimeValidationState("never", reason="runtime_validation_required")
+        return RuntimeValidationState("never", model=model, reason="runtime_validation_required")
     started = _parse_timestamp(row["started_at"])
     observed = _parse_timestamp(row["observed_at"])
     latency = (

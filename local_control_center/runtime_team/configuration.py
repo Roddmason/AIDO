@@ -35,6 +35,8 @@ RUNTIME_TEAM_DISCARDED_METADATA_KEY = "runtimeTeamDiscarded"
 PROJECT_ALLOWLIST_EXCLUDED_REASON = "project_runtime_allowlist_excluded"
 ALLOWED_RUNTIMES_KEY = "allowedRuntimes"
 ROLE_RUNTIMES_KEY = "roleRuntimes"
+ROLE_MODELS_KEY = "roleModels"
+"""Clave sellada rol→modelo para los runtimes locales; la escribe solo el servidor al sellar."""
 
 
 class RuntimeTeamNotReadyError(ValueError):
@@ -59,7 +61,10 @@ class RuntimeTeamReadiness:
         if self.missing_roles:
             parts.append(f"Roles without an assigned runtime: {', '.join(self.missing_roles)}.")
         if self.stale_runtimes:
-            listed = ", ".join(f"{item['providerId']} ({item['reason']})" for item in self.stale_runtimes)
+            listed = ", ".join(
+                f"{item['providerId']}{'/' + item['model'] if item.get('model') else ''} ({item['reason']})"
+                for item in self.stale_runtimes
+            )
             parts.append(f"Runtimes without a fresh validation: {listed}.")
         return " ".join(parts)
 
@@ -68,7 +73,7 @@ class RuntimeTeamReadiness:
         return {
             "missingRoles": list(self.missing_roles),
             "staleRuntimes": [dict(item) for item in self.stale_runtimes],
-            "runtimeIds": [item["providerId"] for item in self.stale_runtimes],
+            "runtimeIds": list(dict.fromkeys(item["providerId"] for item in self.stale_runtimes)),
         }
 
 
@@ -203,9 +208,11 @@ def assess_runtime_team(
     """Revisa roles obligatorios (PO y Developer) y la validación de los runtimes dentro de la ventana.
 
     Sin ``only_assigned`` revisa todo el conjunto seleccionado (base del sellado de envío, spec §3.4);
-    con él, solo los runtimes que tienen un rol asignado (gate de ejecución, spec §1.4).
+    con él, solo los runtimes que tienen un rol asignado (gate de ejecución, spec §1.4). Si el equipo
+    sellado trae ``roleModels``, cada runtime se evalúa por los modelos sellados de sus roles.
     """
     roles = team.get(ROLE_RUNTIMES_KEY) or {}
+    role_models = team.get(ROLE_MODELS_KEY) or {}
     missing = tuple(missing_required_roles(roles))
     runtime_ids = (
         list(dict.fromkeys(roles[role] for role in TEAM_ROLES if roles.get(role)))
@@ -214,11 +221,26 @@ def assess_runtime_team(
     )
     stale: list[dict[str, str]] = []
     for provider_id in runtime_ids:
-        state = runtime_validation_state(connection, provider_id, max_age_seconds=max_age_seconds)
-        if state.status != "validated":
-            stale.append(
-                {"providerId": provider_id, "status": state.status, "reason": state.reason or state.status}
+        models = sorted(
+            {
+                role_models[role]
+                for role in TEAM_ROLES
+                if roles.get(role) == provider_id and role_models.get(role)
+            }
+        )
+        for model in models or [None]:
+            state = runtime_validation_state(
+                connection, provider_id, max_age_seconds=max_age_seconds, model=model
             )
+            if state.status != "validated":
+                item = {
+                    "providerId": provider_id,
+                    "status": state.status,
+                    "reason": state.reason or state.status,
+                }
+                if model:
+                    item["model"] = model
+                stale.append(item)
     return RuntimeTeamReadiness(missing_roles=missing, stale_runtimes=tuple(stale))
 
 

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.product_loop import coordinator as coordinator_module
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.shared.db import open_sqlite_connection
@@ -231,3 +232,72 @@ def test_assigned_developer_ignores_other_roles_on_the_same_runtime(coordinator)
     resource = coordinator._developer_execution_resource({"roles": [lead, architect, build]}, TEAM)
     assert (resource["role"], resource["model"]) == ("backend_engineer", "build-model")
     assert coordinator._developer_execution_resource({"roles": [lead, architect]}, TEAM) == {}
+
+
+def _review_run_with_architect_decision(
+    tmp_path: Path, request_meta: dict, provider_id: str
+) -> SimpleNamespace:
+    run = _review_run(tmp_path, request_meta)
+    run.team_schedule = {
+        **run.team_schedule,
+        "roles": [
+            {
+                "role": "architect",
+                "kind": "review",
+                "capabilities": ["system_design"],
+                "resourceDecision": {"selected": {"providerId": provider_id, "model": "qwen3-coder"}},
+            }
+        ],
+    }
+    return run
+
+
+def test_architect_receives_the_model_selected_by_its_resource_decision(coordinator, tmp_path, monkeypatch):
+    ProviderAccountStore(coordinator.connection).upsert_provider_account(
+        {
+            "providerId": "llama-local",
+            "displayName": "llama.cpp local",
+            "providerType": "local",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "http://127.0.0.1:1/v1",
+            "enabled": True,
+        }
+    )
+    payloads: list[dict] = []
+
+    def fake_run(self, payload):
+        payloads.append(payload)
+        return {"status": "completed", "verdict": "approved", "reason": "", "evidencePackage": {"id": "ev"}}
+
+    monkeypatch.setattr(coordinator_module.ArchitectAgentRunner, "run", fake_run)
+    monkeypatch.setattr(
+        coordinator.repository,
+        "update_loop_context",
+        lambda loop_id, *, context: {"id": loop_id, "context": context},
+    )
+    monkeypatch.setattr(coordinator, "_record_loop_event", lambda **kwargs: None)
+
+    coordinator._run_team_review_phase(_review_run_with_architect_decision(tmp_path, {}, "llama-local"))
+    assert payloads[-1]["preferredRuntime"] == "llama-local"
+    assert payloads[-1]["model"] == "qwen3-coder"
+
+    with_architect = {
+        "runtimeTeam": {
+            "allowedRuntimes": ["codex_cli", "nvidia_nim"],
+            "roleRuntimes": {
+                "developer": "codex_cli",
+                "product_owner": "codex_cli",
+                "architect": "nvidia_nim",
+            },
+        }
+    }
+    coordinator._run_team_review_phase(
+        _review_run_with_architect_decision(tmp_path, with_architect, "llama-local")
+    )
+    assert payloads[-1]["preferredRuntime"] == "nvidia_nim"
+    assert "model" not in payloads[-1]
+
+    coordinator._run_team_review_phase(_review_run_with_architect_decision(tmp_path, {}, "claude_code_cli"))
+    assert "preferredRuntime" not in payloads[-1]
+    assert "model" not in payloads[-1]

@@ -192,7 +192,10 @@ def test_a_validated_team_is_sealed_into_the_run_and_forged_metadata_is_ignored(
         )
         assert response.status_code == 200, response.text
         job = JobsRepository(runtime.connection).get_job(response.json()["run"]["jobId"])
-        assert job["payload"]["runMetadata"]["runtimeTeam"] == TEAM
+        assert job["payload"]["runMetadata"]["runtimeTeam"] == {
+            **TEAM,
+            "roleModels": {"product_owner": "local_default", "architect": "local_default"},
+        }
         assert "runtimeTeamDiscarded" not in job["payload"]["runMetadata"]
     finally:
         runtime.close()

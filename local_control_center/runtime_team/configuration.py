@@ -3,10 +3,12 @@
 El operador guarda ``allowedRuntimes`` y ``roleRuntimes`` en el hilo (mismo patrón que ``teamMode``).
 Al sellar un mensaje, la metadata del run recibe ``runtimeTeam`` estrechado por
 ``project.runtime.allowedProviders`` y por la frescura de 30 min: un runtime vencido sale del conjunto
-y sus roles quedan sin asignar, y lo descartado queda en ``runtimeTeamDiscarded``. El envío solo se
-rechaza si PO o Developer quedan sin runtime fresco. La política del proyecto solo restringe, nunca
-amplía, y un valor entrante del cliente se descarta siempre. Un equipo estrechado a vacío se conserva
-vacío para fallar cerrado en el loop en vez de volver al ruteo automático.
+y sus roles quedan sin asignar, y lo descartado queda en ``runtimeTeamDiscarded``. Para los roles en
+runtimes locales el servidor resuelve y sella ``roleModels`` (modelo validado en la ventana y con las
+capacidades del rol). El envío solo se rechaza si PO o Developer quedan sin runtime fresco. La política
+del proyecto solo restringe, nunca amplía, y un valor entrante del cliente (incluido ``roleModels``) se
+descarta siempre. Un equipo estrechado a vacío se conserva vacío para fallar cerrado en el loop en vez
+de volver al ruteo automático.
 
 @author Rodrigo Mason
 """
@@ -14,10 +16,18 @@ vacío para fallar cerrado en el loop en vez de volver al ruteo automático.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Container, Iterable, Mapping
+from collections.abc import Callable, Container, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from local_control_center.agents import local_model_state
+from local_control_center.agents.local_model_selection import (
+    normalize_model_capabilities,
+    resolve_local_model,
+)
+from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
+from local_control_center.agents.local_model_state import LoadState
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -37,6 +47,17 @@ ALLOWED_RUNTIMES_KEY = "allowedRuntimes"
 ROLE_RUNTIMES_KEY = "roleRuntimes"
 ROLE_MODELS_KEY = "roleModels"
 """Clave sellada rol→modelo para los runtimes locales; la escribe solo el servidor al sellar."""
+ROLE_MODEL_CAPABILITIES: Mapping[str, frozenset[str]] = {
+    role: normalize_model_capabilities(capabilities)
+    for role, capabilities in {
+        "product_owner": ("chat",),
+        "developer": ("chat", "code"),
+        "architect": ("chat",),
+        "security": ("chat", "review"),
+    }.items()
+}
+"""Capacidades que el modelo sellado de cada rol debe tener: las del scheduler llevadas al vocabulario del
+modelo por ``normalize_model_capabilities`` (``code`` ⇒ ``code_edit``, ``review`` ⇒ ``code_review``, P22)."""
 
 
 class RuntimeTeamNotReadyError(ValueError):
@@ -81,7 +102,7 @@ def _clean_ids(values: Iterable[Any]) -> list[str]:
     return list(dict.fromkeys(str(item).strip() for item in values or [] if str(item).strip()))
 
 
-def _team_from(raw: Any) -> dict[str, Any] | None:
+def _team_from(raw: Any, *, sealed: bool = False) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or ALLOWED_RUNTIMES_KEY not in raw:
         return None
     allowed = _clean_ids(raw.get(ALLOWED_RUNTIMES_KEY) or [])
@@ -91,7 +112,14 @@ def _team_from(raw: Any) -> dict[str, Any] | None:
         for role in TEAM_ROLES
         if str(roles_raw.get(role) or "").strip() in allowed
     }
-    return {ALLOWED_RUNTIMES_KEY: allowed, ROLE_RUNTIMES_KEY: roles}
+    team: dict[str, Any] = {ALLOWED_RUNTIMES_KEY: allowed, ROLE_RUNTIMES_KEY: roles}
+    models_raw = raw.get(ROLE_MODELS_KEY) if isinstance(raw.get(ROLE_MODELS_KEY), dict) else {}
+    role_models = {
+        role: str(models_raw[role]).strip() for role in roles if str(models_raw.get(role) or "").strip()
+    }
+    if sealed and role_models:
+        team[ROLE_MODELS_KEY] = role_models
+    return team
 
 
 def _thread_metadata(connection: sqlite3.Connection, thread_id: str) -> dict[str, Any] | None:
@@ -244,6 +272,64 @@ def assess_runtime_team(
     return RuntimeTeamReadiness(missing_roles=missing, stale_runtimes=tuple(stale))
 
 
+def _cached_load_states_without_wait(account: Mapping[str, Any]) -> Mapping[str, LoadState]:
+    """Estado de carga de la caché compartida sin esperar un refresco (el sellado no bloquea el envío)."""
+    return local_model_state.LOAD_STATE_CACHE.get(account, max_wait_s=0.0)
+
+
+def resolve_team_role_models(
+    connection: sqlite3.Connection,
+    role_runtimes: Mapping[str, str | None],
+    *,
+    load_states_for: Callable[[Mapping[str, Any]], Mapping[str, LoadState]] | None = None,
+) -> dict[str, str]:
+    """Modelo por rol para los roles asignados a runtimes locales (spec §4.3, ``roleModels``).
+
+    ``E`` son los modelos habilitados validados en la ventana de 30 min y con las capacidades del rol; el
+    estado de carga sale de ``load_states_for`` (por defecto, la caché compartida sin esperar; desconocido
+    ⇒ por defecto). Los roles se recorren en ``TEAM_ROLES`` con afinidad por runtime. Un rol sin modelo
+    resoluble queda fuera y la ejecución usa la selección determinista. La usan el sellado y la vista
+    previa ``suggestedRoleModels`` de los candidatos del equipo.
+    """
+    read_states = load_states_for or _cached_load_states_without_wait
+    store = ProviderAccountStore(connection)
+    settings = LocalModelSettingsRepository(connection)
+    resolved: dict[str, str] = {}
+    affinity: dict[str, str] = {}
+    for role in TEAM_ROLES:
+        provider_id = str(role_runtimes.get(role) or "").strip()
+        if not provider_id:
+            continue
+        try:
+            account = store.get_provider_account(provider_id)
+        except KeyError:
+            continue
+        if str(account.get("providerType") or "") != "local":
+            continue
+        enabled = [str(item["model"]) for item in store.list_models(provider_id) if item.get("enabled")]
+        validated = frozenset(
+            model
+            for model in enabled
+            if runtime_validation_state(
+                connection, provider_id, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS, model=model
+            ).status
+            == "validated"
+        )
+        resolution = resolve_local_model(
+            required_capabilities=ROLE_MODEL_CAPABILITIES[role],
+            enabled_models=enabled,
+            settings=settings.list_for_account(provider_id),
+            validated_models=validated,
+            load_states=read_states(account),
+            affinity_model=affinity.get(provider_id),
+            model_aliases=local_model_state.model_aliases_for(account),
+        )
+        if resolution.model is not None:
+            resolved[role] = resolution.model
+            affinity.setdefault(provider_id, resolution.model)
+    return resolved
+
+
 @dataclass(frozen=True)
 class _EffectiveRuntimeTeam:
     """Equipo del hilo tras la política del proyecto (``narrowed``) y tras la frescura (``fresh``)."""
@@ -272,8 +358,10 @@ def _effective_thread_runtime_team(
         for provider_id in team[ALLOWED_RUNTIMES_KEY]
         if provider_id not in narrowed[ALLOWED_RUNTIMES_KEY]
     )
+    role_models = resolve_team_role_models(connection, narrowed[ROLE_RUNTIMES_KEY])
+    assessed = {**narrowed, ROLE_MODELS_KEY: role_models} if role_models else narrowed
     stale = assess_runtime_team(
-        connection, narrowed, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
+        connection, assessed, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
     ).stale_runtimes
     fresh = _team_restricted_to(
         narrowed, set(narrowed[ALLOWED_RUNTIMES_KEY]) - {item["providerId"] for item in stale}
@@ -325,7 +413,8 @@ def seal_thread_runtime_team(
         team, discarded = effective.narrowed, effective.excluded
     else:
         team, discarded = effective.fresh, effective.excluded + effective.stale
-    stamped[RUNTIME_TEAM_METADATA_KEY] = team
+    role_models = resolve_team_role_models(connection, team[ROLE_RUNTIMES_KEY])
+    stamped[RUNTIME_TEAM_METADATA_KEY] = {**team, ROLE_MODELS_KEY: role_models} if role_models else team
     if discarded:
         configured_roles = effective.configured[ROLE_RUNTIMES_KEY]
         stamped[RUNTIME_TEAM_DISCARDED_METADATA_KEY] = [
@@ -353,8 +442,8 @@ def discarded_role_runtime(request_meta: Mapping[str, Any] | None, team_role: st
 
 
 def runtime_team_of(request_meta: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Equipo sellado en la metadata del run, o ``None`` cuando el hilo usa ruteo automático."""
-    return _team_from((request_meta or {}).get(RUNTIME_TEAM_METADATA_KEY))
+    """Equipo sellado en la metadata del run (con ``roleModels`` si hay), o ``None`` con ruteo automático."""
+    return _team_from((request_meta or {}).get(RUNTIME_TEAM_METADATA_KEY), sealed=True)
 
 
 def assigned_runtime(request_meta: Mapping[str, Any] | None, team_role: str) -> str | None:
@@ -377,6 +466,23 @@ def role_allowlist(request_meta: Mapping[str, Any] | None, team_role: str | None
     role_runtimes = team[ROLE_RUNTIMES_KEY]
     assigned = (role_runtimes.get(team_role) if team_role else None) or role_runtimes.get("product_owner")
     return [assigned] if assigned else list(team[ALLOWED_RUNTIMES_KEY])
+
+
+def role_model_pins(request_meta: Mapping[str, Any] | None, team_role: str | None) -> dict[str, str]:
+    """Modelo sellado del rol por runtime local (``{providerId: model}``) para ``AIResourceRequest``.
+
+    Solo fija roles con asignación y modelo sellado propios. A diferencia de ``role_allowlist``, un rol sin
+    asignación propia (qa_engineer, aido_lead, technical_lead u opcional vacío) no hereda el modelo del PO:
+    ese modelo puede no tener las capacidades del rol (p. ej. ``review``), así que usa la selección
+    determinista y la afinidad. Vacío sin equipo o sin modelo sellado (equipos sellados antes de
+    ``roleModels``).
+    """
+    team = runtime_team_of(request_meta)
+    if team is None or not team_role:
+        return {}
+    provider_id = team[ROLE_RUNTIMES_KEY].get(team_role)
+    model = (team.get(ROLE_MODELS_KEY) or {}).get(team_role)
+    return {provider_id: model} if provider_id and model else {}
 
 
 def restrict_to_allowlist(provider_ids: Iterable[str], allowlist: list[str] | None) -> list[str]:

@@ -162,8 +162,9 @@ def _bounded_items(
 
 
 def _json_object_from_text(content: str) -> dict[str, Any]:
+    # El texto puede venir crudo del canal transitorio: se redacta ya parseado, antes de validar y persistir.
     try:
-        payload = json.loads(json_candidate_text(content))
+        payload = redact_secrets(json.loads(json_candidate_text(content)))
     except json.JSONDecodeError as error:
         raise ArchitectOutputValidationError("ArchitectAgent model output is not valid JSON.") from error
     if not isinstance(payload, dict):

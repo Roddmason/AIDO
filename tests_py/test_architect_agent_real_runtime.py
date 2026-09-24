@@ -530,3 +530,7 @@ def test_architect_agent_parses_reasoning_and_redaction_breaking_output_from_the
     assert body["output"]["verdict"] == "changes_required"
     assert THINK_MARKER not in sqlite_text_dump(store.connection)
     assert THINK_MARKER not in caplog.text
+    # La salida cruda del canal transitorio se redacta tras parsear: ni la BD ni la respuesta la guardan en claro.
+    assert "api_key = value" not in sqlite_text_dump(store.connection)
+    assert "api_key = value" not in response.text
+    assert "[redacted]" in body["output"]["risks"][0]["mitigation"]

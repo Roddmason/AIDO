@@ -1488,3 +1488,6 @@ def test_product_owner_parses_reasoning_and_redaction_breaking_output_from_the_t
     assert body["status"] == "completed"
     assert THINK_MARKER not in sqlite_text_dump(store.connection)
     assert THINK_MARKER not in caplog.text
+    # La salida cruda del canal transitorio se redacta tras parsear: brief, iniciativa y respuesta van redactados.
+    assert "ask for company size" not in sqlite_text_dump(store.connection)
+    assert "ask for company size" not in response.text

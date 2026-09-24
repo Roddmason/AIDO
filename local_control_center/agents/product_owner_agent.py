@@ -1093,8 +1093,9 @@ class ProductOwnerAgentRunner:
 
     @staticmethod
     def _json_object_from_text(content: str) -> Any:
+        # El texto puede venir crudo del canal transitorio: se redacta ya parseado, antes de validar y persistir.
         try:
-            return json.loads(json_candidate_text(content))
+            return redact_secrets(json.loads(json_candidate_text(content)))
         except json.JSONDecodeError as error:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent runtime output is not valid JSON."

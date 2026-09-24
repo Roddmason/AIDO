@@ -14,6 +14,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
 from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
@@ -82,6 +83,7 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         or execution_result.get("stdoutArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
         "redacted": bool(execution_result.get("redacted", False)),
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
     }
 
 
@@ -893,6 +895,7 @@ class ArchitectAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": runtime_result,
+            "localRuntimeCause": runtime_result.get("localRuntimeCause"),
             "output": output,
             "architectureDecision": architecture_decision,
             "riskEntries": risk_entries,

@@ -6077,6 +6077,45 @@ def test_product_owner_distinguishes_transport_failure_from_invalid_output(
         )
 
 
+def test_product_owner_local_runtime_cause_reaches_the_block_details(tmp_path: Path) -> None:
+    runtime = _ControlledRuntime()
+    reason = "OpenAI-compatible execution failed: model_loading"
+    product_owner = _ProductOwnerRunner(
+        {
+            "status": "runtime_failed",
+            "reason": reason,
+            "output": None,
+            "localRuntimeCause": "model_loading",
+            "runtimeResult": {
+                "execution": "runtime_adapter:openai_compatible",
+                "decision": "allow",
+                "httpStatus": 503,
+                "reason": reason,
+                "localRuntimeCause": "model_loading",
+            },
+        }
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "po-local-cause")
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement onboarding readiness.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=product_owner,
+            assessment_runner=_AssessmentRunner(),
+        )
+
+        durable = result["loop"]["context"]["durableRun"]
+        assert result["status"] == "blocked"
+        assert durable["blockedStage"] == "product_owner"
+        assert durable["product_owner"]["localRuntimeCause"] == "model_loading"
+        assert durable["productOwner"]["runtimeResult"]["localRuntimeCause"] == "model_loading"
+        assert runtime.run_payloads == []
+
+
 def test_product_owner_policy_denial_reaches_remediation_without_running_developer(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     reason = "ProductOwnerAgent model execution is limited to configured adapters."

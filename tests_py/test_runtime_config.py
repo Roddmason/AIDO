@@ -178,7 +178,7 @@ def test_litellm_proxy_supports_optional_auth_in_config_adapter_and_status(
             return None
 
         @staticmethod
-        def read() -> bytes:
+        def read(_size: int = -1) -> bytes:
             return b'{"data":[{"id":"proxy-model"}]}'
 
     def fake_urlopen(request: urllib.request.Request, *, timeout: float):

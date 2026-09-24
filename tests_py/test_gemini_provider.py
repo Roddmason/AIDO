@@ -37,7 +37,7 @@ class _FakeResponse:
     def __exit__(self, *_args: object) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, _size: int = -1) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
 
 

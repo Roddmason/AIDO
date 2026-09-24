@@ -20,6 +20,7 @@ from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.model_output_text import strip_reasoning_blocks
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 from local_control_center.shared.redaction import redact_secrets
 
@@ -32,7 +33,12 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
-from .http_transport import urlopen_fail_closed
+from .http_transport import (
+    DEFAULT_CHAT_TIMEOUT_SECONDS,
+    MAX_PROVIDER_RESPONSE_BYTES,
+    read_bounded,
+    urlopen_fail_closed,
+)
 
 PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
 USAGE_TOKEN_KEYS = (
@@ -52,8 +58,43 @@ def _provider_reported_usage(usage: Any) -> bool:
     return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
 
 
+def _chat_choice(raw: Any) -> tuple[str, str | None, bool]:
+    """Extrae (contenido sin razonamiento, finish_reason, hubo razonamiento no vacío) del primer choice."""
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return "", None, False
+    choice = choices[0]
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    content, reasoning_chars = strip_reasoning_blocks(str(message.get("content") or ""))
+    reasoning_field = str(message.get("reasoning_content") or message.get("reasoning") or "").strip()
+    finish_reason = choice.get("finish_reason")
+    return (
+        content,
+        str(finish_reason) if finish_reason is not None else None,
+        bool(reasoning_field) or reasoning_chars > 0,
+    )
+
+
+def _without_reasoning(raw: Any, content: str) -> Any:
+    """Copia de la respuesta cuyo primer choice no conserva razonamiento ni bloques ``<think>``."""
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return raw
+    first = choices[0]
+    if not isinstance(first.get("message"), dict):
+        return raw
+    message = {
+        key: value for key, value in first["message"].items() if key not in {"reasoning_content", "reasoning"}
+    }
+    message["content"] = content
+    return {**raw, "choices": [{**first, "message": message}, *choices[1:]]}
+
+
 class OpenAICompatibleProvider(ModelProvider):
     """Proveedor base que habla la API estilo OpenAI; las variantes solo ajustan url/credencial."""
+
+    max_response_bytes = MAX_PROVIDER_RESPONSE_BYTES
+    send_output_limit = False
 
     def __init__(
         self,
@@ -154,7 +195,7 @@ class OpenAICompatibleProvider(ModelProvider):
         )
         try:
             with urlopen_fail_closed(request, timeout=10) as response:
-                json.loads(response.read().decode("utf-8"))
+                json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return ProviderHealth(
                 providerId=self.provider_id,
@@ -180,7 +221,7 @@ class OpenAICompatibleProvider(ModelProvider):
         )
         try:
             with urlopen_fail_closed(request, timeout=10) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError):
             return []
         models = payload.get("data", []) if isinstance(payload, dict) else []
@@ -195,8 +236,37 @@ class OpenAICompatibleProvider(ModelProvider):
             if isinstance(item, dict) and (item.get("id") or item.get("model"))
         ]
 
+    def _chat_body(self, request: ModelRequest) -> dict[str, Any]:
+        """Arma el body OpenAI explícito: solo campos del protocolo, sin ``metadata`` ni alias camelCase.
+
+        ``max_tokens`` solo viaja con ``send_output_limit`` (cuentas de runtime local, fijado por la
+        factory): las APIs remotas exigen otro campo para modelos de razonamiento y un tope pequeño
+        les vaciaría la respuesta. ``extra_body`` agrega campos propios del servidor (p. ej.
+        ``chat_template_kwargs`` de llama.cpp) sin poder pisar los del protocolo.
+        """
+        body: dict[str, Any] = {"model": request.model, "messages": request.messages, "stream": False}
+        if request.temperature is not None:
+            body["temperature"] = request.temperature
+        if self.send_output_limit and request.max_tokens is not None:
+            body["max_tokens"] = request.max_tokens
+        if request.response_format is not None:
+            body["response_format"] = request.response_format
+        for key, value in request.extra_body.items():
+            body.setdefault(key, value)
+        return body
+
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        """Postea a `/chat/completions` y normaliza la respuesta. Raises si falta credencial/URL."""
+        """Postea a `/chat/completions` con timeout y lectura acotados y descarta el razonamiento.
+
+        La llamada HTTP corre dentro de ``invocation_slot`` (lease de concurrencia de cuentas locales) y su
+        timeout se calcula ya dentro del slot, con lo que queda del deadline de la llamada.
+
+        Raises:
+            RuntimeError: si falta la URL o una credencial declarada no resuelve.
+            LocalRuntimeError: ``local_endpoint_busy`` si la lease del endpoint local no se libera o su
+                espera agotó el deadline (``insufficient_time_for_model_load`` con arranque en frío).
+            ResponseTooLargeError: si el cuerpo supera ``max_response_bytes``.
+        """
         credential = self._credential()
         if (
             not self.base_url
@@ -204,26 +274,26 @@ class OpenAICompatibleProvider(ModelProvider):
             or (self.credential_ref and not credential)
         ):
             raise RuntimeError("Provider is missing base_url or credential_ref")
-        payload = json.dumps(request.model_dump(by_alias=True, exclude_none=True)).encode("utf-8")
+        payload = json.dumps(self._chat_body(request)).encode("utf-8")
         http_request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=payload,
             headers=self._request_headers({"Content-Type": "application/json"}),
             method="POST",
         )
-        with self.invocation_slot(), urlopen_fail_closed(http_request, timeout=60) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-        content = ""
-        choices = raw.get("choices") if isinstance(raw, dict) else None
-        if isinstance(choices, list) and choices:
-            message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-            content = str((message or {}).get("content") or "")
+        with self.invocation_slot():
+            timeout = request.http_timeout(DEFAULT_CHAT_TIMEOUT_SECONDS)
+            with urlopen_fail_closed(http_request, timeout=timeout) as response:
+                raw = json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+        content, finish_reason, reasoning_present = _chat_choice(raw)
         return ModelResponse(
             providerId=self.provider_id,
             model=request.model,
             content=content,
             usage=self.parse_usage(raw),
-            rawResponse=redact_secrets(raw),
+            rawResponse=redact_secrets(_without_reasoning(raw, content)),
+            finishReason=finish_reason,
+            reasoningPresent=reasoning_present,
         )
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:

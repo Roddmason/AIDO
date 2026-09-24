@@ -140,9 +140,11 @@ class LocalModelSettingsRepository:
             now = utc_now()
             if is_default:
                 self.connection.execute(
-                    """UPDATE local_model_settings SET is_default = 0, updated_at = ?
+                    """UPDATE local_model_settings
+                       SET is_default = 0, updated_at = ?,
+                           provenance_json = json_set(provenance_json, '$.is_default', ?)
                        WHERE provider_id = ? AND model <> ? AND is_default = 1""",
-                    (now, provider_id, model),
+                    (now, actor, provider_id, model),
                 )
             self.connection.execute(
                 """INSERT INTO local_model_settings

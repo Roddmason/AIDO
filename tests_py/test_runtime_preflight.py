@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import io
+import time
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.error import HTTPError
@@ -786,6 +788,69 @@ def test_local_probe_sends_reasoning_budget_and_accepts_length_with_reasoning(la
     assert seen[0].max_tokens == runtime_preflight.LOCAL_OUTPUT_TOKEN_LIMIT == 64
     assert seen[0].extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
     assert seen[0].timeout_seconds == 60 + 180
+
+
+def _alive_local_chat(seen):
+    def chat(provider_id, request):
+        seen.append((request, time.monotonic()))
+        return ModelResponse(
+            providerId=provider_id,
+            model=request.model,
+            content="OK",
+            usage=UsageRecord(rawUsage={"usage_source": "unknown"}),
+        )
+
+    return chat
+
+
+def _execution_deadline_scope(lane, seconds_left: float):
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    database = Path(lane.connection.execute("PRAGMA database_list").fetchone()[2])
+    return execution_scope(
+        ProcessExecutionContext(
+            db_path=database, execution_deadline_monotonic=time.monotonic() + seconds_left
+        )
+    )
+
+
+def test_local_probe_timeout_respects_the_operator_ceiling_and_carries_a_call_deadline(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.local.maxCallSeconds", 45)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    result = _run(lane, [row])
+
+    request, invoked_at = seen[0]
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert request.timeout_seconds == 45
+    assert request.deadline_monotonic is not None
+    assert invoked_at < request.deadline_monotonic <= invoked_at + 45
+
+
+def test_local_probe_timeout_is_bounded_by_the_remaining_execution_deadline(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    # remaining_execution_timeout reserva 15 s de cierre: quedan ~200 s, más que el arranque en frío (180).
+    with _execution_deadline_scope(lane, 15 + 200):
+        result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert 190 <= seen[0][0].timeout_seconds <= 200
+
+
+def test_local_probe_without_time_to_load_the_model_is_deferred_before_invoking(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    with _execution_deadline_scope(lane, 15 + 100):
+        result = _run(lane, [row])
+
+    assert seen == []
+    assert result["attempts"] == 0
+    assert result["deferred"][0]["reason"] == "insufficient_time_for_model_load"
+    assert _local_execution_receipts(lane) == []
 
 
 def test_local_probe_reports_a_loading_server_as_model_loading(lane, monkeypatch):

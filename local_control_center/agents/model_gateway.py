@@ -145,7 +145,7 @@ class ModelGateway:
         ``extra_body`` viaja al body del servidor sin pisar campos del protocolo, ``liveness_probe`` acepta
         como viva una respuesta cortada por longitud con razonamiento no vacío (sondas de preflight) y
         ``timeout_seconds`` reemplaza el timeout por defecto del transporte (la sonda local suma el arranque
-        en frío del perfil).
+        en frío del perfil) y fija el deadline de la llamada, que también acota la espera por el slot local.
 
         Returns:
             Plan con status 'planned' si hay candidato permitido o 'blocked_policy' si ninguno lo es;
@@ -356,13 +356,15 @@ class ModelGateway:
         invoked = False
         try:
             provider = provider_instance(provider_id, connection=self.repository.connection)
+            timeout_seconds = request_payload.get("timeoutSeconds")
             request = ModelRequest(
                 model=model,
                 messages=messages,
                 temperature=request_payload.get("temperature"),
                 maxTokens=request_payload.get("maxTokens"),
                 extraBody=request_payload.get("extraBody") or {},
-                timeoutSeconds=request_payload.get("timeoutSeconds"),
+                timeoutSeconds=timeout_seconds,
+                deadlineMonotonic=start + timeout_seconds if timeout_seconds else None,
             )
             invoked = True
             response = provider.chat_completion(request)

@@ -29,6 +29,8 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .developer_agent_contract import developer_agent_readiness
+from .endpoint_locality import endpoint_locality, is_local_model_runtime, is_self_hosted_inference
+from .local_runtime_causes import local_runtime_cause_of
 from .model_execution_health import provider_configuration_fingerprint
 from .model_gateway import cached_ollama_status
 from .product_owner_agent_contract import PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
@@ -369,7 +371,10 @@ def _api_provider_status(
         reason = "Provider model is not configured or enabled."
     elif not healthy:
         health_reason = last_error or f"health status is {health_status}"
-        reason = f"Provider has not passed an explicit health check ({health_reason})."
+        if str(account.get("providerType") or "") == "local" and local_runtime_cause_of(last_error):
+            reason = last_error
+        else:
+            reason = f"Provider has not passed an explicit health check ({health_reason})."
     elif not installation_enabled:
         reason = "Provider runtime installation is disabled."
     elif not enabled:
@@ -414,6 +419,18 @@ def _api_provider_status(
     payload["productOwnerExecutable"] = bool(
         can_run_prompt and payload["providerFamily"] in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
     )
+    local_model_runtime = is_local_model_runtime(account)
+    payload["locality"] = endpoint_locality(account)
+    payload["localModelRuntime"] = local_model_runtime
+    payload["selfHostedInference"] = is_self_hosted_inference(account)
+    if local_model_runtime:
+        payload["models"] = [
+            str(row["model"])
+            for row in connection.execute(
+                "SELECT model FROM model_catalog WHERE provider_id = ? AND enabled = 1 ORDER BY model",
+                (provider_id,),
+            )
+        ]
     return payload
 
 
@@ -652,6 +669,9 @@ def _ollama_provider_status(
     payload["providerFamily"] = "ollama"
     payload["credentialStatus"] = str(account.get("credentialStatus") or "unknown")
     payload["productOwnerExecutable"] = can_run_prompt
+    payload["locality"] = endpoint_locality(account)
+    payload["localModelRuntime"] = is_local_model_runtime(account)
+    payload["selfHostedInference"] = is_self_hosted_inference(account)
     return payload
 
 

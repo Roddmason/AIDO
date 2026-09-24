@@ -36,7 +36,7 @@ from local_control_center.shared.serialization import json_dumps, prompt_json_du
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .repository import AgentsRepository
-from .runtime_selection import runtime_provider_family
+from .runtime_selection import runtime_provider_family, runtime_requires_network
 from .runtime_status import RuntimeStatusService
 from .security_agent_contract import (
     SECURITY_AGENT_ALLOWED_TOOLS,
@@ -1094,7 +1094,7 @@ class SecurityAgentRunner:
                     ],
                     "temperature": 0.1,
                 },
-                "networkRequired": provider_family in SECURITY_AGENT_REMOTE_API_RUNTIMES,
+                "networkRequired": runtime_requires_network(runtime, SECURITY_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,

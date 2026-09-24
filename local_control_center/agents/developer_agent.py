@@ -56,6 +56,7 @@ from .runtime_selection import (
     display_command,
     is_ollama_runtime,
     runtime_provider_family,
+    runtime_requires_network,
     runtime_unavailable_result,
 )
 from .runtime_status import RuntimeStatusService
@@ -70,6 +71,8 @@ def _runtime_mode(runtime: dict[str, Any]) -> str:
         return "ollama"
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "cli"
+    if runtime.get("localModelRuntime") is True:
+        return "local"
     if runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
         return "api"
     return "hybrid"
@@ -323,9 +326,7 @@ class DeveloperAgentRunner:
         runtime_id = str(runtime.get("id") or "")
         ollama_runtime = is_ollama_runtime(runtime)
         provider_family = runtime_provider_family(runtime)
-        remote_runtime = provider_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES or str(
-            runtime.get("kind") or ""
-        ) in {"api", "gateway"}
+        remote_runtime = runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES)
         return self.agents.upsert_agent_profile(
             {
                 "id": DEVELOPER_AGENT_ID,
@@ -444,8 +445,7 @@ class DeveloperAgentRunner:
                     ),
                     "temperature": 0.2,
                 },
-                "networkRequired": provider_family in DEVELOPER_AGENT_REMOTE_API_RUNTIMES
-                or str(runtime.get("kind") or "") in {"api", "gateway"},
+                "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
                 # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),

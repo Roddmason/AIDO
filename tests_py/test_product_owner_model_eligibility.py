@@ -13,6 +13,7 @@ import pytest
 from local_control_center.agents.ai_resource_manager import AIResourceManager, AIResourceRequest
 from local_control_center.agents.product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+    _product_owner_runtime_cost_rank,
     is_product_owner_runtime,
     product_owner_agent_readiness,
 )
@@ -172,3 +173,31 @@ def test_resource_manager_never_selects_gemini_for_product_owner(
         assert decision["selected"] is None
     else:
         assert decision["selected"]["providerId"] == "nvidia_nim"
+
+
+def test_local_model_runtime_requires_listed_models_like_ollama():
+    runtime = {
+        "id": "llama_cpp",
+        "providerFamily": "openai_compatible",
+        "kind": "local",
+        "localModelRuntime": True,
+        "executable": True,
+        "capabilities": ["chat"],
+        "models": [],
+    }
+    assert is_product_owner_runtime(runtime) is False
+    assert is_product_owner_runtime({**runtime, "models": ["gemma-4-26b-a4b"]}) is True
+
+
+def test_self_hosted_local_runtime_ranks_as_free_like_ollama():
+    local = {
+        "id": "llama_cpp",
+        "providerFamily": "openai_compatible",
+        "kind": "local",
+        "selfHostedInference": True,
+    }
+    assert _product_owner_runtime_cost_rank(local) == 0
+    assert _product_owner_runtime_cost_rank({**local, "selfHostedInference": False}) == 2
+    assert (
+        _product_owner_runtime_cost_rank({"id": "ollama", "providerFamily": "ollama", "kind": "local"}) == 0
+    )

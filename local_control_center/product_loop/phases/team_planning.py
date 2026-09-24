@@ -311,6 +311,14 @@ def plan_team_and_resources(
             },
             thread_id=thread_id,
         )
+    for role_plan in team_schedule.get("roles") or []:
+        coordinator._record_local_model_switches(
+            project_id=project_id,
+            loop_id=loop["id"],
+            thread_id=thread_id,
+            role=str(role_plan.get("role") or ""),
+            decision=role_plan.get("resourceDecision") or {},
+        )
     return finish_team_planning(
         coordinator,
         run,

@@ -69,8 +69,9 @@ pueden aportar evidencia: el estado ``delivered`` entra por ``idx_product_loops_
 ``CROSS JOIN`` fija el brief aprobado como tabla externa (SQLite respeta ese orden), de modo que la
 iniciativa se compara antes de parsear. Un ``OR`` con subconsulta en el mismo ``WHERE`` no sirve:
 SQLite difiere los términos con subconsulta hasta después de ``json_extract``."""
-_NON_INDEXED_EVENT_TYPES = ("team_planned",)
-"""Eventos que describen la configuración del equipo (roles, esquemas, runtimes), no el trabajo.
+_NON_INDEXED_EVENT_TYPES = ("team_planned", "local_model_switch")
+"""Eventos que describen la configuración o la infraestructura del run (roles, esquemas, runtimes,
+cambio de modelo local), no el trabajo.
 
 Su payload es casi idéntico en todos los hilos del proyecto y ocupa la mayor parte del texto
 indexado: diluye el Jaccard y desplaza del top de keywords los términos del objetivo, hasta dejar

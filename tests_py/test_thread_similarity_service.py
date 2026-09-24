@@ -384,3 +384,33 @@ def test_open_thread_that_never_delivered_is_still_suggested_for_the_same_goal(t
             ThreadMemoryService(connection).find_existing_functionality(project_id=project_id, query=goal)
             == []
         )
+
+
+def test_local_model_switch_events_stay_out_of_the_similarity_index(tmp_path: Path) -> None:
+    """El cambio de modelo local describe infraestructura del run, no el objetivo: no se indexa."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        threads = ThreadsRepository(connection)
+        thread = threads.create_thread(
+            project_id=project_id, owner_type="workspace", owner_id=project_id, title="Invoice export"
+        )
+        threads.record_event(
+            thread_id=thread["id"],
+            type="local_model_switch",
+            payload={
+                "runtimeId": "llamaswitchruntime",
+                "fromModel": "gemmaswitchmodel",
+                "toModel": "qwenswitchmodel",
+                "role": "developer",
+                "reason": "default",
+            },
+        )
+        threads.record_event(
+            thread_id=thread["id"],
+            type="classification_completed",
+            payload={"summary": "invoiceexportsignal"},
+        )
+        index = ThreadSimilarityService(connection).index_thread(thread["id"])
+    assert "invoiceexportsignal" in index["normalizedGoal"]
+    assert "qwenswitchmodel" not in index["normalizedGoal"]

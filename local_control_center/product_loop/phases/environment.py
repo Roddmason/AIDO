@@ -241,6 +241,13 @@ def select_product_owner_resources(
             },
             thread_id=thread_id,
         )
+    coordinator._record_local_model_switches(
+        project_id=project_id,
+        loop_id=loop["id"],
+        thread_id=thread_id,
+        role="product_owner",
+        decision=product_owner_resource_decision,
+    )
     product_owner_selected_resource = product_owner_resource_decision.get("selected") or {}
     product_owner_preferred_runtime = coordinator._product_owner_runtime_id_for_resource_selection(
         product_owner_selected_resource

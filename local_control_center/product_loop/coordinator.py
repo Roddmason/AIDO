@@ -78,6 +78,7 @@ from local_control_center.runtime_team.configuration import (
     discarded_role_runtime,
     restrict_to_allowlist,
     role_allowlist,
+    role_model_pins,
     runtime_team_of,
 )
 from local_control_center.runtime_team.roles import team_role_for
@@ -1044,6 +1045,44 @@ class ProductLoopCoordinator:
                         }
                     ),
                 )
+
+    def _record_local_model_switches(
+        self,
+        *,
+        project_id: str,
+        loop_id: str,
+        thread_id: str | None,
+        role: str,
+        decision: dict[str, Any],
+    ) -> None:
+        """Registra ``local_model_switch`` cuando el recurso elegido exige cambiar el modelo cargado.
+
+        Queda siempre en la auditoría de la ejecución (``product_loop.local_model_switch``) y, si hay hilo,
+        en su línea de tiempo: así el desalojo del modelo de otra sesión es visible.
+        """
+        selected = decision.get("selected") if isinstance(decision.get("selected"), dict) else {}
+        policy_result = decision.get("policyResult") if isinstance(decision.get("policyResult"), dict) else {}
+        for entry in policy_result.get("localModelSelections") or []:
+            if not (
+                isinstance(entry, dict)
+                and entry.get("requiresSwitch")
+                and entry.get("runtimeId") == selected.get("providerId")
+                and entry.get("model") == selected.get("model")
+            ):
+                continue
+            self._record_loop_event(
+                project_id=project_id,
+                event_type="product_loop.local_model_switch",
+                loop_id=loop_id,
+                payload={
+                    "runtimeId": entry["runtimeId"],
+                    "fromModel": entry.get("fromModel"),
+                    "toModel": entry["model"],
+                    "role": role,
+                    "reason": str(entry.get("reason") or ""),
+                },
+                thread_id=thread_id,
+            )
 
     def _set_thread_status_best_effort(
         self,
@@ -2911,6 +2950,7 @@ class ProductLoopCoordinator:
         privacy_level = self._resource_privacy_level(request_meta)
         enriched_roles: list[dict[str, Any]] = []
         blockers: list[dict[str, Any]] = []
+        local_affinity: dict[str, str] = {}
         for role_plan in team_schedule["roles"]:
             role = str(role_plan["role"])
             task = self._task_for_assignment(role, agent_tasks)
@@ -2924,6 +2964,7 @@ class ProductLoopCoordinator:
                     team_schedule=team_schedule,
                     role_plan=role_plan,
                     agent_tasks=agent_tasks,
+                    local_model_affinity=local_affinity,
                 ),
                 record=True,
                 allow_decision_inference=runtime_risk_review_id is None,
@@ -2949,6 +2990,10 @@ class ProductLoopCoordinator:
                 routing_latency_ms=(time.perf_counter() - routing_started) * 1000,
             )
             public_decision = self._public_resource_decision(decision)
+            selected_resource = decision.get("selected") if isinstance(decision.get("selected"), dict) else {}
+            for entry in (decision.get("policyResult") or {}).get("localModelSelections") or []:
+                if isinstance(entry, dict) and entry.get("runtimeId") == selected_resource.get("providerId"):
+                    local_affinity.setdefault(str(entry["runtimeId"]), str(entry.get("model") or ""))
             enriched_roles.append({**role_plan, "resourceDecision": public_decision})
             if decision.get("selected") is None:
                 blockers.append(
@@ -2989,6 +3034,7 @@ class ProductLoopCoordinator:
         team_schedule: dict[str, Any],
         role_plan: dict[str, Any],
         agent_tasks: list[dict[str, Any]],
+        local_model_affinity: dict[str, str] | None = None,
     ) -> AIResourceRequest:
         role = str(role_plan["role"])
         profile = self._profile_by_role(project_id).get(role) or {}
@@ -3011,6 +3057,8 @@ class ProductLoopCoordinator:
             context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
             required_capabilities=self._resource_required_capabilities(role_plan),
             allowed_provider_ids=role_allowlist(request_meta, team_role),
+            local_model_pins=role_model_pins(request_meta, team_role),
+            local_model_affinity=dict(local_model_affinity or {}),
             privacy_level=self._resource_privacy_level(request_meta),
             budget_remaining_usd=role_plan.get("budgetUsd"),
             max_tokens=role_plan.get("maxTokens"),
@@ -3379,6 +3427,7 @@ class ProductLoopCoordinator:
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed_provider_ids,
+                local_model_pins=role_model_pins(request_meta, "product_owner"),
                 excluded_resources=excluded_resources or [],
                 preferred_provider_ids=preferred_provider_ids,
                 preferred_resources=preferred_resources,
@@ -5067,6 +5116,13 @@ class ProductLoopCoordinator:
         # puntual, asi que otro modelo del mismo endpoint sigue siendo un reintento legitimo.
         if not next_runtime_id or (next_runtime_id, next_model) == (provider_id, failed_model):
             return None
+        self._record_local_model_switches(
+            project_id=run.project_id,
+            loop_id=run.loop["id"],
+            thread_id=run.thread_id,
+            role=role,
+            decision=decision,
+        )
         next_payload = dict(payload)
         next_payload["preferredRuntime"] = next_runtime_id
         if selected.get("model"):

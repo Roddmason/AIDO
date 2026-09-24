@@ -82,9 +82,12 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                     and profile.memory_limit_bytes <= CAPTURE_SESSION_PARTS["execution"]["memoryBytes"]
                     and profile.process_limit <= lease.process_limit
                 ):
-                    # Retain live host CPU, disk and the full 18 GiB + host-reserve check.
+                    from local_control_center.host_resources.branch_admission import borrowed_preview_class
+
+                    # Retain live host CPU, disk and the full 18 GiB + host-reserve check, except for a
+                    # resident-model client, which admission re-checks with its own class (borrowed_preview_class).
                     # Session subbudgets and fencing remain enforced by the supervisor at spawn.
-                    workload, execution_id = "capture_session", lease.execution_id
+                    workload, execution_id = borrowed_preview_class(lease, workload), lease.execution_id
             elif (
                 context.in_job_runner
                 and context.connection is connection

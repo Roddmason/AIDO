@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
+from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.time import utc_now
 
@@ -240,6 +241,10 @@ class ProviderFactoryAdapter:
                 provider_attempted=False,
                 redacted=True,
             )
+        except ExecutionDeadlineExceeded:
+            # El deadline se agota al tomar el slot local, antes de cualquier request: no es un intento fallido
+            # del modelo y ningún failover puede renovarlo, así que sube hasta quien cierra la ejecución.
+            raise
         except Exception as error:
             return _result(
                 status="unavailable",

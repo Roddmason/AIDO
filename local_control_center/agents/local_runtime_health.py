@@ -13,6 +13,7 @@ sync llega aquí sin pasar por el guard de `ModelGateway._provider_configuration
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -164,7 +165,10 @@ def probe_local_runtime(
     timeout_s: float = LIVENESS_TIMEOUT_SECONDS,
     expected_models: Collection[str] = (),
 ) -> LocalHealthResult:
-    """Sondea liveness y `/v1/models` del servidor local; nunca lanza por fallas de red.
+    """Sondea liveness y `/v1/models` del servidor local; nunca lanza por fallas de red ni de protocolo.
+
+    Un puerto que no habla HTTP (el operador apuntó a otro servicio) es `local_server_unreachable`, igual
+    que uno cerrado.
 
     `expected_models` son los modelos habilitados de la cuenta (vacío en el sync, que los descubre). La URL y
     el bearer son los que resuelve el adapter (`effective_connection`): los mismos que valida el guard de
@@ -197,7 +201,7 @@ def probe_local_runtime(
         if failure is not None:
             return failure
         models_status, models_payload = _get_json(f"{root}/v1/models", headers, timeout_s)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, http.client.HTTPException) as error:
         return LocalHealthResult(
             "offline", "local_server_unreachable", f"local_server_unreachable: {error.__class__.__name__}."
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from contextlib import closing
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +17,7 @@ from local_control_center.agents.runtime_adapters.models import RuntimeExecution
 from local_control_center.agents.runtime_adapters.provider_factory import ProviderFactoryAdapter
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
-from tests_py.fakes.local_llm_servers import running_llama_router
+from tests_py.fakes.local_llm_servers import running_llama_router, serve_http_double
 from tests_py.test_provider_setup_catalog import auth_headers, create_client
 
 LAN_BASE_URL = "http://192.168.1.50:8082/v1"
@@ -359,3 +360,36 @@ def test_sync_fails_closed_when_the_model_list_breaks_after_the_probe(tmp_path, 
         account = store.get_provider_account("llama_cpp")
     assert account["healthStatus"] == "offline"
     assert account["lastError"].startswith("local_server_unreachable")
+
+
+class _SshBannerHandler(BaseHTTPRequestHandler):
+    """Servicio que no habla HTTP (el operador apuntó al puerto equivocado): responde un banner SSH."""
+
+    def handle(self) -> None:
+        while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+            pass
+        self.wfile.write(b"SSH-2.0-OpenSSH_9.6\r\n")
+        self.wfile.flush()
+
+
+def test_a_port_that_does_not_speak_http_is_an_unreachable_server(tmp_path, monkeypatch):
+    from local_control_center.agents.local_runtime_health import probe_local_runtime
+
+    profile = LocalRuntimeProfile(
+        liveness_path="/health",
+        health_requires_models=True,
+        model_state_source="openai_models_status",
+        multi_model="router",
+        cold_start_timeout_s=60,
+    )
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    with serve_http_double(_SshBannerHandler, name="ssh-banner-double") as root:
+        probe = probe_local_runtime(
+            {"providerId": "wrong-port", "providerType": "local", "baseUrl": root}, profile
+        )
+        _create_llama(client, headers, f"{root}/v1")
+        response = client.post("/api/v1/provider-accounts/llama_cpp/sync-models", headers=headers)
+    assert (probe.health_status, probe.cause) == ("offline", "local_server_unreachable")
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "local_server_unreachable"

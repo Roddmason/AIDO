@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import shlex
 import sqlite3
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -981,6 +982,7 @@ class ToolBroker:
         elif decision["decision"] == "deny":
             status = "denied"
 
+        tool_call_id = f"agent-tool-call-{uuid.uuid4()}"
         execution = "not_executed"
         execution_result = None
         observation_provider = provider_id if tool_name in MODEL_PROVIDER_TOOLS else None
@@ -1114,7 +1116,12 @@ class ToolBroker:
                 status = "failed"
             else:
                 execution_result = adapter.execute(
-                    tool_call={**normalized_tool_call, "agentRunId": agent_run_id, "jobId": job_id},
+                    tool_call={
+                        **normalized_tool_call,
+                        "agentRunId": agent_run_id,
+                        "jobId": job_id,
+                        "transientOutputKey": tool_call_id,
+                    },
                     policy_input=policy_input,
                 )
                 adapter_status = str(execution_result.get("status") or "")
@@ -1230,6 +1237,7 @@ class ToolBroker:
             tool_name=tool_name,
             status=status,
             payload=payload,
+            call_id=tool_call_id,
         )
         record_tool_call(
             self.connection,

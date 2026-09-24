@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import copy
 import json
+import sqlite3
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -201,3 +202,163 @@ def running_llama_router(
     handler = type("LlamaRouterHandler", (_LlamaRouterHandler,), {"state": state})
     with serve_http_double(handler, name="llama-router-double") as root:
         yield root, state
+
+
+DEFAULT_CHAT_USAGE: dict[str, int] = {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}
+
+
+@dataclass(frozen=True)
+class ScriptedChatReply:
+    """One scripted answer of the reasoning double (OpenAI or Ollama dialect)."""
+
+    content: str = ""
+    reasoning_content: str | None = None
+    finish_reason: str = "stop"
+    usage: dict[str, int] | None = field(default_factory=lambda: dict(DEFAULT_CHAT_USAGE))
+    status: int = 200
+    error_body: dict[str, Any] | None = None
+    raw_body: bytes | None = None
+
+
+@dataclass
+class ReasoningServer:
+    """Running reasoning double: base URL with /v1, server root and every recorded POST."""
+
+    base_url: str
+    root_url: str
+    requests: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _openai_chat_payload(reply: ScriptedChatReply, model_id: str) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "content": reply.content}
+    if reply.reasoning_content is not None:
+        message["reasoning_content"] = reply.reasoning_content
+    payload: dict[str, Any] = {
+        "id": "chatcmpl-reasoning-double",
+        "object": "chat.completion",
+        "model": model_id,
+        "choices": [{"index": 0, "message": message, "finish_reason": reply.finish_reason}],
+    }
+    if reply.usage is not None:
+        payload["usage"] = dict(reply.usage)
+    return payload
+
+
+def _ollama_chat_payload(reply: ScriptedChatReply, model_id: str) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "content": reply.content}
+    if reply.reasoning_content is not None:
+        message["thinking"] = reply.reasoning_content
+    payload: dict[str, Any] = {
+        "model": model_id,
+        "message": message,
+        "done": True,
+        "done_reason": reply.finish_reason,
+    }
+    if reply.usage is not None:
+        payload["prompt_eval_count"] = reply.usage.get("prompt_tokens")
+        payload["eval_count"] = reply.usage.get("completion_tokens")
+    return payload
+
+
+@contextmanager
+def reasoning_llm_server(
+    replies: Sequence[ScriptedChatReply],
+    *,
+    model_id: str = "qwen3-reasoner",
+    api_key: str | None = None,
+) -> Iterator[ReasoningServer]:
+    """Serve a llama.cpp-like double whose model emits reasoning and usage, through ``serve_http_double``.
+
+    Replies are consumed in order and the last one repeats. ``/health`` is public; with
+    ``api_key`` every other route answers 401 unless ``Authorization: Bearer <api_key>``.
+    Speaks ``POST /v1/chat/completions`` (OpenAI) and ``POST /api/chat`` (Ollama). The server is
+    the module's single constructor, so it always closes with ``shutdown()`` + ``server_close()``.
+    """
+    if not replies:
+        raise ValueError("reasoning_llm_server needs at least one scripted reply")
+    queue = list(replies)
+    lock = threading.Lock()
+    recorded: list[dict[str, Any]] = []
+
+    def next_reply() -> ScriptedChatReply:
+        with lock:
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args: object) -> None:
+            return
+
+        def _send(self, status: int, payload: Any = None, raw: bytes | None = None) -> None:
+            body = raw if raw is not None else json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _authorized(self) -> bool:
+            return api_key is None or self.headers.get("Authorization") == f"Bearer {api_key}"
+
+        def _unauthorized(self) -> None:
+            self._send(
+                401,
+                {"error": {"code": 401, "message": "Invalid API Key", "type": "authentication_error"}},
+            )
+
+        def do_GET(self) -> None:
+            if self.path == "/health":
+                self._send(200, {"status": "ok"})
+                return
+            if not self._authorized():
+                self._unauthorized()
+                return
+            if self.path == "/v1/models":
+                self._send(
+                    200,
+                    {"object": "list", "data": [{"id": model_id, "object": "model", "owned_by": "llamacpp"}]},
+                )
+                return
+            self._send(404, {"error": {"code": 404, "message": "File Not Found"}})
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length") or "0")
+            raw_request = self.rfile.read(length) if length else b"{}"
+            recorded.append(
+                {
+                    "path": self.path,
+                    "authorization": self.headers.get("Authorization"),
+                    "body": json.loads(raw_request or b"{}"),
+                }
+            )
+            if not self._authorized():
+                self._unauthorized()
+                return
+            reply = next_reply()
+            if reply.raw_body is not None:
+                self._send(reply.status, raw=reply.raw_body)
+                return
+            if reply.status != 200:
+                self._send(
+                    reply.status, reply.error_body or {"error": {"code": reply.status, "message": "error"}}
+                )
+                return
+            if self.path == "/v1/chat/completions":
+                self._send(200, _openai_chat_payload(reply, model_id))
+                return
+            if self.path == "/api/chat":
+                self._send(200, _ollama_chat_payload(reply, model_id))
+                return
+            self._send(404, {"error": {"code": 404, "message": "File Not Found"}})
+
+    with serve_http_double(Handler, name="reasoning-llm-double") as root_url:
+        yield ReasoningServer(base_url=f"{root_url}/v1", root_url=root_url, requests=recorded)
+
+
+def sqlite_text_dump(connection: sqlite3.Connection) -> str:
+    """Concatenate every text value of every table, to assert what never got persisted."""
+    chunks: list[str] = []
+    tables = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    for (table,) in tables:
+        for row in connection.execute(f'SELECT * FROM "{table}"').fetchall():
+            chunks.extend(value for value in row if isinstance(value, str))
+    return "\n".join(chunks)

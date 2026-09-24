@@ -297,10 +297,14 @@ class ProviderAdapterFactory:
 
         Sin base de datos en archivo (conexión en memoria) no hay procesos que coordinar y el adapter queda sin
         límite, como antes. La espera por el slot se calcula al tomarlo (``local_endpoint_wait_seconds``), no
-        al resolver el provider: así queda acotada por el deadline restante de la ejecución.
+        al resolver el provider: así queda acotada por el deadline restante de la ejecución. Además activa
+        ``send_output_limit`` para que el body OpenAI de una cuenta local lleve ``max_tokens``; ninguna cuenta
+        remota lo recibe.
         """
         if not is_local_model_runtime(account):
             return provider
+        if isinstance(provider, OpenAICompatibleProvider):
+            provider.send_output_limit = True
         database = self.connection.execute("PRAGMA database_list").fetchone()[2]
         if not database:
             return provider

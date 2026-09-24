@@ -10,10 +10,13 @@ los demas modulos de este paquete y dependen solo de estos tipos, no entre si.
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from ..local_runtime_causes import LocalRuntimeError
 
 
 class ProviderHealth(BaseModel):
@@ -44,7 +47,13 @@ class ModelInfo(BaseModel):
 
 
 class ModelRequest(BaseModel):
-    """Peticion de chat normalizada que se traduce al payload nativo de cada proveedor."""
+    """Peticion de chat normalizada que se traduce al payload nativo de cada proveedor.
+
+    ``response_format``, ``extra_body`` y ``timeout_seconds`` son controles de transporte: cada
+    proveedor los traduce a su dialecto y ninguno serializa el modelo entero como body.
+    ``deadline_monotonic`` y ``cold_start_expected`` solo acotan el tiempo de la llamada (el broker
+    fija el deadline); nunca viajan al servidor ni aparecen en ``model_dump``.
+    """
 
     model: str
     messages: list[dict[str, Any]]
@@ -52,6 +61,30 @@ class ModelRequest(BaseModel):
     max_tokens: int | None = Field(default=None, alias="maxTokens")
     stream: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+    response_format: dict[str, Any] | None = Field(default=None, alias="responseFormat")
+    extra_body: dict[str, Any] = Field(default_factory=dict, alias="extraBody")
+    timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds", gt=0)
+    deadline_monotonic: float | None = Field(default=None, alias="deadlineMonotonic", exclude=True)
+    cold_start_expected: bool = Field(default=False, alias="coldStartExpected", exclude=True)
+
+    def http_timeout(self, default_seconds: float) -> float:
+        """Timeout HTTP de la llamada: el pedido (o ``default_seconds``) recortado a su deadline.
+
+        El proveedor lo evalúa ya dentro de ``invocation_slot``: la espera por el slot de la lease
+        descuenta del presupuesto de la llamada en vez de sumarse a él.
+
+        Raises:
+            LocalRuntimeError: si la espera consumió el deadline; ``insufficient_time_for_model_load``
+                cuando se esperaba un arranque en frío y ``local_endpoint_busy`` si no.
+        """
+        timeout = self.timeout_seconds or default_seconds
+        if self.deadline_monotonic is None:
+            return timeout
+        remaining = self.deadline_monotonic - time.monotonic()
+        if remaining > 0:
+            return min(timeout, remaining)
+        cause = "insufficient_time_for_model_load" if self.cold_start_expected else "local_endpoint_busy"
+        raise LocalRuntimeError(cause, "Waiting for the local endpoint slot used the whole call budget.")
 
 
 class UsageRecord(BaseModel):
@@ -75,13 +108,15 @@ class CostEstimate(BaseModel):
 
 
 class ModelResponse(BaseModel):
-    """Respuesta unificada de una completion: texto, uso y respuesta cruda ya redactada."""
+    """Respuesta unificada de una completion: texto sin razonamiento, uso y respuesta cruda redactada."""
 
     provider_id: str = Field(alias="providerId")
     model: str
     content: str
     usage: UsageRecord
     raw_response: Any = Field(default_factory=dict, alias="rawResponse")
+    finish_reason: str | None = Field(default=None, alias="finishReason")
+    reasoning_present: bool = Field(default=False, alias="reasoningPresent")
 
 
 class ModelProvider(ABC):

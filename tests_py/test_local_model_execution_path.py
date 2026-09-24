@@ -121,6 +121,18 @@ def test_expected_model_switch_adds_cold_start_capped_by_the_local_ceiling(lane,
     assert seen == [pytest.approx(200, abs=1)]
 
 
+def test_a_local_ceiling_below_the_cold_start_runs_with_the_ceiling(lane, tmp_path, monkeypatch):
+    RuntimeConfigRepository(lane).set_runtime_setting("runtime.local.maxCallSeconds", 120)
+    seen = spy_timeouts(monkeypatch)
+    with reasoning_llm_server([ScriptedChatReply(content='{"ok": true}')]) as server:
+        register_local_account(lane, server.base_url)
+        result = execute_local(lane, tmp_path, timeout_seconds=120, coldStartExpected=True)
+
+    assert result.status == "completed"
+    assert result.failure_cause is None
+    assert seen == [pytest.approx(120, abs=1)]
+
+
 def test_nearly_exhausted_deadline_bounds_the_call(lane, tmp_path, monkeypatch):
     seen = spy_timeouts(monkeypatch)
     with reasoning_llm_server([ScriptedChatReply(content='{"ok": true}')]) as server:
@@ -259,6 +271,21 @@ def test_a_held_endpoint_slot_fails_the_call_within_its_deadline(lane, tmp_path,
         with _held_slot(database), execution_scope(deadline):
             started = time.monotonic()
             result = execute_local(lane, tmp_path, timeout_seconds=120)
+            elapsed = time.monotonic() - started
+
+    assert result.status == "unavailable"
+    assert result.failure_cause == "local_endpoint_busy"
+    assert server.requests == []
+    assert elapsed < 10
+
+
+def test_a_held_endpoint_slot_never_outwaits_the_call_timeout(lane, tmp_path):
+    database = tmp_path / "lane.sqlite"
+    with reasoning_llm_server([ScriptedChatReply(content='{"ok": true}')]) as server:
+        register_local_account(lane, server.base_url)
+        with _held_slot(database):
+            started = time.monotonic()
+            result = execute_local(lane, tmp_path, timeout_seconds=2)
             elapsed = time.monotonic() - started
 
     assert result.status == "unavailable"

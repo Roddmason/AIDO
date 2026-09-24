@@ -57,11 +57,12 @@ def max_local_call_seconds(connection: sqlite3.Connection) -> int:
         return int(descriptor.default)
 
 
-def local_endpoint_wait_seconds() -> float:
-    """Espera máxima por un slot en esta llamada: nunca más que lo que le queda a la ejecución en curso.
+def local_endpoint_wait_seconds(call_deadline_monotonic: float | None = None) -> float:
+    """Espera máxima por un slot: nunca más que lo que queda a la ejecución ni a la llamada.
 
-    Se evalúa al tomar el slot (no al resolver el provider), así una llamada con el deadline casi agotado
-    no espera los 120 s completos.
+    ``call_deadline_monotonic`` es el deadline propio de la llamada (reloj monótono), si lo trae. Se evalúa
+    al tomar el slot (no al resolver el provider), así una llamada con el deadline casi agotado no espera los
+    120 s completos.
 
     Raises:
         ExecutionDeadlineExceeded: propagado de ``remaining_execution_timeout`` si la ejecución ya no
@@ -69,8 +70,12 @@ def local_endpoint_wait_seconds() -> float:
     """
     if LOCAL_ENDPOINT_WAIT_SECONDS <= 0:
         return 0.0
-    budget = remaining_execution_timeout(math.ceil(LOCAL_ENDPOINT_WAIT_SECONDS))
-    return float(min(LOCAL_ENDPOINT_WAIT_SECONDS, budget))
+    wait = float(
+        min(LOCAL_ENDPOINT_WAIT_SECONDS, remaining_execution_timeout(math.ceil(LOCAL_ENDPOINT_WAIT_SECONDS)))
+    )
+    if call_deadline_monotonic is not None:
+        wait = min(wait, max(call_deadline_monotonic - time.monotonic(), 0.0))
+    return wait
 
 
 def _try_acquire(

@@ -4,8 +4,10 @@ El timeout efectivo nunca es un valor fijo: es el menor entre lo pedido por el a
 arranque en frío del servidor local cuando el llamador anuncia un cambio de modelo), el techo
 ``runtime.local.maxCallSeconds`` de los runtimes locales (que el adapter lee con
 ``local_endpoint_lease.max_local_call_seconds``, la misma fuente del TTL de la lease) y lo que
-queda del deadline de la ejecución. Si ese resto no cubre el arranque en frío, la llamada falla
-antes de invocar: lanza ``LocalRuntimeError("insufficient_time_for_model_load")``.
+queda del deadline de la ejecución. Si ese resto del deadline no cubre el arranque en frío, la llamada
+falla antes de invocar: lanza ``LocalRuntimeError("insufficient_time_for_model_load")``. Un techo menor que
+el arranque en frío no hace fallar la llamada: es la decisión del operador, la llamada corre con ese techo
+y una carga más lenta termina como timeout.
 ``response_format`` solo se pide como ``json_schema`` cuando el llamador declara esa capacidad
 validada para el modelo.
 
@@ -34,15 +36,16 @@ def effective_model_call_timeout(
 ) -> int:
     """Calcula el timeout efectivo en segundos de una llamada de modelo.
 
+    El chequeo del arranque en frío se hace contra el deadline de la ejecución antes de aplicar el
+    techo ``max_call_seconds``: el techo solo recorta el resultado.
+
     Raises:
-        LocalRuntimeError: ``insufficient_time_for_model_load`` si el deadline restante no cubre
-            el arranque en frío esperado.
+        LocalRuntimeError: ``insufficient_time_for_model_load`` si el deadline restante de la
+            ejecución no cubre el arranque en frío esperado.
         ExecutionDeadlineExceeded: si no queda presupuesto y no se esperaba arranque en frío.
     """
     cold_start = max(0, int(cold_start_seconds))
     desired = max(1, int(requested_seconds)) + cold_start
-    if max_call_seconds is not None:
-        desired = min(desired, max(1, int(max_call_seconds)))
     try:
         budget = remaining_execution_timeout(desired)
     except ExecutionDeadlineExceeded as error:
@@ -52,11 +55,14 @@ def effective_model_call_timeout(
                 "The execution deadline leaves no time to load the model.",
             ) from error
         raise
+    # ``desired`` siempre supera ``cold_start``: un presupuesto menor solo puede venir del deadline.
     if cold_start and budget < cold_start:
         raise LocalRuntimeError(
             "insufficient_time_for_model_load",
             f"Only {budget}s remain for a model switch that may need {cold_start}s to load.",
         )
+    if max_call_seconds is not None:
+        budget = min(budget, max(1, int(max_call_seconds)))
     return budget
 
 

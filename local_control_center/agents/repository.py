@@ -641,10 +641,15 @@ class AgentsRepository:
         status: str,
         payload: dict[str, Any],
         timestamp: str | None = None,
+        call_id: str | None = None,
     ) -> dict[str, Any]:
-        """Record a tool call against an agent run with its payload redacted before storage."""
+        """Record a tool call against an agent run with its payload redacted before storage.
+
+        ``call_id`` lets the broker reserve the id before execution so in-process consumers can key
+        transient data by the id the agent reads later; it defaults to a fresh uuid.
+        """
         now = timestamp or utc_now()
-        call_id = f"agent-tool-call-{uuid.uuid4()}"
+        call_id = call_id or f"agent-tool-call-{uuid.uuid4()}"
         clean_payload = redact_secrets(payload)
         self.connection.execute(
             """

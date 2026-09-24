@@ -34,6 +34,7 @@ class RuntimeExecutionRequest(BaseModel):
     timeout_seconds: int = Field(default=30, alias="timeoutSeconds")
     approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    transient_output_key: str | None = Field(default=None, alias="transientOutputKey")
 
 
 class RuntimeExecutionResult(BaseModel):

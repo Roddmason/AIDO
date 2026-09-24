@@ -1,8 +1,11 @@
 """Adapter that executes a selected endpoint through the authoritative provider factory.
 
 Resolves the provider account, runtime policy, and credential fail-closed before delegating
-chat transport to the provider resolved by `ProviderAdapterFactory`, then records the
-redacted reply as evidence.
+chat transport to the provider resolved by `ProviderAdapterFactory`. Bounds the call by the
+execution deadline (plus the server cold start when a local model switch is announced),
+classifies local-server failures into stable causes with redacted reasons, records usage and
+latency in the usage ledger, persists only the redacted reply as evidence and hands the
+unredacted reply to the in-process transient channel keyed by the broker tool-call id.
 
 @author Rodrigo Mason
 """
@@ -12,6 +15,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 
 from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
@@ -19,7 +23,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.time import utc_now
 
 from ..credentials import CredentialResolver
-from ..endpoint_locality import credential_transport_allowed, is_local_model_runtime
+from ..endpoint_locality import credential_transport_allowed, is_local_model_runtime, is_self_hosted_inference
 from ..local_endpoint_lease import max_local_call_seconds
 from ..local_runtime_causes import LocalRuntimeCause, LocalRuntimeError
 from ..model_wildcards import is_nvidia_nim_auto_selection_sentinel
@@ -37,6 +41,7 @@ from ..providers.nvidia_nim import NvidiaNimCapabilityError
 from ..quota_manager import QuotaManager
 from ..runtime_failure_classifier import classify_local_model_error
 from ..runtime_provider_config import runtime_provider_configuration_for_account
+from ..usage_ledger import UsageLedger
 from .common import _ArtifactRecorder, _bounded_timeout, _redact_text, _result
 from .model_call_budget import (
     effective_model_call_timeout,
@@ -44,6 +49,7 @@ from .model_call_budget import (
     response_format_for,
 )
 from .models import RuntimeExecutionRequest, RuntimeExecutionResult
+from .transient_output import put_transient_output
 
 _TOO_MANY_REQUESTS = 429
 
@@ -107,6 +113,50 @@ class ProviderFactoryAdapter:
             failure_cause=cause,
             redacted=True,
         )
+
+    @staticmethod
+    def _record_usage(
+        connection: sqlite3.Connection,
+        *,
+        account: dict[str, Any],
+        model: str,
+        request: RuntimeExecutionRequest,
+        response: Any,
+        latency_ms: int,
+    ) -> str:
+        """Record provider-reported tokens (or unknown usage with NULL tokens) and latency in the ledger."""
+        usage = getattr(response, "usage", None)
+        raw_usage = dict(getattr(usage, "raw_usage", None) or {})
+        reported = raw_usage.get("usage_source") == "provider"
+
+        def tokens(field: str) -> int | None:
+            return int(getattr(usage, field, 0) or 0) if reported else None
+
+        row = UsageLedger(connection).record_usage(
+            provider_id=str(account["providerId"]),
+            model=model,
+            runtime_type=str(account.get("providerType") or "api"),
+            workflow_run_id=request.workflow_run_id,
+            workflow_step_id=request.workflow_step_id,
+            job_id=request.job_id,
+            request_id=request.transient_output_key,
+            session_id=request.agent_run_id,
+            input_tokens=tokens("input_tokens"),
+            cached_input_tokens=tokens("cached_input_tokens"),
+            output_tokens=tokens("output_tokens"),
+            reasoning_tokens=tokens("reasoning_tokens"),
+            tool_tokens=tokens("tool_tokens"),
+            total_tokens=tokens("total_tokens"),
+            actual_cost_usd=0.0 if is_self_hosted_inference(account) else None,
+            latency_ms=latency_ms,
+            raw_usage={
+                **raw_usage,
+                "usage_source": "provider" if reported else "unknown",
+                "source": "tool_broker",
+            },
+            usage_source="actual" if reported else "unknown",
+        )
+        return str(row["id"])
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         """Resolve policy/account first, then delegate chat transport to the selected provider."""
@@ -236,6 +286,7 @@ class ProviderFactoryAdapter:
             return self._local_failure(
                 started_at=started_at, cause=error.cause, evidence="", http_status=None, attempted=False
             )
+        call_started = time.monotonic()
         try:
             response = provider.chat_completion(
                 ModelRequest(
@@ -319,6 +370,15 @@ class ProviderFactoryAdapter:
                 provider_attempted=attempted,
                 redacted=True,
             )
+        latency_ms = int((time.monotonic() - call_started) * 1000)
+        usage_ledger_id = self._record_usage(
+            connection,
+            account=account,
+            model=model,
+            request=request,
+            response=response,
+            latency_ms=latency_ms,
+        )
         if not str(getattr(response, "content", "") or "").strip() or (
             getattr(response, "provider_id", None) != str(account["providerId"])
             or getattr(response, "model", None) != model
@@ -329,6 +389,8 @@ class ProviderFactoryAdapter:
                 reason="model_validation_invalid_response",
                 provider_attempted=True,
                 redacted=True,
+                latency_ms=latency_ms,
+                usage_ledger_id=usage_ledger_id,
             )
         clean_content, redacted = _redact_text(response.content)
         output_id = self.recorder.record_output(
@@ -343,6 +405,8 @@ class ProviderFactoryAdapter:
             reason=None,
             artifact_ids=[output_id] if output_id else [],
         )
+        if request.transient_output_key:
+            put_transient_output(request.transient_output_key, str(response.content))
         return _result(
             status="completed",
             started_at=started_at,
@@ -351,4 +415,6 @@ class ProviderFactoryAdapter:
             evidence_package_id=evidence_id,
             redacted=redacted,
             provider_attempted=True,
+            latency_ms=latency_ms,
+            usage_ledger_id=usage_ledger_id,
         )

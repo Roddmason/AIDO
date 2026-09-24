@@ -319,6 +319,19 @@ def test_broker_does_not_record_configuration_failure_as_model_execution(broker_
     assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
 
 
+def test_broker_binds_the_transient_output_key_to_the_persisted_tool_call_id(broker_lane):
+    lane = broker_lane
+    _record(lane.connection)
+    lane.kwargs["tool_call"]["transientOutputKey"] = "client-chosen-key"
+
+    result = lane.broker.evaluate_tool_call(**lane.kwargs)
+
+    forwarded = lane.adapter.execute.call_args.kwargs["tool_call"]
+    assert result["toolCall"]["id"].startswith("agent-tool-call-")
+    assert forwarded["transientOutputKey"] == result["toolCall"]["id"]
+    assert forwarded["transientOutputKey"] != "client-chosen-key"
+
+
 def test_broker_rejects_model_disabled_after_selection(broker_lane):
     lane = broker_lane
     _record(lane.connection)

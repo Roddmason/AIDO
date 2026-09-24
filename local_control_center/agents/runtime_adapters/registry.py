@@ -113,6 +113,7 @@ class RuntimeAdapterBrokerAdapter:
                 "timeoutSeconds": tool_call.get("timeoutSeconds") or 30,
                 "approvalGrantId": tool_call.get("approvalGrantId"),
                 "metadata": tool_call.get("metadata") or {},
+                "transientOutputKey": tool_call.get("transientOutputKey"),
             }
         )
         result = self.registry.execute(self.adapter_id, request)

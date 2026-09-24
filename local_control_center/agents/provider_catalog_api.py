@@ -25,7 +25,7 @@ from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
-from .endpoint_locality import catalog_entry_for_account
+from .endpoint_locality import catalog_entry_for_account, is_self_hosted_inference
 from .local_runtime_health import LocalHealthResult, local_profile_for_account, probe_local_runtime
 from .model_gateway_models import (
     COMPACT_ENDPOINT_ID_PATTERN,
@@ -329,6 +329,35 @@ def _validate_sync_credentials(account: dict[str, Any]) -> None:
             )
 
 
+SELF_HOSTED_PRICE_FIELDS = (
+    "inputPricePerMtok",
+    "cachedInputPricePerMtok",
+    "outputPricePerMtok",
+    "reasoningPricePerMtok",
+)
+
+
+def self_hosted_model_pricing(discovered: dict[str, Any], existing: dict[str, Any] | None) -> dict[str, Any]:
+    """Costo marginal cero para inferencia self-hosted; un precio fijado por el operador sobrevive al resync.
+
+    ``existing`` es la fila actual del catálogo: si su ``source`` es ``operator_override`` se copian sus
+    precios y su ``freeTier`` en vez de sobrescribirlos (spec §4.3, precio).
+    """
+    if existing is not None and existing.get("source") == "operator_override":
+        return {
+            **discovered,
+            **{field: existing.get(field) for field in SELF_HOSTED_PRICE_FIELDS},
+            "freeTier": bool(existing.get("freeTier")),
+            "freeTierNotes": str(existing.get("freeTierNotes") or ""),
+        }
+    return {
+        **discovered,
+        **dict.fromkeys(SELF_HOSTED_PRICE_FIELDS, 0.0),
+        "freeTier": True,
+        "freeTierNotes": "self_hosted_inference",
+    }
+
+
 def _fail_local_sync(store: ProviderAccountStore, provider_id: str, probe: LocalHealthResult) -> NoReturn:
     """Registra la salud del servidor local y corta el sync con su causa (503 si es transitoria, 409 si no).
 
@@ -500,11 +529,19 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
         excluded_count = 0
         stored: list[dict[str, Any]] = []
+        self_hosted = is_self_hosted_inference(account)
+        existing_models = (
+            {str(row["model"]): row for row in providers().list_models(provider_id)} if self_hosted else {}
+        )
         for item in discovered:
             if excluded_by_catalog_rule(str(item.get("model") or "")):
                 excluded_count += 1
                 continue
             enriched = enrich_catalog_model(catalog_entry, item)
+            if self_hosted:
+                enriched = self_hosted_model_pricing(
+                    enriched, existing_models.get(str(enriched.get("model") or ""))
+                )
             stored.append(
                 providers().upsert_model(
                     {

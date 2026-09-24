@@ -402,3 +402,19 @@ def test_resource_wait_is_written_once_per_reason_and_reaches_the_thread(tmp_pat
     ]
     assert thread_events[0]["payload"]["jobId"] == job["id"]
     assert thread_events[0]["agentRole"] == "worker"
+
+
+def test_local_model_call_is_a_light_client_that_still_yields_to_unreal(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        admitted = governor.admit(_request("local-one", "local_model_call"), snapshot=_healthy_snapshot())
+        unreal = _healthy_snapshot(unreal_editor_running=True)
+        blocked = governor.admit(_request("local-two", "local_model_call"), snapshot=unreal)
+        conflict = governor.local_inference_conflict("local_model_call", snapshot=unreal)
+        remote = governor.local_inference_conflict("remote_llm_light", snapshot=unreal)
+    assert admitted.lease is not None
+    assert (admitted.lease.gpu_required, admitted.lease.memory_limit_bytes) == (False, 2 * GIB)
+    assert blocked.reason_code == "unreal_local_gpu_conflict"
+    assert conflict is not None and conflict.reason_code == "unreal_local_gpu_conflict"
+    assert remote is None

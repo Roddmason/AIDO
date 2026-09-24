@@ -40,7 +40,7 @@ def test_each_validation_reserves_the_workload_of_its_own_runtime(tmp_path: Path
         spec = OperationSpec("models.validate_runtime", "remote_llm_light")
         assert operation_workload(connection, spec, {"provider_id": "codex_cli", "body": {}}) == "agent_cli"
         assert (
-            operation_workload(connection, spec, {"provider_id": "ollama", "body": {}}) == "local_gpu_model"
+            operation_workload(connection, spec, {"provider_id": "ollama", "body": {}}) == "local_model_call"
         )
 
 

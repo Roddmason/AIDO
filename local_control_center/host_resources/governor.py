@@ -20,9 +20,20 @@ from .models import (
     ResourceSnapshot,
     ResourceViolation,
 )
-from .profiles import resolve_resource_policy, workload_profile
+from .profiles import LOCAL_INFERENCE_CLASSES, resolve_resource_policy, workload_profile
 from .repository import ResourceRepository
 from .retention import RESOURCE_SAMPLE_RETENTION_SECONDS
+
+UNREAL_LOCAL_INFERENCE_REASON = "Local GPU inference is blocked while UnrealEditor is active."
+
+
+def _blocks_local_inference(workload_class: str, snapshot: ResourceSnapshot, policy: Any) -> bool:
+    """La inferencia local (conjunto, no un literal) cede la GPU a UnrealEditor si la política lo pide."""
+    return (
+        workload_class in LOCAL_INFERENCE_CLASSES
+        and snapshot.unreal_editor_running
+        and policy.block_local_gpu_when_unreal
+    )
 
 
 class HostResourceGovernor:
@@ -96,6 +107,25 @@ class HostResourceGovernor:
             snapshot=snapshot,
         )
 
+    def local_inference_conflict(
+        self, workload_class: str, *, snapshot: ResourceSnapshot
+    ) -> ResourceAdmissionDecision | None:
+        """Evalúa el conflicto con Unreal usando la clase que pide el hijo, antes de cualquier préstamo.
+
+        `admit` y `preview` lo aplican a la clase solicitada; quien reescribe esa clase a la del job padre (el
+        préstamo de `BranchAdmission`, el preview de readiness) debe llamarlo antes con la clase original.
+        """
+        policy = resolve_resource_policy(self.connection, snapshot=snapshot)
+        if not _blocks_local_inference(workload_class, snapshot, policy):
+            return None
+        return ResourceAdmissionDecision(
+            status="resource_wait",
+            reason_code="unreal_local_gpu_conflict",
+            reason=UNREAL_LOCAL_INFERENCE_REASON,
+            lease=None,
+            snapshot=snapshot,
+        )
+
     def _decide(
         self,
         *,
@@ -147,15 +177,8 @@ class HostResourceGovernor:
             )
         if max(snapshot.cpu_percent_1s, snapshot.cpu_percent_30s) > policy.max_cpu_percent:
             return wait("host_cpu_saturated", "Host CPU is above the configured admission threshold.")
-        if (
-            request.workload_class == "local_gpu_model"
-            and snapshot.unreal_editor_running
-            and policy.block_local_gpu_when_unreal
-        ):
-            return wait(
-                "unreal_local_gpu_conflict",
-                "Local GPU inference is blocked while UnrealEditor is active.",
-            )
+        if _blocks_local_inference(request.workload_class, snapshot, policy):
+            return wait("unreal_local_gpu_conflict", UNREAL_LOCAL_INFERENCE_REASON)
 
         active_classes = [lease.workload_class for lease in active]
         non_control_active = [lease for lease in active if lease.workload_class != "control_plane"]

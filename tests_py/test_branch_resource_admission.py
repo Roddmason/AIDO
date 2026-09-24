@@ -427,3 +427,47 @@ def test_gpu_borrow_preserves_limits_fence_cancellation_and_current_capacity(adm
         ):
             pytest.fail("GPU branch exceeded its verified authority")
     assert ResourceRepository(parent.runtime.connection).get_lease(parent.lease.id).released_at is None
+
+
+def test_local_model_call_borrows_the_cli_job_with_twenty_gib_free_and_the_default_floor(admitted_parent):
+    parent = admitted_parent
+    with execution_scope(parent.context):
+        admission = BranchAdmission(
+            parent.runtime.db_path,
+            snapshot_source=lambda: ResourceSnapshot.test_snapshot(available_memory_bytes=20 * 1024**3),
+        )
+        with admission.reserve("local-call", "local_model_call", timeout_seconds=0) as lease:
+            assert lease.id == parent.lease.id
+    assert [item.id for item in ResourceRepository(parent.runtime.connection).active_leases()] == [
+        parent.lease.id
+    ]
+
+
+def test_remote_child_still_rechecks_the_full_parent_budget(admitted_parent):
+    parent = admitted_parent
+    with execution_scope(parent.context):
+        admission = BranchAdmission(
+            parent.runtime.db_path,
+            snapshot_source=lambda: ResourceSnapshot.test_snapshot(available_memory_bytes=20 * 1024**3),
+        )
+        with (
+            pytest.raises(RuntimeError, match="aggregate_memory_budget"),
+            admission.reserve("remote-call", "remote_llm_light", timeout_seconds=0),
+        ):
+            pytest.fail("A remote child hid the parent budget")
+
+
+def test_unreal_blocks_a_local_model_call_even_when_the_parent_covers_it(admitted_parent):
+    parent = admitted_parent
+    with execution_scope(parent.context):
+        admission = BranchAdmission(
+            parent.runtime.db_path,
+            snapshot_source=lambda: ResourceSnapshot.test_snapshot(
+                available_memory_bytes=48 * 1024**3, unreal_editor_running=True
+            ),
+        )
+        with (
+            pytest.raises(RuntimeError, match="unreal_local_gpu_conflict"),
+            admission.reserve("local-call", "local_model_call", timeout_seconds=0),
+        ):
+            pytest.fail("Local inference borrowed the parent while UnrealEditor was active")

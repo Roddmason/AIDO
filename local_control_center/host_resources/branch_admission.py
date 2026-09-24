@@ -34,6 +34,16 @@ _BORROW_LOCKS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _BORROW_REGISTRY_LOCK = threading.Lock()
 
 
+def borrowed_preview_class(parent_lease, workload_class: str) -> str:
+    """Clase con la que se re-evalúa el host al prestar la lease del padre a un hijo.
+
+    Un cliente de un servidor de modelos residente (`local_model_call`) solo suma su cliente: se evalúa su propia
+    clase excluyendo la lease del padre, porque volver a admitir el presupuesto completo del job contra la memoria
+    libre actual cuenta dos veces lo que el job ya consume. Cualquier otro hijo re-evalúa el presupuesto del padre.
+    """
+    return workload_class if workload_class == "local_model_call" else parent_lease.workload_class
+
+
 class BranchAdmissionDeferred(RuntimeError):
     """A bounded caller can report the governor's reason without waiting."""
 
@@ -158,7 +168,10 @@ class BranchAdmission:
                 ).total_seconds()
                 if not 0 <= age <= 30:
                     raise BranchAdmissionDeferred("resource_snapshot_stale")
-                if (
+                conflict = governor.local_inference_conflict(workload_class, snapshot=snapshot)
+                if conflict is not None:
+                    decision = conflict
+                elif (
                     parent_lease
                     and self._parent_covers(parent_lease, workload_class)
                     and self.borrowed.acquire(blocking=False)
@@ -167,13 +180,13 @@ class BranchAdmission:
                         parent_lease = self._verified_parent_lease(connection)
                         if not self._parent_covers(parent_lease, workload_class):
                             raise BranchAdmissionDeferred("resource_parent_limits_changed")
-                        # Recheck the whole parent budget, excluding its existing lease
-                        # exactly once; a child must not hide other reserved capacity.
+                        # Recheck the parent budget excluding its own lease exactly once; a resident-model
+                        # client is checked with its own class (see borrowed_preview_class).
                         decision = governor.preview(
                             ResourceAdmissionRequest(
                                 execution_id=parent_lease.execution_id,
                                 owner_id=parent_lease.owner_id,
-                                workload_class=parent_lease.workload_class,
+                                workload_class=borrowed_preview_class(parent_lease, workload_class),
                             ),
                             snapshot=snapshot,
                         )

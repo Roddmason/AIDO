@@ -317,7 +317,11 @@ class ConcurrentWorker:
 
 
 def _workload_class_for_job(job: dict[str, Any], *, connection: Any | None = None) -> WorkloadClass:
-    """Clasifica conservadoramente jobs productivos antes de reservar capacidad."""
+    """Clasifica conservadoramente jobs productivos antes de reservar capacidad.
+
+    Con política solo-local, research/prompt/chat reservan `local_model_call`; el product loop conserva `agent_cli`,
+    que ya cubre sus llamadas locales, para no degradar su sobre.
+    """
     kind = str(job.get("kind") or "")
     if kind == "operation.execute":
         return job["payload"]["workloadClass"]
@@ -346,8 +350,8 @@ def _workload_class_for_job(job: dict[str, Any], *, connection: Any | None = Non
                 account=account,
             )["allowed"]
         }
-        if permitted_workloads == {"local_gpu_model"}:
-            return "local_gpu_model"
+        if permitted_workloads == {"local_model_call"} and kind != THREAD_PRODUCT_LOOP_JOB_KIND:
+            return "local_model_call"
     if kind == MEMORY_FORGET_JOB_KIND:
         # Borrado lógico en SQLite más un rebuild de índice: no merece el perfil pesado por defecto.
         return "control_plane"

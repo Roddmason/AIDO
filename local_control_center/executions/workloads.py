@@ -23,23 +23,11 @@ INFERENCE_OPERATIONS = frozenset(
 
 
 def operation_workload(connection, spec, payload):
-    """Reserva el perfil más restrictivo posible sin confiar en flags de recursos del cliente."""
-    if spec.name == "agents.run_developer_agent":
-        body = payload.get("body")
-        preferred = body.get("preferredRuntime") if isinstance(body, dict) else None
-        if isinstance(preferred, str) and preferred:
-            account = next(
-                (
-                    account
-                    for account in ProviderAccountStore(connection).list_provider_accounts()
-                    if account["providerId"] == preferred
-                ),
-                None,
-            )
-            if account is not None and provider_workload_class(account) == "local_gpu_model":
-                return "local_gpu_model"
-        # Preserve the patch/QA envelope without selecting a runtime during enqueue.
-        return spec.workload_class
+    """Reserva el perfil más restrictivo posible sin confiar en flags de recursos del cliente.
+
+    Una operación de inferencia contra un runtime local residente reserva `local_model_call` (liviano, sujeto al
+    conflicto con Unreal); una operación de agente conserva su sobre declarado, que cubre la llamada local.
+    """
     if spec.name == "remediations.execute":
         action = connection.execute(
             "SELECT action_type FROM remediation_actions WHERE id=?", (payload.get("remediation_id"),)
@@ -69,8 +57,8 @@ def operation_workload(connection, spec, payload):
     if not ids:
         candidates = [account for account in accounts if account["enabled"]]
     classes = {provider_workload_class(account) for account in candidates}
-    if "local_gpu_model" in classes:
-        return "local_gpu_model"
     if "agent_cli" in classes:
         return "agent_cli"
+    if "local_model_call" in classes:
+        return "local_model_call"
     return "remote_llm_light"

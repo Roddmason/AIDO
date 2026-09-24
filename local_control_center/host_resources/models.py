@@ -22,6 +22,7 @@ WorkloadClass = Literal[
     "unreal_editor",
     "unreal_cook",
     "local_gpu_model",
+    "local_model_call",
 ]
 
 

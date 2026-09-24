@@ -246,6 +246,7 @@ def persist_product_owner_results(
                         "failureCause",
                         "failureEvidence",
                         "failureRetryAfter",
+                        "localRuntimeCause",
                         "httpStatus",
                         "reason",
                     )
@@ -267,6 +268,11 @@ def persist_product_owner_results(
                 "reason": reason,
                 "workspaceId": product_owner_workspace["id"],
                 "runtimeResult": runtime_failure,
+                **(
+                    {"localRuntimeCause": runtime_failure["localRuntimeCause"]}
+                    if runtime_failure.get("localRuntimeCause")
+                    else {}
+                ),
             },
             durable_context={
                 "productOwner": {

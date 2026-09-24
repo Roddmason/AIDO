@@ -301,3 +301,31 @@ def test_architect_receives_the_model_selected_by_its_resource_decision(coordina
     coordinator._run_team_review_phase(_review_run_with_architect_decision(tmp_path, {}, "claude_code_cli"))
     assert "preferredRuntime" not in payloads[-1]
     assert "model" not in payloads[-1]
+
+
+def test_architect_review_keeps_the_local_runtime_cause(coordinator, tmp_path, monkeypatch):
+    reviews: list[dict] = []
+
+    def fake_run(self, payload):
+        return {
+            "status": "failed",
+            "verdict": "",
+            "reason": "OpenAI-compatible execution failed: model_loading",
+            "localRuntimeCause": "model_loading",
+            "evidencePackage": {"id": "ev"},
+        }
+
+    monkeypatch.setattr(coordinator_module.ArchitectAgentRunner, "run", fake_run)
+    monkeypatch.setattr(
+        coordinator.repository,
+        "update_loop_context",
+        lambda loop_id, *, context: (
+            reviews.append(context["durableRun"]["teamReviews"]) or {"id": loop_id, "context": context}
+        ),
+    )
+    monkeypatch.setattr(coordinator, "_record_loop_event", lambda **kwargs: None)
+
+    coordinator._run_team_review_phase(_review_run(tmp_path, {}))
+
+    assert reviews[-1]["architect"]["status"] == "failed"
+    assert reviews[-1]["architect"]["localRuntimeCause"] == "model_loading"

@@ -4607,6 +4607,8 @@ class ProductLoopCoordinator:
                                 (architect.get("evidencePackage") or {}).get("id") or ""
                             ),
                         }
+                        if architect.get("localRuntimeCause"):
+                            reviews["architect"]["localRuntimeCause"] = str(architect["localRuntimeCause"])
                     except Exception as error:
                         reviews["architect"] = {"status": "failed", "reason": redact_secrets(str(error))}
             devops_enabled = bool(

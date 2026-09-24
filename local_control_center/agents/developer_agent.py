@@ -17,6 +17,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
 from local_control_center.evidence.artifacts import (
     artifact_hashes,
     artifact_records_from_ids,
@@ -141,6 +142,7 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "stderrArtifactId": execution_result.get("stderrArtifactId"),
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
     }
 
 
@@ -463,7 +465,12 @@ class DeveloperAgentRunner:
         )
         model_result = _execution_result_from_tool_call(model_eval["toolCall"])
         if model_result["status"] != "completed":
-            return {"status": "failed", "modelCall": model_result, "reason": model_result.get("reason")}
+            return {
+                "status": "failed",
+                "modelCall": model_result,
+                "reason": model_result.get("reason"),
+                "localRuntimeCause": model_result.get("localRuntimeCause"),
+            }
         patch_payload = _parse_model_patch(self._model_output_text(model_result))
         patch_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -895,6 +902,7 @@ class DeveloperAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": runtime_result,
+            "localRuntimeCause": runtime_result.get("localRuntimeCause"),
             "qaResults": qa_results,
             "diffSummary": diff_summary,
         }

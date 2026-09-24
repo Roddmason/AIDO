@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
 from local_control_center.agents.runtime_failure_classifier import classify_runtime_failure
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.artifacts import (
@@ -190,6 +191,7 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "failureCause": classified,
         "failureEvidence": failure.evidence if failure is not None else "",
         "failureRetryAfter": failure.retry_after if failure is not None else None,
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
         "stderrArtifactId": execution_result.get("stderrArtifactId"),
@@ -2069,6 +2071,7 @@ class ProductOwnerAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": result["runtimeResult"],
+            "localRuntimeCause": result["runtimeResult"].get("localRuntimeCause"),
             "output": result["output"],
             "completeness": result["completeness"],
             "initiative": result.get("initiative"),

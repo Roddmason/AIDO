@@ -706,6 +706,24 @@ class ToolBroker:
             "categories": ["product_owner_resource_decision_replay_denied"],
         }
 
+    def _is_local_runtime_account(self, provider_id: str | None) -> bool:
+        """Gate para P24: solo una cuenta `is_local_model_runtime` puede volver transitoria una causa local.
+
+        Un adapter remoto o mal configurado no debe poder apagar el recibo fallido con una
+        `failureCause` de las reservadas a runtimes locales (`TRANSIENT_LOCAL_RUNTIME_CAUSES`); si el
+        provider no existe o no resuelve, se falla cerrado (no local) y el recibo se registra igual.
+        """
+        from .endpoint_locality import is_local_model_runtime
+        from .provider_accounts import ProviderAccountStore
+
+        if not provider_id:
+            return False
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return False
+        return is_local_model_runtime(account)
+
     def _record_runtime_quota_exhaustion(
         self,
         *,
@@ -1149,7 +1167,9 @@ class ToolBroker:
                 or execution_result.get("providerAttempted") is True
                 or http_status is not None
             )
-            transient_local_failure = execution_result.get("failureCause") in TRANSIENT_LOCAL_RUNTIME_CAUSES
+            transient_local_failure = execution_result.get(
+                "failureCause"
+            ) in TRANSIENT_LOCAL_RUNTIME_CAUSES and self._is_local_runtime_account(observation_provider)
             if (
                 attempted
                 and not transient_local_failure

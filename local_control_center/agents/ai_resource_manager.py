@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from local_control_center.agents.endpoint_locality import is_local_model_runtime
+from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.model_wildcards import (
     MODEL_WILDCARDS,
     is_nvidia_nim_auto_selection_sentinel,
@@ -984,12 +985,21 @@ class AIResourceManager:
         )
         locality = _catalog_provider_locality(provider)
         catalog_id = str(catalog_model.get("id") or f"{provider_id}:{catalog_model.get('model')}")
+        model_capabilities = (
+            LocalModelSettingsRepository(self.connection).capabilities_for(
+                provider_id, str(catalog_model.get("model") or "")
+            )
+            if provider_type == "local"
+            else frozenset()
+        )
         return {
             "id": f"catalog-profile:{catalog_id}",
             "providerId": provider_id,
             "model": str(catalog_model.get("model") or ""),
             "runtime": runtime,
-            "capabilities": self._catalog_capabilities(catalog_model, runtime_status),
+            "capabilities": self._catalog_capabilities(
+                catalog_model, runtime_status, model_capabilities=model_capabilities
+            ),
             "contextWindow": int(catalog_model.get("contextWindow") or 0),
             "maxOutputTokens": int(catalog_model.get("maxOutputTokens") or 0),
             "inputPricePerMtok": catalog_model.get("inputPricePerMtok"),
@@ -1023,12 +1033,15 @@ class AIResourceManager:
     def _catalog_capabilities(
         catalog_model: dict[str, Any],
         runtime_status: dict[str, Any] | None,
+        *,
+        model_capabilities: frozenset[str] = frozenset(),
     ) -> list[str]:
+        """Capacidades del perfil: las del runtime más, en cuentas locales, las opt-in de ese modelo."""
         runtime_capabilities = {
             str(item).strip().lower()
             for item in (runtime_status or {}).get("capabilities") or []
             if str(item).strip()
-        }
+        } | {str(item).strip().lower() for item in model_capabilities if str(item).strip()}
         capabilities = runtime_capabilities & {"chat", "search"}
         if runtime_capabilities & {"code_edit", "issue_to_patch", "code"}:
             capabilities.add("code")

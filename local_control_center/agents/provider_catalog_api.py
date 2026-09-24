@@ -26,6 +26,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .endpoint_locality import catalog_entry_for_account
+from .local_runtime_health import local_profile_for_account, probe_local_runtime
 from .model_gateway_models import (
     COMPACT_ENDPOINT_ID_PATTERN,
     ApiFamily,
@@ -447,6 +448,19 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             detail = getattr(error, "public_code", error.code)
             raise HTTPException(status_code=409, detail=detail) from error
         _validate_sync_credentials(account)
+        local_profile = local_profile_for_account(account)
+        if local_profile is not None:
+            probe = probe_local_runtime(account, local_profile)
+            if probe.health_status in {"offline", "misconfigured"}:
+                providers().record_health_check(
+                    provider_id=provider_id,
+                    status=probe.health_status,
+                    payload=probe.as_provider_health(provider_id),
+                )
+                raise HTTPException(
+                    status_code=503 if probe.cause == "local_server_unreachable" else 409,
+                    detail=probe.cause or "local_runtime_misconfigured",
+                )
         try:
             discovered = [item.model_dump(by_alias=True) for item in provider.list_models()]
         except NvidiaNimCapabilityError as error:

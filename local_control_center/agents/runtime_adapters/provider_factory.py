@@ -17,6 +17,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.time import utc_now
 
 from ..credentials import CredentialResolver
+from ..endpoint_locality import credential_transport_allowed
 from ..model_wildcards import is_nvidia_nim_auto_selection_sentinel
 from ..provider_accounts import ProviderAccountStore
 from ..providers.base import ModelRequest
@@ -158,6 +159,12 @@ class ProviderFactoryAdapter:
                     status="configuration_required",
                     started_at=started_at,
                     reason=f"Credential ref for {provider_id} is {credential.status}.",
+                )
+            if str(account.get("providerType") or "") == "local" and not credential_transport_allowed(
+                account
+            ):
+                return _result(
+                    status="blocked", started_at=started_at, reason="insecure_credential_transport"
                 )
         messages = request.input.get("messages")
         model = str(request.input.get("model") or "").strip()

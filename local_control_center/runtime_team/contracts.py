@@ -15,9 +15,10 @@ RuntimeValidationOutcome = Literal["validated", "failed", "deferred"]
 
 
 class RuntimeValidationRequest(BaseModel):
-    """Cuerpo de la prueba: el proyecto es obligatorio para CLI (preflight con contexto de ejecución)."""
+    """Cuerpo de la prueba: el proyecto es obligatorio para CLI; ``model`` fija el modelo a validar."""
 
     project_id: str | None = Field(default=None, alias="projectId")
+    model: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class RuntimeValidationResultRecord(BaseModel):

@@ -938,7 +938,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         require_write(request)
         try:
             result = RuntimeValidationService(platform.connection).validate(
-                provider_id, project_id=body.project_id
+                provider_id, project_id=body.project_id, model=body.model
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

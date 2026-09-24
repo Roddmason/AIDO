@@ -56,6 +56,18 @@ def test_code_fence_is_removed_only_when_it_wraps_the_payload() -> None:
     assert strip_code_fences('{"text": "keep ``` inside"}') == '{"text": "keep ``` inside"}'
 
 
+def test_code_fence_is_kept_when_the_closing_fence_is_absent() -> None:
+    truncated = '```json\n{"ok": true}'
+
+    assert strip_code_fences(truncated) == truncated
+
+
+def test_code_fence_is_kept_when_content_follows_the_closing_fence() -> None:
+    trailing = '```json\n{"ok": true}\n```\nnote: truncated'
+
+    assert strip_code_fences(trailing) == trailing
+
+
 def test_json_candidate_text_parses_reasoning_plus_fenced_json() -> None:
     raw = '<think>check refs</think>\n```json\n{"verdict": "approve", "note": "prompt: keep"}\n```'
 

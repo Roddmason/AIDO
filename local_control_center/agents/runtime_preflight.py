@@ -8,6 +8,7 @@ No endpoint, credential, permission or operator selection is repaired implicitly
 
 from __future__ import annotations
 
+import copy
 import errno
 import hashlib
 import os
@@ -21,12 +22,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from local_control_center.agents.endpoint_locality import is_local_model_runtime, is_self_hosted_inference
+from local_control_center.agents.endpoint_locality import (
+    catalog_entry_for_account,
+    is_local_model_runtime,
+    is_self_hosted_inference,
+)
 from local_control_center.host_resources.branch_admission import BranchAdmission, BranchAdmissionDeferred
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.process_supervision.context import CURRENT_EXECUTION, execution_scope
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 
+from .local_runtime_causes import local_runtime_cause_of
 from .model_execution_health import (
     model_validation_rejection,
     provider_authentication_failure,
@@ -36,6 +42,7 @@ from .model_gateway import ModelGateway
 from .pricing_catalog import PricingCatalog
 from .provider_accounts import ProviderAccountStore
 from .providers.factory import provider_account_policy_kind
+from .providers.http_transport import DEFAULT_CHAT_TIMEOUT_SECONDS
 from .quota_manager import QuotaAdmissionDenied, QuotaManager, QuotaRequest
 from .runtime_readiness import healthy_evidence, provider_workload_class
 
@@ -46,6 +53,7 @@ SCHEDULING_DEADLINE_SECONDS = 120
 FAILURE_COOLDOWN_SECONDS = 300
 INPUT_TOKEN_RESERVATION = 32
 OUTPUT_TOKEN_LIMIT = 16
+LOCAL_OUTPUT_TOKEN_LIMIT = 64
 
 
 def _in_quality_environment() -> bool:
@@ -57,6 +65,29 @@ def _in_quality_environment() -> bool:
             "AIDO_QUALITY_DB_PATH",
             "PYTEST_CURRENT_TEST",
         )
+    )
+
+
+def _probe_request_shape(account: dict[str, Any]) -> tuple[int, dict[str, Any], bool, int | None]:
+    """Devuelve (max_tokens, campos extra del body, sonda de vida, timeout) de la sonda de una cuenta.
+
+    Una cuenta de runtime local recibe 64 tokens y el ``disable_reasoning_body`` de su perfil,
+    acepta como viva una respuesta cortada por longitud con razonamiento no vacío (un modelo de
+    razonamiento puede agotar 16 tokens pensando sin escribir contenido) y sondea con el timeout
+    de chat más el ``cold_start_timeout_s`` del perfil: con autoload, la primera sonda de un modelo
+    descargado lo carga y 60 s fijos lo darían por muerto. Una cuenta remota conserva ``None``.
+    """
+    if not is_local_model_runtime(account):
+        return OUTPUT_TOKEN_LIMIT, {}, False, None
+    entry = catalog_entry_for_account(account)
+    profile = getattr(entry, "local_profile", None) if entry is not None else None
+    disable_reasoning = getattr(profile, "disable_reasoning_body", None) or {}
+    cold_start = int(getattr(profile, "cold_start_timeout_s", 0) or 0)
+    return (
+        LOCAL_OUTPUT_TOKEN_LIMIT,
+        copy.deepcopy(dict(disable_reasoning)),
+        True,
+        DEFAULT_CHAT_TIMEOUT_SECONDS + cold_start,
     )
 
 
@@ -182,6 +213,7 @@ def _execute_probe(connection, *, account, model, request, estimate, budget):
     """Reserve before invocation and settle/release both authorities on every exit."""
     provider = str(account["providerId"])
     model_id = str(model["model"])
+    output_limit, extra_body, liveness_probe, timeout_s = _probe_request_shape(account)
     gateway = ModelGateway(connection)
     configuration = gateway._provider_configuration(
         provider, runtime_type=None, project_id=request.project_id
@@ -204,7 +236,7 @@ def _execute_probe(connection, *, account, model, request, estimate, budget):
                     QuotaRequest(
                         provider_id=provider,
                         model=model_id,
-                        reserved_tokens=INPUT_TOKEN_RESERVATION + OUTPUT_TOKEN_LIMIT,
+                        reserved_tokens=INPUT_TOKEN_RESERVATION + output_limit,
                         estimated_cost_usd=estimate,
                         execution_id=request.workflow_run_id,
                         branch_id=branch,
@@ -216,11 +248,14 @@ def _execute_probe(connection, *, account, model, request, estimate, budget):
                     model=model_id,
                     runtime_type=configuration.get("runtimeType"),
                     messages=[{"role": "user", "content": "Reply OK."}],
-                    max_tokens=OUTPUT_TOKEN_LIMIT,
+                    max_tokens=output_limit,
                     temperature=None,
                     estimated_cost_usd=estimate,
                     budget_remaining_usd=budget,
                     metadata={"purpose": "runtime_preflight"},
+                    extra_body=extra_body,
+                    liveness_probe=liveness_probe,
+                    timeout_seconds=timeout_s,
                 )
                 plan.update(
                     {
@@ -461,7 +496,11 @@ def prevalidate_candidates(
                                 "healthStatus": "authentication_required",
                                 "source": "model_execution",
                                 "httpStatus": status,
-                                "message": "provider_authentication_failed",
+                                "message": (
+                                    f"{local_cause}: provider_authentication_failed"
+                                    if (local_cause := local_runtime_cause_of(result.get("failureCause")))
+                                    else "provider_authentication_failed"
+                                ),
                             },
                         )
             if len(evidence["validated"]) >= TARGET_VALIDATED:

@@ -25,6 +25,13 @@ LocalRuntimeCause = Literal[
 ]
 LOCAL_RUNTIME_CAUSES: frozenset[str] = frozenset(get_args(LocalRuntimeCause))
 
+TRANSIENT_LOCAL_RUNTIME_CAUSES: frozenset[str] = frozenset({"model_loading", "local_endpoint_busy"})
+"""Causas transitorias (el servidor carga el modelo o la lease del endpoint sigue ocupada).
+
+No son evidencia de que el modelo falle: el gateway, el broker y la validación por modelo no dejan un recibo
+fallido en ``model_execution_health`` por ellas (P8, P23, P24).
+"""
+
 
 class LocalRuntimeError(RuntimeError):
     """Fallo de un runtime local con causa clasificada; `str(error)` empieza por la causa."""

@@ -655,3 +655,46 @@ def test_an_exhausted_deadline_in_the_gateway_is_never_a_failed_model_receipt(ga
     assert lane.gateway.execute_model_call(lane.plan)["status"] == "unavailable"
     assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
     assert model_validation_rejection(lane.connection, PROVIDER, MODEL) is None
+
+
+@pytest.mark.parametrize(
+    ("cause", "http_status"),
+    [("model_loading", 503), ("local_endpoint_busy", None)],
+    ids=["model-loading", "endpoint-busy"],
+)
+def test_broker_does_not_record_a_transient_local_failure_as_model_execution(broker_lane, cause, http_status):
+    lane = broker_lane
+    _record(lane.connection)
+    lane.adapter.execute.return_value = {
+        "executed": False,
+        "blocked": True,
+        "status": "unavailable",
+        "providerAttempted": True,
+        "httpStatus": http_status,
+        "failureCause": cause,
+    }
+
+    lane.broker.evaluate_tool_call(**lane.kwargs)
+
+    lane.adapter.execute.assert_called_once()
+    assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
+    assert model_validation_rejection(lane.connection, PROVIDER, MODEL) is None
+
+
+def test_broker_still_records_a_non_transient_local_failure(broker_lane):
+    lane = broker_lane
+    _record(lane.connection)
+    lane.adapter.execute.return_value = {
+        "executed": False,
+        "blocked": True,
+        "status": "unavailable",
+        "providerAttempted": True,
+        "httpStatus": 500,
+        "failureCause": "local_model_load_failed",
+    }
+
+    lane.broker.evaluate_tool_call(**lane.kwargs)
+
+    row = lane.connection.execute("SELECT * FROM model_execution_health ORDER BY id DESC LIMIT 1").fetchone()
+    assert (row["source"], bool(row["success"]), row["http_status"]) == ("tool_broker", False, 500)
+    assert model_validation_rejection(lane.connection, PROVIDER, MODEL) == "model_validation_failed"

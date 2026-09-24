@@ -24,8 +24,9 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
 
+from .local_runtime_causes import TRANSIENT_LOCAL_RUNTIME_CAUSES
 from .model_execution_health import provider_configuration_fingerprint, record_model_execution
-from .providers.http_transport import urlopen_fail_closed
+from .providers.http_transport import http_error_excerpt, urlopen_fail_closed
 from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .repository import AgentsRepository
 from .runtime_provider_config import DEFAULT_OLLAMA_BASE_URL
@@ -135,8 +136,16 @@ class ModelGateway:
         estimated_cost_usd: float | None = None,
         budget_remaining_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
+        extra_body: dict[str, Any] | None = None,
+        liveness_probe: bool = False,
+        timeout_seconds: int | None = None,
     ) -> dict[str, Any]:
         """Arma el plan de una llamada: resuelve candidato desde la política y normaliza el request.
+
+        ``extra_body`` viaja al body del servidor sin pisar campos del protocolo, ``liveness_probe`` acepta
+        como viva una respuesta cortada por longitud con razonamiento no vacío (sondas de preflight) y
+        ``timeout_seconds`` reemplaza el timeout por defecto del transporte (la sonda local suma el arranque
+        en frío del perfil).
 
         Returns:
             Plan con status 'planned' si hay candidato permitido o 'blocked_policy' si ninguno lo es;
@@ -170,7 +179,10 @@ class ModelGateway:
                 "messages": resolved_messages,
                 "temperature": temperature,
                 "maxTokens": max_tokens,
+                "extraBody": dict(extra_body or {}),
+                "timeoutSeconds": timeout_seconds,
             },
+            "livenessProbe": liveness_probe,
             "estimatedCostUsd": estimated_cost_usd,
             "budgetRemainingUsd": budget_remaining_usd,
             "metadata": self.redact_metadata(metadata),
@@ -349,16 +361,21 @@ class ModelGateway:
                 messages=messages,
                 temperature=request_payload.get("temperature"),
                 maxTokens=request_payload.get("maxTokens"),
+                extraBody=request_payload.get("extraBody") or {},
+                timeoutSeconds=request_payload.get("timeoutSeconds"),
             )
             invoked = True
             response = provider.chat_completion(request)
         except Exception as error:
             http_status = error.code if isinstance(error, HTTPError) else getattr(error, "status_code", None)
             http_status = http_status if isinstance(http_status, int) and 100 <= http_status <= 599 else None
-            # Un deadline agotado (hereda de TimeoutError) corta antes del request: no es un intento del modelo.
+            failure_cause = self._local_failure_cause(provider_id, error, http_status)
+            # Un deadline agotado (hereda de TimeoutError) corta antes del request: no es un intento del
+            # modelo. P8: una causa transitoria (carga del modelo o lease ocupada) tampoco deja un recibo.
             if (
                 invoked
                 and not isinstance(error, ExecutionDeadlineExceeded)
+                and failure_cause not in TRANSIENT_LOCAL_RUNTIME_CAUSES
                 and (
                     isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError))
                     or (
@@ -385,7 +402,12 @@ class ModelGateway:
                 provider=provider_id,
                 model=model,
                 status="unavailable",
-                metadata={"reason": reason, "plannedCall": plan, "httpStatus": http_status},
+                metadata={
+                    "reason": reason,
+                    "plannedCall": plan,
+                    "httpStatus": http_status,
+                    "failureCause": failure_cause,
+                },
             )
             return {
                 "status": "unavailable",
@@ -393,10 +415,16 @@ class ModelGateway:
                 "model": model,
                 "reason": redact_secrets(reason),
                 "httpStatus": http_status,
+                "failureCause": failure_cause,
                 "modelCall": model_call,
             }
 
-        valid_response = bool(str(response.content or "").strip()) and (
+        alive_by_reasoning = (
+            planned_call.get("livenessProbe") is True
+            and getattr(response, "finish_reason", None) == "length"
+            and getattr(response, "reasoning_present", False) is True
+        )
+        valid_response = (bool(str(response.content or "").strip()) or alive_by_reasoning) and (
             getattr(response, "provider_id", None) == provider_id
             and getattr(response, "model", None) == model
         )
@@ -621,6 +649,31 @@ class ModelGateway:
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
         return {"status": "configured", "reason": "", "runtimeType": resolved_runtime}
+
+    def _local_failure_cause(
+        self, provider_id: str, error: BaseException, http_status: int | None
+    ) -> str | None:
+        """Devuelve la causa local estable de un fallo, o ``None`` si la cuenta no es un runtime local.
+
+        Un ``LocalRuntimeError`` (p. ej. ``local_endpoint_busy`` de la lease) ya trae su causa; el resto
+        se clasifica por estado HTTP, extracto acotado del cuerpo y tipo de error de conexión.
+        """
+        from .endpoint_locality import is_local_model_runtime
+        from .local_runtime_causes import LocalRuntimeError
+        from .provider_accounts import ProviderAccountStore
+        from .runtime_failure_classifier import classify_local_model_error
+
+        if isinstance(error, LocalRuntimeError):
+            return error.cause
+        try:
+            account = ProviderAccountStore(self.repository.connection).get_provider_account(provider_id)
+        except KeyError:
+            return None
+        if not is_local_model_runtime(account):
+            return None
+        body = http_error_excerpt(error) if isinstance(error, HTTPError) else ""
+        failure = classify_local_model_error(error=error, http_status=http_status, body=body)
+        return failure.cause if failure is not None else None
 
     def _local_provider_configuration(
         self,

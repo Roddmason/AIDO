@@ -37,6 +37,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.telemetry import record_tool_call
 
+from .local_runtime_causes import TRANSIENT_LOCAL_RUNTIME_CAUSES
 from .model_execution_health import (
     model_validation_rejection,
     provider_configuration_fingerprint,
@@ -1148,12 +1149,12 @@ class ToolBroker:
                 or execution_result.get("providerAttempted") is True
                 or http_status is not None
             )
-            if attempted and status not in {
-                "denied",
-                "configuration_required",
-                "blocked",
-                "approval_required",
-            }:
+            transient_local_failure = execution_result.get("failureCause") in TRANSIENT_LOCAL_RUNTIME_CAUSES
+            if (
+                attempted
+                and not transient_local_failure
+                and status not in {"denied", "configuration_required", "blocked", "approval_required"}
+            ):
                 record_model_execution(
                     self.connection,
                     observation_provider,

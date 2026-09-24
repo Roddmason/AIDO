@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -726,3 +727,121 @@ def test_self_hosted_llama_cpp_cost_exemption_follows_the_network_scope(
     assert result["attempts"] == len(lane.calls) == attempts
     if not attempts:
         assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"
+
+
+LOCAL_PROVIDER = "preflight-llama"
+
+
+def _local_llama_row(lane):
+    store = ProviderAccountStore(lane.connection)
+    store.upsert_provider_account(
+        {
+            "providerId": LOCAL_PROVIDER,
+            "displayName": LOCAL_PROVIDER,
+            "providerType": "local",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "http://127.0.0.1:1/v1",
+            "enabled": True,
+        }
+    )
+    store.set_provider_catalog_id(LOCAL_PROVIDER, "llama_cpp")
+    lane.statuses[LOCAL_PROVIDER] = {"id": LOCAL_PROVIDER, "kind": "local", "configured": True}
+    return {
+        **store.upsert_model({"providerId": LOCAL_PROVIDER, "model": "qwen3-reasoner", "enabled": True}),
+        "runtime": "local",
+        "locality": "local",
+    }
+
+
+def _patch_local_transport(monkeypatch, chat):
+    monkeypatch.setattr(
+        "local_control_center.agents.model_gateway.provider_instance",
+        lambda provider_id, **_kwargs: SimpleNamespace(
+            base_url="http://127.0.0.1:1/v1",
+            chat_completion=lambda request: chat(provider_id, request),
+        ),
+    )
+
+
+def test_local_probe_sends_reasoning_budget_and_accepts_length_with_reasoning(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+
+    def chat(provider_id, request):
+        seen.append(request)
+        return ModelResponse(
+            providerId=provider_id,
+            model=request.model,
+            content="",
+            usage=UsageRecord(rawUsage={"usage_source": "unknown"}),
+            finishReason="length",
+            reasoningPresent=True,
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert seen[0].max_tokens == runtime_preflight.LOCAL_OUTPUT_TOKEN_LIMIT == 64
+    assert seen[0].extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert seen[0].timeout_seconds == 60 + 180
+
+
+def test_local_probe_reports_a_loading_server_as_model_loading(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def chat(provider_id, request):
+        raise HTTPError(
+            "http://127.0.0.1:1/v1/chat/completions",
+            503,
+            "Service Unavailable",
+            {},
+            io.BytesIO(b'{"error":{"code":503,"message":"Loading model"}}'),
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    assert result["rejected"][0]["failureCause"] == "model_loading"
+    assert _local_execution_receipts(lane) == []
+
+
+def test_local_probe_auth_failure_is_a_failed_receipt_with_the_cause_first(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def chat(provider_id, request):
+        raise HTTPError(
+            "http://127.0.0.1:1/v1/chat/completions",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"error":{"code":401,"message":"Invalid API Key","type":"authentication_error"}}'),
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    account = ProviderAccountStore(lane.connection).get_provider_account(LOCAL_PROVIDER)
+    assert result["rejected"][0]["failureCause"] == "local_auth_required"
+    assert _local_execution_receipts(lane) == [0]
+    assert str(account["lastError"]).startswith("local_auth_required")
+
+
+def _local_execution_receipts(lane) -> list[int]:
+    rows = lane.connection.execute(
+        "SELECT success FROM model_execution_health WHERE provider_id = ? ORDER BY rowid",
+        (LOCAL_PROVIDER,),
+    ).fetchall()
+    return [int(item["success"]) for item in rows]
+
+
+def test_probe_shape_is_unchanged_for_remote_accounts(lane):
+    remote = ProviderAccountStore(lane.connection).get_provider_account("preflight-a")
+
+    assert runtime_preflight._probe_request_shape(remote) == (
+        runtime_preflight.OUTPUT_TOKEN_LIMIT,
+        {},
+        False,
+        None,
+    )

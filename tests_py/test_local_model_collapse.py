@@ -194,6 +194,44 @@ def test_a_model_sealed_under_a_router_alias_resolves_to_its_canonical_model(con
     ]
 
 
+def _serve_router_models(connection, root: str) -> None:
+    store = ProviderAccountStore(connection)
+    store.patch_provider_account("llama_cpp", {"baseUrl": f"{root}/v1"})
+    for model in ("gemma-4-26b-a4b", "gpt-oss-20b"):
+        store.upsert_model(
+            {
+                "providerId": "llama_cpp",
+                "model": model,
+                "enabled": True,
+                "freeTier": True,
+                "inputPricePerMtok": 0,
+                "outputPricePerMtok": 0,
+                "source": "test",
+            }
+        )
+
+
+def test_a_router_alias_pin_resolves_on_the_first_selection_of_a_cold_process(connection, monkeypatch):
+    # Proceso recién iniciado: sin lecturas de estado ni tabla de alias; nada de lo real se reemplaza por dobles.
+    monkeypatch.setattr(local_model_state, "LOAD_STATE_CACHE", local_model_state.LoadStateCache())
+    monkeypatch.setattr(local_model_state, "_LISTED_ALIASES", {})
+    with running_llama_router() as (root, _router):
+        _serve_router_models(connection, root)
+        decision = _select(connection, local_model_pins={"llama_cpp": "local"})
+    assert [item["model"] for item in decision["candidates"] if item["providerId"] == "llama_cpp"] == [
+        "gemma-4-26b-a4b"
+    ]
+    assert decision["policyResult"]["localModelSelections"] == [
+        {
+            "runtimeId": "llama_cpp",
+            "model": "gemma-4-26b-a4b",
+            "reason": "sealed",
+            "requiresSwitch": False,
+            "fromModel": None,
+        }
+    ]
+
+
 def test_runtime_selection_prefers_validated_models_and_blocks_when_all_failed(connection, monkeypatch):
     _states(monkeypatch, {"gemma-a": "unloaded", "qwen-b": "loaded"})
     SettingsRepository(connection).set_value("decision_engine.mode", "general", None, "runtime_selection")
@@ -235,21 +273,8 @@ def test_the_router_autoload_switch_is_seen_by_the_selection_after_the_cache_ttl
     monkeypatch.setattr(local_model_state, "LOAD_STATE_CACHE", cache)
     pins = {"llama_cpp": "gpt-oss-20b"}
     with running_llama_router(autoload_delay_s=0.05) as (root, router):
-        store = ProviderAccountStore(connection)
-        store.patch_provider_account("llama_cpp", {"baseUrl": f"{root}/v1"})
-        for model in ("gemma-4-26b-a4b", "gpt-oss-20b"):
-            store.upsert_model(
-                {
-                    "providerId": "llama_cpp",
-                    "model": model,
-                    "enabled": True,
-                    "freeTier": True,
-                    "inputPricePerMtok": 0,
-                    "outputPricePerMtok": 0,
-                    "source": "test",
-                }
-            )
-        account = store.get_provider_account("llama_cpp")
+        _serve_router_models(connection, root)
+        account = ProviderAccountStore(connection).get_provider_account("llama_cpp")
         assert cache.get(account, max_wait_s=5.0)["gemma-4-26b-a4b"] == "loaded"
         before = _select(connection, local_model_pins=pins)
         _chat(root, "gpt-oss-20b")

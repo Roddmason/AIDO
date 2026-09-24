@@ -1032,7 +1032,6 @@ class AIResourceManager:
             return {}, None
         names = [str(model["model"]) for model in account_models]
         pinned = str(request.local_model_pins.get(provider_id) or "").strip()
-        pinned = local_model_state.model_aliases_for(account).get(pinned, pinned)
         eligible = [
             model
             for model in account_models
@@ -1043,8 +1042,12 @@ class AIResourceManager:
         ]
         if not pinned and not eligible:
             return {}, None
+        # La lectura del estado es la que llena la tabla de alias del router: se lee antes de resolver el sello
+        # para que un proceso recién iniciado no deje sin candidato a un modelo sellado bajo su alias.
         load_states = local_model_state.LOAD_STATE_CACHE.get(account)
+        model_aliases = local_model_state.model_aliases_for(account)
         if pinned:
+            pinned = model_aliases.get(pinned, pinned)
             return (
                 {name: "local_model_not_selected" for name in names if name != pinned},
                 _pinned_local_selection(provider_id, pinned, load_states),
@@ -1070,7 +1073,7 @@ class AIResourceManager:
             model_capabilities={
                 str(model["model"]): frozenset(model.get("capabilities") or []) for model in eligible
             },
-            model_aliases=local_model_state.model_aliases_for(account),
+            model_aliases=model_aliases,
         )
         if resolution.model is None:
             return {name: str(resolution.blocked_cause) for name in eligible_names}, None

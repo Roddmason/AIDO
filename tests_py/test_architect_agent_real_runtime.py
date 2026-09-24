@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from contextlib import ExitStack, closing
@@ -17,6 +18,7 @@ from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import sqlite_text_dump
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -453,3 +455,78 @@ def test_bounded_items_caps_each_serialized_item() -> None:
     serialized = _json.dumps(bounded[0], ensure_ascii=False)
     assert len(serialized) <= ITEM_SERIALIZED_LIMIT_CHARS + 100
     assert bounded[0].get("truncated") == True  # noqa: E712 - marcador literal del item
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+def test_architect_agent_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-transient")
+    diff_artifact = create_diff_artifact(store, project["id"])
+    output = {
+        "verdict": "changes_required",
+        "architectureFindings": [
+            {
+                "title": "Broker operation required",
+                "severity": "medium",
+                "description": "The diff adds an architecture review path that must stay behind ToolBroker.",
+                "evidenceRefs": [diff_artifact["id"], "test-evidence-1"],
+            }
+        ],
+        "risks": [
+            {
+                "title": "Architect model call could bypass policy",
+                "severity": "high",
+                "description": "The new agent path must not call the model provider directly.",
+                "mitigation": "Rotate the api_key = value quarterly through a ToolBroker policy operation.",
+                "evidenceRefs": [diff_artifact["id"]],
+            }
+        ],
+        "requiredChanges": [
+            {
+                "title": "Add policy operation",
+                "description": "Add a scoped policy branch and architecture tests.",
+                "evidenceRefs": [diff_artifact["id"]],
+            }
+        ],
+        "approvalRecommendation": {
+            "decision": "hold",
+            "reason": "Architecture approval should wait for policy tests.",
+            "evidenceRefs": [diff_artifact["id"]],
+        },
+        "evidenceRefs": [diff_artifact["id"], "test-evidence-1"],
+    }
+    content = f"<think>{THINK_MARKER} checking refs</think>\n```json\n{json.dumps(output)}\n```"
+    server, base_url = start_controlled_provider(content)
+    try:
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-architect-model")
+        monkeypatch.setattr(
+            "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+            lambda _service: executable_openai_runtime_status(),
+        )
+        response = client.post(
+            "/api/v1/agents/architect/runs",
+            headers=headers,
+            json=architect_request(project, workspace, diff_artifact),
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["output"]["verdict"] == "changes_required"
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text

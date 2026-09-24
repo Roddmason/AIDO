@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 from contextlib import ExitStack, closing
@@ -17,6 +18,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import ScriptedChatReply, reasoning_llm_server, sqlite_text_dump
 
 pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
@@ -745,3 +747,74 @@ def test_developer_agent_forwards_story_specs_to_qa_agent(
     assert qa_runs
     assert qa_runs[0]["input"]["storySpecs"] == spec
     assert qa_runs[0]["output"]["storySpecsArtifactId"].startswith("artifact-")
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    file_content = "Greeting prompt: welcome aboard\n"
+    patch = {
+        "summary": "reasoned change",
+        "files": [{"path": "reasoned.txt", "content": file_content}],
+        "tests": [],
+        "risks": [],
+    }
+    reply = ScriptedChatReply(
+        content=f"<think>{THINK_MARKER} weighing options</think>\n{json.dumps(patch)}",
+        reasoning_content=f"{THINK_MARKER} hidden chain",
+    )
+    with reasoning_llm_server([reply], model_id="controlled-model") as server:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", server.base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
+        RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+        )
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
+        )
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Developer Transient Channel")
+        workspace = store.workspaces.allocate_workspace(
+            project_id=project["id"],
+            task_id="developer-agent-transient",
+            agent_id="developer_agent",
+            reason="developer agent transient channel test workspace",
+            isolation_type="git_worktree",
+        )
+        response = client.post(
+            "/api/v1/agents/developer/runs",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "workspaceId": workspace["id"],
+                "taskId": "developer-agent-transient",
+                "instruction": "Create reasoned.txt.",
+                "preferredRuntime": "openai_compatible",
+                "model": "controlled-model",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": False,
+            },
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert Path(workspace["path"], "reasoned.txt").read_text(encoding="utf-8") == file_content
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text
+    assert THINK_MARKER not in json.dumps(body)

@@ -664,6 +664,14 @@ def test_an_exhausted_deadline_in_the_gateway_is_never_a_failed_model_receipt(ga
 )
 def test_broker_does_not_record_a_transient_local_failure_as_model_execution(broker_lane, cause, http_status):
     lane = broker_lane
+    ProviderAccountStore(lane.connection).patch_provider_account(
+        PROVIDER, {"providerType": "local", "baseUrl": "http://127.0.0.1:1/v1"}
+    )
+    lane.connection.execute(
+        """UPDATE ai_routing_decisions SET policy_result_json = json_set(policy_result_json,
+           '$.decisionEngine.selectionValidation.configurationFingerprint', ?) WHERE id='health-routing'""",
+        (provider_configuration_fingerprint(lane.connection, PROVIDER),),
+    )
     _record(lane.connection)
     lane.adapter.execute.return_value = {
         "executed": False,
@@ -679,6 +687,36 @@ def test_broker_does_not_record_a_transient_local_failure_as_model_execution(bro
     lane.adapter.execute.assert_called_once()
     assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
     assert model_validation_rejection(lane.connection, PROVIDER, MODEL) is None
+
+
+@pytest.mark.parametrize(
+    ("cause", "http_status"),
+    [("model_loading", 503), ("local_endpoint_busy", None)],
+    ids=["model-loading", "endpoint-busy"],
+)
+def test_broker_records_a_transient_local_cause_for_a_non_local_account(broker_lane, cause, http_status):
+    """P24 only exempts a genuine local runtime: `providerType` here stays the default `api`.
+
+    The gate in `ToolBroker._is_local_runtime_account` must not trust `failureCause` blindly —
+    a non-local (or misconfigured) adapter reporting a locally-reserved transient cause still
+    leaves a failed receipt, so `model_validation_rejection` still fails closed.
+    """
+    lane = broker_lane
+    _record(lane.connection)
+    lane.adapter.execute.return_value = {
+        "executed": False,
+        "blocked": True,
+        "status": "unavailable",
+        "providerAttempted": True,
+        "httpStatus": http_status,
+        "failureCause": cause,
+    }
+
+    lane.broker.evaluate_tool_call(**lane.kwargs)
+
+    lane.adapter.execute.assert_called_once()
+    assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 2
+    assert model_validation_rejection(lane.connection, PROVIDER, MODEL) == "model_validation_failed"
 
 
 def test_broker_still_records_a_non_transient_local_failure(broker_lane):

@@ -402,3 +402,43 @@ def test_a_failover_to_a_model_that_is_not_loaded_records_the_switch(lane, monke
     ]
     switches = [(event["payload"]["fromModel"], event["payload"]["toModel"]) for event in events]
     assert switches == [("gemma-a", "qwen-b")]
+
+
+def test_a_product_owner_failover_retries_the_other_model_of_its_pinned_runtime(lane):
+    connection, project, thread = lane
+    ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+    store = ProviderAccountStore(connection)
+    for model in ("gemma-a", "qwen-b"):
+        store.upsert_model(
+            {
+                "providerId": "llama_cpp",
+                "model": model,
+                "enabled": True,
+                "freeTier": True,
+                "inputPricePerMtok": 0,
+                "outputPricePerMtok": 0,
+                "source": "test",
+            }
+        )
+    sealed = _seal(connection, project, thread)
+    assert role_model_pins(sealed, "product_owner") == {"llama_cpp": "gemma-a"}
+    coordinator = ProductLoopCoordinator(connection, root=project["path"])
+    run = coordinator_module._UserMessageRun(
+        project_id=project["id"],
+        message="Fix the export",
+        actor="operator",
+        thread_id=thread["id"],
+        loop={"id": "loop-1"},
+        task_id="task-1",
+    )
+    run.request_meta = sealed
+    replacement = coordinator._failover_replacement(
+        run=run,
+        payload={"taskId": "po-task", "model": "gemma-a"},
+        attempts=[{"failureClass": "transport", "providerId": "llama_cpp", "model": "gemma-a"}],
+        provider_id="llama_cpp",
+        failed_model="gemma-a",
+        role="product_owner",
+    )
+    assert replacement is not None
+    assert (replacement["preferredRuntime"], replacement["model"]) == ("llama_cpp", "qwen-b")

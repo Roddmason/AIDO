@@ -310,7 +310,9 @@ def test_readonly_ollama_status_never_starts_a_network_probe(monkeypatch):
     assert status["healthCheckedAt"] is None
 
 
-@pytest.mark.parametrize("condition", ["verified", "outside", "expired", "mismatch", "memory", "cpu", "gpu"])
+@pytest.mark.parametrize(
+    "condition", ["verified", "outside", "expired", "mismatch", "memory", "cpu", "gpu", "local-memory"]
+)
 def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, condition):
     from local_control_center.host_resources.governor import HostResourceGovernor
     from local_control_center.host_resources.models import ResourceAdmissionRequest
@@ -332,7 +334,7 @@ def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, c
             .lease
         )
         assert lease is not None
-        if condition == "memory":
+        if condition in {"memory", "local-memory"}:
             sample = sample.model_copy(update={"available_memory_bytes": 33 * 1024**3})
         if condition == "cpu":
             sample = sample.model_copy(update={"cpu_percent_1s": 90.0})
@@ -369,10 +371,13 @@ def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, c
                 in_job_runner=True,
             )
         ):
-            account = {"baseUrl": "http://localhost:11434"} if condition == "gpu" else {"providerType": "cli"}
+            local_call = condition in {"gpu", "local-memory"}
+            account = {"baseUrl": "http://localhost:11434"} if local_call else {"providerType": "cli"}
             result = apply_effective_readiness(runtime.connection, status, account, policy)
-        assert result["resourceAdmissible"] is (condition in {"verified", "gpu"})
-        assert result["executable"] is (condition in {"verified", "gpu"})
+        # A resident-model client re-checks only its own class, exactly as BranchAdmission.reserve does.
+        admissible = condition in {"verified", "gpu", "local-memory"}
+        assert result["resourceAdmissible"] is admissible
+        assert result["executable"] is admissible
         if condition in {"expired", "mismatch"}:
             assert "resource_session_unverified" in result["blockingReasons"]
         assert runtime.connection.total_changes == before

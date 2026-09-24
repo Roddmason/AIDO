@@ -32,6 +32,7 @@ from local_control_center.agents.providers.nvidia_nim import NvidiaNimCapability
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.runtime_adapters.registry import RuntimeAdapterBrokerAdapter
 from local_control_center.agents.tool_broker import ToolBroker
+from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared import migrations
 from local_control_center.shared.db import open_sqlite_connection
@@ -604,3 +605,40 @@ def test_nvidia_missing_credential_is_not_an_attempt(connection, monkeypatch):
     assert failure.value.code == "credential_missing"
     assert failure.value.request_attempted is False
     transport.assert_not_called()
+
+
+def _deadline_exhausted(_request):
+    raise ExecutionDeadlineExceeded("execution_deadline_exhausted: no remaining runtime budget.")
+
+
+def test_an_exhausted_deadline_in_the_broker_is_never_a_failed_model_receipt(broker_lane, monkeypatch):
+    lane = broker_lane
+    provider = SimpleNamespace(
+        base_url="http://127.0.0.1:1/v1", credential_ref="", chat_completion=_deadline_exhausted
+    )
+    monkeypatch.setattr(ProviderAdapterFactory, "resolve_for_execution", lambda *_args: provider)
+    ProviderAccountStore(lane.connection).patch_provider_account(
+        PROVIDER, {"providerType": "local", "baseUrl": "http://127.0.0.1:1/v1"}
+    )
+    lane.connection.execute(
+        """UPDATE ai_routing_decisions SET policy_result_json = json_set(policy_result_json,
+           '$.decisionEngine.selectionValidation.configurationFingerprint', ?) WHERE id='health-routing'""",
+        (provider_configuration_fingerprint(lane.connection, PROVIDER),),
+    )
+    lane.broker.runtime_adapters = {
+        PROVIDER: RuntimeAdapterBrokerAdapter(adapter_id=PROVIDER, connection=lane.connection)
+    }
+    _record(lane.connection)
+    with pytest.raises(ExecutionDeadlineExceeded):
+        lane.broker.evaluate_tool_call(**lane.kwargs)
+    assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
+    assert model_validation_rejection(lane.connection, PROVIDER, MODEL) is None
+
+
+def test_an_exhausted_deadline_in_the_gateway_is_never_a_failed_model_receipt(gateway_lane):
+    lane = gateway_lane
+    _record(lane.connection)
+    lane.transport.side_effect = _deadline_exhausted
+    assert lane.gateway.execute_model_call(lane.plan)["status"] == "unavailable"
+    assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 1
+    assert model_validation_rejection(lane.connection, PROVIDER, MODEL) is None

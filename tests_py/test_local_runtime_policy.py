@@ -70,6 +70,18 @@ def test_phase78_seeds_the_local_switch_from_the_operator_ollama_switch(tmp_path
         assert settings.get_value("runtime.local.enabled", "general", None) is False
 
 
+def test_phase78_seeds_once_and_never_overrides_the_operator_value(tmp_path):
+    with _connection(tmp_path) as connection:
+        settings = SettingsRepository(connection)
+        settings.set_value("runtime.ollama.enabled", "general", None, False)
+        settings.set_value("runtime.local.enabled", "general", None, True)
+        initialize_platform_schema(connection)
+        assert settings.get_value("runtime.local.enabled", "general", None) is True
+        connection.execute("DELETE FROM schema_migrations WHERE version = 78")
+        initialize_platform_schema(connection)
+        assert settings.get_value("runtime.local.enabled", "general", None) is True
+
+
 def test_local_accounts_use_the_local_switch_and_lan_accounts_the_remote_one(tmp_path):
     with _connection(tmp_path) as connection:
         store = ProviderAccountStore(connection)
@@ -185,3 +197,28 @@ def test_agent_profiles_accept_the_local_runtime_mode(tmp_path):
             {"id": "local-profile", "name": "Local", "role": "developer", "runtimeMode": "local"}
         )
     assert profile["runtimeMode"] == "local"
+
+
+def test_a_custom_ollama_endpoint_is_governed_by_the_ollama_switch_and_mode(tmp_path):
+    with _connection(tmp_path) as connection:
+        account = ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "loopback-ollama",
+                "providerType": "local",
+                "providerFamily": "openai_compatible",
+                "apiFormat": "ollama",
+                "baseUrl": "http://127.0.0.1:1",
+                "enabled": True,
+            }
+        )
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting(
+            "project.runtime.defaultMode", "ollama", scope="project", scope_id="project-ollama"
+        )
+        admitted = repo.runtime_policy_decision(
+            provider_id="loopback-ollama", kind="local", project_id="project-ollama", account=account
+        )
+        assert admitted["allowed"], admitted["reason"]
+        repo.set_runtime_setting("runtime.ollama.enabled", False)
+        denied = repo.runtime_policy_decision(provider_id="loopback-ollama", kind="local", account=account)
+        assert denied["reason"] == "runtime.ollama.enabled is false."

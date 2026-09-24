@@ -31,6 +31,7 @@ from .local_runtime_causes import LocalRuntimeError
 LOCAL_ENDPOINT_WAIT_SECONDS = 120.0
 LOCAL_ENDPOINT_POLL_SECONDS = 0.1
 LOCAL_LEASE_TTL_MARGIN_SECONDS = 60.0
+RELEASE_BUSY_TIMEOUT_SECONDS = 30.0
 MAX_CALL_SECONDS_KEY = "runtime.local.maxCallSeconds"
 
 
@@ -86,13 +87,17 @@ def _try_acquire(
         rows = {
             int(row["slot"]): row
             for row in connection.execute(
-                "SELECT slot, holder, fence, expires_at FROM local_endpoint_leases "
-                "WHERE provider_id = ? AND slot < ?",
-                (provider_id, limit),
+                "SELECT slot, holder, fence, expires_at FROM local_endpoint_leases WHERE provider_id = ?",
+                (provider_id,),
             )
         }
+        # Se cuentan los slots vigentes de todo el endpoint, no solo los menores al límite: si el operador lo
+        # baja mientras hay un slot alto tomado, ese holder sigue ocupando el endpoint hasta liberarlo.
+        active = sum(
+            1 for row in rows.values() if row["holder"] is not None and float(row["expires_at"] or 0) > now
+        )
         token = None
-        for slot in range(limit):
+        for slot in range(limit if active < limit else 0):
             row = rows.get(slot)
             if row is None:
                 connection.execute(
@@ -117,6 +122,15 @@ def _try_acquire(
             connection.execute("ROLLBACK")
         raise
     return token
+
+
+def _set_busy_timeout(connection: sqlite3.Connection, seconds: float) -> None:
+    connection.execute(f"PRAGMA busy_timeout = {int(seconds * 1000)}")
+
+
+def _is_busy(error: sqlite3.OperationalError) -> bool:
+    """`SQLITE_BUSY`/`SQLITE_LOCKED` (también sus códigos extendidos): otro writer tiene la base."""
+    return (getattr(error, "sqlite_errorcode", 0) & 255) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
 
 
 def _release(connection: sqlite3.Connection, token: LocalEndpointLeaseToken) -> None:
@@ -144,7 +158,8 @@ def local_endpoint_slot(
     Raises:
         RuntimeError: si se invoca dentro de una transacción SQLite de la operación actual.
         ValueError: si `limit`, `ttl_seconds` o `wait_seconds` están fuera de rango.
-        LocalRuntimeError: `local_endpoint_busy` si ningún slot se libera dentro de `wait_seconds`.
+        LocalRuntimeError: `local_endpoint_busy` si ningún slot se libera (o la base sigue bloqueada por otro
+            writer) dentro de `wait_seconds`.
     """
     if limit < 1:
         raise ValueError("limit must be at least 1")
@@ -155,14 +170,22 @@ def local_endpoint_slot(
     deadline = clock() + wait_seconds
     with closing(connection_factory()) as connection:
         while True:
-            token = _try_acquire(
-                connection,
-                provider_id,
-                limit=limit,
-                ttl_seconds=ttl_seconds,
-                holder=resolved_holder,
-                now=clock(),
-            )
+            # El busy_timeout de la conexión (30 s) no puede alargar la espera acotada: cada intento espera el
+            # lock de escritura como mucho lo que queda de ella, y una base ocupada cuenta como endpoint ocupado.
+            _set_busy_timeout(connection, max(deadline - clock(), 0.0))
+            try:
+                token = _try_acquire(
+                    connection,
+                    provider_id,
+                    limit=limit,
+                    ttl_seconds=ttl_seconds,
+                    holder=resolved_holder,
+                    now=clock(),
+                )
+            except sqlite3.OperationalError as error:
+                if not _is_busy(error):
+                    raise
+                token = None
             if token is not None:
                 break
             if clock() >= deadline:
@@ -174,4 +197,5 @@ def local_endpoint_slot(
         try:
             yield token
         finally:
+            _set_busy_timeout(connection, RELEASE_BUSY_TIMEOUT_SECONDS)
             _release(connection, token)

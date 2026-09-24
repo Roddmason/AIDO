@@ -19,6 +19,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from local_control_center.process_supervision.context import ExecutionDeadlineExceeded
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.telemetry import record_model_call
@@ -354,11 +355,16 @@ class ModelGateway:
         except Exception as error:
             http_status = error.code if isinstance(error, HTTPError) else getattr(error, "status_code", None)
             http_status = http_status if isinstance(http_status, int) and 100 <= http_status <= 599 else None
-            if invoked and (
-                isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError))
-                or (
-                    isinstance(error, NvidiaNimCapabilityError)
-                    and (error.request_attempted or http_status is not None)
+            # Un deadline agotado (hereda de TimeoutError) corta antes del request: no es un intento del modelo.
+            if (
+                invoked
+                and not isinstance(error, ExecutionDeadlineExceeded)
+                and (
+                    isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError))
+                    or (
+                        isinstance(error, NvidiaNimCapabilityError)
+                        and (error.request_attempted or http_status is not None)
+                    )
                 )
             ):
                 record_model_execution(

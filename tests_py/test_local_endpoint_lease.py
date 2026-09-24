@@ -17,7 +17,11 @@ from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.factory import ProviderAdapterFactory
 from local_control_center.agents.runtime_adapters.models import RuntimeExecutionRequest
 from local_control_center.agents.runtime_adapters.provider_factory import ProviderFactoryAdapter
-from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+from local_control_center.process_supervision.context import (
+    ExecutionDeadlineExceeded,
+    ProcessExecutionContext,
+    execution_scope,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -195,3 +199,84 @@ def test_broker_adapter_reports_a_busy_local_endpoint_by_cause(tmp_path, monkeyp
         )
     assert result.status == "unavailable"
     assert result.reason == "llama.cpp execution failed: local_endpoint_busy"
+
+
+def test_lowering_the_limit_never_admits_more_calls_than_the_new_limit(database):
+    low_slot = _slot(database, limit=2, holder="low-runner")
+    high_slot = _slot(database, limit=2, holder="high-runner")
+    low, high = low_slot.__enter__(), high_slot.__enter__()
+    assert (low.slot, high.slot) == (0, 1)
+    low_slot.__exit__(None, None, None)
+    try:
+        with pytest.raises(LocalRuntimeError, match="local_endpoint_busy"), _slot(database, limit=1):
+            pytest.fail("A call ran beside the slot still held above the lowered limit")
+    finally:
+        high_slot.__exit__(None, None, None)
+    with _slot(database, limit=1) as admitted:
+        assert admitted.slot == 0
+
+
+def test_a_locked_database_is_a_busy_endpoint_within_the_wait(database):
+    with closing(open_sqlite_connection(database)) as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        try:
+            with (
+                pytest.raises(LocalRuntimeError, match="local_endpoint_busy"),
+                _slot(database, wait_seconds=0.3),
+            ):
+                pytest.fail("The slot was taken while another writer held the database")
+        finally:
+            writer.execute("ROLLBACK")
+    assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "provider_family"), [("ollama", "ollama"), ("loopback-ollama", "openai_compatible")]
+)
+def test_ollama_accounts_bind_the_durable_slot(tmp_path, provider_id, provider_family):
+    path = tmp_path / "ollama.sqlite"
+    with closing(open_sqlite_connection(path)) as connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": provider_id,
+                "providerType": "local",
+                "providerFamily": provider_family,
+                "apiFormat": "ollama",
+                "baseUrl": "http://127.0.0.1:1",
+                "enabled": True,
+            }
+        )
+        provider = ProviderAdapterFactory(connection).resolve(provider_id)
+        assert provider.invocation_slot is not nullcontext
+        with provider.invocation_slot():
+            holder = connection.execute(
+                "SELECT holder FROM local_endpoint_leases WHERE provider_id = ? AND slot = 0", (provider_id,)
+            ).fetchone()["holder"]
+    assert holder
+
+
+def test_an_exhausted_deadline_propagates_without_calling_the_local_model(tmp_path):
+    path = tmp_path / "deadline.sqlite"
+    with running_llama_router() as (root, router), closing(open_sqlite_connection(path)) as connection:
+        initialize_platform_schema(connection)
+        _local_llama(connection, f"{root}/v1")
+        exhausted = ProcessExecutionContext(db_path=path, execution_deadline_monotonic=time.monotonic() - 1)
+        with execution_scope(exhausted), pytest.raises(ExecutionDeadlineExceeded):
+            ProviderFactoryAdapter(
+                provider_family="openai_compatible", display_name="llama.cpp", connection=connection
+            ).execute(
+                RuntimeExecutionRequest(
+                    projectId="project-local",
+                    workspaceId="workspace-local",
+                    workspacePath=str(tmp_path),
+                    capability="chat",
+                    input={
+                        "providerId": "llama_cpp",
+                        "model": "gemma-4-26b-a4b",
+                        "messages": [{"role": "user", "content": "Reply OK."}],
+                    },
+                )
+            )
+    assert router.chat_bodies == []

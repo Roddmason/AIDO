@@ -365,6 +365,13 @@ The broker has executable adapter hooks for:
   `argv` for a SWE-agent command and runs through the restricted subprocess
   sandbox.
 
+Model replies reach the agents through an in-process transient channel
+(`agents/runtime_adapters/transient_output.py`): the broker reserves the tool-call id before
+execution, the provider adapter stores the unredacted reply (reasoning already stripped) under
+that id, and DeveloperAgent, ProductOwnerAgent and ArchitectAgent take it once, falling back to
+the redacted output artifact for CLI runtimes or other processes. The channel never enters a
+returned dict, so the artifact, logs, `agent_tool_calls` and evidence stay redacted.
+
 Adapters are not exposed as public execution endpoints. The accepted path is:
 
 ```text

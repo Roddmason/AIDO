@@ -105,7 +105,8 @@ def test_prefer_transient_output_falls_back_to_the_artifact_reader() -> None:
 
 
 def test_adapter_hands_the_unredacted_reply_to_the_channel_and_persists_only_redacted_text(lane, tmp_path):
-    raw_json = '{"note": "prompt: keep this line intact", "ok": true}'
+    secret_value = "keep this line intact"
+    raw_json = f'{{"note": "prompt: {secret_value}", "ok": true}}'
     reply = ScriptedChatReply(
         content=f"<think>{THINK_MARKER} weighing</think>\n{raw_json}",
         reasoning_content=f"{THINK_MARKER} hidden chain",
@@ -123,7 +124,10 @@ def test_adapter_hands_the_unredacted_reply_to_the_channel_and_persists_only_red
     assert THINK_MARKER not in artifact_text
     assert THINK_MARKER not in sqlite_text_dump(lane)
     assert THINK_MARKER not in json.dumps(result)
-    assert raw_json not in json.dumps(result)
+    # Token sin comillas: json.dumps escapa las comillas del JSON crudo y haría vacua la búsqueda del JSON entero.
+    assert secret_value not in artifact_text
+    assert secret_value not in json.dumps(result)
+    assert secret_value not in sqlite_text_dump(lane)
 
 
 def test_adapter_records_usage_and_latency_with_the_real_usage_source(lane, tmp_path):

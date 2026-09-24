@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .ai_resource_manager import AIResourceManager, AIResourceRequest
 from .budget_rules import BudgetRuleEvaluator
+from .endpoint_locality import is_local_model_runtime, is_self_hosted_inference
 from .model_benchmarks import ModelBenchmarkStore
 from .model_wildcards import MODEL_WILDCARDS, is_nvidia_nim_auto_selection_sentinel
 from .pricing_catalog import PricingCatalog
@@ -653,7 +654,7 @@ class ModelRouter:
                 and provider_type in REMOTE_PROVIDER_TYPES
             ):
                 return "free_tier_sensitive_data_blocked"
-            if provider_type not in LOCAL_PROVIDER_TYPES and not bool(model.get("freeTier")):
+            if not is_self_hosted_inference(provider) and not bool(model.get("freeTier")):
                 return "free_tier_model_required"
             if provider_type in REMOTE_PROVIDER_TYPES and not provider_account_is_declared_free(provider):
                 return "free_tier_account_not_confirmed"
@@ -685,9 +686,10 @@ class ModelRouter:
             return "role_blocks_cli"
         if runtime_type == "api" and not role_policy.get("allowApi", True):
             return "role_blocks_api"
-        if (
-            request.mode == "local_private" or request.privacy_level == "local_private"
-        ) and provider_type in REMOTE_PROVIDER_TYPES:
+        if (request.mode == "local_private" or request.privacy_level == "local_private") and (
+            provider_type in REMOTE_PROVIDER_TYPES
+            or (provider_type in LOCAL_PROVIDER_TYPES and not is_local_model_runtime(provider))
+        ):
             return "privacy_blocks_remote"
         if (
             request.mode == "manual_by_profile"

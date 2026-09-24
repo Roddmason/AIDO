@@ -2152,3 +2152,64 @@ def test_preview_falls_back_to_classic_scorer_when_the_manager_raises(
 
     assert result is not None
     assert (result.get("policyResult") or {}).get("source") != "ai_resource_manager"
+
+
+@pytest.mark.parametrize(
+    "provider_type,base_url",
+    [("gateway", "http://127.0.0.1:20128/v1"), ("local", "http://192.168.1.50:8082/v1")],
+    ids=["loopback-gateway", "undeclared-lan-llama"],
+)
+def test_local_private_rejects_loopback_gateways_and_undeclared_lan_runtimes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_type: str, base_url: str
+) -> None:
+    def statuses(_service: RuntimeStatusService, *, project_id: str | None = None) -> list[dict]:
+        del project_id
+        return [
+            {
+                "id": "proxy-or-lan",
+                "kind": provider_type,
+                "configured": True,
+                "available": True,
+                "executable": True,
+                "capabilities": ["chat"],
+                "reason": "Controlled endpoint.",
+            }
+        ]
+
+    monkeypatch.setattr(RuntimeStatusService, "list_provider_statuses", statuses)
+    with open_initialized_connection(tmp_path) as connection:
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "proxy-or-lan",
+                "displayName": "Proxy or LAN",
+                "providerType": provider_type,
+                "providerFamily": "openai_compatible",
+                "apiFormat": "openai_compatible",
+                "baseUrl": base_url,
+                "enabled": True,
+            }
+        )
+        store.upsert_model(
+            {
+                "providerId": "proxy-or-lan",
+                "model": "gemma-4-26b-a4b",
+                "displayName": "Gemma",
+                "contextWindow": 32768,
+                "maxOutputTokens": 4096,
+                "inputPricePerMtok": 0.0,
+                "outputPricePerMtok": 0.0,
+                "enabled": True,
+                "source": "test",
+            }
+        )
+        decision = AIResourceManager(connection).select_resource(
+            AIResourceRequest(
+                task_type="private_analysis",
+                required_capabilities=["chat"],
+                privacy_level="local_private",
+            ),
+            record=False,
+        )
+    rejected = next(item for item in decision["rejected"] if item["providerId"] == "proxy-or-lan")
+    assert rejected["reason"] == "privacy_blocks_remote"

@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.endpoint_locality import is_local_model_runtime, is_self_hosted_inference
 from local_control_center.host_resources.branch_admission import BranchAdmission, BranchAdmissionDeferred
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.process_supervision.context import CURRENT_EXECUTION, execution_scope
@@ -145,7 +146,7 @@ def _policy_reason(connection, account, model, request):
     is_cli = str(account.get("providerType")) == "cli"
     if is_cli and not request.allow_cli:
         return "role_blocks_cli"
-    local = str(account.get("providerType")) == "local" or model.get("locality") == "local"
+    local = is_local_model_runtime(account) and model.get("locality") != "remote"
     if not is_cli and local and not request.allow_local:
         return "role_blocks_local"
     if (is_cli or not local) and (
@@ -165,16 +166,10 @@ def _policy_reason(connection, account, model, request):
 
 
 def _unknown_api_cost_reason(account, request):
-    from .ai_resource_manager import _catalog_provider_locality, _normalized_policy
+    """Motivo para diferir un precio desconocido; la inferencia self-hosted no paga precio remoto (sí cuotas)."""
+    from .ai_resource_manager import _normalized_policy
 
-    # A loopback gateway may bill a remote model. Only the configured local
-    # Ollama executor is exempt from remote-price authorization, never from quotas.
-    local_runtime = (
-        account.get("providerType") == "local"
-        and account.get("apiFormat") == "ollama"
-        and _catalog_provider_locality(account) == "local"
-    )
-    if local_runtime:
+    if is_self_hosted_inference(account):
         return None
     if _normalized_policy(request.routing_policy) == "economy":
         return "unknown_remote_cost_rejected_by_policy"

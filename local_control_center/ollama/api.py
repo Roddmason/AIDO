@@ -9,7 +9,6 @@ hacen visible como runtime, y ``model_catalog`` guarda sus modelos por ``provide
 
 from __future__ import annotations
 
-import ipaddress
 import re
 import time
 from typing import Any, Literal
@@ -19,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.executions.router import ExecutionRouter, queued_operation
@@ -29,7 +29,6 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 ENDPOINT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{1,95}$")
-LOOPBACK_HOSTS = {"localhost"}
 
 
 class _AliasedModel(BaseModel):
@@ -129,27 +128,15 @@ def _normalize_base_url(base_url: str) -> str:
     return value
 
 
-def _is_loopback_host(host: str) -> bool:
-    """Indica si el host es de loopback: todo `127.0.0.0/8` y `::1`, no solo `127.0.0.1`."""
-    if host in LOOPBACK_HOSTS:
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 def _infer_kind(base_url: str, requested: str | None) -> Literal["local", "remote"]:
-    """Clasifica el endpoint; sin `kind` explícito, solo un host de loopback cuenta como local.
+    """Clasifica el endpoint con la fuente única de localidad: solo un host de loopback es local.
 
-    Falla hacia `remote` ante un host no reconocido: un endpoint marcado local se salta las
-    políticas de runtime remoto (`allowRemote`, `privacy_blocks_remote`), así que la duda se
-    resuelve del lado restrictivo.
+    `kind="remote"` del cliente se respeta porque solo restringe; `kind="local"` no promueve un host de red
+    (declarar local exige el endpoint auditado de declaración). La duda se resuelve como remoto.
     """
-    if requested in {"local", "remote"}:
-        return requested
-    host = (urlparse(base_url).hostname or "").lower()
-    return "local" if _is_loopback_host(host) else "remote"
+    metadata = {"endpointKind": "remote"} if requested == "remote" else {}
+    account = {"providerType": "local", "apiFormat": "ollama", "baseUrl": base_url, "metadata": metadata}
+    return "local" if is_local_model_runtime(account) else "remote"
 
 
 def _provider_type(kind: str) -> str:
@@ -387,7 +374,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "metadata": {
                     **body.metadata,
                     "providerFamily": "ollama",
-                    "endpointKind": kind,
+                    # Solo la restricción explícita del cliente persiste (P4/R13); un `kind="local"`
+                    # demovido a remoto por `_infer_kind` no es una declaración real de remoto.
+                    "endpointKind": body.kind,
                 },
             }
         )

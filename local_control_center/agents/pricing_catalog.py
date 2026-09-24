@@ -13,6 +13,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from .endpoint_locality import is_self_hosted_inference
 from .provider_accounts import ProviderAccountStore, provider_account_is_declared_free
 
 STALE_AFTER_DAYS = 90
@@ -68,7 +69,9 @@ class PricingCatalog:
         effective_pricing_mode = str(account.get("pricingMode") or "unknown")
         provider_type = str(account.get("providerType") or "")
         effectively_free = free_tier_eligible and (
-            provider_account_is_declared_free(account) or provider_type in {"local", "manual"}
+            provider_account_is_declared_free(account)
+            or provider_type == "manual"
+            or is_self_hosted_inference(account)
         )
         staleness = self._staleness(source=source, updated_at=row["updated_at"])
         if effectively_free:

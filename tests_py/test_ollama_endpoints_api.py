@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
@@ -398,3 +399,19 @@ def test_endpoint_kind_is_inferred_from_the_whole_loopback_range(
         response = created[endpoint_id]
         assert response.status_code == 201, endpoint_id
         assert response.json()["endpoint"]["kind"] == expected_kind, endpoint_id
+
+
+def test_client_local_kind_cannot_promote_a_lan_host_to_a_local_endpoint(
+    client_with_store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, headers, store = client_with_store(tmp_path, monkeypatch)
+    created = client.post(
+        "/api/v1/ollama/endpoints",
+        headers=headers,
+        json=endpoint_payload("ollama-lan-claimed", "http://192.168.1.60:11434", kind="local"),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["endpoint"]["kind"] == "remote"
+    account = ProviderAccountStore(store.connection).get_provider_account("ollama-lan-claimed")
+    assert account["providerType"] == "gateway"
+    assert "endpointKind" not in account["metadata"]

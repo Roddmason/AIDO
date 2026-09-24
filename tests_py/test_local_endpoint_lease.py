@@ -136,6 +136,11 @@ def test_the_slot_wait_never_outlasts_the_running_execution(database):
         assert 8 <= local_endpoint_lease.local_endpoint_wait_seconds() <= 10
 
 
+def test_the_slot_wait_never_outlasts_the_call_deadline():
+    assert 4 <= local_endpoint_lease.local_endpoint_wait_seconds(time.monotonic() + 5) <= 5
+    assert local_endpoint_lease.local_endpoint_wait_seconds(time.monotonic() - 1) == 0.0
+
+
 def test_local_provider_chat_calls_share_the_durable_slot(tmp_path, monkeypatch):
     path = tmp_path / "wired.sqlite"
     monkeypatch.setattr(local_endpoint_lease, "LOCAL_ENDPOINT_WAIT_SECONDS", 0)

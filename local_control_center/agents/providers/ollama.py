@@ -79,7 +79,8 @@ class OllamaProvider(ModelProvider):
         self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
         self.credential_ref = credential_ref or ""
         self.credential_resolver = CredentialResolver()
-        self.invocation_slot: Callable[[], AbstractContextManager[object]] = nullcontext
+        # Recibe el deadline monótono de la llamada; `nullcontext` lo acepta como `enter_result` y no espera nada.
+        self.invocation_slot: Callable[[float | None], AbstractContextManager[object]] = nullcontext
 
     def _base_url_blocking_reason(self) -> str | None:
         if self.base_url:
@@ -208,7 +209,7 @@ class OllamaProvider(ModelProvider):
             headers={"Content-Type": "application/json", "Accept": "application/json", **headers},
             method="POST",
         )
-        with self.invocation_slot():
+        with self.invocation_slot(request.deadline_monotonic):
             timeout = request.http_timeout(DEFAULT_CHAT_TIMEOUT_SECONDS)
             with urlopen_fail_closed(http_request, timeout=timeout) as response:
                 decoded = json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))

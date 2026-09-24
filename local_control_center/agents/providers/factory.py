@@ -297,7 +297,8 @@ class ProviderAdapterFactory:
 
         Sin base de datos en archivo (conexión en memoria) no hay procesos que coordinar y el adapter queda sin
         límite, como antes. La espera por el slot se calcula al tomarlo (``local_endpoint_wait_seconds``), no
-        al resolver el provider: así queda acotada por el deadline restante de la ejecución. Además activa
+        al resolver el provider: así queda acotada por el deadline restante de la ejecución y por el de la
+        llamada, que el provider pasa como ``invocation_slot(request.deadline_monotonic)``. Además activa
         ``send_output_limit`` para que el body OpenAI de una cuenta local lleve ``max_tokens``; ninguna cuenta
         remota lo recibe.
         """
@@ -316,8 +317,8 @@ class ProviderAdapterFactory:
             ttl_seconds=local_endpoint_lease.max_local_call_seconds(self.connection)
             + local_endpoint_lease.LOCAL_LEASE_TTL_MARGIN_SECONDS,
         )
-        provider.invocation_slot = lambda: slot(
-            wait_seconds=local_endpoint_lease.local_endpoint_wait_seconds()
+        provider.invocation_slot = lambda call_deadline_monotonic=None: slot(
+            wait_seconds=local_endpoint_lease.local_endpoint_wait_seconds(call_deadline_monotonic)
         )
         return provider
 

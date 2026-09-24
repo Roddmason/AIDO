@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.factory import provider_account_policy_kind
 from local_control_center.agents.runtime_status import RuntimeStatusService
@@ -23,12 +24,16 @@ TEAM_RUNTIME_KINDS = frozenset({"cli", "api", "gateway", "local"})
 
 
 def load_runtime_facts(connection: sqlite3.Connection, *, project_id: str | None) -> dict[str, RuntimeFacts]:
-    """Devuelve los runtimes habilitados y no manuales con roles elegibles y veto de política, por id."""
+    """Devuelve los runtimes habilitados y no manuales con roles elegibles y veto de política, por id.
+
+    Un runtime local suma a sus capacidades las opt-in de sus modelos habilitados (``chat`` mas modelos).
+    """
     statuses = {
         str(status.get("id") or ""): status
         for status in RuntimeStatusService(connection).list_provider_statuses(project_id=project_id)
     }
     policy = RuntimeConfigRepository(connection)
+    local_settings = LocalModelSettingsRepository(connection)
     facts: dict[str, RuntimeFacts] = {}
     for account in ProviderAccountStore(connection).list_provider_accounts():
         provider_id = str(account["providerId"])
@@ -36,11 +41,14 @@ def load_runtime_facts(connection: sqlite3.Connection, *, project_id: str | None
         if not account.get("enabled") or kind not in TEAM_RUNTIME_KINDS:
             continue
         status = statuses.get(provider_id) or {}
+        capabilities = set(status.get("capabilities") or [])
+        if kind == "local":
+            capabilities |= local_settings.enabled_capabilities(provider_id)
         runtime = {
             **status,
             "id": provider_id,
             "providerFamily": status.get("providerFamily") or account.get("providerFamily"),
-            "capabilities": status.get("capabilities") or [],
+            "capabilities": sorted(capabilities),
         }
         decision = policy.runtime_policy_decision(
             provider_id=provider_id,

@@ -45,6 +45,7 @@ from .impact_question_engine import (
     detected_facts_from_assessment,
     validate_impact_question,
 )
+from .model_output_text import json_candidate_text
 from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
     PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
@@ -57,6 +58,7 @@ from .product_owner_agent_contract import (
     product_owner_agent_readiness,
 )
 from .repository import AgentsRepository
+from .runtime_adapters.transient_output import prefer_transient_output
 from .runtime_registry import (
     RuntimeCommandUnavailableError,
     build_product_owner_agent_argv,
@@ -1071,12 +1073,16 @@ class ProductOwnerAgentRunner:
 
     def _runtime_output_text(self, result: dict[str, Any]) -> dict[str, Any]:
         artifact_id = result.get("outputArtifactId") or result.get("stdoutArtifactId")
-        if not artifact_id:
-            raise ProductOwnerOutputValidationError(
-                "ProductOwnerAgent runtime execution did not produce an output artifact."
-            )
-        artifact = self.evidence.get_artifact_by_id(artifact_id)
-        content = Path(artifact["path"]).read_text(encoding="utf-8")
+
+        def read_artifact() -> str:
+            if not artifact_id:
+                raise ProductOwnerOutputValidationError(
+                    "ProductOwnerAgent runtime execution did not produce an output artifact."
+                )
+            artifact = self.evidence.get_artifact_by_id(artifact_id)
+            return Path(artifact["path"]).read_text(encoding="utf-8")
+
+        content = prefer_transient_output(result.get("toolCallId"), read_artifact)
         if len(content) > RUNTIME_OUTPUT_LIMIT_CHARS:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent runtime output exceeds the size limit."
@@ -1085,16 +1091,8 @@ class ProductOwnerAgentRunner:
 
     @staticmethod
     def _json_object_from_text(content: str) -> Any:
-        candidate = content.strip()
-        if candidate.startswith("```"):
-            lines = candidate.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            candidate = "\n".join(lines).strip()
         try:
-            return json.loads(candidate)
+            return json.loads(json_candidate_text(content))
         except json.JSONDecodeError as error:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent runtime output is not valid JSON."
@@ -1710,7 +1708,7 @@ class ProductOwnerAgentRunner:
                 "kind": "invalid",
                 "reason": str(error),
                 "runtimeResult": runtime_result,
-                "outputText": runtime_output["text"],
+                "outputText": str(redact_secrets(runtime_output["text"])),
                 "outputArtifactId": runtime_output["artifactId"],
             }
         return {

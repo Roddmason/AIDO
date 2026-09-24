@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from contextlib import ExitStack, closing
@@ -29,6 +30,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import sqlite_text_dump
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -1459,3 +1461,30 @@ def test_product_owner_runs_through_the_broker_on_a_local_llama_cpp_router(
     assert result["productBriefPatch"]["title"] == "Self-serve onboarding"
     assert [item["model"] for item in router.chat_bodies] == ["gemma-4-26b-a4b"]
     assert AgentsRepository(store.connection).get_agent_profile("product_owner_agent")["allowRemote"] is False
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+def test_product_owner_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-transient")
+    output = product_owner_output(blocking=False)
+    output["brief"]["scope"] = "Guided setup wizard; onboarding prompt: ask for company size."
+
+    response = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=f"<think>{THINK_MARKER} weighing scope</think>\n{json.dumps(output)}",
+        body=product_owner_request(project, workspace),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text

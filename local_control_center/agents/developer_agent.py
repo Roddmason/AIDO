@@ -42,9 +42,11 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
     developer_agent_readiness,
 )
+from .model_output_text import json_candidate_text
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from .repository import AgentsRepository
 from .response_style import resolve_response_style
+from .runtime_adapters.transient_output import prefer_transient_output
 from .runtime_registry import (
     RuntimeCommandUnavailableError,
     build_developer_agent_argv,
@@ -281,7 +283,7 @@ def _developer_model_messages(
 
 def _parse_model_patch(content: str) -> dict[str, Any]:
     try:
-        payload = json.loads(content)
+        payload = json.loads(json_candidate_text(content))
     except json.JSONDecodeError as error:
         raise ValueError("DeveloperAgent model output is not valid JSON patch output.") from error
     if not isinstance(payload, dict):
@@ -344,11 +346,17 @@ class DeveloperAgentRunner:
             }
         )
 
-    def _model_output_text(self, artifact_id: str | None) -> str:
-        if not artifact_id:
-            raise ValueError("DeveloperAgent model execution did not produce an output artifact.")
-        artifact = self.evidence.get_artifact_by_id(artifact_id)
-        return Path(artifact["path"]).read_text(encoding="utf-8")
+    def _model_output_text(self, model_result: dict[str, Any]) -> str:
+        """Devuelve la salida del modelo: el canal en proceso o, si no está, el artifact redactado."""
+
+        def read_artifact() -> str:
+            artifact_id = model_result.get("outputArtifactId")
+            if not artifact_id:
+                raise ValueError("DeveloperAgent model execution did not produce an output artifact.")
+            artifact = self.evidence.get_artifact_by_id(artifact_id)
+            return Path(artifact["path"]).read_text(encoding="utf-8")
+
+        return prefer_transient_output(model_result.get("toolCallId"), read_artifact)
 
     def _execute_cli_runtime(
         self,
@@ -456,7 +464,7 @@ class DeveloperAgentRunner:
         model_result = _execution_result_from_tool_call(model_eval["toolCall"])
         if model_result["status"] != "completed":
             return {"status": "failed", "modelCall": model_result, "reason": model_result.get("reason")}
-        patch_payload = _parse_model_patch(self._model_output_text(model_result.get("outputArtifactId")))
+        patch_payload = _parse_model_patch(self._model_output_text(model_result))
         patch_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
             agent_run_id=agent_run["id"],

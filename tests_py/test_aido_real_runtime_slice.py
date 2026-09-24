@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 import threading
 from contextlib import ExitStack, closing
@@ -25,6 +26,7 @@ from local_control_center.security_policy.sandbox import RestrictedSubprocessSan
 from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import ScriptedChatReply, reasoning_llm_server, sqlite_text_dump
 
 
 @pytest.fixture(autouse=True)
@@ -2163,3 +2165,61 @@ def test_issue_to_patch_does_not_execute_runtime_without_git_worktree_evidence(
     assert body["diffSummary"]["blockerState"] == "workspace_not_auditable"
     assert "worktree" in body["reason"].lower()
     assert not Path(body["workspace"]["path"], "patched.txt").exists()
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_issue_to_patch_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    patch = {
+        "summary": "reasoned issue patch",
+        "files": [{"path": "reasoned.txt", "content": "Greeting prompt: welcome aboard\n"}],
+        "tests": [],
+        "risks": [],
+    }
+    reply = ScriptedChatReply(content=f"<think>{THINK_MARKER} reading the issue</think>\n{json.dumps(patch)}")
+    with reasoning_llm_server([reply], model_id="controlled-model") as server:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        clear_runtime_provider_env(monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", server.base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
+        RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+        )
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
+        )
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Issue Transient Channel")
+        response = client.post(
+            "/api/v1/workflows/issue-to-patch",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "title": "Create reasoned file",
+                "issueText": "Create reasoned.txt.",
+                "preferredRuntime": "openai_compatible",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": True,
+            },
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "evidence_ready"
+    assert "reasoned.txt" in body["diffSummary"]["changedFiles"]
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text

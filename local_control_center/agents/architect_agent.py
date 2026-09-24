@@ -34,7 +34,9 @@ from .architect_agent_contract import (
     architect_agent_contract,
     architect_agent_readiness,
 )
+from .model_output_text import json_candidate_text
 from .repository import AgentsRepository
+from .runtime_adapters.transient_output import prefer_transient_output
 from .runtime_registry import build_architect_agent_argv
 from .runtime_selection import (
     RUNTIME_UNAVAILABLE_STATUS,
@@ -158,16 +160,8 @@ def _bounded_items(
 
 
 def _json_object_from_text(content: str) -> dict[str, Any]:
-    candidate = content.strip()
-    if candidate.startswith("```"):
-        lines = candidate.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        candidate = "\n".join(lines).strip()
     try:
-        payload = json.loads(candidate)
+        payload = json.loads(json_candidate_text(content))
     except json.JSONDecodeError as error:
         raise ArchitectOutputValidationError("ArchitectAgent model output is not valid JSON.") from error
     if not isinstance(payload, dict):
@@ -726,10 +720,15 @@ class ArchitectAgentRunner:
                 if runtime_result.get("outputArtifactId"):
                     artifact_ids.append(str(runtime_result["outputArtifactId"]))
                 try:
-                    raw_output = self._artifact_text(
-                        runtime_result.get("outputArtifactId"),
-                        reason="ArchitectAgent model execution did not produce an output artifact.",
+                    raw_output = prefer_transient_output(
+                        runtime_result.get("toolCallId"),
+                        lambda: self._artifact_text(
+                            runtime_result.get("outputArtifactId"),
+                            reason="ArchitectAgent model execution did not produce an output artifact.",
+                        ),
                     )
+                    if len(raw_output) > MODEL_OUTPUT_LIMIT_CHARS:
+                        raise ValueError("ArchitectAgent artifact output exceeds the review size limit.")
                     parsed_output = _json_object_from_text(raw_output)
                     output = _validate_architect_output(
                         parsed_output,

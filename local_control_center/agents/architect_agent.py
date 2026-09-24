@@ -35,6 +35,7 @@ from .architect_agent_contract import (
     architect_agent_contract,
     architect_agent_readiness,
 )
+from .local_model_call_input import local_model_call_input
 from .model_output_text import json_candidate_text
 from .repository import AgentsRepository
 from .runtime_adapters.transient_output import prefer_transient_output
@@ -575,6 +576,7 @@ class ArchitectAgentRunner:
                     "model": model,
                     "messages": self._messages(payload=payload, diff_text=diff_text),
                     "temperature": 0.1,
+                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
                 },
                 "networkRequired": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,

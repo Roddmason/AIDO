@@ -43,6 +43,7 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
     developer_agent_readiness,
 )
+from .local_model_call_input import local_model_call_input
 from .model_output_text import json_candidate_text
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
 from .repository import AgentsRepository
@@ -454,6 +455,7 @@ class DeveloperAgentRunner:
                         project_id=payload["projectId"],
                     ),
                     "temperature": 0.2,
+                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
                 },
                 "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
                 # Provider credentials are injected by the adapter transport and never enter the prompt.

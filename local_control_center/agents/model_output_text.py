@@ -59,10 +59,10 @@ def strip_code_fences(text: str) -> str:
     candidate = text.strip()
     if not candidate.startswith(_FENCE):
         return candidate
-    lines = candidate.splitlines()[1:]
-    if lines and lines[-1].strip() == _FENCE:
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
+    lines = candidate.splitlines()
+    if len(lines) < 2 or lines[-1].strip() != _FENCE:
+        return candidate
+    return "\n".join(lines[1:-1]).strip()
 
 
 def json_candidate_text(text: str) -> str:

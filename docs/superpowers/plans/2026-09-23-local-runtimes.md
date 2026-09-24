@@ -22791,8 +22791,10 @@ funcionalidad en AIDO) la hace el controlador después de Task 44, no el ejecuto
 ### Task 44: Validación en vivo contra el `llama-server` real (SOLO CONTROLADOR — un subagente implementador NO la ejecuta)
 
 > **CONTROLLER-ONLY.** Un subagente implementador que reciba esta tarea debe detenerse sin ejecutar nada y devolverla
-> al controlador. Toca procesos y servicios reales del host (`llama-server` en `:8082`, compartido con otra sesión) y
-> requiere coordinación por `SendMessage`. No usa `http://127.0.0.1:4310` (instancia del operador, a veces de Codex):
+> al controlador. Toca servicios reales del host (`llama-server` en `:8082`). No se coordina ni se informa a otras
+> sesiones (instrucción del operador, 2026-09-23): el controlador usa el servidor tal como está y, si algo lo reinicia
+> o cambia de modelo durante la validación, lo registra en la evidencia y repite el paso afectado. No usa
+> `http://127.0.0.1:4310` (instancia del operador, a veces de Codex):
 > levanta una instancia aislada en `:4371` con BD de scratch; la BD viva del operador solo se lee.
 
 **Files:**
@@ -22821,19 +22823,17 @@ C1d modelo por defecto validado; C1e candidato del equipo del hilo; C1f hilo con
 `brief_ready` o `backlog_ready` ejecutado por llama.cpp; C2 con ~20 GiB libres la llamada dentro del job `agent_cli`
 no queda en `resource_wait` ni se difiere en preflight; C3 `local_model_switch` visible al cambiar de modelo.
 
-- [ ] **Step 0: Coordinación con la otra sesión que comparte el `llama-server` (E0)**
+- [ ] **Step 0: Estado inicial del `llama-server` (E0)**
 
-Cargar la herramienta con `ToolSearch` `select:SendMessage`, luego `ListAgents`. Identificar la sesión local de Claude
-que usa `:8082` (en 2026-09-22 fue "Análisis y optimización de recursos (fork)"; si el nombre cambió, la que no es esta
-sesión y está activa en este host). Enviar exactamente:
+Sin coordinación con otras sesiones. Verificar que el servidor responde y guardar la salida en
+`evidence\E00-initial-state.txt`:
 
-```text
-Hola, soy la sesión Claude que implementa runtimes locales en AIDO. Necesito uso exclusivo del llama-server de http://127.0.0.1:8082 durante unos 60 minutos para una validación en vivo: AIDO cargará gemma-4-26b-a4b y gpt-oss-20b por autoload del router. Por favor, hasta que te avise: 1) no envíes solicitudes a :8082 (tampoco vía llm_ask/llm_delegate tier local), 2) no lo detengas ni lo relances (start-llm.ps1 / stop-llm.ps1), 3) no cambies su preset de modelos. Respóndeme "pausado" cuando lo estés.
+```powershell
+curl.exe -s --max-time 10 http://127.0.0.1:8082/health
 ```
 
-Esperar la respuesta "pausado". Sin respuesta en 10 min, o si `ListAgents` no muestra ninguna sesión candidata,
-detenerse y preguntar al usuario en una línea (no asumir la pausa). Guardar el texto enviado y la respuesta en
-`evidence\E00-coordination.txt`. Durante toda la tarea el controlador tampoco usa el tier local del `llm-router`.
+Esperado: `{"status":"ok"}`. Si no responde, detenerse y preguntar al usuario en una línea (no levantar ni
+reiniciar el servidor por cuenta propia). Durante toda la tarea el controlador no usa el tier local del `llm-router`.
 
 - [ ] **Step 1: Preparar el directorio, helpers y el repo de scratch**
 
@@ -23313,7 +23313,7 @@ Esperado:
   como criterio rojo con esa causa (no parchear aquí).
 - E15: `/v1/models` con el modelo de E01 `loaded` (estado inicial restaurado).
 
-- [ ] **Step 10: Teardown, reanudar a la otra sesión y veredicto**
+- [ ] **Step 10: Teardown y veredicto**
 
 Detener solo la instancia propia (procesos `python.exe` cuya línea de comando contiene `aido-live.sqlite`):
 
@@ -23323,14 +23323,7 @@ Get-NetTCPConnection -LocalPort 4371 -State Listen -ErrorAction SilentlyContinue
 ```
 
 Esperado: `:4371` libre y `llama-server` sigue `{"status":"ok"}` (no se toca `:4310` ni el `llama-server`). Cerrar el
-Browser pane (`preview_stop`/`tabs_close`). Enviar por `SendMessage` a la misma sesión:
-
-```text
-Terminé la validación en vivo de runtimes locales. Ya puedes volver a usar el llama-server de :8082; quedó cargado gemma-4-26b-a4b, como estaba al empezar. Gracias por la pausa.
-```
-
-(`gemma-4-26b-a4b` es el valor esperado de este host; si `E01` registró otro modelo cargado, el mensaje nombra el id
-de `loaded-model.txt`.)
+Browser pane (`preview_stop`/`tabs_close`).
 
 Veredicto en `evidence\VERDICT.md`: tabla `criterio | resultado | evidencia (E-id + dato clave)` para C1a-C1f, C2 y C3,
 más el valor de RAM libre medido y los desvíos. Cualquier criterio rojo: no parchear en esta tarea; abrir

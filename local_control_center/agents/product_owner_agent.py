@@ -66,6 +66,7 @@ from .runtime_selection import (
     RUNTIME_UNAVAILABLE_STATUS,
     is_ollama_runtime,
     runtime_provider_family,
+    runtime_requires_network,
     runtime_unavailable_result,
 )
 from .runtime_status import RuntimeStatusService
@@ -130,7 +131,9 @@ def _runtime_mode(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return "cli"
-    return "ollama" if is_ollama_runtime(runtime) else "api"
+    if is_ollama_runtime(runtime):
+        return "ollama"
+    return "local" if runtime.get("localModelRuntime") is True else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -957,9 +960,7 @@ class ProductOwnerAgentRunner:
         runtime_id = str(runtime.get("id") or "")
         ollama_runtime = is_ollama_runtime(runtime)
         provider_family = runtime_provider_family(runtime)
-        remote_runtime = provider_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES or str(
-            runtime.get("kind") or ""
-        ) in {"api", "gateway"}
+        remote_runtime = runtime_requires_network(runtime, PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES)
         return self.agents.upsert_agent_profile(
             {
                 "id": PRODUCT_OWNER_AGENT_ID,

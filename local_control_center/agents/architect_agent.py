@@ -39,6 +39,7 @@ from .runtime_registry import build_architect_agent_argv
 from .runtime_selection import (
     RUNTIME_UNAVAILABLE_STATUS,
     runtime_provider_family,
+    runtime_requires_network,
     runtime_unavailable_result,
 )
 from .runtime_status import RuntimeStatusService
@@ -59,7 +60,9 @@ class ArchitectOutputValidationError(ValueError):
 def _runtime_mode(runtime: dict[str, Any]) -> str:
     if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
         return "cli"
-    return "ollama" if runtime_provider_family(runtime) == "ollama" else "api"
+    if runtime_provider_family(runtime) == "ollama":
+        return "ollama"
+    return "local" if runtime.get("localModelRuntime") is True else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -425,7 +428,7 @@ class ArchitectAgentRunner:
                 "allowedTools": ["shell"] if cli_runtime else ARCHITECT_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if model_runtime else [],
                 "allowedRuntimes": [runtime_id] if model_runtime or cli_runtime else [],
-                "allowRemote": provider_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
+                "allowRemote": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
                 "allowCli": cli_runtime,
                 "allowApi": model_runtime,
                 "outputSchema": architect_agent_contract()["outputSchema"],
@@ -576,7 +579,7 @@ class ArchitectAgentRunner:
                     "messages": self._messages(payload=payload, diff_text=diff_text),
                     "temperature": 0.1,
                 },
-                "networkRequired": provider_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
+                "networkRequired": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,

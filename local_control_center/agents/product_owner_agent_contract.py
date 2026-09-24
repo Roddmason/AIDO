@@ -58,7 +58,8 @@ def _product_owner_runtime_cost_rank(runtime: dict[str, Any]) -> int:
     declared_free = str(runtime.get("pricingMode") or "") == "free" and (
         provider_family != "gemini" or runtime.get("freeTierDeclaredByOperator") is True
     )
-    if declared_free or is_ollama_runtime(runtime):
+    self_hosted = runtime.get("selfHostedInference") is True
+    if declared_free or self_hosted or is_ollama_runtime(runtime):
         return 0
     if str(runtime.get("id") or "") in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return 1
@@ -335,7 +336,11 @@ def _product_owner_runtime_reason(runtime: dict[str, Any]) -> str:
 
 
 def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
-    """Indica si un runtime sirve como ProductOwnerAgent: CLI real ejecutable o modelo con chat disponible."""
+    """Indica si un runtime sirve como ProductOwnerAgent: CLI real ejecutable o modelo con chat disponible.
+
+    Un runtime de modelo local verificado (llama.cpp, LM Studio, vLLM u Ollama) exige además modelos listados,
+    igual que Ollama: sin modelo no hay a quién pedirle el brief.
+    """
     runtime_id = str(runtime.get("id") or "")
     runtime_family = runtime_provider_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
@@ -349,10 +354,10 @@ def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
         return prompt_executable and "chat" in capabilities
     if not runtime.get("executable"):
         return False
+    if runtime.get("localModelRuntime") is True or is_ollama_runtime(runtime):
+        return bool("chat" in capabilities and runtime.get("models"))
     if runtime_family in PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES:
         return "chat" in capabilities
-    if is_ollama_runtime(runtime):
-        return bool("chat" in capabilities and runtime.get("models"))
     return False
 
 

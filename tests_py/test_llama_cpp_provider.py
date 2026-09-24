@@ -90,3 +90,60 @@ def test_runtime_status_service_includes_llama_cpp_with_local_provider_type(
     assert llama_cpp_status["reason"] != "Provider type is not executable by the local control plane.", (
         f"llama_cpp no debe caer en la rama else de provider type. reason={llama_cpp_status['reason']}"
     )
+
+
+def test_llama_cpp_from_catalog_is_healthy_executable_and_admissible_inside_a_cli_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest, ResourceSnapshot
+    from local_control_center.host_resources.repository import ResourceRepository
+    from local_control_center.process_supervision import session_client
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+    from tests_py.fakes.local_llm_servers import running_llama_router
+
+    monkeypatch.setattr(session_client, "session_identity", lambda _path: None)
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    database = Path(os.environ["LOCAL_CONTROL_CENTER_DB"])
+    with running_llama_router() as (root, _router):
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={"providerId": "llama_cpp", "baseUrl": f"{root}/v1", "enabled": True},
+        )
+        assert created.status_code == 201, created.text
+        health = client.post("/api/v1/model-gateway/providers/llama_cpp/health-check", headers=headers)
+        assert health.json()["health"]["healthStatus"] == "healthy", health.text
+        synced = client.post("/api/v1/provider-accounts/llama_cpp/sync-models", headers=headers)
+        assert synced.status_code == 200, synced.text
+    with closing(open_sqlite_connection(database)) as connection:
+        governor = HostResourceGovernor(connection)
+        lease = governor.admit(
+            ResourceAdmissionRequest(execution_id="po-job", owner_id="worker", workload_class="agent_cli"),
+            snapshot=ResourceSnapshot.test_snapshot(),
+        ).lease
+        assert lease is not None
+        ResourceRepository(connection).record_sample(
+            ResourceSnapshot.test_snapshot(available_memory_bytes=20 * 1024**3)
+        )
+        try:
+            with execution_scope(
+                ProcessExecutionContext(
+                    db_path=database,
+                    connection=connection,
+                    execution_id="po-job",
+                    worker_id="worker",
+                    resource_lease_id=lease.id,
+                    in_job_runner=True,
+                )
+            ):
+                statuses = RuntimeStatusService(connection, probe_runtime_ids=set()).list_provider_statuses()
+        finally:
+            governor.release(lease.id, reason="test cleanup")
+    status = next(item for item in statuses if item["id"] == "llama_cpp")
+    assert status["healthy"] is True
+    assert status["resourceAdmissible"] is True, status["blockingReasons"]
+    assert status["executable"] is True, status["blockingReasons"]
+    assert status["localModelRuntime"] is True
+    assert "gemma-4-26b-a4b" in status["models"]

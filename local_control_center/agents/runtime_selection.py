@@ -12,6 +12,7 @@ en cada agente a propósito: su lógica es específica y unificarla cambiaría c
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,22 @@ def is_ollama_runtime(runtime: dict[str, Any]) -> bool:
 def runtime_provider_family(runtime: dict[str, Any]) -> str:
     """Devuelve la familia de proveedor del runtime, normalizando Ollama por id o familia."""
     return "ollama" if is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")
+
+
+def runtime_requires_network(runtime: dict[str, Any], remote_families: Collection[str]) -> bool:
+    """Indica si invocar el runtime sale del equipo; un runtime de modelo local verificado nunca lo hace.
+
+    `localModelRuntime` lo calcula el estado del runtime desde `endpoint_locality`. Una cuenta `local` que no es
+    local verificada (LAN sin declarar, `endpointKind=remote`) cuenta como red. Sin el campo se conserva el
+    criterio por familia remota o `kind` api/gateway.
+    """
+    local = runtime.get("localModelRuntime")
+    if local is True:
+        return False
+    kind = str(runtime.get("kind") or "")
+    if local is False and kind == "local":
+        return True
+    return runtime_provider_family(runtime) in remote_families or kind in {"api", "gateway"}
 
 
 def runtime_unavailable_result(reason: str) -> dict[str, Any]:

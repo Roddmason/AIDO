@@ -1406,3 +1406,56 @@ def test_product_owner_stops_after_repair_attempt_cap(
     assert body["output"] is None
     assert ControlledProductOwnerProviderHandler.chat_post_count == 2
     assert ProductDiscoveryRepository(store.connection).list_initiatives(project["id"]) == []
+
+
+def test_product_owner_runs_through_the_broker_on_a_local_llama_cpp_router(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_control_center.agents.repository import AgentsRepository
+    from tests_py.fakes.local_llm_servers import running_llama_router
+
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeRegistry.detect",
+        lambda _self, runtime_id, *, executable=None: {
+            "runtime": runtime_id,
+            "status": "not_installed",
+            "executable": None,
+            "version": None,
+            "message": "CLI runtimes are not part of this local smoke.",
+        },
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        lambda *, base_url=None, credential_ref=None: {
+            "provider": "ollama",
+            "available": False,
+            "models": [],
+            "reason": "Ollama is not part of this local smoke.",
+        },
+    )
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-llama")
+    output = json.dumps(product_owner_output(blocking=False))
+    with running_llama_router(chat_responses=[output]) as (root, router):
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={"providerId": "llama_cpp", "baseUrl": f"{root}/v1", "enabled": True},
+        )
+        assert created.status_code == 201, created.text
+        health = client.post("/api/v1/model-gateway/providers/llama_cpp/health-check", headers=headers)
+        assert health.json()["health"]["healthStatus"] == "healthy", health.text
+        synced = client.post("/api/v1/provider-accounts/llama_cpp/sync-models", headers=headers)
+        assert synced.status_code == 200, synced.text
+        body = {**product_owner_request(project, workspace), "preferredRuntime": "llama_cpp"}
+        attach_persisted_resource_decision(
+            store.connection, body, runtime_id="llama_cpp", model="gemma-4-26b-a4b", runtime_kind="local"
+        )
+        response = client.post("/api/v1/agents/product-owner/runs", headers=headers, json=body)
+    assert response.status_code == 202, response.text
+    result = response.json()
+    assert result["status"] == "completed", result
+    assert result["runtimeResult"]["status"] == "completed"
+    assert result["productBriefPatch"]["title"] == "Self-serve onboarding"
+    assert [item["model"] for item in router.chat_bodies] == ["gemma-4-26b-a4b"]
+    assert AgentsRepository(store.connection).get_agent_profile("product_owner_agent")["allowRemote"] is False

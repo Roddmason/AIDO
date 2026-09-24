@@ -16,13 +16,12 @@ the premium gate — it is escalated by the unknown-cost policy instead.
 
 from __future__ import annotations
 
-import ipaddress
 import sqlite3
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import urlparse
 
+from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.model_wildcards import (
     MODEL_WILDCARDS,
     is_nvidia_nim_auto_selection_sentinel,
@@ -150,18 +149,10 @@ def _performance_evidence_summary(evidence: list[Any]) -> tuple[str, int]:
 
 
 def _catalog_provider_locality(provider: dict[str, Any] | None) -> str:
+    """Localidad de privacidad del catálogo: `local` solo para runtimes de modelo locales verificados."""
     if not provider:
         return "remote"
-    metadata = provider.get("metadata") if isinstance(provider.get("metadata"), dict) else {}
-    if str(metadata.get("endpointKind") or "").strip().lower() == "remote":
-        return "remote"
-    host = (urlparse(str(provider.get("baseUrl") or "")).hostname or "").lower()
-    if host == "localhost":
-        return "local"
-    try:
-        return "local" if ipaddress.ip_address(host).is_loopback else "remote"
-    except ValueError:
-        return "remote"
+    return "local" if is_local_model_runtime(provider) else "remote"
 
 
 def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:

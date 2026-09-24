@@ -685,3 +685,44 @@ def test_api_spending_exact_remaining_budget_defers_following_cli(lane, monkeypa
     assert result["cliAttempts"] == 0
     assert result["knownBudgetSpentUsd"] == pytest.approx(0.000048)
     assert result["deferredReasonCounts"]["preflight_cost_budget"] == len(cli_models)
+
+
+@pytest.mark.parametrize(
+    "provider_type,base_url,metadata,attempts",
+    [
+        ("local", "http://127.0.0.1:1/v1", {}, 1),
+        ("local", "http://192.168.1.50:8082/v1", {}, 1),
+        ("local", "http://llama.example.com:8082/v1", {}, 0),
+        ("local", "http://127.0.0.1:1/v1", {"endpointKind": "remote"}, 0),
+        ("gateway", "http://127.0.0.1:1/v1", {}, 0),
+    ],
+    ids=["loopback", "private-literal", "public-name", "marked-remote", "loopback-gateway"],
+)
+def test_self_hosted_llama_cpp_cost_exemption_follows_the_network_scope(
+    lane, provider_type, base_url, metadata, attempts
+):
+    store = ProviderAccountStore(lane.connection)
+    provider = "preflight-llama"
+    store.upsert_provider_account(
+        {
+            "providerId": provider,
+            "name": provider,
+            "providerType": provider_type,
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": base_url,
+            "metadata": metadata,
+            "enabled": True,
+        }
+    )
+    store.set_provider_catalog_id(provider, "llama_cpp")
+    row = {
+        **store.upsert_model({"providerId": provider, "model": "gemma-4-26b-a4b", "enabled": True}),
+        "runtime": provider_type,
+        "locality": "local",
+    }
+    lane.statuses[provider] = {"id": provider, "kind": provider_type, "configured": True}
+    result = _run(lane, [row])
+    assert result["attempts"] == len(lane.calls) == attempts
+    if not attempts:
+        assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"

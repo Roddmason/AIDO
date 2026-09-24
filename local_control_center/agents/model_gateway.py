@@ -626,11 +626,12 @@ class ModelGateway:
     ) -> dict[str, Any]:
         """Guard de cuentas `local`: política por `providerType`, adapter resoluble, URL y credencial opcional.
 
-        La credencial solo se exige si hay `credentialRef` (una ref que no resuelve falla cerrado) y nunca viaja
-        como bearer por `http://` a un host que no sea loopback ni esté declarado local.
+        La credencial solo se exige si el adapter resuelve una (`effective_connection`: la del entorno gana a la
+        persistida); una ref que no resuelve falla cerrado y nunca viaja como bearer por `http://` a un host que
+        no sea loopback ni esté declarado local.
         """
         from .credentials import CredentialResolver
-        from .endpoint_locality import credential_transport_allowed
+        from .endpoint_locality import credential_transport_allowed, effective_connection
         from .providers.factory import ProviderAdapterResolutionError, provider_account_policy_kind
 
         provider_id = str(account["providerId"])
@@ -662,7 +663,7 @@ class ModelGateway:
             }
         if not getattr(provider, "base_url", ""):
             return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
-        credential_ref = str(account.get("credentialRef") or "").strip()
+        credential_ref = effective_connection(account)[1]
         if credential_ref:
             credential = CredentialResolver().resolve(credential_ref, fetch=not for_health)
             usable = credential.configured or (

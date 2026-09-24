@@ -54,6 +54,8 @@ class LlamaRouterState:
     requests: list[tuple[str, str, str | None]] = field(default_factory=list)
     chat_bodies: list[dict[str, Any]] = field(default_factory=list)
     autoload_delay_s: float = 0.0
+    models_body: str | None = None
+    """Cuerpo crudo de `/v1/models` en vez de la lista (simula un servidor que responde basura)."""
 
 
 class _LlamaRouterHandler(BaseHTTPRequestHandler):
@@ -66,6 +68,14 @@ class _LlamaRouterHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_raw(self, status: int, text: str) -> None:
+        body = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -107,6 +117,8 @@ class _LlamaRouterHandler(BaseHTTPRequestHandler):
             self._error(401, "Invalid API Key", "authentication_error")
         elif self.path == "/props":
             self._send_json(200, LLAMA_ROUTER_PROPS)
+        elif self.path in {"/v1/models", "/models"} and self.state.models_body is not None:
+            self._send_raw(200, self.state.models_body)
         elif self.path in {"/v1/models", "/models"}:
             self._send_json(200, {"object": "list", "data": self.state.models})
         else:

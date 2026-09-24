@@ -21,7 +21,12 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .credentials import CredentialResolver
-from .endpoint_locality import catalog_entry_for_account, credential_transport_allowed, server_root_url
+from .endpoint_locality import (
+    catalog_entry_for_account,
+    credential_transport_allowed,
+    effective_connection,
+    server_root_url,
+)
 from .local_runtime_causes import LocalRuntimeCause
 from .provider_catalog import LocalRuntimeProfile
 from .providers.http_transport import urlopen_fail_closed
@@ -161,13 +166,15 @@ def probe_local_runtime(
 ) -> LocalHealthResult:
     """Sondea liveness y `/v1/models` del servidor local; nunca lanza por fallas de red.
 
-    `expected_models` son los modelos habilitados de la cuenta (vacío en el sync, que los descubre).
+    `expected_models` son los modelos habilitados de la cuenta (vacío en el sync, que los descubre). La URL y
+    el bearer son los que resuelve el adapter (`effective_connection`): los mismos que valida el guard de
+    transporte, para no sondear un host distinto del que se validó.
     """
-    root = server_root_url(str(account.get("baseUrl") or ""))
+    base_url, credential_ref = effective_connection(account)
+    root = server_root_url(base_url)
     if not root:
         return LocalHealthResult("misconfigured", None, "Local runtime base URL is not configured.")
     headers = {"Accept": "application/json", "User-Agent": PROVIDER_USER_AGENT}
-    credential_ref = str(account.get("credentialRef") or "").strip()
     if credential_ref and not credential_transport_allowed(account):
         return LocalHealthResult(
             "misconfigured",
@@ -197,6 +204,12 @@ def probe_local_runtime(
     failure = _status_result(models_status, "/v1/models")
     if failure is not None:
         return failure
+    if not (isinstance(models_payload, Mapping) and isinstance(models_payload.get("data"), list)):
+        return LocalHealthResult(
+            "offline",
+            "local_server_unreachable",
+            "local_server_unreachable: /v1/models answered an unreadable model list.",
+        )
     models = _model_ids(models_payload)
     if profile.health_requires_models and not models:
         return LocalHealthResult(

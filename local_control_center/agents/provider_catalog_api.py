@@ -10,7 +10,7 @@ so each provider has one integration path.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -26,7 +26,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .endpoint_locality import catalog_entry_for_account
-from .local_runtime_health import local_profile_for_account, probe_local_runtime
+from .local_runtime_health import LocalHealthResult, local_profile_for_account, probe_local_runtime
 from .model_gateway_models import (
     COMPACT_ENDPOINT_ID_PATTERN,
     ApiFamily,
@@ -327,6 +327,30 @@ def _validate_sync_credentials(account: dict[str, Any]) -> None:
             )
 
 
+def _fail_local_sync(store: ProviderAccountStore, provider_id: str, probe: LocalHealthResult) -> NoReturn:
+    """Registra la salud del servidor local y corta el sync con su causa (503 si es transitoria, 409 si no).
+
+    Raises:
+        HTTPException: siempre.
+    """
+    store.record_health_check(
+        provider_id=provider_id, status=probe.health_status, payload=probe.as_provider_health(provider_id)
+    )
+    raise HTTPException(
+        status_code=503 if probe.cause in {"local_server_unreachable", "model_loading"} else 409,
+        detail=probe.cause or "local_runtime_misconfigured",
+    )
+
+
+def _empty_local_listing(probe: LocalHealthResult) -> LocalHealthResult:
+    """Causa de un sync local que no obtuvo modelos: la carga en curso que vio la sonda o un servidor caído."""
+    if probe.health_status == "model_loading":
+        return probe
+    return LocalHealthResult(
+        "offline", "local_server_unreachable", "local_server_unreachable: /v1/models listed no models."
+    )
+
+
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Build the provider catalog API router under `/api/v1`."""
     router = ExecutionRouter(
@@ -449,18 +473,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=409, detail=detail) from error
         _validate_sync_credentials(account)
         local_profile = local_profile_for_account(account)
-        if local_profile is not None:
-            probe = probe_local_runtime(account, local_profile)
-            if probe.health_status in {"offline", "misconfigured"}:
-                providers().record_health_check(
-                    provider_id=provider_id,
-                    status=probe.health_status,
-                    payload=probe.as_provider_health(provider_id),
-                )
-                raise HTTPException(
-                    status_code=503 if probe.cause == "local_server_unreachable" else 409,
-                    detail=probe.cause or "local_runtime_misconfigured",
-                )
+        probe = probe_local_runtime(account, local_profile) if local_profile is not None else None
+        if probe is not None and probe.health_status in {"offline", "misconfigured"}:
+            _fail_local_sync(providers(), provider_id, probe)
         try:
             discovered = [item.model_dump(by_alias=True) for item in provider.list_models()]
         except NvidiaNimCapabilityError as error:
@@ -471,6 +486,10 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 status_code=503,
                 detail=redact_secrets(f"Model sync failed for {provider_id}: {error}"),
             ) from error
+        if probe is not None and not discovered:
+            # `list_models` convierte una lectura fallida en []: un servidor local que dejó de responder, o que
+            # carga un modelo, entre la sonda y esta lectura no puede darse por sincronizado con 0 modelos.
+            _fail_local_sync(providers(), provider_id, _empty_local_listing(probe))
         api_family = str(account.get("apiFamily") or "")
         excluded_prefixes = catalog_entry.excluded_model_prefixes
 

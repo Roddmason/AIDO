@@ -74,6 +74,19 @@ def test_marking_a_default_unmarks_the_previous_one_of_the_same_account(connecti
     ]
 
 
+def test_unmarking_the_previous_default_stamps_its_provenance_to_the_new_actor(connection):
+    repository = LocalModelSettingsRepository(connection)
+    repository.upsert("llama_cpp", "gemma-a", actor="alice", is_default=True)
+    repository.upsert("llama_cpp", "qwen-b", actor="bob", is_default=True)
+    unmarked = repository.get("llama_cpp", "gemma-a")
+    assert unmarked is not None
+    assert unmarked.is_default is False
+    assert unmarked.provenance["is_default"] == "bob"
+    marked = repository.get("llama_cpp", "qwen-b")
+    assert marked is not None
+    assert marked.provenance["is_default"] == "bob"
+
+
 def test_the_database_rejects_two_defaults_for_one_account(connection):
     LocalModelSettingsRepository(connection).upsert("llama_cpp", "gemma-a", actor="operator", is_default=True)
     with pytest.raises(sqlite3.IntegrityError):

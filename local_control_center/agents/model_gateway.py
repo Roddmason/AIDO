@@ -463,7 +463,15 @@ class ModelGateway:
         }
 
     def provider_health(self, provider_id: str) -> dict[str, Any]:
-        """Comprueba la salud de un proveedor y lista sus modelos si está disponible (errores redactados)."""
+        """Comprueba la salud de un proveedor y lista sus modelos si está disponible (errores redactados).
+
+        Una cuenta local con perfil de catálogo se sondea por su liveness (`/health` en llama.cpp) con sus
+        modelos habilitados como esperados: un 503 o un modelo habilitado cargándose devuelve `model_loading`,
+        que no es falla ni abre cooldown.
+        """
+        from .local_runtime_health import local_profile_for_account, probe_local_runtime
+        from .provider_accounts import ProviderAccountStore
+
         configuration = self._provider_configuration(provider_id, runtime_type=None, for_health=True)
         if configuration["status"] != "configured":
             return {
@@ -475,6 +483,13 @@ class ModelGateway:
                 "models": [],
             }
         try:
+            store = ProviderAccountStore(self.repository.connection)
+            account = store.get_provider_account(provider_id)
+            local_profile = local_profile_for_account(account)
+            if local_profile is not None:
+                expected = [str(row["model"]) for row in store.list_models(provider_id) if row.get("enabled")]
+                probe = probe_local_runtime(account, local_profile, expected_models=expected)
+                return redact_secrets(probe.as_provider_health(provider_id))
             provider = _provider_adapter_instance(provider_id, connection=self.repository.connection)
             health = provider.health_check().model_dump(by_alias=True)
             if health.get("status") == "not_available":
@@ -502,6 +517,11 @@ class ModelGateway:
         project_id: str | None = None,
         for_health: bool = False,
     ) -> dict[str, Any]:
+        """Valida que la cuenta pueda ejecutarse (o sondearse) sin llamar al proveedor.
+
+        CLI/manual se bloquean; `api`/`gateway` exigen política remota y credencial; `local` delega en
+        `_local_provider_configuration`.
+        """
         from .credentials import CredentialResolver
         from .provider_accounts import ProviderAccountStore
         from .providers.factory import (
@@ -527,14 +547,16 @@ class ModelGateway:
             }
         resolved_runtime = runtime_type or _runtime_type(account)
         provider_type = str(account.get("providerType") or "")
-        api_format = str(account.get("apiFormat") or "")
-        is_ollama_provider = api_format == "ollama"
         if resolved_runtime in {"cli", "manual"} or provider_type in {"cli", "manual"}:
             return {
                 "status": "blocked",
                 "reason": "CLI/manual model execution must be launched through policy-approved runtime sessions.",
                 "runtimeType": resolved_runtime,
             }
+        if provider_type in LOCAL_PROVIDER_TYPES:
+            return self._local_provider_configuration(
+                account, resolved_runtime=resolved_runtime, project_id=project_id, for_health=for_health
+            )
         if provider_type in REMOTE_PROVIDER_TYPES:
             runtime_configuration = runtime_provider_configuration(provider_id)
             credential_ref = str(
@@ -592,13 +614,76 @@ class ModelGateway:
                     }
             if not getattr(provider, "base_url", ""):
                 return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
-        if provider_type in LOCAL_PROVIDER_TYPES and not (
-            provider_id in {"ollama", "local_ollama"} or is_ollama_provider
-        ):
+        return {"status": "configured", "reason": "", "runtimeType": resolved_runtime}
+
+    def _local_provider_configuration(
+        self,
+        account: dict[str, Any],
+        *,
+        resolved_runtime: str,
+        project_id: str | None,
+        for_health: bool,
+    ) -> dict[str, Any]:
+        """Guard de cuentas `local`: política por `providerType`, adapter resoluble, URL y credencial opcional.
+
+        La credencial solo se exige si hay `credentialRef` (una ref que no resuelve falla cerrado) y nunca viaja
+        como bearer por `http://` a un host que no sea loopback ni esté declarado local.
+        """
+        from .credentials import CredentialResolver
+        from .endpoint_locality import credential_transport_allowed
+        from .providers.factory import ProviderAdapterResolutionError, provider_account_policy_kind
+
+        provider_id = str(account["providerId"])
+        policy_decision = RuntimeConfigRepository(self.repository.connection).runtime_policy_decision(
+            provider_id=provider_id,
+            provider_family=str(account.get("providerFamily") or ""),
+            kind=provider_account_policy_kind(account),
+            project_id=project_id,
+            account=account,
+        )
+        if not policy_decision.get("allowed"):
             return {
-                "status": "configuration_required",
-                "reason": f"Unsupported local model provider: {provider_id}",
+                "status": "blocked",
+                "reason": str(policy_decision.get("reason") or "Runtime execution is blocked by policy."),
+                "runtimeType": resolved_runtime,
             }
+        try:
+            provider = (
+                _provider_adapter_instance(provider_id, connection=self.repository.connection)
+                if for_health
+                else provider_instance(provider_id, connection=self.repository.connection)
+            )
+        except ProviderAdapterResolutionError as error:
+            return {
+                "status": "blocked",
+                "healthStatus": "unsupported",
+                "reason": getattr(error, "public_code", error.code),
+                "runtimeType": resolved_runtime,
+            }
+        if not getattr(provider, "base_url", ""):
+            return {"status": "configuration_required", "reason": "Provider base URL is not configured."}
+        credential_ref = str(account.get("credentialRef") or "").strip()
+        if credential_ref:
+            credential = CredentialResolver().resolve(credential_ref, fetch=not for_health)
+            usable = credential.configured or (
+                for_health and credential.status in {"configured", "unverified"}
+            )
+            if not usable:
+                return {
+                    "status": "configuration_required",
+                    "reason": redact_secrets(
+                        f"Credential ref {credential_ref} is {credential.status}. {credential.message}".strip()
+                    ),
+                }
+            if not credential_transport_allowed(account):
+                return {
+                    "status": "blocked",
+                    "reason": (
+                        "insecure_credential_transport: a bearer credential cannot travel over http:// "
+                        "to a host that is neither loopback nor declared local."
+                    ),
+                    "runtimeType": resolved_runtime,
+                }
         return {"status": "configured", "reason": "", "runtimeType": resolved_runtime}
 
     def _record_successful_provider_usage(

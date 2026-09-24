@@ -6,13 +6,17 @@
 from __future__ import annotations
 
 import sqlite3
+from functools import partial
 from typing import Any
 
+from local_control_center.agents import local_endpoint_lease
+from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_provider_config import (
     known_provider_default_base_url,
     runtime_provider_configuration_for_account,
 )
+from local_control_center.shared.db import open_sqlite_connection
 
 from .anthropic_api import AnthropicAPIProvider
 from .azure_openai import AzureOpenAIProvider
@@ -238,10 +242,13 @@ class ProviderAdapterFactory:
                 if api_format == "ollama" and provider_id not in {"ollama", "local_ollama"}
                 else base_url
             )
-            return OllamaProvider(
-                provider_id=provider_id,
-                base_url=endpoint_base_url,
-                credential_ref=credential_ref,
+            return self._bind_local_endpoint_slot(
+                OllamaProvider(
+                    provider_id=provider_id,
+                    base_url=endpoint_base_url,
+                    credential_ref=credential_ref,
+                ),
+                account,
             )
         if provider_family in {"openai", "openai_api"}:
             return OpenAIAPIProvider(base_url=base_url, credential_ref=credential_ref)
@@ -267,12 +274,15 @@ class ProviderAdapterFactory:
             return LiteLLMAdapter(base_url=base_url, credential_ref=credential_ref)
         if provider_family == "azure_openai" or api_format == "azure_openai":
             return AzureOpenAIProvider(base_url=base_url, credential_ref=credential_ref or None)
-        return OpenAICompatibleProvider(
-            provider_id=provider_id,
-            base_url=base_url,
-            credential_ref=credential_ref,
-            credential_required=provider_account_requires_credential(account),
-            use_legacy_fallbacks=False,
+        return self._bind_local_endpoint_slot(
+            OpenAICompatibleProvider(
+                provider_id=provider_id,
+                base_url=base_url,
+                credential_ref=credential_ref,
+                credential_required=provider_account_requires_credential(account),
+                use_legacy_fallbacks=False,
+            ),
+            account,
         )
 
     def resolve_for_execution(self, provider_id: str) -> Any:
@@ -281,6 +291,31 @@ class ProviderAdapterFactory:
         if not account.get("enabled"):
             raise ProviderAccountDisabledError(provider_id)
         return self.resolve(provider_id)
+
+    def _bind_local_endpoint_slot(self, provider: Any, account: dict[str, Any]) -> Any:
+        """Liga la lease durable de concurrencia a las llamadas de chat de una cuenta local residente.
+
+        Sin base de datos en archivo (conexión en memoria) no hay procesos que coordinar y el adapter queda sin
+        límite, como antes. La espera por el slot se calcula al tomarlo (``local_endpoint_wait_seconds``), no
+        al resolver el provider: así queda acotada por el deadline restante de la ejecución.
+        """
+        if not is_local_model_runtime(account):
+            return provider
+        database = self.connection.execute("PRAGMA database_list").fetchone()[2]
+        if not database:
+            return provider
+        slot = partial(
+            local_endpoint_lease.local_endpoint_slot,
+            partial(open_sqlite_connection, database),
+            str(account["providerId"]),
+            limit=int(account.get("localConcurrencyLimit") or 1),
+            ttl_seconds=local_endpoint_lease.max_local_call_seconds(self.connection)
+            + local_endpoint_lease.LOCAL_LEASE_TTL_MARGIN_SECONDS,
+        )
+        provider.invocation_slot = lambda: slot(
+            wait_seconds=local_endpoint_lease.local_endpoint_wait_seconds()
+        )
+        return provider
 
     @staticmethod
     def _runtime_configuration(account: dict[str, Any]):

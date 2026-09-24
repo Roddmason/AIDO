@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 78
+CURRENT_SCHEMA_VERSION = 79
 
 
 def _execute_atomic_statements(
@@ -139,7 +139,33 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase76_schema(connection)
     init_phase77_schema(connection)
     init_phase78_schema(connection)
+    init_phase79_schema(connection)
     seed_platform_catalogs(connection)
+
+
+def init_phase79_schema(connection: sqlite3.Connection) -> None:
+    """Fase 79: slots durables de concurrencia por endpoint local (`local_endpoint_leases`).
+
+    Una fila por (cuenta, slot) que persiste liberada (`holder` NULL) para que el fence sea monótono por slot;
+    `expires_at` es epoch en segundos de reloj de pared porque lo comparan procesos runner distintos.
+    """
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS local_endpoint_leases (
+            provider_id TEXT NOT NULL,
+            slot INTEGER NOT NULL CHECK (slot >= 0),
+            holder TEXT,
+            fence INTEGER NOT NULL DEFAULT 0 CHECK (fence >= 0),
+            expires_at REAL,
+            PRIMARY KEY (provider_id, slot)
+        )""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (79, utc_now())),
+        ],
+    )
 
 
 def init_phase78_schema(connection: sqlite3.Connection) -> None:

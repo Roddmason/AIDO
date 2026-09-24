@@ -1,8 +1,8 @@
 """llama.cpp (llama-server) entra al catálogo como runtime local OpenAI-compatible.
 
 Familia ``openai_compatible`` para quedar en ``MODEL_RUNTIME_TOOLS`` (PO y Developer por patch sin
-adaptadores nuevos) y siembra de ``code_edit``/``code_review`` como OmniRoute, o los roles de build
-y review la descartan por capacidades faltantes.
+adaptadores nuevos). Las capacidades de código son opt-in por modelo (``local_model_settings``): el
+alta desde el catálogo ya no siembra ``code_edit``/``code_review`` por runtime.
 
 @author Rodrigo Mason
 """
@@ -36,7 +36,7 @@ def test_catalog_exposes_llama_cpp_as_a_local_openai_compatible_runtime(
     assert entry["requiredFields"] == []
 
 
-def test_from_catalog_llama_cpp_seeds_build_and_review_capabilities(
+def test_from_catalog_llama_cpp_does_not_seed_code_capabilities_per_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
@@ -57,7 +57,7 @@ def test_from_catalog_llama_cpp_seeds_build_and_review_capabilities(
             "SELECT capability FROM runtime_capabilities WHERE runtime = 'llama_cpp' AND enabled = 1"
         ).fetchall()
         instance = provider_instance("llama_cpp", connection=connection)
-    assert {str(row["capability"]) for row in rows} == {"chat", "code_edit", "code_review"}
+    assert rows == []
     assert isinstance(instance, OpenAICompatibleProvider)
     assert instance.base_url == LLAMA_CPP_BASE_URL
 

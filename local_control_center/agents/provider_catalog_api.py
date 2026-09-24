@@ -59,10 +59,12 @@ DEPLOYMENT_MODES_REQUIRING_BASE_URL = frozenset(
 
 # Mismas capabilities que scripts/setup_omniroute.py: `chat` es obligatorio para ejecutar y las
 # filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así que sin
-# esta siembra una cuenta OmniRoute o llama.cpp creada desde el wizard queda solo con el `chat` de la
-# familia openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
+# esta siembra una cuenta OmniRoute creada desde el wizard queda solo con el `chat` de la familia
+# openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
+# Las entradas locales no se siembran: sus capacidades de código son opt-in por modelo
+# (local_model_settings, spec §4.3).
 OMNIROUTE_RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
-BUILD_REVIEW_SEEDED_CATALOG_IDS = frozenset({"omniroute", "llama_cpp"})
+BUILD_REVIEW_SEEDED_CATALOG_IDS = frozenset({"omniroute"})
 
 
 def _seed_omniroute_runtime_capabilities(connection: Any, *, runtime_id: str) -> None:

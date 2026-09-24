@@ -3427,7 +3427,11 @@ class ProductLoopCoordinator:
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed_provider_ids,
-                local_model_pins=role_model_pins(request_meta, "product_owner"),
+                # Un failover (con exclusiones) busca alternativas: el pin descartaría los demás
+                # modelos del mismo runtime y dejaría sin reintento al PO.
+                local_model_pins=(
+                    {} if excluded_resources else role_model_pins(request_meta, "product_owner")
+                ),
                 excluded_resources=excluded_resources or [],
                 preferred_provider_ids=preferred_provider_ids,
                 preferred_resources=preferred_resources,

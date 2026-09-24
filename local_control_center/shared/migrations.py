@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 79
+CURRENT_SCHEMA_VERSION = 80
 
 
 def _execute_atomic_statements(
@@ -140,7 +140,60 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase77_schema(connection)
     init_phase78_schema(connection)
     init_phase79_schema(connection)
+    init_phase80_schema(connection)
     seed_platform_catalogs(connection)
+
+
+def init_phase80_schema(connection: sqlite3.Connection) -> None:
+    """Fase 80: configuración por modelo local y retiro de las capacidades sembradas por runtime.
+
+    ``local_model_settings`` guarda por (cuenta, modelo) el por defecto, el orden, las capacidades opt-in
+    y la capacidad json_schema validada; el resync de ``model_catalog`` no la toca. Las cuentas llama.cpp
+    creadas antes desde el catálogo pierden ``code_edit``/``code_review`` sembrados por runtime: esas
+    capacidades pasan a ser opt-in por modelo (spec §4.3). Las filas del operador no se tocan.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 80").fetchone():
+        return
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS local_model_settings (
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+            code_edit INTEGER NOT NULL DEFAULT 0 CHECK (code_edit IN (0, 1)),
+            code_review INTEGER NOT NULL DEFAULT 0 CHECK (code_review IN (0, 1)),
+            operator_order INTEGER NOT NULL DEFAULT 0 CHECK (operator_order >= 0),
+            json_schema INTEGER NOT NULL DEFAULT 0 CHECK (json_schema IN (0, 1)),
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (provider_id, model)
+        )""",
+                (),
+            ),
+            (
+                """CREATE UNIQUE INDEX IF NOT EXISTS idx_local_model_settings_default
+            ON local_model_settings(provider_id) WHERE is_default = 1""",
+                (),
+            ),
+            (
+                """DELETE FROM runtime_capabilities
+            WHERE capability IN ('code_edit', 'code_review')
+              AND CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.source') END
+                  = 'provider_catalog_from_catalog'
+              AND runtime IN (
+                  SELECT provider_id FROM provider_accounts
+                  WHERE provider_id = 'llama_cpp'
+                     OR provider_catalog_id = 'llama_cpp'
+                     OR CASE WHEN json_valid(metadata_json)
+                        THEN json_extract(metadata_json, '$.providerCatalogId') END = 'llama_cpp'
+              )""",
+                (),
+            ),
+            ("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", (80, utc_now())),
+        ],
+    )
 
 
 def init_phase79_schema(connection: sqlite3.Connection) -> None:

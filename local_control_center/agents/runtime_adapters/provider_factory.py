@@ -18,6 +18,7 @@ from local_control_center.shared.time import utc_now
 
 from ..credentials import CredentialResolver
 from ..endpoint_locality import credential_transport_allowed
+from ..local_runtime_causes import LocalRuntimeError
 from ..model_wildcards import is_nvidia_nim_auto_selection_sentinel
 from ..provider_accounts import ProviderAccountStore
 from ..providers.base import ModelRequest
@@ -229,6 +230,14 @@ class ProviderFactoryAdapter:
                 reason=f"{self.display_name} execution failed: provider_request_failed",
                 http_status=error.code,
                 provider_attempted=True,
+                redacted=True,
+            )
+        except LocalRuntimeError as error:
+            return _result(
+                status="unavailable",
+                started_at=started_at,
+                reason=f"{self.display_name} execution failed: {error.cause}",
+                provider_attempted=False,
                 redacted=True,
             )
         except Exception as error:

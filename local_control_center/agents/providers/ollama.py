@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from urllib.error import URLError
 from urllib.request import Request
 
@@ -69,6 +71,7 @@ class OllamaProvider(ModelProvider):
         self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
         self.credential_ref = credential_ref or ""
         self.credential_resolver = CredentialResolver()
+        self.invocation_slot: Callable[[], AbstractContextManager[object]] = nullcontext
 
     def _base_url_blocking_reason(self) -> str | None:
         if self.base_url:
@@ -180,7 +183,7 @@ class OllamaProvider(ModelProvider):
             },
             method="POST",
         )
-        with urlopen_fail_closed(http_request, timeout=60) as response:
+        with self.invocation_slot(), urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         message = raw.get("message") if isinstance(raw, dict) else {}
         content = str((message or {}).get("content") or "")

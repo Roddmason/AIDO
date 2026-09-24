@@ -15,6 +15,8 @@ import json
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
@@ -85,6 +87,7 @@ class OpenAICompatibleProvider(ModelProvider):
         self.credential_ref = resolved_credential_ref
         self.credential_required = credential_required
         self.credential_resolver = CredentialResolver()
+        self.invocation_slot: Callable[[], AbstractContextManager[object]] = nullcontext
 
     def _credential(self) -> str:
         return self.credential_resolver.resolve(self.credential_ref).value or ""
@@ -208,7 +211,7 @@ class OpenAICompatibleProvider(ModelProvider):
             headers=self._request_headers({"Content-Type": "application/json"}),
             method="POST",
         )
-        with urlopen_fail_closed(http_request, timeout=60) as response:
+        with self.invocation_slot(), urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         content = ""
         choices = raw.get("choices") if isinstance(raw, dict) else None

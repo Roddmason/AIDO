@@ -29,10 +29,15 @@ from local_control_center.agents.endpoint_locality import (
 )
 from local_control_center.host_resources.branch_admission import BranchAdmission, BranchAdmissionDeferred
 from local_control_center.host_resources.probes import HostResourceProbe
-from local_control_center.process_supervision.context import CURRENT_EXECUTION, execution_scope
+from local_control_center.process_supervision.context import (
+    CURRENT_EXECUTION,
+    ExecutionDeadlineExceeded,
+    execution_scope,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 
-from .local_runtime_causes import local_runtime_cause_of
+from .local_endpoint_lease import max_local_call_seconds
+from .local_runtime_causes import LocalRuntimeError, local_runtime_cause_of
 from .model_execution_health import (
     model_validation_rejection,
     provider_authentication_failure,
@@ -44,6 +49,7 @@ from .provider_accounts import ProviderAccountStore
 from .providers.factory import provider_account_policy_kind
 from .providers.http_transport import DEFAULT_CHAT_TIMEOUT_SECONDS
 from .quota_manager import QuotaAdmissionDenied, QuotaManager, QuotaRequest
+from .runtime_adapters.model_call_budget import effective_model_call_timeout
 from .runtime_readiness import healthy_evidence, provider_workload_class
 
 MAX_ATTEMPTS = 4
@@ -88,6 +94,29 @@ def _probe_request_shape(account: dict[str, Any]) -> tuple[int, dict[str, Any], 
         copy.deepcopy(dict(disable_reasoning)),
         True,
         DEFAULT_CHAT_TIMEOUT_SECONDS + cold_start,
+    )
+
+
+def _bounded_probe_timeout(connection: sqlite3.Connection, requested_seconds: int | None) -> int | None:
+    """Acota el timeout pedido por ``_probe_request_shape`` como cualquier llamada local (spec §4.6.2).
+
+    El pedido de una cuenta local es ``DEFAULT_CHAT_TIMEOUT_SECONDS`` más el arranque en frío del
+    perfil; se separa en esas dos partes para que el deadline restante de la ejecución deba cubrir la
+    carga y luego se recorta al techo ``runtime.local.maxCallSeconds`` del operador. Una cuenta remota
+    (``None``) conserva el timeout por defecto del transporte. ``SCHEDULING_DEADLINE_SECONDS`` solo
+    decide si se inicia otra sonda: el tope duro de una sonda en curso es este timeout.
+
+    Raises:
+        LocalRuntimeError: ``insufficient_time_for_model_load`` si el deadline de la ejecución no
+            cubre el arranque en frío.
+        ExecutionDeadlineExceeded: si la ejecución ya no tiene presupuesto.
+    """
+    if requested_seconds is None:
+        return None
+    return effective_model_call_timeout(
+        requested_seconds=DEFAULT_CHAT_TIMEOUT_SECONDS,
+        cold_start_seconds=requested_seconds - DEFAULT_CHAT_TIMEOUT_SECONDS,
+        max_call_seconds=max_local_call_seconds(connection),
     )
 
 
@@ -220,6 +249,12 @@ def _execute_probe(connection, *, account, model, request, estimate, budget):
     )
     if configuration["status"] != "configured":
         return {"status": "deferred", "reason": "provider_configuration_required", "attempted": False}
+    try:
+        timeout_s = _bounded_probe_timeout(connection, timeout_s)
+    except LocalRuntimeError as error:
+        return {"status": "deferred", "reason": error.cause, "attempted": False}
+    except ExecutionDeadlineExceeded:
+        return {"status": "deferred", "reason": "execution_deadline_exhausted", "attempted": False}
     database = Path(connection.execute("PRAGMA database_list").fetchone()[2])
     branch = f"runtime-preflight-{uuid.uuid4()}"
     admission = BranchAdmission(

@@ -10,6 +10,7 @@ redacted reply as evidence.
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
@@ -18,8 +19,9 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.shared.time import utc_now
 
 from ..credentials import CredentialResolver
-from ..endpoint_locality import credential_transport_allowed
-from ..local_runtime_causes import LocalRuntimeError
+from ..endpoint_locality import credential_transport_allowed, is_local_model_runtime
+from ..local_endpoint_lease import max_local_call_seconds
+from ..local_runtime_causes import LocalRuntimeCause, LocalRuntimeError
 from ..model_wildcards import is_nvidia_nim_auto_selection_sentinel
 from ..provider_accounts import ProviderAccountStore
 from ..providers.base import ModelRequest
@@ -30,10 +32,17 @@ from ..providers.factory import (
     provider_account_policy_kind,
     provider_account_requires_credential,
 )
+from ..providers.http_transport import http_error_excerpt
 from ..providers.nvidia_nim import NvidiaNimCapabilityError
 from ..quota_manager import QuotaManager
+from ..runtime_failure_classifier import classify_local_model_error
 from ..runtime_provider_config import runtime_provider_configuration_for_account
-from .common import _ArtifactRecorder, _redact_text, _result
+from .common import _ArtifactRecorder, _bounded_timeout, _redact_text, _result
+from .model_call_budget import (
+    effective_model_call_timeout,
+    local_cold_start_seconds,
+    response_format_for,
+)
 from .models import RuntimeExecutionRequest, RuntimeExecutionResult
 
 _TOO_MANY_REQUESTS = 429
@@ -77,6 +86,27 @@ class ProviderFactoryAdapter:
             )
         except Exception:
             return
+
+    def _local_failure(
+        self,
+        *,
+        started_at: str,
+        cause: LocalRuntimeCause,
+        evidence: str,
+        http_status: int | None,
+        attempted: bool,
+    ) -> RuntimeExecutionResult:
+        """Build the unavailable result of a classified local-runtime failure with redacted evidence."""
+        detail = f" ({evidence})" if evidence else ""
+        return _result(
+            status="unavailable",
+            started_at=started_at,
+            reason=f"{self.display_name} execution failed: {cause}{detail}",
+            http_status=http_status,
+            provider_attempted=attempted,
+            failure_cause=cause,
+            redacted=True,
+        )
 
     def execute(self, request: RuntimeExecutionRequest) -> RuntimeExecutionResult:
         """Resolve policy/account first, then delegate chat transport to the selected provider."""
@@ -193,6 +223,19 @@ class ProviderFactoryAdapter:
                 started_at=started_at,
                 reason="nvidia_model_selection_required",
             )
+        local_runtime = is_local_model_runtime(account)
+        cold_start = local_cold_start_seconds(account, request.input) if local_runtime else 0
+        max_call = max_local_call_seconds(connection) if local_runtime else None
+        try:
+            timeout_seconds = effective_model_call_timeout(
+                requested_seconds=_bounded_timeout(request),
+                cold_start_seconds=cold_start,
+                max_call_seconds=max_call,
+            )
+        except LocalRuntimeError as error:
+            return self._local_failure(
+                started_at=started_at, cause=error.cause, evidence="", http_status=None, attempted=False
+            )
         try:
             response = provider.chat_completion(
                 ModelRequest(
@@ -200,6 +243,10 @@ class ProviderFactoryAdapter:
                     messages=messages,
                     temperature=request.input.get("temperature"),
                     maxTokens=request.input.get("maxTokens"),
+                    responseFormat=response_format_for(request.input),
+                    timeoutSeconds=timeout_seconds,
+                    deadlineMonotonic=time.monotonic() + timeout_seconds,
+                    coldStartExpected=bool(cold_start),
                 )
             )
         except NvidiaNimCapabilityError as error:
@@ -225,6 +272,18 @@ class ProviderFactoryAdapter:
                     model=model,
                     error=error,
                 )
+            if local_runtime:
+                failure = classify_local_model_error(
+                    error=error, http_status=error.code, body=http_error_excerpt(error)
+                )
+                if failure is not None:
+                    return self._local_failure(
+                        started_at=started_at,
+                        cause=failure.cause,
+                        evidence=failure.evidence,
+                        http_status=error.code,
+                        attempted=True,
+                    )
             return _result(
                 status="unavailable",
                 started_at=started_at,
@@ -234,23 +293,30 @@ class ProviderFactoryAdapter:
                 redacted=True,
             )
         except LocalRuntimeError as error:
-            return _result(
-                status="unavailable",
-                started_at=started_at,
-                reason=f"{self.display_name} execution failed: {error.cause}",
-                provider_attempted=False,
-                redacted=True,
+            return self._local_failure(
+                started_at=started_at, cause=error.cause, evidence="", http_status=None, attempted=False
             )
         except ExecutionDeadlineExceeded:
             # El deadline se agota al tomar el slot local, antes de cualquier request: no es un intento fallido
             # del modelo y ningún failover puede renovarlo, así que sube hasta quien cierra la ejecución.
             raise
         except Exception as error:
+            attempted = isinstance(error, (URLError, TimeoutError, ConnectionError))
+            if local_runtime:
+                failure = classify_local_model_error(error=error, http_status=None)
+                if failure is not None:
+                    return self._local_failure(
+                        started_at=started_at,
+                        cause=failure.cause,
+                        evidence=failure.evidence,
+                        http_status=None,
+                        attempted=attempted,
+                    )
             return _result(
                 status="unavailable",
                 started_at=started_at,
                 reason=f"{self.display_name} execution failed: provider_request_failed",
-                provider_attempted=isinstance(error, (URLError, TimeoutError, ConnectionError)),
+                provider_attempted=attempted,
                 redacted=True,
             )
         if not str(getattr(response, "content", "") or "").strip() or (

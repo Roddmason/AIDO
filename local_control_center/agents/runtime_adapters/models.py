@@ -37,7 +37,7 @@ class RuntimeExecutionRequest(BaseModel):
 
 
 class RuntimeExecutionResult(BaseModel):
-    """Typed outcome of a runtime execution: status, exit code, and evidence/artifact ids."""
+    """Typed outcome of a runtime execution: status, exit code, evidence ids and model-call telemetry."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -53,6 +53,9 @@ class RuntimeExecutionResult(BaseModel):
     completed_at: str | None = Field(default=None, alias="completedAt")
     reason: str | None = None
     redacted: bool = False
+    failure_cause: str | None = Field(default=None, alias="failureCause")
+    latency_ms: int | None = Field(default=None, alias="latencyMs", ge=0)
+    usage_ledger_id: str | None = Field(default=None, alias="usageLedgerId")
 
 
 class RuntimeAdapter(Protocol):

@@ -47,6 +47,9 @@ def _result(
     output_artifact_id: str | None = None,
     evidence_package_id: str | None = None,
     redacted: bool = False,
+    failure_cause: str | None = None,
+    latency_ms: int | None = None,
+    usage_ledger_id: str | None = None,
 ) -> RuntimeExecutionResult:
     return RuntimeExecutionResult(
         status=status,
@@ -61,6 +64,9 @@ def _result(
         completedAt=utc_now(),
         reason=reason,
         redacted=redacted,
+        failureCause=failure_cause,
+        latencyMs=latency_ms,
+        usageLedgerId=usage_ledger_id,
     )
 
 

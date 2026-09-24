@@ -22,7 +22,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Literal
+from urllib.error import URLError
 
+from local_control_center.agents.local_runtime_causes import LocalRuntimeCause
+from local_control_center.agents.providers.http_transport import ResponseTooLargeError
 from local_control_center.shared.redaction import redact_secrets
 
 #: Causas estables de fallo de runtime. La UI mapea cada una a copia traducida y a su remediación.
@@ -161,3 +164,58 @@ def classify_runtime_failure(
         return_code=return_code,
         retry_after=retry_after,
     )
+
+
+#: Tope de la evidencia de un fallo local que viaja en la razón del resultado.
+LOCAL_EVIDENCE_LIMIT = 300
+
+_LOCAL_LOAD_FAILED_PATTERN = re.compile(
+    r"failed to load|error loading model|could not load model|unable to load model"
+    r"|model load(?:ing)? failed",
+    re.IGNORECASE,
+)
+_LOCAL_LOADING_PATTERN = re.compile(r"loading model|model is loading|model is being loaded", re.IGNORECASE)
+_LOCAL_CONTEXT_PATTERN = re.compile(
+    r"context (?:size|length|window)|maximum context length|exceed_context_size|context_length_exceeded",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class LocalModelFailure:
+    """Fallo de un servidor de modelo local reducido a una causa estable y evidencia redactada."""
+
+    cause: LocalRuntimeCause
+    evidence: str
+
+
+def _is_connection_failure(error: BaseException) -> bool:
+    reason = error.reason if isinstance(error, URLError) else error
+    return isinstance(reason, OSError) and not isinstance(reason, TimeoutError | ResponseTooLargeError)
+
+
+def classify_local_model_error(
+    *, error: BaseException, http_status: int | None, body: str = ""
+) -> LocalModelFailure | None:
+    """Clasifica el fallo de una llamada a un servidor de modelo local; ``None`` si no hay causa conocida.
+
+    Orden: 401/403 -> ``local_auth_required``; texto de carga fallida -> ``local_model_load_failed``;
+    503 o texto de carga en curso -> ``model_loading``; texto de contexto excedido ->
+    ``context_length_exceeded``; sin respuesta HTTP y conexión rechazada o sin resolución ->
+    ``local_server_unreachable``. Un timeout no se clasifica: no distingue un servidor caído de un
+    modelo lento. La evidencia sale redactada y acotada a ``LOCAL_EVIDENCE_LIMIT``.
+    """
+    cause: LocalRuntimeCause | None = None
+    if http_status in {401, 403}:
+        cause = "local_auth_required"
+    elif _LOCAL_LOAD_FAILED_PATTERN.search(body):
+        cause = "local_model_load_failed"
+    elif http_status == 503 or _LOCAL_LOADING_PATTERN.search(body):
+        cause = "model_loading"
+    elif _LOCAL_CONTEXT_PATTERN.search(body):
+        cause = "context_length_exceeded"
+    elif http_status is None and _is_connection_failure(error):
+        cause = "local_server_unreachable"
+    if cause is None:
+        return None
+    return LocalModelFailure(cause=cause, evidence=_clean_evidence(body)[:LOCAL_EVIDENCE_LIMIT])

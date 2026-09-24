@@ -35,6 +35,7 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .local_model_call_input import local_model_call_input
 from .repository import AgentsRepository
 from .runtime_selection import runtime_provider_family, runtime_requires_network
 from .runtime_status import RuntimeStatusService
@@ -1093,6 +1094,7 @@ class SecurityAgentRunner:
                         },
                     ],
                     "temperature": 0.1,
+                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
                 },
                 "networkRequired": runtime_requires_network(runtime, SECURITY_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,

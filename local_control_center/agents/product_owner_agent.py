@@ -46,6 +46,7 @@ from .impact_question_engine import (
     detected_facts_from_assessment,
     validate_impact_question,
 )
+from .local_model_call_input import local_model_call_input
 from .model_output_text import json_candidate_text
 from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
@@ -1141,6 +1142,7 @@ class ProductOwnerAgentRunner:
                     "model": model,
                     "messages": messages,
                     "temperature": 0.1,
+                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
                 },
                 # Provider transport is broker-owned. ProductOwnerAgent receives no independent
                 # network or secret capability beyond that selected adapter invocation.

@@ -21,6 +21,10 @@ from tests_py.test_provider_setup_catalog import auth_headers, create_client
 
 LAN_BASE_URL = "http://192.168.1.50:8082/v1"
 TOKEN_ENV = "AIDO_LOCAL_RUNTIME_TEST_TOKEN"
+ENV_BASE_URL = "AIDO_OPENAI_COMPATIBLE_BASE_URL"
+ENV_API_KEY = "AIDO_OPENAI_COMPATIBLE_API_KEY"
+ENV_CONNECTION_VARS = (ENV_BASE_URL, ENV_API_KEY)
+UNREACHABLE_BASE_URL = "http://127.0.0.1:1/v1"
 
 
 def _create_llama(client, headers, base_url: str) -> dict:
@@ -51,6 +55,28 @@ def _lan_llama(connection) -> None:
         }
     )
     store.set_provider_catalog_id("lan-llama", "llama_cpp")
+
+
+def _canonical_llama(connection, *, base_url: str, credential_ref: str = "") -> None:
+    """Cuenta canónica `openai_compatible` (hereda la configuración por entorno) con identidad llama.cpp."""
+    store = ProviderAccountStore(connection)
+    store.upsert_provider_account(
+        {
+            "providerId": "openai_compatible",
+            "providerType": "local",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": base_url,
+            "credentialRef": credential_ref,
+            "enabled": True,
+        }
+    )
+    store.set_provider_catalog_id("openai_compatible", "llama_cpp")
+
+
+def _clear_openai_compatible_env(monkeypatch) -> None:
+    for name in ENV_CONNECTION_VARS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_llama_cpp_health_uses_the_router_liveness_and_lists_models(tmp_path, monkeypatch):
@@ -236,3 +262,100 @@ def test_bearer_over_http_to_an_undeclared_lan_host_fails_closed_in_the_broker_a
     assert result.status == "blocked"
     assert result.reason == "insecure_credential_transport"
     assert calls == []
+
+
+def test_env_bearer_to_an_undeclared_lan_host_fails_closed_in_the_gateway(tmp_path, monkeypatch):
+    """La credencial del entorno viaja aunque la cuenta no persista `credentialRef`: el guard la ve."""
+    _clear_openai_compatible_env(monkeypatch)
+    monkeypatch.setenv(ENV_API_KEY, "synthetic-env-token")
+    monkeypatch.setenv(ENV_BASE_URL, LAN_BASE_URL)
+    with closing(open_sqlite_connection(tmp_path / "env-bearer.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        _canonical_llama(connection, base_url=UNREACHABLE_BASE_URL)
+        gateway = ModelGateway(connection)
+        health = gateway.provider_health("openai_compatible")
+        execution = gateway._provider_configuration("openai_compatible", runtime_type=None)
+    assert health["status"] == "blocked"
+    assert health["message"].startswith("insecure_credential_transport")
+    assert execution["status"] == "blocked"
+    assert execution["reason"].startswith("insecure_credential_transport")
+
+
+def test_probe_and_sync_use_the_env_url_that_the_transport_guard_validated(tmp_path, monkeypatch):
+    """Con la URL del entorno en loopback, la URL LAN persistida nunca recibe la sonda ni el bearer."""
+    from local_control_center.agents import local_runtime_health
+
+    _clear_openai_compatible_env(monkeypatch)
+    monkeypatch.setenv(TOKEN_ENV, "synthetic-local-token")
+    real_get_json = local_runtime_health._get_json
+    probed: list[str] = []
+    with running_llama_router(api_key="synthetic-local-token") as (root, router):
+
+        def loopback_only(url, headers, timeout_s):
+            probed.append(url)
+            if not url.startswith(root):
+                raise OSError("the persisted LAN URL must never be probed")
+            return real_get_json(url, headers, timeout_s)
+
+        monkeypatch.setattr(local_runtime_health, "_get_json", loopback_only)
+        monkeypatch.setenv(ENV_BASE_URL, f"{root}/v1")
+        client = create_client(tmp_path, monkeypatch)
+        headers = auth_headers(client)
+        with _platform_connection() as connection:
+            _canonical_llama(connection, base_url=LAN_BASE_URL, credential_ref=f"env:{TOKEN_ENV}")
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
+        synced = client.post("/api/v1/provider-accounts/openai_compatible/sync-models", headers=headers)
+    assert health.status_code == 200, health.text
+    assert health.json()["health"]["healthStatus"] == "healthy"
+    assert synced.status_code == 200, synced.text
+    assert len(synced.json()["models"]) == 3
+    assert probed and all(url.startswith(root) for url in probed)
+    assert all(
+        authorization == "Bearer synthetic-local-token"
+        for _method, path, authorization in router.requests
+        if path != "/health"
+    )
+
+
+def test_sync_fails_when_the_model_list_is_unreadable(tmp_path, monkeypatch):
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    with running_llama_router() as (root, router):
+        router.models_body = "<html>not a model list</html>"
+        _create_llama(client, headers, f"{root}/v1")
+        response = client.post("/api/v1/provider-accounts/llama_cpp/sync-models", headers=headers)
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "local_server_unreachable"
+    with _platform_connection() as connection:
+        store = ProviderAccountStore(connection)
+        assert store.list_models("llama_cpp") == []
+        assert store.get_provider_account("llama_cpp")["lastError"].startswith("local_server_unreachable")
+
+
+def test_sync_fails_closed_when_the_model_list_breaks_after_the_probe(tmp_path, monkeypatch):
+    """El servidor responde a la sonda y se rompe antes de la lectura del sync: 0 modelos no es un éxito."""
+    from local_control_center.agents import provider_catalog_api
+
+    real_probe = provider_catalog_api.probe_local_runtime
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    with running_llama_router() as (root, router):
+
+        def probe_then_break(account, profile, **kwargs):
+            result = real_probe(account, profile, **kwargs)
+            router.models_body = "garbage"
+            return result
+
+        monkeypatch.setattr(provider_catalog_api, "probe_local_runtime", probe_then_break)
+        _create_llama(client, headers, f"{root}/v1")
+        response = client.post("/api/v1/provider-accounts/llama_cpp/sync-models", headers=headers)
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "local_server_unreachable"
+    with _platform_connection() as connection:
+        store = ProviderAccountStore(connection)
+        assert store.list_models("llama_cpp") == []
+        account = store.get_provider_account("llama_cpp")
+    assert account["healthStatus"] == "offline"
+    assert account["lastError"].startswith("local_server_unreachable")

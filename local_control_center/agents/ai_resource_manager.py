@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from local_control_center.agents import local_model_state
 from local_control_center.agents.endpoint_locality import is_local_model_runtime
+from local_control_center.agents.local_model_selection import resolve_local_model
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.model_wildcards import (
     MODEL_WILDCARDS,
@@ -62,6 +65,9 @@ MODEL_CATALOG_BASELINE_EVIDENCE_KIND = "model_catalog_baseline"
 MODEL_CATALOG_CANDIDATE_INVENTORY = "model_catalog_with_performance_overlay"
 PERFORMANCE_PROFILE_CANDIDATE_INVENTORY = "ai_model_performance"
 UNOBSERVED_PERFORMANCE_PRIOR = 0.5
+LOCAL_REVALIDATABLE_REASONS = frozenset(
+    {"model_validation_required", "model_validation_expired", "model_validation_configuration_changed"}
+)
 
 
 @dataclass(frozen=True)
@@ -104,6 +110,10 @@ class AIResourceRequest:
     agent_id: str | None = None
     agent_profile_id: str | None = None
     task_id: str | None = None
+    #: Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``.
+    local_model_pins: dict[str, str] = field(default_factory=dict)
+    #: Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie.
+    local_model_affinity: dict[str, str] = field(default_factory=dict)
 
 
 def _bool(value: Any) -> bool:
@@ -154,6 +164,19 @@ def _catalog_provider_locality(provider: dict[str, Any] | None) -> str:
     if not provider:
         return "remote"
     return "local" if is_local_model_runtime(provider) else "remote"
+
+
+def _pinned_local_selection(provider_id: str, model: str, load_states: Mapping[str, str]) -> dict[str, Any]:
+    """Selección auditada de un modelo sellado: exige cambio si el servidor lo informa no cargado."""
+    requires_switch = load_states.get(model) in {"unloaded", "loading"}
+    displaced = sorted(name for name, state in load_states.items() if state == "loaded" and name != model)
+    return {
+        "runtimeId": provider_id,
+        "model": model,
+        "reason": "sealed",
+        "requiresSwitch": requires_switch,
+        "fromModel": displaced[0] if requires_switch and displaced else None,
+    }
 
 
 def _row_to_model(row: sqlite3.Row) -> dict[str, Any]:
@@ -424,6 +447,9 @@ class AIResourceManager:
         effective_risk = "critical" if policy_mode == "critical" else risk
         budget_stop = False
         models, runtime_statuses, candidate_inventory = self._selection_models(project_id=request.project_id)
+        models, local_rejections, local_selections = self._collapse_local_models(
+            models, runtime_statuses or {}, request, validation_gate=runtime_selection
+        )
         preflight = None
         if runtime_selection and record and allow_decision_inference:
             from .runtime_preflight import prevalidate_candidates
@@ -456,11 +482,15 @@ class AIResourceManager:
             models, runtime_statuses, candidate_inventory = self._selection_models(
                 project_id=request.project_id
             )
+            models, local_rejections, local_selections = self._collapse_local_models(
+                models, runtime_statuses or {}, request, validation_gate=runtime_selection
+            )
         unknown_cost_policy: dict[str, Any] = {
             "action": "not_applicable",
             "reason": "cost_known_or_local",
             "mode": policy_mode,
         }
+        rejected.extend(local_rejections)
         for model in models:
             if preflight and model["providerId"] in preflight.get("excludedProviderIds", []):
                 rejected.append(self._rejected(model, "provider_authentication_cooldown"))
@@ -666,6 +696,7 @@ class AIResourceManager:
                 "scoring": "deterministic_explainable",
                 "opaqueMlUsed": False,
                 "candidateInventory": candidate_inventory,
+                "localModelSelections": local_selections,
                 "freeTierOnly": request.free_tier_only,
                 "roleExecutionPolicy": {
                     "rolePolicyId": request.role_policy_id,
@@ -931,6 +962,128 @@ class AIResourceManager:
             runtime_statuses,
             MODEL_CATALOG_CANDIDATE_INVENTORY,
         )
+
+    def _collapse_local_models(
+        self,
+        models: list[dict[str, Any]],
+        runtime_statuses: dict[str, dict[str, Any]],
+        request: AIResourceRequest,
+        *,
+        validation_gate: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Deja un solo modelo de catálogo por cuenta local antes de la preflight y del ranking (spec §4.3).
+
+        Compite solo entre los modelos que ya pasan los rechazos duros y el estado del runtime; el resto
+        sigue en la lista para rechazarse con su causa real. Devuelve los modelos que siguen, los rechazos
+        (``local_model_not_selected`` o ``local_model_not_validated``) y la selección auditada por cuenta.
+        """
+
+        def local_catalog_profile(model: dict[str, Any]) -> bool:
+            return model.get("runtime") == "local" and model.get("profileSource") == "model_catalog"
+
+        by_provider: dict[str, list[dict[str, Any]]] = {}
+        for model in models:
+            if local_catalog_profile(model):
+                by_provider.setdefault(str(model["providerId"]), []).append(model)
+        drop: dict[tuple[str, str], str] = {}
+        selections: list[dict[str, Any]] = []
+        for provider_id, account_models in by_provider.items():
+            reasons, selection = self._local_model_outcome(
+                provider_id, account_models, runtime_statuses, request, validation_gate=validation_gate
+            )
+            drop.update({(provider_id, name): reason for name, reason in reasons.items()})
+            if selection is not None:
+                selections.append(selection)
+        kept: list[dict[str, Any]] = []
+        rejections: list[dict[str, Any]] = []
+        for model in models:
+            reason = (
+                drop.get((str(model["providerId"]), str(model["model"])))
+                if local_catalog_profile(model)
+                else None
+            )
+            if reason:
+                rejections.append(self._rejected(model, reason))
+            else:
+                kept.append(model)
+        return kept, rejections, selections
+
+    def _local_model_outcome(
+        self,
+        provider_id: str,
+        account_models: list[dict[str, Any]],
+        runtime_statuses: dict[str, dict[str, Any]],
+        request: AIResourceRequest,
+        *,
+        validation_gate: bool,
+    ) -> tuple[dict[str, str], dict[str, Any] | None]:
+        """Motivo de rechazo por modelo descartado de una cuenta local y la selección que queda auditada.
+
+        Un modelo sellado en ``local_model_pins`` gana siempre; si se selló con un nombre que el router
+        ahora expone como alias, se resuelve a su id canónico. Con ``validation_gate`` (selección por
+        Jev) ``E`` son los validados y, si aún no hay ninguno, los que la preflight puede validar; si todos
+        fallaron, los elegibles quedan con ``local_model_not_validated``.
+        """
+        from local_control_center.agents.model_execution_health import model_validation_rejection
+
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return {}, None
+        names = [str(model["model"]) for model in account_models]
+        pinned = str(request.local_model_pins.get(provider_id) or "").strip()
+        pinned = local_model_state.model_aliases_for(account).get(pinned, pinned)
+        eligible = [
+            model
+            for model in account_models
+            if not self._hard_reject_reason(model, request)
+            and not self._runtime_executable_reject_reason(
+                model=model, runtime_statuses=runtime_statuses, request=request
+            )
+        ]
+        if not pinned and not eligible:
+            return {}, None
+        load_states = local_model_state.LOAD_STATE_CACHE.get(account)
+        if pinned:
+            return (
+                {name: "local_model_not_selected" for name in names if name != pinned},
+                _pinned_local_selection(provider_id, pinned, load_states),
+            )
+        eligible_names = [str(model["model"]) for model in eligible]
+        if validation_gate:
+            rejections = {
+                name: model_validation_rejection(self.connection, provider_id, name)
+                for name in eligible_names
+            }
+            validated = frozenset(name for name, reason in rejections.items() if reason is None) or frozenset(
+                name for name, reason in rejections.items() if reason in LOCAL_REVALIDATABLE_REASONS
+            )
+        else:
+            validated = frozenset(eligible_names)
+        resolution = resolve_local_model(
+            required_capabilities=frozenset(request.required_capabilities),
+            enabled_models=eligible_names,
+            settings=LocalModelSettingsRepository(self.connection).list_for_account(provider_id),
+            validated_models=validated,
+            load_states=load_states,
+            affinity_model=request.local_model_affinity.get(provider_id),
+            model_capabilities={
+                str(model["model"]): frozenset(model.get("capabilities") or []) for model in eligible
+            },
+            model_aliases=local_model_state.model_aliases_for(account),
+        )
+        if resolution.model is None:
+            return {name: str(resolution.blocked_cause) for name in eligible_names}, None
+        selection = {
+            "runtimeId": provider_id,
+            "model": resolution.model,
+            "reason": resolution.reason,
+            "requiresSwitch": resolution.requires_switch,
+            "fromModel": resolution.from_model,
+        }
+        return {
+            name: "local_model_not_selected" for name in eligible_names if name != resolution.model
+        }, selection
 
     @staticmethod
     def _model_profile_key(model: dict[str, Any]) -> tuple[str, str, str]:

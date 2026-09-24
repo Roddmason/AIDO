@@ -46,10 +46,12 @@ def readiness(connection, endpoint=ENDPOINT):
 def test_synthetic_endpoint_uses_funded_light_budget_without_changing_real_local_policy(owned_scope):
     with closing(open_sqlite_connection(owned_scope)) as connection:
         initialize_platform_schema(connection)
+        # A real loopback is a light local_model_call; only the UnrealEditor conflict tells it
+        # apart from the synthetic endpoint, which the scope reclassifies as remote_llm_light.
         ResourceRepository(connection).record_sample(
-            ResourceSnapshot.test_snapshot(available_memory_bytes=24 * 1024**3)
+            ResourceSnapshot.test_snapshot(available_memory_bytes=24 * 1024**3, unreal_editor_running=True)
         )
-        assert "aggregate_memory_budget" in readiness(connection)["blockingReasons"]
+        assert "unreal_local_gpu_conflict" in readiness(connection)["blockingReasons"]
         with synthetic_runtime_scope(ENDPOINT, owned_scope):
             assert readiness(connection)["resourceAdmissible"] is True
             assert readiness(connection, "http://127.0.0.1:18992")["resourceAdmissible"] is False
@@ -102,7 +104,7 @@ def test_dispatcher_restores_exact_scope_without_bypassing_supervision(owned_sco
     assert argv[argv.index("--db") + 1] == str(owned_scope)
     assert argv[-2:] == ["--fencing-token", "7"]
     assert options == {"workload_class": "agent_cli", "timeout_seconds": 900}
-    assert ai_execution.provider_workload_class(account) == "local_gpu_model"
+    assert ai_execution.provider_workload_class(account) == "local_model_call"
 
 
 def test_synthetic_call_profiles_fit_moderate_outer_cpu_without_changing_real_defaults(owned_scope):
@@ -135,7 +137,7 @@ def test_product_classifier_does_not_accept_client_or_environment_test_flags(mon
                 "workloadClass": "remote_llm_light",
             }
         )
-        == "local_gpu_model"
+        == "local_model_call"
     )
 
 

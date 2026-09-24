@@ -11,7 +11,6 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlparse
 
 import psutil
 
@@ -22,7 +21,7 @@ from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.shared.time import utc_now
 
-from .endpoint_locality import is_local_model_runtime
+from .endpoint_locality import catalog_entry_for_account, is_local_model_runtime, is_loopback_endpoint
 
 HEALTH_EVIDENCE_TTL_SECONDS = 300
 
@@ -93,7 +92,10 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                 and context.worker_id
                 and context.resource_lease_id
             ):
-                from local_control_center.host_resources.branch_admission import BranchAdmission
+                from local_control_center.host_resources.branch_admission import (
+                    BranchAdmission,
+                    borrowed_preview_class,
+                )
 
                 lease = ResourceRepository(connection).active_lease_for_execution(context.execution_id)
                 if (
@@ -104,7 +106,7 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                 ):
                     # Preview the full reservation already held by this verified job.
                     # Transport admission still serializes any child using that budget.
-                    workload, execution_id = lease.workload_class, lease.execution_id
+                    workload, execution_id = borrowed_preview_class(lease, workload), lease.execution_id
     return ResourceAdmissionRequest(
         execution_id=execution_id, owner_id="readiness-preview", workload_class=workload
     )
@@ -124,11 +126,17 @@ def healthy_evidence(status: dict) -> bool:
 
 
 def provider_workload_class(account: dict) -> WorkloadClass:
-    """Clasifica desde el contrato persistido; loopback por sí solo no demuestra un proxy."""
+    """Clasifica desde el contrato persistido: CLI, cliente de inferencia local o cliente remoto liviano.
+
+    Un servidor de modelos externo y residente (llama.cpp, Ollama, LM Studio, vLLM) administra su propia
+    VRAM/RAM, que ya aparece consumida en la memoria libre observada: la llamada solo reserva su cliente
+    (`local_model_call`, liviano y sin GPU) y queda cubierta por la lease del job padre. Un loopback sin contrato
+    verificado se clasifica igual, porque puede ser inferencia local y le aplica el conflicto con Unreal; solo el
+    proxy OmniRoute declarado reenvía la inferencia fuera del host y usa el presupuesto remoto liviano.
+    `local_gpu_model` queda para procesos de modelo que AIDO lance (hoy ninguno).
+    """
     if account.get("providerType") == "cli":
         return "agent_cli"
-    from .endpoint_locality import catalog_entry_for_account
-
     metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
     entry = catalog_entry_for_account(account)
     if (
@@ -140,14 +148,9 @@ def provider_workload_class(account: dict) -> WorkloadClass:
         and account.get("deploymentMode") in {"self_hosted_development", "self_hosted_enterprise"}
         and metadata.get("endpointKind") == "remote"
     ):
-        # The configured gateway forwards inference off-host; its local HTTP
-        # process still consumes the existing 2 GiB API admission budget.
         return "remote_llm_light"
-    host = urlparse(str(account.get("baseUrl") or "")).hostname
-    if host in {"localhost", "127.0.0.1", "::1", "host.docker.internal"} or str(
-        account.get("deploymentMode") or ""
-    ) in {"local", "self_hosted_local"}:
-        return "local_gpu_model"
+    if is_local_model_runtime(account) or is_loopback_endpoint(account):
+        return "local_model_call"
     return "remote_llm_light"
 
 
@@ -195,7 +198,10 @@ def apply_effective_readiness(
         ).total_seconds()
         if 0 <= age <= 30:
             try:
-                decision = HostResourceGovernor(connection).preview(
+                governor = HostResourceGovernor(connection)
+                decision = governor.local_inference_conflict(
+                    provider_workload_class(account), snapshot=sample.snapshot
+                ) or governor.preview(
                     _readiness_resource_request(connection, account), snapshot=sample.snapshot
                 )
                 admissible = decision.status == "admitted"

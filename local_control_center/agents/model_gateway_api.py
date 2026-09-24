@@ -930,7 +930,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     ) -> dict[str, Any]:
         """Prueba real de ida y vuelta de un runtime para el equipo del hilo (una operación por runtime).
 
-        La clase de carga se reclasifica por runtime (CLI → agent_cli, loopback → local_gpu_model).
+        La clase de carga se reclasifica por runtime (CLI → agent_cli, local o loopback → local_model_call).
         Un CLI consume cuota de suscripción; el pedido del operador es la aprobación y queda auditado.
         Un runtime validado reanuda los loops bloqueados en runtime_team cuyo "Re-probar" esperaba esa
         prueba; si la reanudación falla, se registra y la validación ya persistida se devuelve igual.

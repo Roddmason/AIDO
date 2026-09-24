@@ -85,43 +85,41 @@ def test_worker_reserves_effective_local_policy_before_executor(lane, monkeypatc
         db_path=database, resource_snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=48 * GIB)
     ).run_once(worker_id="worker")
     expected = (
-        "local_gpu_model"
+        "agent_cli"
+        if kind == "thread.product_loop.run"
+        else "local_model_call"
         if policy != "hybrid"
-        else ("agent_cli" if kind == "thread.product_loop.run" else "remote_llm_light")
+        else "remote_llm_light"
     )
-    assert seen == [
-        (
-            expected,
-            policy != "hybrid",
-            (16 if policy != "hybrid" else 8 if expected == "agent_cli" else 2) * GIB,
-        )
-    ]
+    assert seen == [(expected, False, (8 if expected == "agent_cli" else 2) * GIB)]
     assert JobsRepository(connection).get_job(job["id"])["status"] == "completed"
     assert ResourceRepository(connection).active_leases() == []
 
 
-def test_local_policy_waits_for_full_gpu_memory_before_claiming_job(lane, monkeypatch):
+def test_local_only_policy_claims_the_cli_envelope_without_a_gpu_reservation(lane, monkeypatch):
     connection, database, project_id = lane
     RuntimeConfigRepository(connection).set_runtime_setting(
         "project.runtime.defaultMode", "ollama", scope="project", scope_id=project_id
     )
     job = JobsRepository(connection).create_job(project_id=project_id, kind="thread.product_loop.run")["job"]
-    invoked = []
-    monkeypatch.setattr(
-        "local_control_center.jobs_approvals.worker.execute_job",
-        lambda *_a, **_kw: invoked.append(True) or {"summary": "unexpected", "metadata": {}},
-    )
-    result = ConcurrentWorker(
+    seen = []
+
+    def capture(job, *, connection, **_kwargs):
+        lease = ResourceRepository(connection).active_lease_for_execution(job["id"])
+        seen.append((lease.workload_class, lease.gpu_required))
+        return {"summary": "fixture completed", "metadata": {}}
+
+    monkeypatch.setattr("local_control_center.jobs_approvals.worker.execute_job", capture)
+    ConcurrentWorker(
         db_path=database, resource_snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=25 * GIB)
     ).run_once(worker_id="worker")
-    assert result is None
-    assert invoked == []
-    assert JobsRepository(connection).get_job(job["id"])["status"] == "resource_wait"
+    assert seen == [("agent_cli", False)]
+    assert JobsRepository(connection).get_job(job["id"])["status"] == "completed"
     assert ResourceRepository(connection).active_leases() == []
 
 
 @pytest.mark.parametrize(
-    "before,after,expected", [("ollama", "hybrid", "local_gpu_model"), ("hybrid", "ollama", "agent_cli")]
+    "before,after,expected", [("ollama", "hybrid", "agent_cli"), ("hybrid", "ollama", "agent_cli")]
 )
 def test_runner_keeps_admitted_profile_when_policy_changes_after_claim(
     lane, monkeypatch, before, after, expected
@@ -163,8 +161,8 @@ def test_runner_keeps_admitted_profile_when_policy_changes_after_claim(
 @pytest.mark.parametrize(
     "before_mode,after_mode,before_workload,after_workload",
     [
-        ("ollama", "hybrid", "local_gpu_model", "remote_llm_light"),
-        ("hybrid", "ollama", "remote_llm_light", "local_gpu_model"),
+        ("ollama", "hybrid", "local_model_call", "remote_llm_light"),
+        ("hybrid", "ollama", "remote_llm_light", "local_model_call"),
     ],
 )
 def test_same_research_job_retry_updates_profile_before_dispatch(
@@ -291,8 +289,8 @@ def test_reattach_updates_only_unstarted_uncancelled_legacy_job(lane, state):
 @pytest.mark.parametrize(
     "preferred_runtime,expected",
     [
-        ("ollama", "local_gpu_model"),
-        ("edge-ollama", "local_gpu_model"),
+        ("ollama", "agent_cli"),
+        ("edge-ollama", "agent_cli"),
         ("codex_cli", "agent_cli"),
         ("openai_compatible", "agent_cli"),
         ("unregistered-ollama", "agent_cli"),
@@ -332,8 +330,8 @@ def test_developer_operation_classifies_persisted_preference_not_client_resource
     )
 
 
-@pytest.mark.parametrize("available_gib,expected_status", [(25, "resource_wait"), (48, "completed")])
-def test_developer_ollama_operation_admits_gpu_before_invoking_handler(
+@pytest.mark.parametrize("available_gib,expected_status", [(20, "resource_wait"), (48, "completed")])
+def test_developer_ollama_operation_reserves_only_the_cli_envelope(
     lane, monkeypatch, available_gib, expected_status
 ):
     from types import SimpleNamespace
@@ -359,7 +357,7 @@ def test_developer_ollama_operation_admits_gpu_before_invoking_handler(
             }
         },
     )
-    assert queued["workloadClass"] == "local_gpu_model"
+    assert queued["workloadClass"] == "agent_cli"
     invoked = []
 
     def capture(job, *, connection, **_kwargs):
@@ -374,11 +372,11 @@ def test_developer_ollama_operation_admits_gpu_before_invoking_handler(
     ).run_once(worker_id="worker")
 
     assert JobsRepository(connection).get_job(queued["jobId"])["status"] == expected_status
-    assert invoked == ([] if expected_status == "resource_wait" else [("local_gpu_model", True, 16 * GIB)])
+    assert invoked == ([] if expected_status == "resource_wait" else [("agent_cli", False, 8 * GIB)])
     assert ResourceRepository(connection).active_leases() == []
 
 
-def test_developer_account_changed_after_enqueue_cannot_borrow_cli_lease_for_gpu(lane):
+def test_developer_local_account_borrows_the_cli_lease_for_a_local_model_call(lane):
     from local_control_center.agents.runtime_readiness import _readiness_resource_request
     from local_control_center.executions.router import OperationSpec
     from local_control_center.executions.workloads import operation_workload
@@ -425,9 +423,8 @@ def test_developer_account_changed_after_enqueue_cannot_borrow_cli_lease_for_gpu
         ):
             request = _readiness_resource_request(connection, account)
             decision = governor.preview(request, snapshot=sample)
-        assert request.workload_class == "local_gpu_model"
-        assert request.execution_id != lease.execution_id
-        assert decision.status == "resource_wait"
-        assert decision.reason_code == "heavy_workload_capacity"
+        assert request.workload_class == "local_model_call"
+        assert request.execution_id == lease.execution_id
+        assert decision.status == "admitted"
     finally:
         governor.release(lease.id, reason="test cleanup")

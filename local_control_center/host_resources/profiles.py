@@ -128,7 +128,20 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         process_limit=16,
         gpu_required=True,
     ),
+    "local_model_call": WorkloadProfile(
+        workload_class="local_model_call",
+        heavy=False,
+        light=True,
+        essential=False,
+        cpu_limit_percent=15,
+        memory_limit_bytes=2 * GIB,
+        process_limit=4,
+        gpu_required=False,
+    ),
 }
+
+LOCAL_INFERENCE_CLASSES: frozenset[str] = frozenset({"local_gpu_model", "local_model_call"})
+"""Inferencia local que compite por la GPU con UnrealEditor: modelo lanzado por AIDO o cliente de un servidor residente."""
 
 
 @dataclass(frozen=True)

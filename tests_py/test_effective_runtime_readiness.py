@@ -62,8 +62,8 @@ def test_readiness_distinguishes_enabled_auth_policy_and_host_without_writes(tmp
 
 
 def test_local_inference_is_not_classified_as_a_remote_light_call():
-    assert provider_workload_class({"baseUrl": "http://localhost:11434"}) == "local_gpu_model"
-    assert provider_workload_class({"baseUrl": "http://127.0.0.1:8000"}) == "local_gpu_model"
+    assert provider_workload_class({"baseUrl": "http://localhost:11434"}) == "local_model_call"
+    assert provider_workload_class({"baseUrl": "http://127.0.0.1:8000"}) == "local_model_call"
     assert provider_workload_class({"providerType": "cli"}) == "agent_cli"
     assert provider_workload_class({"baseUrl": "https://api.example.test"}) == "remote_llm_light"
 
@@ -122,7 +122,7 @@ def test_declared_omniroute_proxy_uses_existing_light_budget_without_gpu(deploym
     ],
 )
 def test_loopback_local_or_unverified_contract_keeps_local_inference_budget(override):
-    assert provider_workload_class({**_configured_omniroute_proxy(), **override}) == "local_gpu_model"
+    assert provider_workload_class({**_configured_omniroute_proxy(), **override}) == "local_model_call"
 
 
 def test_declared_proxy_admits_two_gib_but_keeps_host_and_runtime_policy(tmp_path):
@@ -371,8 +371,8 @@ def test_readiness_counts_verified_capture_session_once(tmp_path, monkeypatch, c
         ):
             account = {"baseUrl": "http://localhost:11434"} if condition == "gpu" else {"providerType": "cli"}
             result = apply_effective_readiness(runtime.connection, status, account, policy)
-        assert result["resourceAdmissible"] is (condition == "verified")
-        assert result["executable"] is (condition == "verified")
+        assert result["resourceAdmissible"] is (condition in {"verified", "gpu"})
+        assert result["executable"] is (condition in {"verified", "gpu"})
         if condition in {"expired", "mismatch"}:
             assert "resource_session_unverified" in result["blockingReasons"]
         assert runtime.connection.total_changes == before
@@ -480,44 +480,39 @@ def test_every_governor_wait_code_is_classified_as_host_capacity_or_not(tmp_path
     assert codes <= HOST_CAPACITY_BLOCKERS, sorted(codes - HOST_CAPACITY_BLOCKERS)
 
 
-@pytest.mark.parametrize(
-    "condition", ["verified_gpu", "cli_parent", "gpu_flag_missing", "insufficient_memory"]
-)
-def test_gpu_readiness_counts_only_sufficient_verified_gpu_parent(tmp_path, monkeypatch, condition):
+@pytest.mark.parametrize("condition", ["cli_parent", "gpu_parent", "unreal"])
+def test_local_model_call_readiness_borrows_the_current_job_and_keeps_the_unreal_conflict(
+    tmp_path, monkeypatch, condition
+):
     from local_control_center.host_resources.governor import HostResourceGovernor
     from local_control_center.host_resources.models import ResourceAdmissionRequest
     from local_control_center.process_supervision import session_client
     from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
 
-    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "gpu-readiness.sqlite")
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "local-readiness.sqlite")
     runtime.init()
     monkeypatch.setattr(session_client, "session_identity", lambda _path: None)
     try:
-        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=48 * 1024**3)
-        workload = "agent_cli" if condition == "cli_parent" else "local_gpu_model"
         lease = (
             HostResourceGovernor(runtime.connection)
             .admit(
-                ResourceAdmissionRequest(execution_id="gpu-job", owner_id="worker", workload_class=workload),
-                snapshot=sample,
+                ResourceAdmissionRequest(
+                    execution_id="local-job",
+                    owner_id="worker",
+                    workload_class="local_gpu_model" if condition == "gpu_parent" else "agent_cli",
+                ),
+                snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=48 * 1024**3),
             )
             .lease
         )
         assert lease is not None
-        if condition == "cli_parent":
-            runtime.connection.execute(
-                "UPDATE resource_leases SET cpu_limit_percent=60,memory_limit_bytes=?,process_limit=32 WHERE id=?",
-                (32 * 1024**3, lease.id),
+        ResourceRepository(runtime.connection).record_sample(
+            ResourceSnapshot.test_snapshot(
+                available_memory_bytes=20 * 1024**3, unreal_editor_running=condition == "unreal"
             )
-        elif condition == "gpu_flag_missing":
-            runtime.connection.execute("UPDATE resource_leases SET gpu_required=0 WHERE id=?", (lease.id,))
-        elif condition == "insufficient_memory":
-            runtime.connection.execute(
-                "UPDATE resource_leases SET memory_limit_bytes=1 WHERE id=?", (lease.id,)
-            )
-        ResourceRepository(runtime.connection).record_sample(sample)
+        )
         status = {
-            "id": "ollama",
+            "id": "llama_cpp",
             "kind": "local",
             "configured": True,
             "authenticated": True,
@@ -527,32 +522,31 @@ def test_gpu_readiness_counts_only_sufficient_verified_gpu_parent(tmp_path, monk
             "healthStatus": "healthy",
             "healthCheckedAt": utc_now(),
         }
-        policy = {
-            "allowed": True,
-            "policy": {
-                "global": {"localEnabled": True, "ollamaEnabled": True},
-                "project": {"remoteEnabled": True},
-            },
+        policy = {"allowed": True, "policy": {"global": {"localEnabled": True}, "project": {}}}
+        account = {
+            "providerId": "llama_cpp",
+            "providerType": "local",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "providerCatalogId": "llama_cpp",
+            "baseUrl": "http://127.0.0.1:1/v1",
         }
         before = runtime.connection.total_changes
         with execution_scope(
             ProcessExecutionContext(
                 db_path=runtime.db_path,
                 connection=runtime.connection,
-                execution_id="gpu-job",
+                execution_id="local-job",
                 worker_id="worker",
                 resource_lease_id=lease.id,
                 in_job_runner=True,
             )
         ):
-            result = apply_effective_readiness(
-                runtime.connection,
-                status,
-                {"providerType": "local", "apiFormat": "ollama", "baseUrl": "http://127.0.0.1:11434"},
-                policy,
-            )
-        assert result["resourceAdmissible"] is (condition == "verified_gpu")
-        assert result["executable"] is (condition == "verified_gpu")
+            result = apply_effective_readiness(runtime.connection, status, account, policy)
+        assert result["resourceAdmissible"] is (condition != "unreal")
+        assert result["executable"] is (condition != "unreal")
+        if condition == "unreal":
+            assert "unreal_local_gpu_conflict" in result["blockingReasons"]
         assert runtime.connection.total_changes == before
     finally:
         runtime.close()

@@ -3561,6 +3561,32 @@ class ProductLoopCoordinator:
             return {"preferredRuntime": provider_id, "model": selected.get("model")}
         return {}
 
+    _ARCHITECT_TEAM_ROLES = frozenset({"architect", "software_architect"})
+
+    def _architect_execution_resource(
+        self, team_schedule: dict[str, Any], request_meta: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Devuelve el runtime y el modelo del Architect según el ``resourceDecision`` de su rol.
+
+        Solo toma el modelo de un runtime de modelo (no CLI), así un runtime local recibe el
+        modelo resuelto por el ruteo en vez de quedar sin modelo. Con equipo sellado solo vale la
+        selección del runtime asignado al architect; sin selección utilizable conserva el
+        comportamiento previo (el runtime asignado, si lo hay).
+        """
+        assigned = assigned_runtime(request_meta, "architect")
+        for role_plan in (team_schedule or {}).get("roles") or []:
+            if str(role_plan.get("role") or "") not in self._ARCHITECT_TEAM_ROLES:
+                continue
+            selected = (role_plan.get("resourceDecision") or {}).get("selected") or {}
+            provider_id = str(selected.get("providerId") or "").strip()
+            model = str(selected.get("model") or "").strip()
+            if not model or not self._is_model_runtime_provider(provider_id):
+                continue
+            if assigned and provider_id != assigned:
+                continue
+            return {"preferredRuntime": provider_id, "model": model}
+        return {"preferredRuntime": assigned} if assigned else {}
+
     def _developer_execution_resource_mapping_blockers(
         self, team_schedule: dict[str, Any]
     ) -> list[dict[str, Any]]:
@@ -4567,8 +4593,9 @@ class ProductLoopCoordinator:
                             "testResults": run.qa_results,
                             "constitution": render_constitution_prompt(run.constitution) or None,
                         }
-                        if architect_runtime:
-                            architect_payload["preferredRuntime"] = architect_runtime
+                        architect_payload.update(
+                            self._architect_execution_resource(run.team_schedule, run.request_meta)
+                        )
                         architect = ArchitectAgentRunner(self.connection, root=run.effective_root).run(
                             architect_payload
                         )

@@ -133,6 +133,45 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		instructionsKey: 'app.runtime.instructions.llama_cpp',
 	},
 	{
+		id: 'lm_studio',
+		displayName: 'LM Studio',
+		group: 'local',
+		Icon: Server,
+		providerType: 'local',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'http://127.0.0.1:1234/v1',
+		needsBaseUrl: false,
+		authKind: 'optional_api_key',
+		capabilities: ['chat', 'local', 'private'],
+		instructionsKey: 'app.runtime.instructions.lm_studio',
+	},
+	{
+		id: 'vllm',
+		displayName: 'vLLM',
+		group: 'local',
+		Icon: Cpu,
+		providerType: 'local',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: 'http://127.0.0.1:8000/v1',
+		needsBaseUrl: false,
+		authKind: 'optional_api_key',
+		capabilities: ['chat', 'local', 'private'],
+		instructionsKey: 'app.runtime.instructions.vllm',
+	},
+	{
+		id: 'local_openai_compatible',
+		displayName: 'Local OpenAI-compatible server',
+		group: 'local',
+		Icon: PlugZap,
+		providerType: 'local',
+		apiFormat: 'openai_compatible',
+		defaultBaseUrl: null,
+		needsBaseUrl: true,
+		authKind: 'optional_api_key',
+		capabilities: ['chat', 'local'],
+		instructionsKey: 'app.runtime.instructions.local_openai_compatible',
+	},
+	{
 		id: 'openai_api',
 		displayName: 'OpenAI',
 		group: 'api',
@@ -308,6 +347,15 @@ const CATALOG_BY_ID = new Map(PROVIDER_CATALOG.map((entry) => [entry.id, entry])
 /** Lookup a catalog entry by provider id (undefined for an unknown id). */
 export function catalogEntry(id: string): ProviderCatalogEntry | undefined {
 	return CATALOG_BY_ID.get(id);
+}
+
+/**
+ * Local servers that speak the OpenAI protocol (llama.cpp, LM Studio, vLLM, generic). They are set
+ * up through the local-endpoints flow (editable URL, instance name, per-model settings) instead of
+ * the generic provider wizard; Ollama keeps its own endpoints panel.
+ */
+export function isLocalOpenAiRuntime(entry: ProviderCatalogEntry | undefined): boolean {
+	return entry?.group === 'local' && entry.apiFormat === 'openai_compatible';
 }
 
 export type RuntimeSetupState =

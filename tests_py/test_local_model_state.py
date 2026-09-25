@@ -185,3 +185,49 @@ def test_a_failing_read_is_unknown():
         raise OSError("connection refused")
 
     assert LoadStateCache(ttl_s=10.0, reader=reader).get(ACCOUNT, max_wait_s=2.0) == {}
+
+
+def test_a_polling_reader_gets_the_expired_reading_at_once_while_it_refreshes():
+    """Las vistas consultadas por polling no esperan: reciben la última lectura mientras se refresca."""
+    gate = threading.Event()
+    calls: list[int] = []
+    clock = _Clock()
+
+    def reader(account):
+        calls.append(1)
+        if len(calls) > 1:
+            gate.wait(5)
+            return {"gemma": "unloaded"}
+        return {"gemma": "loaded"}
+
+    cache = LoadStateCache(ttl_s=10.0, reader=reader, clock=clock)
+    assert cache.get(ACCOUNT, max_wait_s=2.0) == {"gemma": "loaded"}
+    clock.now += 11
+    try:
+        assert cache.get(ACCOUNT, max_wait_s=0.0, allow_stale=True) == {"gemma": "loaded"}
+        assert cache.get(ACCOUNT, max_wait_s=0.01) == {}
+    finally:
+        gate.set()
+    assert cache.get(ACCOUNT, max_wait_s=2.0) == {"gemma": "unloaded"}
+    assert calls == [1, 1]
+
+
+def test_a_polling_reader_never_gets_a_reading_of_another_base_url():
+    """La lectura vieja se sirve por (cuenta, URL): cambiar la URL nunca hereda el estado anterior."""
+    gate = threading.Event()
+    clock = _Clock()
+    moved = {**ACCOUNT, "baseUrl": "http://127.0.0.1:2/v1"}
+
+    def reader(account):
+        if account["baseUrl"] == moved["baseUrl"]:
+            gate.wait(5)
+            return {}
+        return {"gemma": "loaded"}
+
+    cache = LoadStateCache(ttl_s=10.0, reader=reader, clock=clock)
+    assert cache.get(ACCOUNT, max_wait_s=2.0) == {"gemma": "loaded"}
+    clock.now += 11
+    try:
+        assert cache.get(moved, max_wait_s=0.0, allow_stale=True) == {}
+    finally:
+        gate.set()

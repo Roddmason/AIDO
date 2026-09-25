@@ -14,7 +14,6 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections.abc import Collection, Iterable, Mapping
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urlparse
 
@@ -48,7 +47,6 @@ LOCAL_RUNTIME_PREFERRED_ROLES = ("analyst", "product_owner", "developer", "techn
 LOCAL_RUNTIME_CATALOG_SOURCE = "local_runtime_catalog"
 ABSENT_MODEL_SOURCE = "endpoint_absent"
 VIEW_LOAD_STATE_WAIT_S = 0.5
-MAX_PARALLEL_STATE_READS = 8
 LOCAL_ENDPOINT_SOURCE = "local_endpoint"
 OLLAMA_ENDPOINT_SOURCE = "ollama_endpoint"
 
@@ -197,31 +195,32 @@ def local_account_payload(
     }
 
 
-def cached_load_states(account: Mapping[str, Any]) -> dict[str, LoadState]:
+def cached_load_states(account: Mapping[str, Any], *, polled: bool = False) -> dict[str, LoadState]:
     """Estado de carga por id canónico desde la caché compartida de 10 s, con espera acotada.
 
     Devuelve vacío (todo desconocido) si la cuenta no tiene perfil local (Ollama), está deshabilitada
     o es remota: una vista nunca consulta un servidor que el operador no dejó activo y local. Los alias
     que expone el router (p. ej. ``local`` de ``gemma-4-26b-a4b``) comparten el estado de su modelo y no
-    se muestran como modelos propios.
+    se muestran como modelos propios. Con ``polled`` (vistas que la UI consulta cada pocos segundos bajo
+    el lock global) no espera: devuelve la última lectura y el refresco sigue en segundo plano; la espera
+    acotada queda para las respuestas de una acción explícita del operador.
     """
     if local_profile_entry(account) is None or not account.get("enabled"):
         return {}
     if endpoint_locality(account) == "remote":
         return {}
-    states = dict(local_model_state.LOAD_STATE_CACHE.get(account, max_wait_s=VIEW_LOAD_STATE_WAIT_S))
+    cache = local_model_state.LOAD_STATE_CACHE
+    if polled:
+        states = dict(cache.get(account, max_wait_s=0.0, allow_stale=True))
+    else:
+        states = dict(cache.get(account, max_wait_s=VIEW_LOAD_STATE_WAIT_S))
     aliases = local_model_state.model_aliases_for(account)
     return {model: state for model, state in states.items() if model not in aliases}
 
 
 def load_states_by_provider(accounts: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, LoadState]]:
-    """Lee en paralelo el estado de carga de varias cuentas; la espera total queda acotada por cuenta."""
-    items = list(accounts)
-    if not items:
-        return {}
-    with ThreadPoolExecutor(max_workers=min(len(items), MAX_PARALLEL_STATE_READS)) as pool:
-        states = list(pool.map(cached_load_states, items))
-    return {str(account["providerId"]): state for account, state in zip(items, states, strict=True)}
+    """Estado de carga de varias cuentas para las vistas consultadas por polling (rollup, lista, candidatos)."""
+    return {str(account["providerId"]): cached_load_states(account, polled=True) for account in accounts}
 
 
 def loaded_models(states: Mapping[str, LoadState]) -> list[str]:

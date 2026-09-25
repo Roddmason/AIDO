@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
@@ -295,3 +297,62 @@ def test_validate_model_operation_registers_for_the_dispatcher(tmp_path: Path) -
     assert spec.workload_class == "local_model_call"
     assert spec.result_model is not None
     assert handler.__name__ == "validate_local_model"
+
+
+LOOPBACK_LLAMA = {
+    "providerId": "llama-view",
+    "providerCatalogId": "llama_cpp",
+    "providerType": "local",
+    "apiFormat": "openai_compatible",
+    "providerFamily": "openai_compatible",
+    "baseUrl": "http://127.0.0.1:1/v1",
+    "enabled": True,
+    "metadata": {},
+}
+
+
+def test_polled_views_do_not_wait_for_a_server_that_is_slow_to_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El rollup, la lista y los candidatos corren bajo el lock global: nunca esperan la lectura en vivo."""
+    gate = threading.Event()
+
+    def reader(_account):
+        gate.wait(5)
+        return {"gemma-4-26b-a4b": "loaded"}
+
+    monkeypatch.setattr(
+        local_model_state, "LOAD_STATE_CACHE", local_model_state.LoadStateCache(reader=reader)
+    )
+    try:
+        started = time.monotonic()
+        states = endpoints.load_states_by_provider([LOOPBACK_LLAMA])
+        elapsed = time.monotonic() - started
+    finally:
+        gate.set()
+    assert states == {"llama-view": {}}
+    assert elapsed < 0.25
+
+
+class _ForbiddenLoadStates:
+    def get(self, account, **_kwargs):
+        raise AssertionError(f"A view read the load state of {account['providerId']}")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"enabled": False}, id="disabled"),
+        pytest.param({"baseUrl": "http://192.168.1.50:8080/v1"}, id="undeclared-lan"),
+        pytest.param({"metadata": {"endpointKind": "remote"}}, id="endpoint-kind-remote"),
+    ],
+)
+def test_views_never_query_a_disabled_or_remote_endpoint(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any]
+) -> None:
+    """P14: ``loadedModels`` y las vistas solo consultan cuentas habilitadas, con perfil y no remotas."""
+    monkeypatch.setattr(local_model_state, "LOAD_STATE_CACHE", _ForbiddenLoadStates())
+    account = {**LOOPBACK_LLAMA, **overrides}
+
+    assert endpoints.cached_load_states(account) == {}
+    assert endpoints.load_states_by_provider([account]) == {"llama-view": {}}

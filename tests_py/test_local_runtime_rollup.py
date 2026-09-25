@@ -28,7 +28,7 @@ pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 class _UnknownLoadStates:
-    def get(self, account, *, max_wait_s: float = 1.0) -> dict[str, str]:
+    def get(self, account, *, max_wait_s: float = 1.0, allow_stale: bool = False) -> dict[str, str]:
         return {}
 
 

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
 	detectModelGatewayCliRuntime,
+	getLocalEndpoints,
 	getModelGatewayModels,
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
@@ -41,7 +42,12 @@ import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';
 import { LocalRuntimeDiscovery } from './LocalRuntimeDiscovery';
 import { LocalRuntimeWizard } from './LocalRuntimeWizard';
-import { draftFromCatalog, type LocalRuntimeDraft } from './localEndpoints';
+import {
+	draftFromCatalog,
+	draftFromEndpoint,
+	isOllamaEndpoint,
+	type LocalRuntimeDraft,
+} from './localEndpoints';
 import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
 import {
 	apiProviderIdsNeedingProbe,
@@ -106,6 +112,7 @@ export function RuntimeSetupPanel({
 	const [wizardOpen, setWizardOpen] = useState(false);
 	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
 	const [localDraft, setLocalDraft] = useState<LocalRuntimeDraft | null>(null);
+	const [deepLinkFailed, setDeepLinkFailed] = useState(false);
 	const openedInitialProviderRef = useRef<string | null>(null);
 	const wizardTrigger = useRef<HTMLElement | null>(null);
 	useEffect(() => {
@@ -136,8 +143,20 @@ export function RuntimeSetupPanel({
 		const providerId = initialProviderId?.trim();
 		if (!providerId || openedInitialProviderRef.current === providerId) return;
 		const entry = catalogEntry(providerId);
-		if (!entry || entry.group === 'cli') return;
+		if (entry?.group === 'cli') return;
 		openedInitialProviderRef.current = providerId;
+		if (!entry) {
+			const controller = new AbortController();
+			getLocalEndpoints(controller.signal)
+				.then((payload) => {
+					const stored = payload.endpoints.find((item) => item.id === providerId);
+					if (stored && !isOllamaEndpoint(stored)) setLocalDraft(draftFromEndpoint(stored));
+				})
+				.catch(() => {
+					if (!controller.signal.aborted) setDeepLinkFailed(true);
+				});
+			return () => controller.abort();
+		}
 		if (isLocalOpenAiRuntime(entry)) {
 			setLocalDraft(draftFromCatalog(providerId));
 			return;
@@ -315,6 +334,14 @@ export function RuntimeSetupPanel({
 						'See, for each provider, exactly why it can or cannot execute — required configuration, detected command, and health.',
 					)}
 				</p>
+				{deepLinkFailed ? (
+					<p className="field-help" role="status">
+						{t(
+							'app.localRuntime.deepLinkFailed',
+							'Could not open the setup of that local endpoint; use its card under Local endpoints.',
+						)}
+					</p>
+				) : null}
 				<div className="surface-toolbar">
 					<div className="inline">
 						<span className="muted">{t('app.runtime.readyLabel', 'Runtimes ready')}</span>

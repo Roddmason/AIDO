@@ -512,3 +512,167 @@ test('Thread team: a local runtime candidate shows its loaded model and the mode
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Thread timeline: a local model switch reads as from and to model, role and reason', async ({
+	page,
+}) => {
+	const { projects } = await (await page.request.get('/api/v1/projects')).json();
+	const project = projects.find((entry) => entry.status === 'active');
+	expect(project).toBeTruthy();
+	const thread = {
+		id: `thread-local-switch-${RUN_ID}`,
+		projectId: project.id,
+		ownerId: project.id,
+		ownerType: 'workspace',
+		title: `Local model switch ${RUN_ID}`,
+		summary: '',
+		status: 'queued',
+		metadata: {},
+		createdAt: '2026-09-23T00:00:00Z',
+		updatedAt: '2026-09-23T00:00:00Z',
+	};
+	const event = (sequence, type, payload) => ({
+		id: `local-switch-${sequence}`,
+		threadId: thread.id,
+		projectId: project.id,
+		sequence,
+		type,
+		payload,
+		metadata: {},
+		createdAt: thread.createdAt,
+	});
+	const loopId = `loop-local-switch-${RUN_ID}`;
+	const events = [
+		event(1, 'run_queued', {}),
+		event(2, 'local_model_switch', {
+			loopId,
+			runtimeId: 'llama-lab',
+			fromModel: 'gemma-3-4b',
+			toModel: 'qwen3-8b',
+			role: 'product_owner',
+			reason: 'default',
+		}),
+		event(3, 'local_model_switch', {
+			loopId,
+			runtimeId: 'llama-lab',
+			fromModel: 'qwen3-8b',
+			toModel: 'gemma-3-4b',
+			role: 'developer',
+			reason: 'sealed',
+		}),
+		event(4, 'local_model_switch', {
+			loopId,
+			runtimeId: 'llama-lab',
+			fromModel: null,
+			toModel: 'glm-4.7-flash',
+			role: 'architect',
+			reason: 'warm_pool',
+		}),
+	];
+	await page.route('**/api/v1/overview', async (route) => {
+		const response = await route.fetch();
+		const overview = await response.json();
+		await route.fulfill({ response, json: { ...overview, threads: [...overview.threads, thread] } });
+	});
+	await page.route(`**/api/v1/threads/${thread.id}`, (route) =>
+		route.fulfill({
+			json: { thread, messages: [], decisions: [], artifacts: [], events: [] },
+		}),
+	);
+	await page.route(`**/api/v1/threads/${thread.id}/remediations`, (route) =>
+		route.fulfill({ json: { remediations: [] } }),
+	);
+	await page.route(`**/api/v1/threads/${thread.id}/events?*`, (route) => {
+		const afterSeq = Number(new URL(route.request().url()).searchParams.get('afterSeq'));
+		return route.fulfill({
+			json: {
+				events: events.filter((item) => item.sequence > afterSeq),
+				lastSeq: events.at(-1).sequence,
+				running: true,
+				threadStatus: 'queued',
+			},
+		});
+	});
+	try {
+		await page.goto('/#threads');
+		await waitForControlPlane(page);
+		const threadButton = page.getByRole('button', { name: thread.title, exact: true });
+		if (!(await threadButton.isVisible())) {
+			await page.locator('.thread-workspace-head').filter({ hasText: project.name }).click();
+		}
+		await threadButton.click();
+		const execution = page.getByRole('complementary', { name: 'Execution console' });
+		const rows = execution.locator('.thread-console-row[data-type="local_model_switch"]');
+		const row = rows.filter({ hasText: 'gemma-3-4b -> qwen3-8b' });
+
+		await expect(row).toContainText('Local model switched');
+		await expect(row).toContainText('Role: product_owner');
+		await expect(row).toContainText("Runtime's default model");
+		await expect(row).toContainText('llama-lab');
+		await expect(rows.filter({ hasText: 'qwen3-8b -> gemma-3-4b' })).toContainText(
+			'Model sealed for this role in the thread team',
+		);
+		await expect(rows.filter({ hasText: 'unknown model -> glm-4.7-flash' })).toContainText('warm_pool');
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
+const DOWN_LOCAL_PROVIDER = {
+	id: DOWN_ID,
+	kind: 'local',
+	displayName: DOWN_ID,
+	installed: true,
+	detected: true,
+	configured: true,
+	authenticated: true,
+	available: false,
+	executable: false,
+	blockerType: 'runtime_not_executable',
+	reason: 'local_server_unreachable: connection refused',
+	lastError: 'local_server_unreachable: connection refused',
+	healthStatus: 'offline',
+	capabilities: ['chat'],
+	requiredConfiguration: [],
+	requiresApproval: false,
+	version: null,
+	detectedCommand: null,
+	loginCommand: '',
+};
+
+test('AI health: a local runtime whose server is down explains the cause and opens its setup wizard', async ({
+	page,
+}) => {
+	await seedLocalEndpoint(page, { id: DOWN_ID, baseUrl: DEAD_BASE_URL, sync: false });
+	await page.route('**/api/v1/runtime/providers', async (route) => {
+		const response = await route.fetch();
+		const payload = await response.json();
+		const others = payload.providers.filter((provider) => provider.id !== DOWN_ID);
+		await route.fulfill({
+			response,
+			json: { ...payload, providers: [...others, DOWN_LOCAL_PROVIDER] },
+		});
+	});
+	try {
+		await page.goto('/#threads');
+		await waitForControlPlane(page);
+		await page.getByRole('button', { name: /need attention/ }).click();
+		const modal = page.getByRole('dialog', { name: 'AI health' });
+		const card = modal
+			.locator('.thread-remediation-card')
+			.filter({ hasText: DOWN_LOCAL_PROVIDER.displayName });
+
+		await expect(card).toContainText('The local server is not answering');
+		await expect(card).toContainText('.wslconfig');
+		await expect(card).toContainText('(connection refused)');
+		await card.locator('.thread-remediation-primary').click();
+
+		const settings = page.getByRole('dialog', { name: 'Settings' });
+		const wizard = settings.getByRole('region', { name: 'Set up a local runtime' });
+		await expect(wizard).toBeVisible();
+		await expect(wizard.getByLabel('Base URL')).toHaveValue(DEAD_BASE_URL);
+		await expect(wizard).toContainText(DOWN_ID);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

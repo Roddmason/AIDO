@@ -605,7 +605,8 @@ export function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	const actor =
 		event.agentRole || textValue(payload.role) || textValue(payload.agentName) || 'aido';
 	const title = t(`app.threads.event.${event.type}`, eventTitle(event.type));
-	const detail = eventDetail(payload, t);
+	const detail =
+		event.type === 'local_model_switch' ? modelSwitchDetail(payload, t) : eventDetail(payload, t);
 	const chips = [
 		textValue(payload.status) || textValue(payload.toState),
 		textValue(payload.runtimeId),
@@ -660,6 +661,7 @@ function eventTitle(type: string): string {
 		execution_cancelled: 'Execution cancelled',
 		runtime_selected: 'Runtime selected',
 		runtime_failover: 'Runtime failover',
+		local_model_switch: 'Local model switched',
 		agent_running: 'Agent working',
 		workspace_check: 'Workspace',
 		runtime_check: 'Runtime',
@@ -688,6 +690,49 @@ function eventTitle(type: string): string {
 		cancelled: 'Cancelled',
 	};
 	return titles[type] ?? type.replace(/_/g, ' ');
+}
+
+/**
+ * Why the local runtime moved to another model: `LocalModelResolution.reason` in the backend, or `sealed`
+ * when the thread team pinned the model. An unknown reason is shown verbatim.
+ */
+const MODEL_SWITCH_REASON: Record<string, { key: string; fallback: string }> = {
+	loaded: {
+		key: 'app.threads.modelSwitch.reason.loaded',
+		fallback: 'The model was already loaded',
+	},
+	affinity: {
+		key: 'app.threads.modelSwitch.reason.affinity',
+		fallback: 'Same model as another role of this run',
+	},
+	default: { key: 'app.threads.modelSwitch.reason.default', fallback: "Runtime's default model" },
+	operator_order: {
+		key: 'app.threads.modelSwitch.reason.operator_order',
+		fallback: "First model in the operator's order",
+	},
+	sealed: {
+		key: 'app.threads.modelSwitch.reason.sealed',
+		fallback: 'Model sealed for this role in the thread team',
+	},
+};
+
+/**
+ * `local_model_switch`: from/to model, the role that needed it and why that model was chosen. Other payload
+ * keys (such as `loopId`) are ignored.
+ */
+function modelSwitchDetail(payload: Record<string, unknown>, t: Translate): string {
+	const toModel = textValue(payload.toModel);
+	if (!toModel) return '';
+	const fromModel =
+		textValue(payload.fromModel) ?? t('app.threads.modelSwitch.unknownModel', 'unknown model');
+	const parts = [`${fromModel} -> ${toModel}`];
+	const role = textValue(payload.role);
+	if (role) parts.push(`${t('app.threads.modelSwitch.role', 'Role')}: ${role}`);
+	const reason = textValue(payload.reason);
+	const reasonCopy = reason ? MODEL_SWITCH_REASON[reason] : undefined;
+	if (reasonCopy) parts.push(t(reasonCopy.key, reasonCopy.fallback));
+	else if (reason) parts.push(reason);
+	return parts.join(' · ');
 }
 
 function eventDetail(payload: Record<string, unknown>, t: Translate): string {

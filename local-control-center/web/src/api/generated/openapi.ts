@@ -99,6 +99,13 @@ export type CredentialRotateRequest = { "actor"?: string; "value": string };
 export type CredentialValidationRecord = { "fingerprintMatches": boolean; "name": string; "present": boolean; "valid": boolean };
 export type CredentialValidationResponse = { "validation": CredentialValidationRecord };
 export type CredentialsListResponse = { "backends": Array<CredentialBackendStatus>; "credentials": Array<CredentialRecord> };
+export type DecisionEngineStatusResponse = { "confidenceThreshold"?: null | number; "configurationFingerprint"?: null | string; "consecutiveProviderFailures"?: null | number; "credentialConfigured"?: boolean | null; "enabled": boolean; "marginThreshold"?: null | number; "mode": string; "model"?: null | string; "provider"?: null | string; "realCallsEnabled"?: boolean | null; "reasonCode"?: null | string; "status": string; "version"?: null | string };
+export type DecisionLatencySummary = { "average": null | number; "count": number; "maximum": null | number };
+export type DecisionListResponse = { "items": Array<JsonObject>; "nextAfter": number };
+export type DecisionReportDenominators = { "agreement": number; "completed": number; "execution_succeeded": number; "human_override": number; "retries": number; "review_passed": number; "tests_passed": number };
+export type DecisionReportMetrics = { "agreement_rate": null | number; "confidence_distribution": Array<number>; "decision_count": number; "decision_latency_ms": DecisionLatencySummary; "disagreement_rate": null | number; "fallback_rate": null | number; "human_override_rate": null | number; "margin_distribution": Array<number>; "provider_errors": number; "retry_rate": null | number; "review_failure_rate": null | number; "routing_latency_ms": Array<number>; "success_rate": null | number; "test_failure_rate": null | number; "timeout_rate": null | number; "timeouts": number; "total_routing_latency_ms": Array<number> };
+export type DecisionReportResponse = { "calibration": string; "comparisons": Array<JsonObject>; "configurationFingerprints": Array<string>; "denominators": DecisionReportDenominators; "metrics": DecisionReportMetrics; "nextAfter": number; "totalReceipts": number; "window": DecisionReportWindow };
+export type DecisionReportWindow = { "after": number; "limit": number; "returned": number };
 export type DevOpsAgentContract = { "allowedTools": Array<string>; "id": string; "inputSchema": JsonObject; "outputSchema": JsonObject; "requiredEvidence": boolean; "requiredRuntimeCapabilities": Array<string>; "requiredWorkspace": boolean; "verdictSource": string };
 export type DevOpsAgentRunRequest = { "buildScripts"?: Array<string>; "dockerHealthcheck"?: boolean; "metadata"?: JsonObject; "projectId": string; "qualityScripts"?: Array<string> | null; "taskId"?: string; "workspaceId": string };
 export type DevOpsAgentRunResponse = { "agentRun": AgentRunRecord; "commands": Array<JsonObject>; "configArtifact": JsonObject; "configFindings": Array<JsonObject>; "contract": DevOpsAgentContract; "docker": JsonObject; "evidencePackage": JsonObject; "filesScanned": Array<JsonObject>; "job": JsonObject; "reason": string; "status": string; "verdict": string; "versions": JsonObject; "workspace": JsonObject };
@@ -1225,7 +1232,7 @@ export type OperationResponseBodies = {
 	"create_thread_api_v1_threads_post": ThreadDetailResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
-	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
+	"decisions_api_v1_decision_engine_decisions_get": DecisionListResponse,
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
@@ -1375,7 +1382,7 @@ export type OperationResponseBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
-	"report_api_v1_decision_engine_report_get": JsonObject,
+	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
@@ -1408,7 +1415,7 @@ export type OperationResponseBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ExecutionAccepted,
 	"start_session_api_v1_cli_sessions_post": ExecutionAccepted,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": ExecutionAccepted,
-	"status_api_v1_decision_engine_get": JsonObject,
+	"status_api_v1_decision_engine_get": DecisionEngineStatusResponse,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": ExecutionAccepted,
 	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": ExecutionAccepted,
 	"sync_skills_api_v1_skills_sync_post": ExecutionAccepted,
@@ -1511,7 +1518,7 @@ export type OperationResultBodies = {
 	"create_thread_api_v1_threads_post": ThreadDetailResponse,
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
-	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
+	"decisions_api_v1_decision_engine_decisions_get": DecisionListResponse,
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
@@ -1661,7 +1668,7 @@ export type OperationResultBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
-	"report_api_v1_decision_engine_report_get": JsonObject,
+	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
@@ -1694,7 +1701,7 @@ export type OperationResultBodies = {
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": ProductLoopResumeResponse,
 	"start_session_api_v1_cli_sessions_post": CliSessionStartResponse,
 	"start_workflow_api_v1_workflows__workflow_id__start_post": WorkflowStartResponse,
-	"status_api_v1_decision_engine_get": JsonObject,
+	"status_api_v1_decision_engine_get": DecisionEngineStatusResponse,
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": OllamaSyncModelsResponse,
 	"sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": DiscoverModelsResponse,
 	"sync_skills_api_v1_skills_sync_post": SkillsSyncResponse,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import closing
 
 import pytest
@@ -446,3 +447,38 @@ def test_migration_is_idempotent_and_preserves_historical_receipts(decision_db):
     init_phase74_schema(decision_db)
     initialize_platform_schema(decision_db)
     assert DecisionRepository(decision_db).get(receipt["decisionId"]) == receipt
+
+
+def test_typed_report_and_page_keep_every_key_the_handlers_build(decision_db):
+    """Un ``response_model`` descarta en silencio lo que no declara.
+
+    Con receipts y un outcome reales, el modelo tiene que devolver exactamente lo que arman
+    ``decision_report`` y la página de receipts: si alguien agrega una métrica sin tocar el modelo,
+    este test cae antes de que la clave desaparezca de la API.
+    """
+    from local_control_center.decision_engine.config import DecisionConfig
+    from local_control_center.decision_engine.models import (
+        DecisionListResponse,
+        DecisionOutcome,
+        DecisionReportResponse,
+    )
+    from local_control_center.decision_engine.reporting import decision_report
+    from local_control_center.decision_engine.repository import DecisionRepository
+    from local_control_center.decision_engine.service import ShadowDecisionEngine
+
+    engine = ShadowDecisionEngine(decision_db, config=DecisionConfig(enabled=True), provider=FakeJev())
+    first = asyncio.run(engine.observe(request_for(routing_latency_ms=12.5)))
+    asyncio.run(engine.observe(request_for()))
+    repository = DecisionRepository(decision_db)
+    repository.record_outcome(
+        first["decisionId"], DecisionOutcome(evidence_ref="run-1", execution_succeeded=True)
+    )
+
+    report = decision_report(decision_db)
+    typed_report = DecisionReportResponse.model_validate(report).model_dump(by_alias=True, mode="json")
+    assert typed_report == json.loads(json.dumps(report))
+
+    receipts = repository.list_receipts()
+    page = {"items": receipts, "nextAfter": receipts[-1]["sequence"]}
+    typed_page = DecisionListResponse.model_validate(page).model_dump(by_alias=True, mode="json")
+    assert typed_page == json.loads(json.dumps(page))

@@ -19,6 +19,21 @@ def test_safe_read_api_and_configuration_rollback(tmp_path, monkeypatch):
             assert status.json()["mode"] == "shadow"
             assert status.json()["enabled"] is True
             assert status.json()["status"] == "unavailable"
+            # exclude_unset: lo que el handler no arma no viaja como null (reasonCode es sólo del error).
+            assert set(status.json()) == {
+                "enabled",
+                "provider",
+                "mode",
+                "model",
+                "version",
+                "status",
+                "configurationFingerprint",
+                "confidenceThreshold",
+                "marginThreshold",
+                "consecutiveProviderFailures",
+                "credentialConfigured",
+                "realCallsEnabled",
+            }
             assert "api_key_reference" not in status.text
             assert "TYPESAFE_API_KEY" not in status.text
             assert client.get("/api/v1/decision-engine/decisions").json()["items"] == []

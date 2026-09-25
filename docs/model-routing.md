@@ -12,7 +12,9 @@ The default mode is `balanced_best_value`. Seeds live in SQLite and an editable 
 
 Pricing catalog records expose `source` and staleness (`fresh`, `stale` or
 `unknown`). Unknown prices are not treated as zero unless the model is explicitly
-marked `freeTier=true`.
+marked `freeTier=true`. Self-hosted local inference (loopback, `declared_local`
+or a literal private IP under a local catalog entry) is synced as
+`freeTier=true`; see `docs/runtime-providers.md#local-runtimes`.
 
 Role policies include `allowUnknownCost` and
 `requireApprovalForUnknownCost`. Defaults are conservative for remote
@@ -93,4 +95,4 @@ auto-routed gateways.
 
 ## Example
 
-`local_private` rejects `provider_type=api` and `provider_type=gateway` unless explicitly overridden outside the default router path.
+`local_private` rejects `provider_type=api` and `provider_type=gateway`, and `provider_type=local` accounts whose endpoint locality is `remote` (neither loopback nor `declared_local`), unless explicitly overridden outside the default router path.

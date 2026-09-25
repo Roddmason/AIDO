@@ -57,6 +57,12 @@ artifacts. Domain packages under `local_control_center/`:
 - `nvidia_nim`: NVIDIA NIM local-runtime discovery and compatibility preflight.
 - `ollama`: administration of local or remote Ollama endpoints (health checks,
   model sync).
+- `local_runtimes`: local model endpoints under one router
+  (`/api/v1/local-endpoints`, `/api/v1/local-runtimes/discover`): endpoint
+  views with locality and live load state, per-model settings, per-model
+  validation, audited WSL/Docker declaration, tombstone delete and loopback
+  discovery of llama.cpp, LM Studio, vLLM and generic OpenAI-compatible
+  servers. It never starts, stops, loads or unloads server processes.
 - `plugins`: fail-closed plugin manifests, validation, and install lifecycle.
 - `settings`: two-tier persistent preference store (descriptor registry,
   generic SQLite store, pure resolver).

@@ -14,19 +14,23 @@ from urllib.parse import urlparse
 
 from local_control_center.agents.model_execution_health import VALIDATION_TTL_SECONDS
 from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.git_workspace.service import GitWorkspaceService
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.local_runtimes.catalog import local_profile_entry
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.metadata import (
     seal_operator_cost_decision,
     strip_untrusted_resource_cost_policy_metadata,
 )
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.remediations.local_runtime import local_runtime_specs, uses_local_runtime_specs
 from local_control_center.remediations.payloads import (
     PAYLOAD_BUILDERS,
+    blocker_runtime_id,
     build_blocker_payload_context,
     decision_engine_failure,
     resource_policy_summary,
@@ -35,7 +39,7 @@ from local_control_center.remediations.payloads import (
 )
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
-from local_control_center.runtime_team.validation import runtime_validated_within
+from local_control_center.runtime_team.validation import runtime_validation_state
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -1597,11 +1601,7 @@ class BlockerRemediationService:
         runtime_ids = [str(item) for item in stored.get("runtimeIds") or [] if str(item).strip()]
         if not runtime_ids:
             return {"status": "blocked", "action": "revalidate_runtime", "reason": "runtimeIds is required."}
-        stale = [
-            provider_id
-            for provider_id in runtime_ids
-            if not runtime_validated_within(self.connection, provider_id, VALIDATION_TTL_SECONDS)
-        ]
+        stale = self._stale_validation_targets(stored)
         if not stale:
             return self._resume_runtime_team_retry(action)
         registered = (getattr(platform, "execution_handlers", None) or {}).get("models.validate_runtime")
@@ -1615,13 +1615,15 @@ class BlockerRemediationService:
 
         known = dict(stored.get("validationExecutions") or {})
         execution_ids: dict[str, str] = {}
-        for provider_id in stale:
-            in_flight = self._in_flight_execution(known.get(provider_id))
-            execution_ids[provider_id] = in_flight or str(
+        for provider_id, model in stale:
+            key = f"{provider_id}:{model}" if model else provider_id
+            body = {"projectId": action["projectId"], **({"model": model} if model else {})}
+            in_flight = self._in_flight_execution(known.get(key))
+            execution_ids[key] = in_flight or str(
                 enqueue_registered_operation(
                     platform,
                     registered[0],
-                    {"provider_id": provider_id, "body": {"projectId": action["projectId"]}},
+                    {"provider_id": provider_id, "body": body},
                     project_id=action["projectId"],
                 ).get("executionId")
                 or ""
@@ -1630,10 +1632,29 @@ class BlockerRemediationService:
         return {
             "status": "validating",
             "action": "revalidate_runtime",
-            "runtimeIds": stale,
-            "executionIds": [execution_ids[provider_id] for provider_id in stale],
+            "runtimeIds": list(dict.fromkeys(provider_id for provider_id, _model in stale)),
+            "executionIds": list(execution_ids.values()),
             "reason": "Runtime tests queued; the run resumes when every runtime answers.",
         }
+
+    def _stale_validation_targets(self, stored: dict[str, Any]) -> list[tuple[str, str | None]]:
+        """Pares (runtime, modelo) del payload persistido que siguen sin validación vigente (24 h).
+
+        Un runtime con ``runtimeModels`` se evalúa por cada modelo sellado que el gate de ejecución vio
+        vencido (``staleRuntimes[].model``); uno sin modelos, a nivel de runtime como antes. Así un éxito
+        de otro modelo del mismo servidor no reanuda un loop que volvería a bloquear en el sellado.
+        """
+        runtime_models = stored.get("runtimeModels") if isinstance(stored.get("runtimeModels"), dict) else {}
+        targets: list[tuple[str, str | None]] = []
+        for provider_id in [str(item) for item in stored.get("runtimeIds") or [] if str(item).strip()]:
+            models = [str(model) for model in runtime_models.get(provider_id) or [] if str(model).strip()]
+            for model in models or [None]:
+                state = runtime_validation_state(
+                    self.connection, provider_id, max_age_seconds=VALIDATION_TTL_SECONDS, model=model
+                )
+                if state.status != "validated":
+                    targets.append((provider_id, model))
+        return targets
 
     def _in_flight_execution(self, execution_id: Any) -> str | None:
         """Devuelve ``execution_id`` si esa ejecución sigue sin estado terminal; ``None`` si no existe."""
@@ -1689,14 +1710,13 @@ class BlockerRemediationService:
             action = self.repository.get(row["id"])
             stored = action["payload"] or {}
             runtime_ids = [str(item) for item in stored.get("runtimeIds") or []]
-            if provider_id not in runtime_ids or provider_id not in (
-                stored.get("validationExecutions") or {}
-            ):
+            stored_models = stored.get("runtimeModels")
+            runtime_models = stored_models if isinstance(stored_models, dict) else {}
+            model_keys = {f"{provider_id}:{model}" for model in runtime_models.get(provider_id) or []}
+            keys = {provider_id, *model_keys}
+            if provider_id not in runtime_ids or not keys & set(stored.get("validationExecutions") or {}):
                 continue
-            if all(
-                runtime_validated_within(self.connection, runtime_id, VALIDATION_TTL_SECONDS)
-                for runtime_id in runtime_ids
-            ):
+            if not self._stale_validation_targets(stored):
                 resumed.append(self.execute(action["id"], platform=None))
         return resumed
 
@@ -3686,13 +3706,20 @@ class BlockerRemediationService:
             reason=reason,
             details=details,
             git_remote_add_specs=self._configured_git_remote_add_specs(project_id),
+            local_account=self._local_profile_account(blocker_runtime_id(details)),
         )
         resource_approval_spec = self._approve_resource_decision_spec(details)
         builder = PAYLOAD_BUILDERS.get(blocker_type)
-        specs = (
-            builder(context)
-            if builder is not None
-            else [
+        if uses_local_runtime_specs(blocker_type, context.local_runtime_payload):
+            specs = local_runtime_specs(
+                setup=context.local_runtime_payload,
+                runtime_settings_payload=context.runtime_settings_payload,
+                runtime_recovery_payload=context.runtime_recovery_payload,
+            )
+        elif builder is not None:
+            specs = builder(context)
+        else:
+            specs = [
                 {
                     "actionType": "retry_loop",
                     "title": "Retry loop",
@@ -3700,7 +3727,16 @@ class BlockerRemediationService:
                     "payload": {},
                 }
             ]
-        )
         if blocker_type.startswith("resource_manager_") and resource_approval_spec:
             return [resource_approval_spec, *specs]
         return specs
+
+    def _local_profile_account(self, runtime_id: str) -> dict[str, Any] | None:
+        """Cuenta del runtime local con perfil de catálogo; ``None`` para Ollama, CLI, API o ids desconocidos."""
+        if not runtime_id:
+            return None
+        try:
+            account = ProviderAccountStore(self.connection).get_provider_account(runtime_id)
+        except KeyError:
+            return None
+        return account if local_profile_entry(account) is not None else None

@@ -13,6 +13,7 @@ import pytest
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.model_execution_health import record_model_execution
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.quota_manager import QuotaManager, QuotaRequest
 from local_control_center.local_runtimes.endpoints import endpoint_references
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.threads.repository import ThreadsRepository
@@ -104,6 +105,10 @@ def test_delete_tombstones_the_endpoint_without_orphans_and_keeps_evidence(
             "gen-del", "m-a", actor="operator", is_default=True
         )
         record_model_execution(store.connection, "gen-del", "m-a", True, "test_prompt")
+        quota = QuotaManager(store.connection)
+        quota.acquire(QuotaRequest(provider_id="gen-del", model="m-a", reserved_tokens=1))
+        quota.record_rate_limit(provider_id="gen-del", model="m-a", retry_after_seconds=120)
+        assert "gen-del" in quota.providers_in_cooldown()
         deleted = client.delete(f"{ENDPOINTS}/gen-del", headers=headers)
         again = client.delete(f"{ENDPOINTS}/gen-del", headers=headers)
         not_local = client.delete(f"{ENDPOINTS}/codex_cli", headers=headers)
@@ -117,8 +122,12 @@ def test_delete_tombstones_the_endpoint_without_orphans_and_keeps_evidence(
         ("runtime_installations", "runtime_id"),
         ("runtime_accounts", "runtime_id"),
         ("runtime_capabilities", "runtime"),
+        ("provider_limits", "provider_id"),
+        ("provider_execution_leases", "provider_id"),
     ):
         assert _count(store, table, column, "gen-del") == 0, table
+    # Re-adding the same instance id must not inherit the deleted endpoint's cooldown.
+    assert "gen-del" not in QuotaManager(store.connection).providers_in_cooldown()
     assert _count(store, "model_execution_health", "provider_id", "gen-del") == 1
     assert "local_endpoint.deleted" in _audit_actions(store, "gen-del")
 

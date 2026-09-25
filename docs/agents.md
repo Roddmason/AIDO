@@ -113,10 +113,11 @@ current implementation:
 
 - selects the first policy-allowed preferred/fallback provider;
 - honors `allowRemote` and `allowLocal` through hardcoded name sets: only
-  `ollama` and `local_ollama` match the local policy; other local providers
-  (`llama_cpp`, `lm_studio`, `vllm`, `local_openai_compatible`) are not
-  recognized by this legacy path and are routed through `ModelRouter` instead,
-  which applies endpoint-locality classification via `agents/endpoint_locality.py`;
+  `ollama` and `local_ollama` match the local policy; a legacy `model_policy`
+  that names another local provider (`llama_cpp`, `lm_studio`, `vllm`,
+  `local_openai_compatible`) yields no candidate and the plan is
+  `blocked_policy`, with no automatic delegation. Those runtimes are selected
+  by `ModelRouter`, which classifies locality with `agents/endpoint_locality.py`;
 - blocks calls that would exceed `maxCostUsd` or the explicit remaining budget;
 - returns `configuration_required`, `blocked` or `unavailable` instead of
   simulating execution when credentials, gates or endpoints are not ready;

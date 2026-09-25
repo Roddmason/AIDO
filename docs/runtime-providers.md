@@ -203,9 +203,10 @@ Load state is read defensively and never persisted (a shared 10 s cache; a slow
 or unknown answer reads as `unknown`):
 
 - `openai_models_status`: `GET /v1/models` → `data[].status.value`
-  (`loaded`, `loading`, `unloaded`), complemented by `GET /props` (`role`,
-  `max_instances`, `models_autoload`). These fields are observed on llama.cpp
-  builds but are not part of its official documentation.
+  (`loaded`, `loading`, `unloaded`) is the only load-state source. This field
+  is observed on llama.cpp builds but is not part of its official
+  documentation. `GET /props` is read only by discovery, to recognize a
+  llama.cpp server; neither load state nor the health probe reads it.
 - `lm_studio_rest`: `GET /api/v1/models` (`loaded_instances`), falling back to
   `GET /api/v0/models` (`state == "loaded"`) before LM Studio 0.4.0.
 - `single_model`: the only id listed by `/v1/models` is loaded.

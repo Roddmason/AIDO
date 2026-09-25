@@ -257,6 +257,7 @@ class AIExecutionService:
                         response=response,
                         latency_ms=latency_ms,
                         execution_id=execution_id,
+                        project_id=plan.project_id,
                     )
                 except Exception as error:
                     rate_limited = isinstance(error, urllib.error.HTTPError) and error.code == 429
@@ -470,6 +471,7 @@ class AIExecutionService:
         response: ModelResponse,
         latency_ms: int,
         execution_id: str,
+        project_id: str,
     ) -> AIExecutionBranchResult:
         if branch.lease is None:  # pragma: no cover - protected by admission construction
             raise RuntimeError("quota_lease_missing")
@@ -528,6 +530,7 @@ class AIExecutionService:
                     provider_id=branch.plan.provider_id,
                     model=branch.plan.model,
                     runtime_type="api",
+                    project_id=project_id,
                     request_id=execution_id,
                     session_id=branch.id,
                     input_tokens=int(input_tokens) if input_tokens is not None else None,

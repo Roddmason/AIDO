@@ -441,6 +441,7 @@ class ModelGateway:
         )
         latency_ms = int((time.monotonic() - start) * 1000)
         usage_result = self._record_successful_provider_usage(
+            project_id=project_id,
             provider_id=provider_id,
             model=model,
             runtime_type=configuration["runtimeType"],
@@ -751,6 +752,7 @@ class ModelGateway:
     def _record_successful_provider_usage(
         self,
         *,
+        project_id: str,
         provider_id: str,
         model: str,
         runtime_type: str,
@@ -790,6 +792,7 @@ class ModelGateway:
             provider_id=provider_id,
             model=model,
             runtime_type=runtime_type,
+            project_id=project_id,
             agent_id=planned_call.get("agentId"),
             role=planned_call.get("role"),
             workflow_run_id=planned_call.get("workflowRunId"),

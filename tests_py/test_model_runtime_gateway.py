@@ -1341,8 +1341,12 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
                 messages=[{"role": "user", "content": "hello"}],
             )
             result = ModelGateway(connection).execute_model_call(plan)
+            cost_projects = {
+                row["project_id"] for row in connection.execute("SELECT project_id FROM cost_usage")
+            }
 
         assert result["status"] == "completed"
+        assert cost_projects == {"project-gateway"}
         assert result["content"] == "real provider response"
         assert result["usage"]["inputTokens"] == 7
         assert result["usage"]["cachedInputTokens"] == 2

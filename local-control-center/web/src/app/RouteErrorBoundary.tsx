@@ -1,6 +1,7 @@
 /**
- * Error boundary around a lazily loaded subtree (the active route, a deferred Settings panel), so one
- * broken view degrades to an error state instead of blanking the whole shell. The recovery it offers
+ * Error boundary around a lazily loaded subtree (the active route, the Settings body, a local-runtime
+ * panel), so one broken view degrades to an error state instead of blanking the whole shell; callers
+ * can frame that state for the surface it replaces. The recovery it offers
  * depends on what failed:
  * - A render error offers Retry, which remounts the subtree via a changing key.
  * - A failed chunk download offers a page reload. A remount cannot recover it: `React.lazy` keeps the
@@ -24,6 +25,8 @@ interface RouteErrorBoundaryProps {
 	title: string;
 	body: string;
 	retryLabel: string;
+	/** Frames the error state for the surface it replaces, e.g. a dialog's padded content column. */
+	wrapFallback?: (fallback: ReactNode) => ReactNode;
 }
 
 interface RouteErrorBoundaryState {
@@ -99,7 +102,7 @@ export class RouteErrorBoundary extends Component<
 
 	render() {
 		if (this.state.hasError) {
-			return this.state.chunkLoadFailed ? (
+			const fallback = this.state.chunkLoadFailed ? (
 				<ChunkLoadErrorState title={this.props.title} />
 			) : (
 				<ErrorState
@@ -112,6 +115,7 @@ export class RouteErrorBoundary extends Component<
 					}
 				/>
 			);
+			return this.props.wrapFallback ? this.props.wrapFallback(fallback) : fallback;
 		}
 		return <Fragment key={this.state.retryKey}>{this.props.children}</Fragment>;
 	}

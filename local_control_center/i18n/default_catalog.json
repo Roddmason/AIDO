@@ -9435,6 +9435,46 @@
       "en": "Run llama-server with its OpenAI-compatible API (for example: llama-server -m model.gguf --port 8082), optionally protect it with --api-key and save that key as the credential, then sync models and test the runtime.",
       "es": "Levanta llama-server con su API compatible con OpenAI (por ejemplo: llama-server -m model.gguf --port 8082), opcionalmente protégelo con --api-key y guarda esa clave como credencial; luego sincroniza modelos y prueba el runtime."
     },
+    "app.remediation.local.cause.local_server_unreachable": {
+      "en": "The local server is not answering. Start it (for example llama-server, LM Studio or vLLM) and try again.",
+      "es": "El servidor local no responde. Inícialo (por ejemplo llama-server, LM Studio o vLLM) y prueba de nuevo."
+    },
+    "app.remediation.local.cause.model_loading": {
+      "en": "The server is loading the model. Wait a moment and try again.",
+      "es": "El servidor está cargando el modelo. Espera un momento y prueba de nuevo."
+    },
+    "app.remediation.local.cause.local_model_load_failed": {
+      "en": "The server could not load the model. Check its log and free memory, then try again.",
+      "es": "El servidor no pudo cargar el modelo. Revisa su registro y la memoria libre, y prueba de nuevo."
+    },
+    "app.remediation.local.cause.local_auth_required": {
+      "en": "The server requires a token. Save it as a credential reference in the setup wizard.",
+      "es": "El servidor requiere un token. Guárdalo como referencia de credencial en el asistente."
+    },
+    "app.remediation.local.cause.context_length_exceeded": {
+      "en": "The request exceeds the model context. Choose a model with a larger context or shorten the task.",
+      "es": "La solicitud excede el contexto del modelo. Elige un modelo con más contexto o acota la tarea."
+    },
+    "app.remediation.local.cause.insecure_credential_transport": {
+      "en": "A token cannot travel over plain http to a remote host. Use https or declare the endpoint as running on this computer.",
+      "es": "Un token no puede viajar por http sin cifrar a un host remoto. Usa https o declara que el endpoint corre en este computador."
+    },
+    "app.remediation.local.cause.local_endpoint_busy": {
+      "en": "The local endpoint is busy with another call. Try again when it finishes.",
+      "es": "El endpoint local está ocupado con otra llamada. Prueba de nuevo cuando termine."
+    },
+    "app.remediation.local.cause.insufficient_time_for_model_load": {
+      "en": "Not enough time remains to load the model. Try again with a loaded model or more time.",
+      "es": "No queda tiempo suficiente para cargar el modelo. Prueba de nuevo con un modelo cargado o con más tiempo."
+    },
+    "app.remediation.local.cause.local_model_not_validated": {
+      "en": "No validated model can serve this role. Validate a model for this runtime.",
+      "es": "Ningún modelo validado puede cumplir este rol. Valida un modelo de este runtime."
+    },
+    "app.remediation.local.hint.wsl": {
+      "en": "If the server runs in WSL, check localhostForwarding in .wslconfig and that the Windows firewall allows the port.",
+      "es": "Si el servidor corre en WSL, revisa localhostForwarding en .wslconfig y que el firewall de Windows permita el puerto."
+    },
     "app.runtime.instructions.nvidia_nim": {
       "en": "Set AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL and AIDO_NVIDIA_MODEL, enable the provider in Settings, then run a health check.",
       "es": "Define AIDO_NVIDIA_API_KEY, AIDO_NVIDIA_BASE_URL y AIDO_NVIDIA_MODEL, habilita el proveedor en Configuración y ejecuta un chequeo de salud."

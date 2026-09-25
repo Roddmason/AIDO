@@ -13,8 +13,8 @@ re-add specs are injected by the service through the context factory
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from local_control_center.agents.runtime_provider_config import (
@@ -23,6 +23,11 @@ from local_control_center.agents.runtime_provider_config import (
     known_provider_default_base_url,
 )
 from local_control_center.agents.runtime_readiness import HOST_CAPACITY_BLOCKERS
+from local_control_center.remediations.local_runtime import (
+    local_runtime_cause,
+    local_runtime_setup_payload,
+    unvalidated_local_provider_id,
+)
 from local_control_center.research.web_search import PROVIDER_BLOCKED_CODE
 from local_control_center.runtime_integrations.repository import is_ollama_runtime_id
 from local_control_center.shared.redaction import redact_secrets
@@ -150,6 +155,23 @@ class BlockerPayloadContext:
     git_init_payload: dict[str, Any]
     delivery_approval_payload: dict[str, Any]
     git_remote_add_specs: list[dict[str, Any]]
+    local_runtime_payload: dict[str, Any] = field(default_factory=dict)
+
+
+def blocker_runtime_id(details: dict[str, Any]) -> str:
+    """Runtime al que apunta la evidencia del bloqueo: seleccionado, explícito o del gestor de recursos.
+
+    En un bloqueo del gestor de recursos prefiere la cuenta local que quedó sin modelos validados
+    (``local_model_not_validated``): es la que "Validar modelo" debe probar.
+    """
+    runtime_id = (
+        details.get("selectedRuntimeId")
+        or details.get("runtimeId")
+        or details.get("providerId")
+        or unvalidated_local_provider_id(details)
+        or _provider_id_from_resource_blockers(details)
+    )
+    return str(runtime_id or "").strip()
 
 
 def build_blocker_payload_context(
@@ -157,17 +179,26 @@ def build_blocker_payload_context(
     reason: str,
     details: dict[str, Any],
     git_remote_add_specs: list[dict[str, Any]],
+    local_account: Mapping[str, Any] | None = None,
 ) -> BlockerPayloadContext:
-    """Derive every shared payload fragment from the blocker evidence once per dispatch."""
-    runtime_id = (
-        details.get("selectedRuntimeId")
-        or details.get("runtimeId")
-        or details.get("providerId")
-        or _provider_id_from_resource_blockers(details)
-    )
-    runtime_id_text = str(runtime_id or "").strip()
+    """Derive every shared payload fragment from the blocker evidence once per dispatch.
+
+    ``local_account`` is the persisted account of a local runtime with a catalog profile, injected by
+    the service; with it the provider setup comes from that account instead of static defaults.
+    """
+    runtime_id_text = blocker_runtime_id(details)
     runtime_payload = {"runtimeId": runtime_id_text} if runtime_id_text else {}
-    provider_setup_payload = _provider_credentials_setup_payload(runtime_id_text) if runtime_id_text else {}
+    local_runtime_payload = (
+        local_runtime_setup_payload(local_account, cause=local_runtime_cause(reason, details))
+        if local_account is not None
+        else {}
+    )
+    if local_runtime_payload:
+        provider_setup_payload = local_runtime_payload
+    elif runtime_id_text:
+        provider_setup_payload = _provider_credentials_setup_payload(runtime_id_text)
+    else:
+        provider_setup_payload = {}
     provider_settings_payload = {"section": "providers-cli"}
     if provider_setup_payload:
         provider_settings_payload["providerId"] = provider_setup_payload["providerId"]
@@ -197,6 +228,7 @@ def build_blocker_payload_context(
         git_init_payload={**git_dirty_tree_payload, "defaultBranch": "dev"},
         delivery_approval_payload=_delivery_approval_payload(details),
         git_remote_add_specs=git_remote_add_specs,
+        local_runtime_payload=local_runtime_payload,
     )
 
 
@@ -1568,17 +1600,34 @@ def _thread_intake_decision_required_specs(context: BlockerPayloadContext) -> li
     ]
 
 
+def _stale_runtime_models(details: dict[str, Any]) -> dict[str, list[str]]:
+    """Modelos sellados vencidos por runtime (``staleRuntimes[].model`` del gate por (provider, modelo))."""
+    runtime_models: dict[str, list[str]] = {}
+    for item in details.get("staleRuntimes") or []:
+        if not isinstance(item, dict):
+            continue
+        provider_id = str(item.get("providerId") or "").strip()
+        model = str(item.get("model") or "").strip()
+        if provider_id and model and model not in runtime_models.setdefault(provider_id, []):
+            runtime_models[provider_id].append(model)
+    return {provider_id: models for provider_id, models in runtime_models.items() if models}
+
+
 def _runtime_team_validation_expired_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
-    """Re-prueba los runtimes vencidos del equipo del hilo; el retry queda para después de editar."""
+    """Re-prueba los runtimes (o sus modelos sellados) vencidos del equipo; el retry queda para después."""
     runtime_ids = [str(item) for item in context.details.get("runtimeIds") or [] if str(item).strip()]
     specs: list[dict[str, Any]] = []
     if runtime_ids:
+        payload: dict[str, Any] = {"runtimeIds": runtime_ids}
+        runtime_models = _stale_runtime_models(context.details)
+        if runtime_models:
+            payload["runtimeModels"] = runtime_models
         specs.append(
             {
                 "actionType": "revalidate_runtime",
                 "title": "Re-test runtime",
                 "description": "Queue a real round trip per stale runtime; the run resumes once every runtime answers.",
-                "payload": {"runtimeIds": runtime_ids},
+                "payload": payload,
             }
         )
     specs.append(

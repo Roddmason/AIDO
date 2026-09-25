@@ -6,6 +6,7 @@ workload profiles) so a document cannot keep describing a contract that no longe
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from local_control_center.agents.local_runtime_causes import LOCAL_RUNTIME_CAUSES
@@ -18,6 +19,17 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_PROVIDERS_DOC = "docs/runtime-providers.md"
 RESOURCE_PROFILES_DOC = "docs/operational-hardening/p0-resource-profiles.md"
 EXPECTED_LOCAL_CATALOG_IDS = {"llama_cpp", "lm_studio", "vllm", "local_openai_compatible"}
+OPENAPI_CLIENT = ROOT / "local-control-center" / "web" / "src" / "api" / "generated" / "openapi.ts"
+LOCAL_ROUTE_PREFIXES = ("/api/v1/local-endpoints", "/api/v1/local-runtimes")
+OPENAPI_OPERATION = re.compile(
+    r'"method": "(?P<method>[A-Z]+)", "operationId": "[^"]+", "path": "(?P<path>[^"]+)"'
+)
+DOC_ROUTE = re.compile(r"`(?P<method>GET|POST|PUT|PATCH|DELETE) (?P<path>/api/v1/local-[^`\s]+)`")
+PATH_PARAMETER = re.compile(r"\{[^}]+\}")
+QUEUED_LOCAL_ROUTES = (
+    "POST /api/v1/local-endpoints/{provider_id}/validate-model",
+    "POST /api/v1/local-runtimes/discover",
+)
 
 
 def _read(relative_path: str) -> str:
@@ -86,3 +98,45 @@ def test_resource_docs_match_local_inference_profiles() -> None:
         assert _table_row(profiles_doc, workload_class) == expected_row
     assert "`LOCAL_INFERENCE_CLASSES`" in profiles_doc
     assert "`local_model_call`" in _read(RUNTIME_PROVIDERS_DOC)
+
+
+def _normalized_route(method: str, path: str) -> tuple[str, str]:
+    return method, PATH_PARAMETER.sub("{id}", path)
+
+
+def _openapi_local_routes() -> set[tuple[str, str]]:
+    text = OPENAPI_CLIENT.read_text(encoding="utf-8")
+    return {
+        _normalized_route(match["method"], match["path"])
+        for match in OPENAPI_OPERATION.finditer(text)
+        if match["path"].startswith(LOCAL_ROUTE_PREFIXES)
+    }
+
+
+def test_model_gateway_doc_lists_exactly_the_local_endpoint_routes() -> None:
+    expected = _openapi_local_routes()
+    assert ("POST", "/api/v1/local-runtimes/discover") in expected
+    assert ("DELETE", "/api/v1/local-endpoints/{id}") in expected
+    doc = _read("docs/model-gateway.md")
+    documented = {_normalized_route(match["method"], match["path"]) for match in DOC_ROUTE.finditer(doc)}
+    assert documented == expected
+    for queued_route in QUEUED_LOCAL_ROUTES:
+        assert f"`{queued_route}`: queued (`202`" in doc, queued_route
+
+
+def test_backend_doc_lists_the_local_runtimes_package() -> None:
+    assert (ROOT / "local_control_center" / "local_runtimes" / "api.py").is_file()
+    doc = _read("docs/backend.md")
+    assert "- `local_runtimes`:" in doc
+    assert "`/api/v1/local-endpoints`" in doc
+
+
+def test_model_routing_doc_states_the_local_private_locality_rule() -> None:
+    doc = _read("docs/model-routing.md")
+    rule = (
+        "`local_private` rejects `provider_type=api` and `provider_type=gateway`, and "
+        "`provider_type=local` accounts whose endpoint locality is `remote`"
+    )
+    assert rule in doc
+    assert "`declared_local`" in doc
+    assert "docs/runtime-providers.md#local-runtimes" in doc

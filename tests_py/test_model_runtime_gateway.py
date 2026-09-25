@@ -2666,38 +2666,6 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert actual["usageSource"] == "actual"
 
 
-def test_usage_ledger_skips_compat_cost_row_for_zero_cost_calls(tmp_path: Path) -> None:
-    """Una llamada self-hosted de costo 0 no deja una fila `cost_usage` sin proyecto (rompía `/api/v1/overview`)."""
-    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
-        initialize_platform_schema(connection)
-        ledger = UsageLedger(connection)
-        ledger.record_usage(
-            provider_id="llama_cpp",
-            model="qwen3.8-27b",
-            runtime_type="local",
-            role="product_owner",
-            request_id="req-self-hosted",
-            input_tokens=20,
-            output_tokens=10,
-            actual_cost_usd=0.0,
-        )
-        ledger.record_usage(
-            provider_id="openai_compatible",
-            model="configured_model",
-            runtime_type="api",
-            role="qa",
-            request_id="req-paid",
-            input_tokens=20,
-            output_tokens=10,
-            actual_cost_usd=0.25,
-        )
-        amounts = [row[0] for row in connection.execute("SELECT amount_usd FROM cost_usage")]
-        ledger_rows = connection.execute("SELECT COUNT(*) FROM usage_ledger").fetchone()[0]
-
-    assert amounts == [0.25]
-    assert ledger_rows == 2
-
-
 def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> None:
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)

@@ -1519,6 +1519,14 @@
       "en": "No team role can use this runtime.",
       "es": "Ningún rol del equipo puede usar este runtime."
     },
+    "app.runtimeTeam.loadedModel": {
+      "en": "Loaded model",
+      "es": "Modelo cargado"
+    },
+    "app.runtimeTeam.resolvedModel": {
+      "en": "Resolved model",
+      "es": "Modelo resuelto"
+    },
     "app.runtimeTeam.test": {
       "en": "Test",
       "es": "Probar"

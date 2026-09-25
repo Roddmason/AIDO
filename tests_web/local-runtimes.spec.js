@@ -442,3 +442,73 @@ test('Local runtime discovery: an unrecognized server needs confirmation before 
 	await wizard.getByRole('button', { name: 'Close local runtime setup' }).click();
 	await expect(wizard).toBeHidden();
 });
+
+const VALIDATED = {
+	status: 'validated',
+	checkedAt: '2026-09-23T10:00:00+00:00',
+	latencyMs: 380,
+	model: 'qwen3-8b',
+	reason: null,
+};
+const NO_SPLIT = { product_owner: null, developer: null, architect: null, security: null };
+const TEAM_LOCAL = {
+	providerId: 'llama-lab',
+	label: 'llama.cpp lab',
+	kind: 'local',
+	validation: VALIDATED,
+	eligibleRoles: ['product_owner', 'developer', 'architect', 'security'],
+	loadedModels: ['qwen3-8b'],
+};
+
+async function openNewThreadTeamPanel(page) {
+	await page.goto('/#threads');
+	await waitForControlPlane(page);
+	await page.locator('.thread-workspace-head').first().click();
+	await page.locator('.shell-new-thread').click();
+	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+	await page.getByRole('button', { name: /AI team/ }).click();
+	const panel = page.getByRole('dialog', { name: 'AI team for this thread' });
+	await expect(panel).toBeVisible();
+	return panel;
+}
+
+test('Thread team: a local runtime candidate shows its loaded model and the model resolved per role', async ({
+	page,
+}) => {
+	await page.route('**/api/v1/runtime/team-candidates**', async (route) => {
+		const selected = new URL(route.request().url()).searchParams.get('selected') ?? '';
+		const chosen = selected.split(',').includes(TEAM_LOCAL.providerId);
+		await route.fulfill({
+			json: {
+				candidates: [TEAM_LOCAL],
+				freshnessSeconds: 1800,
+				suggestedRoleRuntimes: chosen
+					? {
+							product_owner: TEAM_LOCAL.providerId,
+							developer: TEAM_LOCAL.providerId,
+							architect: TEAM_LOCAL.providerId,
+							security: null,
+						}
+					: NO_SPLIT,
+				suggestedRoleModels: chosen
+					? { product_owner: 'qwen3-8b', developer: 'qwen3-8b', architect: 'gemma-3-4b' }
+					: {},
+			},
+		});
+	});
+	try {
+		const panel = await openNewThreadTeamPanel(page);
+		const row = panel.locator('.runtime-team-row').filter({ hasText: TEAM_LOCAL.label });
+		await expect(row).toContainText('Loaded model: qwen3-8b');
+
+		await panel.getByRole('checkbox', { name: /llama\.cpp lab/ }).check();
+
+		await expect(panel.getByRole('combobox', { name: 'Product Owner' })).toHaveValue(
+			TEAM_LOCAL.providerId,
+		);
+		await expect(panel.getByText('Resolved model: qwen3-8b')).toHaveCount(2);
+		await expect(panel.getByText('Resolved model: gemma-3-4b')).toBeVisible();
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

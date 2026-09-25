@@ -191,7 +191,7 @@ def init_phase80_schema(connection: sqlite3.Connection) -> None:
               )""",
                 (),
             ),
-            ("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", (80, utc_now())),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (80, utc_now())),
         ],
     )
 

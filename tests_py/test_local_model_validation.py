@@ -22,6 +22,7 @@ from local_control_center.agents.model_execution_health import (
     record_model_execution,
 )
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.provider_catalog import LLAMA_CPP_LOCAL_PROFILE
 from local_control_center.agents.providers.base import ModelResponse, UsageRecord
 from local_control_center.runtime_team import probe
 from local_control_center.runtime_team.probe import RuntimeValidationService
@@ -157,6 +158,20 @@ def test_a_cold_start_timeout_defers_but_a_loaded_model_timeout_fails(connection
     _use(monkeypatch, _LocalProvider([TimeoutError("timed out")]))
     warm = RuntimeValidationService(connection).validate("llama_cpp", project_id=None, model="qwen-b")
     assert warm["status"] == "failed"
+
+
+def test_a_model_that_is_not_loaded_gets_the_profile_cold_start_budget(connection, monkeypatch):
+    """Sin el presupuesto de cold start, el default de chat (60 s) difiere siempre al modelo que carga lento."""
+    monkeypatch.setattr(
+        local_model_state, "LOAD_STATE_CACHE", _States({"gemma-a": "unloaded", "qwen-b": "loaded"})
+    )
+    provider = _LocalProvider([_http_error(400), '{"ok": true}', '{"ok": true}'])
+    _use(monkeypatch, provider)
+    cold = RuntimeValidationService(connection).validate("llama_cpp", project_id=None, model="gemma-a")
+    warm = RuntimeValidationService(connection).validate("llama_cpp", project_id=None, model="qwen-b")
+    assert (cold["status"], warm["status"]) == ("validated", "validated")
+    cold_start = LLAMA_CPP_LOCAL_PROFILE.cold_start_timeout_s
+    assert [request.timeout_seconds for request in provider.requests] == [cold_start, cold_start, None]
 
 
 def test_a_requested_model_must_be_enabled(connection, monkeypatch):

@@ -113,8 +113,13 @@ def _local_profile(account: dict[str, Any]) -> LocalRuntimeProfile | None:
     return entry.local_profile if entry is not None else None
 
 
-def _local_validation_exchange(provider: Any, model: str, profile: LocalRuntimeProfile) -> tuple[str, bool]:
+def _local_validation_exchange(
+    provider: Any, model: str, profile: LocalRuntimeProfile, *, was_loaded: bool
+) -> tuple[str, bool]:
     """Pide el JSON de validación; devuelve el texto y si el servidor aceptó ``response_format`` json_schema.
+
+    Un modelo que no consta cargado recibe ``cold_start_timeout_s`` del perfil en vez del default de chat:
+    con 60 s un modelo del router que tarda más en cargar quedaría diferido en cada intento.
 
     Raises:
         HTTPError: un estado distinto de 400 en el primer intento, o cualquier error del segundo.
@@ -127,6 +132,8 @@ def _local_validation_exchange(provider: Any, model: str, profile: LocalRuntimeP
         "maxTokens": VALIDATION_MAX_TOKENS,
         "extraBody": dict(profile.disable_reasoning_body or {}),
     }
+    if not was_loaded:
+        body["timeoutSeconds"] = profile.cold_start_timeout_s
     try:
         response = provider.chat_completion(
             ModelRequest.model_validate({**body, "responseFormat": VALIDATION_RESPONSE_FORMAT})
@@ -362,7 +369,7 @@ class RuntimeValidationService:
         fingerprint = provider_configuration_fingerprint(self.connection, provider_id)
         failure = {"model": model, "fingerprint": fingerprint, "started_at": started_at}
         try:
-            content, json_schema = _local_validation_exchange(provider, model, profile)
+            content, json_schema = _local_validation_exchange(provider, model, profile, was_loaded=was_loaded)
         except LocalRuntimeError as error:
             if error.cause in DEFERRED_VALIDATION_CAUSES:
                 return _result(provider_id, kind, "deferred", model=model, reason=error.cause)

@@ -231,3 +231,64 @@ def test_a_polling_reader_never_gets_a_reading_of_another_base_url():
         assert cache.get(moved, max_wait_s=0.0, allow_stale=True) == {}
     finally:
         gate.set()
+
+
+ENV_BASE_URL = "AIDO_OPENAI_COMPATIBLE_BASE_URL"
+ENV_API_KEY = "AIDO_OPENAI_COMPATIBLE_API_KEY"
+LAN_BASE_URL = "http://192.168.1.50/v1"
+CANONICAL = {
+    "providerId": "openai_compatible",
+    "providerType": "local",
+    "providerFamily": "openai_compatible",
+    "apiFormat": "openai_compatible",
+    "credentialRef": "env:AIDO_LOCAL_STATE_TEST_TOKEN",
+    "metadata": {},
+}
+
+
+@pytest.fixture
+def env_connection(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for name in (ENV_BASE_URL, ENV_API_KEY):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIDO_LOCAL_STATE_TEST_TOKEN", "synthetic-fixture")
+    monkeypatch.setattr(local_model_state, "_LISTED_ALIASES", {})
+    return monkeypatch
+
+
+def test_the_reading_goes_to_the_env_url_the_transport_guard_validated(env_connection):
+    """El lector consulta la URL efectiva del adapter (entorno > cuenta), la misma que evalúa el guard."""
+    env_connection.setenv(ENV_BASE_URL, "http://127.0.0.1:1/v1")
+    account = {**CANONICAL, "baseUrl": LAN_BASE_URL}
+    seen: list = []
+    payload = {"data": [{"id": "gemma", "aliases": ["local"], "status": {"value": "loaded"}}]}
+    read_load_states(account, ROUTER, http_get_json=_http(payload, seen))
+    assert [url for url, _headers, _timeout in seen] == ["http://127.0.0.1:1/v1/models"]
+    assert seen[0][1]["Authorization"] == "Bearer synthetic-fixture"
+    assert model_aliases_for(account) == {"local": "gemma"}
+
+
+def test_no_bearer_travels_by_http_to_an_undeclared_lan_host(env_connection):
+    """Referencia resuelta + http a un host no loopback ni declarado ⇒ la lectura sale sin bearer."""
+    env_connection.setenv(ENV_BASE_URL, LAN_BASE_URL)
+    account = {**CANONICAL, "baseUrl": "http://127.0.0.1:1/v1"}
+    seen: list = []
+    read_load_states(account, ROUTER, http_get_json=_http(ROUTER_MODELS, seen))
+    assert seen[0][0] == "http://192.168.1.50/v1/models"
+    assert "Authorization" not in seen[0][1]
+
+
+def test_the_cache_key_follows_the_effective_url(env_connection):
+    """Cambiar la URL del entorno nunca sirve la lectura del servidor anterior."""
+    reads: list[str] = []
+
+    def reader(account):
+        reads.append(account["baseUrl"])
+        return {"gemma": "loaded"}
+
+    cache = LoadStateCache(ttl_s=10.0, reader=reader)
+    account = {**CANONICAL, "baseUrl": LAN_BASE_URL}
+    env_connection.setenv(ENV_BASE_URL, "http://127.0.0.1:1/v1")
+    assert cache.get(account, max_wait_s=2.0) == {"gemma": "loaded"}
+    env_connection.setenv(ENV_BASE_URL, "http://127.0.0.1:2/v1")
+    assert cache.get(account, max_wait_s=2.0) == {"gemma": "loaded"}
+    assert len(reads) == 2

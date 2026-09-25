@@ -101,12 +101,11 @@ class UsageLedger:
         raw_usage: dict[str, Any] | None = None,
         usage_source: str | None = None,
     ) -> dict[str, Any]:
-        """Insert a ledger row (and a cost_usage row when cost is known and non-zero) and return it.
+        """Insert a ledger row (and a cost_usage row when cost is known) and return it.
 
         Raw usage is redacted before storage. The two inserts are emitted on the caller's
         connection without an explicit commit, so they are atomic only within the caller's
-        transaction. A zero-cost call (self-hosted inference) adds no compatibility row: the
-        ledger keeps its cost, and a project-less `cost_usage` row would break `/api/v1/overview`.
+        transaction.
         """
         ledger_id = f"usage-{uuid.uuid4()}"
         sanitized_usage = redact_secrets(raw_usage or {"usage_source": "estimated"})
@@ -161,8 +160,7 @@ class UsageLedger:
                 utc_now(),
             ),
         )
-        compat_amount = actual_cost_usd if actual_cost_usd is not None else estimated_cost_usd
-        if compat_amount:
+        if estimated_cost_usd is not None or actual_cost_usd is not None:
             self.connection.execute(
                 """
                 INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
@@ -170,7 +168,7 @@ class UsageLedger:
                 """,
                 (
                     f"cost-{uuid.uuid4()}",
-                    float(compat_amount),
+                    float(actual_cost_usd if actual_cost_usd is not None else estimated_cost_usd or 0),
                     json_dumps({"usageLedgerId": ledger_id, "providerId": provider_id, "model": model}),
                     utc_now(),
                 ),

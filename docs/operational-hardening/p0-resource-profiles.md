@@ -14,10 +14,19 @@ Canonical definitions: `local_control_center/host_resources/profiles.py` and
 | unreal_editor | heavy, GPU | 70 | 24 | 64 |
 | unreal_cook | heavy, exclusive | 80 | 32 | 64 |
 | local_gpu_model | heavy, GPU | 50 | 16 | 16 |
+| local_model_call | light | 15 | 2 | 4 |
 
 These native caps apply to registered trees launched with the profile. They do not throttle the
 operator's entire computer or retroactively contain an already open Unreal Editor. Host sampling
 observes external contention; admission refuses new work when there is insufficient headroom.
+
+`local_model_call` is the client side of a call to a model server that AIDO does
+not launch (llama.cpp, LM Studio, vLLM, Ollama): the server already holds the
+model memory, so the call reserves only its client budget and a child call inside
+an `agent_cli` job borrows the parent lease instead of requesting its own
+admission. `local_gpu_model` and `local_model_call` form
+`LOCAL_INFERENCE_CLASSES`; both are refused with `unreal_local_gpu_conflict`
+while Unreal Editor runs and `resources.blockLocalGpuWhenUnreal=true`.
 
 On Windows, the Job memory cap constrains committed virtual memory, not resident working set (RSS).
 An allocation can fail at the Job cap while the host still has free physical RAM; inspect both metrics.

@@ -25,6 +25,7 @@ from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.endpoint_locality import (
     catalog_entry_for_account,
     credential_transport_allowed,
+    effective_connection,
     server_root_url,
 )
 from local_control_center.agents.provider_catalog import LocalRuntimeProfile
@@ -61,8 +62,11 @@ def default_http_get_json(url: str, headers: Mapping[str, str], timeout_s: float
 
 
 def _auth_headers(account: Mapping[str, Any]) -> dict[str, str]:
-    """Bearer solo si la ref resuelve y el transporte lo permite (nunca por http a un host remoto)."""
-    credential_ref = str(account.get("credentialRef") or "").strip()
+    """Bearer solo si la ref resuelve y el transporte lo permite (nunca por http a un host remoto).
+
+    La referencia es la efectiva del adapter (``effective_connection``), la misma que evalúa el guard.
+    """
+    credential_ref = effective_connection(account)[1]
     if not credential_ref or not credential_transport_allowed(account):
         return {}
     credential = CredentialResolver().resolve(credential_ref)
@@ -209,7 +213,9 @@ def read_load_states(
     """Estado de carga por id de modelo según ``profile.model_state_source``; vacío si no se sabe.
 
     Despacha por ``LOAD_STATE_READERS`` con la URL raíz del servidor (sin ``/v1``), las cabeceras de
-    autenticación permitidas y el getter; una fuente sin lector registrado queda desconocida.
+    autenticación permitidas y el getter; una fuente sin lector registrado queda desconocida. La URL es la
+    efectiva del adapter (``effective_connection``: el entorno gana a la cuenta), la misma que valida el guard
+    de transporte del bearer, así la lectura describe el servidor que usa el chat.
 
     Raises:
         OSError, ValueError: propagados desde ``http_get_json``; ``LoadStateCache`` los vuelve desconocido.
@@ -217,8 +223,7 @@ def read_load_states(
     reader = LOAD_STATE_READERS.get(profile.model_state_source)
     if reader is None:
         return {}
-    root_url = server_root_url(str(account.get("baseUrl") or ""))
-    return reader(root_url, _auth_headers(account), http_get_json)
+    return reader(_effective_root_url(account), _auth_headers(account), http_get_json)
 
 
 def model_aliases_for(account: Mapping[str, Any]) -> dict[str, str]:
@@ -227,9 +232,13 @@ def model_aliases_for(account: Mapping[str, Any]) -> dict[str, str]:
     Caché por proceso que cada lectura reemplaza (la refresca ``LOAD_STATE_CACHE``); vacía si el servidor no
     expone alias o todavía no se leyó. Nunca hace pedidos HTTP.
     """
-    root_url = server_root_url(str(account.get("baseUrl") or ""))
     with _aliases_lock:
-        return dict(_LISTED_ALIASES.get(root_url, {}))
+        return dict(_LISTED_ALIASES.get(_effective_root_url(account), {}))
+
+
+def _effective_root_url(account: Mapping[str, Any]) -> str:
+    """Raíz (sin ``/v1``) de la URL efectiva del adapter para la cuenta."""
+    return server_root_url(effective_connection(account)[0])
 
 
 def _read_account_load_states(account: Mapping[str, Any]) -> dict[str, LoadState]:
@@ -267,7 +276,7 @@ class LoadStateCache:
         con ``allow_stale``: las vistas consultadas por polling reciben al instante la última lectura de la
         misma cuenta y URL mientras se refresca, sin esperar bajo el lock global del control-plane.
         """
-        key = f"{account.get('providerId')}|{str(account.get('baseUrl') or '').rstrip('/')}"
+        key = f"{account.get('providerId')}|{_effective_root_url(account)}"
         with self._lock:
             fresh = self._fresh(key)
             if fresh is not None:

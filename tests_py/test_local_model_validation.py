@@ -108,12 +108,15 @@ def test_local_validation_probes_the_resolved_model_with_json_schema_and_reasoni
 
 
 def test_a_rejected_json_schema_falls_back_to_prompt_json(connection, monkeypatch):
-    provider = _LocalProvider([_http_error(400), '```json\n{"ok": true}\n```'])
+    body = io.BytesIO(b"")
+    rejected = HTTPError("http://127.0.0.1:1/v1/chat/completions", 400, "error", Message(), body)
+    provider = _LocalProvider([rejected, '```json\n{"ok": true}\n```'])
     _use(monkeypatch, provider)
     result = RuntimeValidationService(connection).validate("llama_cpp", project_id=None, model="gemma-a")
     assert (result["status"], result["model"]) == ("validated", "gemma-a")
     assert provider.requests[1].response_format is None
     assert LocalModelSettingsRepository(connection).json_schema_enabled("llama_cpp", "gemma-a") is False
+    assert body.closed, "the rejected 400 must release its socket before the retry"
 
 
 def test_a_reply_that_is_not_the_json_object_fails_validation(connection, monkeypatch):

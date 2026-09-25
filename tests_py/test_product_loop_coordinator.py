@@ -3189,6 +3189,68 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
         assert runtime.run_payloads[0]["resourceSelection"]["providerId"] == "ollama"
 
 
+def test_product_owner_and_team_planning_phases_record_the_local_model_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Las fases de entorno (PO) y de planificación del equipo emiten ``local_model_switch`` (spec §4.8)."""
+    select_resource = AIResourceManager.select_resource
+
+    def select_with_switch(self, request, **kwargs):
+        decision = select_resource(self, request, **kwargs)
+        selected = decision.get("selected") or {}
+        if selected.get("providerId"):
+            switch = {
+                "runtimeId": selected["providerId"],
+                "model": selected.get("model"),
+                "reason": "default",
+                "requiresSwitch": True,
+                "fromModel": "previous-model",
+            }
+            decision["policyResult"] = {
+                **(decision.get("policyResult") or {}),
+                "localModelSelections": [switch],
+            }
+        return decision
+
+    monkeypatch.setattr(AIResourceManager, "select_resource", select_with_switch)
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "local-model-switch")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Refactor backend and frontend navigation flow.",
+            runtime_runner=_ControlledRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_RoleTaskPlanner(["backend_engineer", "frontend_engineer"]),
+            run_metadata={"teamMode": "balanced", "risk": "medium"},
+        )
+
+        assert result["status"] == "awaiting_approval"
+        rows = connection.execute(
+            "SELECT payload FROM events WHERE project_id = ? AND type = 'product_loop.local_model_switch'",
+            (project["id"],),
+        ).fetchall()
+        switched_roles = sorted(json.loads(row["payload"])["role"] for row in rows)
+        planned_roles = [
+            role["role"] for role in result["loop"]["context"]["durableRun"]["teamSchedule"]["roles"]
+        ]
+        # One switch from the Product Owner selection (environment phase) plus one per planned role.
+        assert planned_roles
+        assert switched_roles == sorted(["product_owner", *planned_roles])
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        thread_switches = [
+            event
+            for event in ThreadsRepository(connection).list_events(thread_id)
+            if event["type"] == "local_model_switch"
+        ]
+        assert len(thread_switches) == len(rows)
+
+
 def test_team_resource_decisions_use_team_mode_as_ai_routing_policy(tmp_path: Path) -> None:
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)

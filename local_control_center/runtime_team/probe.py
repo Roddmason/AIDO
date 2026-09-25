@@ -141,6 +141,7 @@ def _local_validation_exchange(
     except HTTPError as error:
         if error.code != HTTP_BAD_REQUEST:
             raise
+        error.close()  # libera el socket del 400 antes del reintento, sin esperar al GC
         fallback = provider.chat_completion(ModelRequest.model_validate(body))
         return str(fallback.content or ""), False
     return str(response.content or ""), True

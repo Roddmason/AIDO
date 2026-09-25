@@ -12508,6 +12508,210 @@
       "en": "Ollama endpoints",
       "es": "Endpoints de Ollama"
     },
+    "app.localRuntime.locality.loopback": {
+      "en": "this machine",
+      "es": "este equipo"
+    },
+    "app.localRuntime.locality.declaredLocal": {
+      "en": "declared local (WSL/Docker)",
+      "es": "declarado local (WSL/Docker)"
+    },
+    "app.localRuntime.locality.remote": {
+      "en": "treated as remote",
+      "es": "tratado como remoto"
+    },
+    "app.localRuntime.panel.tokenRequired": {
+      "en": "A local write token is required to change local endpoints.",
+      "es": "Se requiere un token local de escritura para cambiar los endpoints locales."
+    },
+    "app.localRuntime.panel.probeOk": {
+      "en": "Endpoint responded",
+      "es": "El endpoint respondió"
+    },
+    "app.localRuntime.panel.probeLoading": {
+      "en": "The server is loading a model",
+      "es": "El servidor está cargando un modelo"
+    },
+    "app.localRuntime.panel.probeFailed": {
+      "en": "Endpoint is not ready",
+      "es": "El endpoint no está listo"
+    },
+    "app.localRuntime.panel.modelsSynced": {
+      "en": "Models synced",
+      "es": "Modelos sincronizados"
+    },
+    "app.localRuntime.panel.actionFailed": {
+      "en": "Endpoint action failed",
+      "es": "Falló la acción sobre el endpoint"
+    },
+    "app.localRuntime.panel.title": {
+      "en": "Local endpoints",
+      "es": "Endpoints locales"
+    },
+    "app.localRuntime.panel.configured": {
+      "en": "configured",
+      "es": "configurados"
+    },
+    "app.localRuntime.panel.summary": {
+      "en": "llama.cpp, LM Studio, vLLM and other OpenAI-compatible servers on this machine or declared local. Add one with Add provider or Detect local runtimes.",
+      "es": "llama.cpp, LM Studio, vLLM y otros servidores compatibles con OpenAI en este equipo o declarados locales. Agrega uno con Agregar proveedor o Detectar runtimes locales."
+    },
+    "app.localRuntime.panel.loadFailed": {
+      "en": "Could not load local endpoints",
+      "es": "No se pudieron cargar los endpoints locales"
+    },
+    "app.localRuntime.panel.loadFailedBody": {
+      "en": "AIDO could not read the local endpoints.",
+      "es": "AIDO no pudo leer los endpoints locales."
+    },
+    "app.localRuntime.panel.loading": {
+      "en": "Loading local endpoints…",
+      "es": "Cargando endpoints locales…"
+    },
+    "app.localRuntime.panel.empty": {
+      "en": "No local endpoint is configured yet",
+      "es": "Todavía no hay endpoints locales configurados"
+    },
+    "app.localRuntime.panel.emptyHint": {
+      "en": "Start llama.cpp, LM Studio or vLLM, then use Detect local runtimes to add it.",
+      "es": "Inicia llama.cpp, LM Studio o vLLM y luego usa Detectar runtimes locales para agregarlo."
+    },
+    "app.localRuntime.panel.deleted": {
+      "en": "Local endpoint deleted",
+      "es": "Endpoint local eliminado"
+    },
+    "app.localRuntime.panel.enabled": {
+      "en": "enabled",
+      "es": "habilitado"
+    },
+    "app.localRuntime.panel.disabled": {
+      "en": "disabled",
+      "es": "deshabilitado"
+    },
+    "app.localRuntime.panel.credential": {
+      "en": "bearer token",
+      "es": "token bearer"
+    },
+    "app.localRuntime.panel.endpointId": {
+      "en": "Endpoint id",
+      "es": "Id del endpoint"
+    },
+    "app.localRuntime.panel.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.localRuntime.panel.loadedModel": {
+      "en": "Loaded model",
+      "es": "Modelo cargado"
+    },
+    "app.localRuntime.panel.noLoadedModel": {
+      "en": "none loaded",
+      "es": "ninguno cargado"
+    },
+    "app.localRuntime.panel.loadNotTracked": {
+      "en": "not tracked",
+      "es": "sin seguimiento"
+    },
+    "app.localRuntime.panel.models": {
+      "en": "Models",
+      "es": "Modelos"
+    },
+    "app.localRuntime.panel.lastError": {
+      "en": "Last error",
+      "es": "Último error"
+    },
+    "app.localRuntime.panel.probe": {
+      "en": "Probe",
+      "es": "Sondear"
+    },
+    "app.localRuntime.panel.sync": {
+      "en": "Sync models",
+      "es": "Sincronizar modelos"
+    },
+    "app.localRuntime.panel.edit": {
+      "en": "Edit",
+      "es": "Editar"
+    },
+    "app.localRuntime.panel.delete": {
+      "en": "Delete",
+      "es": "Eliminar"
+    },
+    "app.localRuntime.edit.errorBaseUrl": {
+      "en": "Enter an absolute http(s) URL with no query string.",
+      "es": "Ingresa una URL http(s) absoluta sin parámetros de consulta."
+    },
+    "app.localRuntime.edit.title": {
+      "en": "Edit local endpoint",
+      "es": "Editar endpoint local"
+    },
+    "app.localRuntime.edit.displayName": {
+      "en": "Display name",
+      "es": "Nombre visible"
+    },
+    "app.localRuntime.edit.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.localRuntime.edit.baseUrlHelp": {
+      "en": "Changing the URL resets the stored health until the next probe.",
+      "es": "Cambiar la URL reinicia la salud guardada hasta el próximo sondeo."
+    },
+    "app.localRuntime.edit.credentialRef": {
+      "en": "Credential reference",
+      "es": "Referencia de credencial"
+    },
+    "app.localRuntime.edit.credentialKeep": {
+      "en": "Leave empty to keep the stored credential.",
+      "es": "Déjalo vacío para conservar la credencial guardada."
+    },
+    "app.localRuntime.edit.credentialHelp": {
+      "en": "Optional bearer token reference; the secret is never shown.",
+      "es": "Referencia opcional a un token bearer; el secreto nunca se muestra."
+    },
+    "app.localRuntime.edit.enabled": {
+      "en": "Enable this endpoint",
+      "es": "Habilitar este endpoint"
+    },
+    "app.localRuntime.edit.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.localRuntime.edit.save": {
+      "en": "Save changes",
+      "es": "Guardar cambios"
+    },
+    "app.localRuntime.delete.title": {
+      "en": "Delete local endpoint",
+      "es": "Eliminar endpoint local"
+    },
+    "app.localRuntime.delete.body": {
+      "en": "Removes the endpoint, its model catalog and its model settings. Usage history, audit and evidence are kept.",
+      "es": "Elimina el endpoint, su catálogo de modelos y la configuración de sus modelos. Se conservan el historial de uso, la auditoría y la evidencia."
+    },
+    "app.localRuntime.delete.inUse": {
+      "en": "This endpoint is still in use",
+      "es": "Este endpoint todavía está en uso"
+    },
+    "app.localRuntime.delete.inUseHelp": {
+      "en": "Reassign these first; AIDO never reassigns them for you.",
+      "es": "Reasígnalos primero; AIDO nunca los reasigna por ti."
+    },
+    "app.localRuntime.delete.kindThreadTeam": {
+      "en": "Thread team",
+      "es": "Equipo de hilo"
+    },
+    "app.localRuntime.delete.kindRolePolicy": {
+      "en": "Role policy",
+      "es": "Política de rol"
+    },
+    "app.localRuntime.delete.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.localRuntime.delete.confirm": {
+      "en": "Delete endpoint",
+      "es": "Eliminar endpoint"
+    },
     "app.ollama.summary": {
       "en": "Run several Ollama servers side by side — the local daemon plus any remote host — and route each role to the one you trust.",
       "es": "Ejecuta varios servidores Ollama en paralelo — el daemon local y cualquier host remoto — y enruta cada rol al que prefieras."

@@ -592,6 +592,31 @@ def test_unknown_provider_usage_remains_null_and_unverified_in_quota_windows(
     assert minute["unknown_usage_count"] == 1
 
 
+def test_paid_settlement_attributes_its_cost_usage_row_to_the_execution_project(tmp_path: Path) -> None:
+    connection, project = _execution_context(tmp_path, {})
+    _configure_chat_endpoint(connection, provider_id="nim-paid", models=("model-paid",), free_tier=False)
+    tracker = CallTracker(delay_seconds=0)
+    try:
+        result = AIExecutionService(
+            connection,
+            provider_resolver=lambda _provider_id: FakeChatProvider("nim-paid", tracker),
+            resource_snapshot_source=ResourceSnapshot.test_snapshot,
+        ).execute(
+            _plan(
+                project["id"],
+                [{"providerId": "nim-paid", "model": "model-paid", "maxTokens": 64}],
+                strategy="single",
+                max_parallelism=1,
+            )
+        )
+        cost_rows = connection.execute("SELECT project_id, amount_usd FROM cost_usage").fetchall()
+    finally:
+        connection.close()
+
+    assert result.status == "completed"
+    assert [(row["project_id"], row["amount_usd"] > 0) for row in cost_rows] == [(project["id"], True)]
+
+
 def test_capability_mismatch_blocks_before_quota_or_provider_transport(tmp_path: Path) -> None:
     connection, project = _execution_context(tmp_path, {"nim-a": ("model-a",)})
     connection.execute("UPDATE model_catalog SET api_family = 'embeddings' WHERE provider_id = 'nim-a'")

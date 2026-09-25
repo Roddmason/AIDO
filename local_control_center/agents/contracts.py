@@ -345,10 +345,13 @@ class ModelCallRecord(BaseModel):
 
 
 class CostUsageRecord(BaseModel):
-    """Registro de costo acumulado por ámbito (proyecto/agente/etc.)."""
+    """Registro de costo acumulado por ámbito (proyecto/agente/etc.).
+
+    `projectId` es nulo cuando el costo se registró sin un proyecto conocido.
+    """
 
     id: str
-    project_id: str = Field(alias="projectId")
+    project_id: str | None = Field(alias="projectId")
     scope: str
     amount_usd: float = Field(alias="amountUsd")
     metadata: dict[str, Any]

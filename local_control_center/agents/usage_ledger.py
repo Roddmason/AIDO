@@ -80,6 +80,7 @@ class UsageLedger:
         provider_id: str,
         model: str,
         runtime_type: str,
+        project_id: str | None = None,
         agent_id: str | None = None,
         role: str | None = None,
         workflow_run_id: str | None = None,
@@ -102,6 +103,9 @@ class UsageLedger:
         usage_source: str | None = None,
     ) -> dict[str, Any]:
         """Insert a ledger row (and a cost_usage row when cost is known) and return it.
+
+        ``project_id`` attributes that cost_usage row to the caller's project; the ledger row
+        has no project column, and callers without a project leave the cost row's project NULL.
 
         Raw usage is redacted before storage. The two inserts are emitted on the caller's
         connection without an explicit commit, so they are atomic only within the caller's
@@ -164,10 +168,11 @@ class UsageLedger:
             self.connection.execute(
                 """
                 INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
-                VALUES (?, NULL, 'model_gateway', ?, ?, ?)
+                VALUES (?, ?, 'model_gateway', ?, ?, ?)
                 """,
                 (
                     f"cost-{uuid.uuid4()}",
+                    project_id,
                     float(actual_cost_usd if actual_cost_usd is not None else estimated_cost_usd or 0),
                     json_dumps({"usageLedgerId": ledger_id, "providerId": provider_id, "model": model}),
                     utc_now(),

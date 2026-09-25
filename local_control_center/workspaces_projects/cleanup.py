@@ -45,6 +45,8 @@ def capture_workspace_snapshot(workspace_path: str | Path) -> dict[str, Any]:
 
     Si la ruta no existe devuelve estado ``missing``. El listado de archivos se trunca a
     ``MAX_FILES``, pero ``fileCount`` refleja el total real y ``truncated`` lo señaliza.
+
+    ``totalSizeBytes`` suma TODOS los archivos no ignorados, no solo los 200 listados.
     """
     root = Path(workspace_path)
     if not root.exists():
@@ -54,21 +56,25 @@ def capture_workspace_snapshot(workspace_path: str | Path) -> dict[str, Any]:
             "path": str(root),
             "files": [],
             "fileCount": 0,
+            "totalSizeBytes": 0,
         }
 
     files: list[dict[str, Any]] = []
     total = 0
+    total_size = 0
     for candidate in sorted(root.rglob("*")):
         relative = candidate.relative_to(root)
         if _is_ignored(relative) or not candidate.is_file():
             continue
         total += 1
+        size = candidate.stat().st_size
+        total_size += size
         if len(files) >= MAX_FILES:
             continue
         files.append(
             {
                 "path": relative.as_posix(),
-                "sizeBytes": candidate.stat().st_size,
+                "sizeBytes": size,
                 "sha256": _sha256(candidate),
             }
         )
@@ -78,6 +84,7 @@ def capture_workspace_snapshot(workspace_path: str | Path) -> dict[str, Any]:
         "status": "captured",
         "path": str(root),
         "fileCount": total,
+        "totalSizeBytes": total_size,
         "truncated": total > MAX_FILES,
         "files": files,
     }

@@ -43,6 +43,7 @@ from .host_resources.api import create_router as create_host_resources_router
 from .i18n.api import create_router as create_i18n_router
 from .integrations.api import create_router as create_integrations_router
 from .jobs_approvals.api import create_router as create_jobs_approvals_router
+from .local_runtimes.api import create_router as create_local_runtimes_router
 from .memory_retrieval.api import create_router as create_memory_retrieval_router
 from .nvidia_nim.api import create_router as create_nvidia_nim_router
 from .ollama.api import create_router as create_ollama_router
@@ -285,6 +286,7 @@ def create_app(
     app.include_router(create_provider_catalog_router(platform=platform, require_write=require_write))
     app.include_router(create_nvidia_nim_router())
     app.include_router(create_ollama_router(platform=platform, require_write=require_write))
+    app.include_router(create_local_runtimes_router(platform=platform, require_write=require_write))
     app.include_router(create_workspaces_router(platform=platform, require_write=require_write))
     app.include_router(create_governance_router(platform=platform, require_write=require_write))
     app.include_router(create_host_resources_router(platform=platform, require_write=require_write))

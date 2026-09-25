@@ -180,6 +180,13 @@ export type JobRecord = { "createdAt": string; "id": string; "idempotencyKey"?: 
 export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId": string; "leaderFencingToken"?: null | number; "metadata": JsonObject; "providerId"?: null | string; "startedAt": string; "status": "queued" | "running" | "completed" | "failed" | "cancelled"; "summary": string; "workerOwnerId"?: null | string };
 export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord> };
 export type LocalDeclarationRecord = { "declaredAt": string; "declaredBy": string; "host": string };
+export type LocalEndpointCreateRequest = { "baseUrl"?: null | string; "catalogId": string; "credentialRef"?: null | string; "displayName"?: null | string; "instanceId"?: null | string };
+export type LocalEndpointPatchRequest = { "baseUrl"?: null | string; "concurrencyLimit"?: null | number; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null };
+export type LocalEndpointView = { "baseUrl": string; "catalogId": string; "concurrencyLimit": number; "declaredLocal": boolean; "displayName": string; "enabled": boolean; "hasCredential": boolean; "healthCheckedAt"?: null | string; "healthReason"?: null | string; "healthStatus"?: null | string; "id": string; "loadedModels"?: Array<string>; "locality": "loopback" | "declared_local" | "remote"; "models"?: Array<LocalModelView>; "networkScope": "loopback" | "private_network" | "declared_local" | "public" };
+export type LocalEndpointsListResponse = { "endpoints": Array<LocalEndpointView> };
+export type LocalModelPatchRequest = { "codeEdit"?: boolean | null; "codeReview"?: boolean | null; "enabled"?: boolean | null; "isDefault"?: boolean | null; "model": string; "operatorOrder"?: null | number };
+export type LocalModelValidateRequest = { "model": string };
+export type LocalModelView = { "codeEdit": boolean; "codeReview": boolean; "enabled": boolean; "isDefault": boolean; "loadState": "loaded" | "loading" | "unloaded" | "unknown"; "model": string; "operatorOrder": number; "validated": boolean; "validatedAt"?: null | string };
 export type LowLevelEvents = { "modelCalls"?: Array<ModelCallSummary>; "toolCalls"?: Array<ToolCallSummary> };
 export type McpServerRecord = { "command": string; "createdAt": string; "id": string; "metadata": JsonObject; "status": string; "transport": "stdio"; "updatedAt": string };
 export type McpServerRegisterRequest = { "command": string; "id": string; "metadata"?: JsonObject; "transport"?: "stdio" };
@@ -657,6 +664,11 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_chats_api_v1_legacy_chats_get", "path": "/api/v1/legacy/chats", "summary": "List Chats"},
 	{"method": "GET", "operationId": "list_pipelines_api_v1_legacy_pipelines_get", "path": "/api/v1/legacy/pipelines", "summary": "List Pipelines"},
 	{"method": "GET", "operationId": "list_sessions_api_v1_legacy_sessions_get", "path": "/api/v1/legacy/sessions", "summary": "List Sessions"},
+	{"method": "GET", "operationId": "list_local_endpoints_api_v1_local_endpoints_get", "path": "/api/v1/local-endpoints", "summary": "List Local Endpoints"},
+	{"method": "POST", "operationId": "create_local_endpoint_api_v1_local_endpoints_post", "path": "/api/v1/local-endpoints", "summary": "Create Local Endpoint"},
+	{"method": "PATCH", "operationId": "patch_local_endpoint_api_v1_local_endpoints__provider_id__patch", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Patch Local Endpoint"},
+	{"method": "PATCH", "operationId": "patch_local_model_api_v1_local_endpoints__provider_id__models_patch", "path": "/api/v1/local-endpoints/{provider_id}/models", "summary": "Patch Local Model"},
+	{"method": "POST", "operationId": "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post", "path": "/api/v1/local-endpoints/{provider_id}/validate-model", "summary": "Validate Local Model"},
 	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	{"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	{"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},
@@ -908,6 +920,7 @@ export type OperationRequestBodies = {
 	"create_evidence_api_v1_evidence_post": EvidenceCreateRequest,
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchCreateRequest,
 	"create_job_api_v1_jobs_post": JobCreateRequest,
+	"create_local_endpoint_api_v1_local_endpoints_post": LocalEndpointCreateRequest,
 	"create_memory_api_v1_memory_post": MemoryCreateRequest,
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogUpsertRequest,
 	"create_next_step_api_v1_next_steps_post": NextStepCreateRequest,
@@ -1003,6 +1016,7 @@ export type OperationRequestBodies = {
 	"list_ide_connections_api_v1_ide_connections_get": never,
 	"list_integrations_api_v1_integrations_get": never,
 	"list_jobs_api_v1_jobs_get": never,
+	"list_local_endpoints_api_v1_local_endpoints_get": never,
 	"list_memory_api_v1_memory_get": never,
 	"list_memory_conflicts_api_v1_memory_conflicts_get": never,
 	"list_models_api_v1_model_gateway_models_get": never,
@@ -1037,6 +1051,8 @@ export type OperationRequestBodies = {
 	"overview_api_v1_model_gateway_overview_get": never,
 	"overview_api_v1_overview_get": never,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRulePatchRequest,
+	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointPatchRequest,
+	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelPatchRequest,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogPatchRequest,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountPatchRequest,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitPatchRequest,
@@ -1128,6 +1144,7 @@ export type OperationRequestBodies = {
 	"upsert_prompt_api_v1_prompts_post": PromptUpsertRequest,
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": never,
 	"validate_credential_api_v1_credentials__credential_id__validate_post": unknown,
+	"validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": LocalModelValidateRequest,
 	"validate_plugin_api_v1_plugins__plugin_id__validate_post": unknown,
 	"validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": RuntimeValidationRequest,
 	"worker_drain_api_v1_workers_drain_post": unknown,
@@ -1182,6 +1199,7 @@ export type OperationResponseBodies = {
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": ExecutionAccepted,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
+	"create_local_endpoint_api_v1_local_endpoints_post": LocalEndpointView,
 	"create_memory_api_v1_memory_post": MemoryResponse,
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogResponse,
 	"create_next_step_api_v1_next_steps_post": NextStepResponse,
@@ -1277,6 +1295,7 @@ export type OperationResponseBodies = {
 	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
 	"list_jobs_api_v1_jobs_get": JobsListResponse,
+	"list_local_endpoints_api_v1_local_endpoints_get": LocalEndpointsListResponse,
 	"list_memory_api_v1_memory_get": MemoryListResponse,
 	"list_memory_conflicts_api_v1_memory_conflicts_get": MemoryConflictListResponse,
 	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
@@ -1311,6 +1330,8 @@ export type OperationResponseBodies = {
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
+	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointView,
+	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelView,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountResponse,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitResponse,
@@ -1402,6 +1423,7 @@ export type OperationResponseBodies = {
 	"upsert_prompt_api_v1_prompts_post": PromptResponse,
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
 	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse,
+	"validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": ExecutionAccepted,
 	"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse,
 	"validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": ExecutionAccepted,
 	"worker_drain_api_v1_workers_drain_post": WorkerStatusResponse,
@@ -1460,6 +1482,7 @@ export type OperationResultBodies = {
 	"create_evidence_api_v1_evidence_post": EvidencePackageResponse,
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": GitBranchMutationResponse,
 	"create_job_api_v1_jobs_post": JobMutationResponse,
+	"create_local_endpoint_api_v1_local_endpoints_post": LocalEndpointView,
 	"create_memory_api_v1_memory_post": MemoryResponse,
 	"create_model_api_v1_model_gateway_models_post": ModelCatalogResponse,
 	"create_next_step_api_v1_next_steps_post": NextStepResponse,
@@ -1555,6 +1578,7 @@ export type OperationResultBodies = {
 	"list_ide_connections_api_v1_ide_connections_get": IdeConnectionsListResponse,
 	"list_integrations_api_v1_integrations_get": IntegrationsListResponse,
 	"list_jobs_api_v1_jobs_get": JobsListResponse,
+	"list_local_endpoints_api_v1_local_endpoints_get": LocalEndpointsListResponse,
 	"list_memory_api_v1_memory_get": MemoryListResponse,
 	"list_memory_conflicts_api_v1_memory_conflicts_get": MemoryConflictListResponse,
 	"list_models_api_v1_model_gateway_models_get": ModelCatalogListResponse,
@@ -1589,6 +1613,8 @@ export type OperationResultBodies = {
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
+	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointView,
+	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelView,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountResponse,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitResponse,
@@ -1680,6 +1706,7 @@ export type OperationResultBodies = {
 	"upsert_prompt_api_v1_prompts_post": PromptResponse,
 	"usage_summary_api_v1_model_gateway_usage_ledger_summary_get": UsageSummaryResponse,
 	"validate_credential_api_v1_credentials__credential_id__validate_post": CredentialValidationResponse,
+	"validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": RuntimeValidationResponse,
 	"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse,
 	"validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": RuntimeValidationResponse,
 	"worker_drain_api_v1_workers_drain_post": WorkerStatusResponse,
@@ -1691,7 +1718,7 @@ export type OperationResultBodies = {
 	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": WorkspaceCleanupPlanResponse
 };
 export type OperationResult<T extends ApiOperationId> = OperationResultBodies[T];
-export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {"add_git_remote_api_v1_projects__project_id__git_remotes_post": "/api/v1/executions/{execution_id}", "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": "/api/v1/executions/{execution_id}", "aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": "/api/v1/executions/{execution_id}", "allocate_workspace_api_v1_workspaces_post": "/api/v1/executions/{execution_id}", "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": "/api/v1/executions/{execution_id}", "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": "/api/v1/executions/{execution_id}", "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": "/api/v1/executions/{execution_id}", "archive_workspace_api_v1_workspaces__workspace_id__archive_post": "/api/v1/executions/{execution_id}", "checkout_git_branch_api_v1_projects__project_id__git_checkout_post": "/api/v1/executions/{execution_id}", "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": "/api/v1/executions/{execution_id}", "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": "/api/v1/executions/{execution_id}", "create_agent_run_api_v1_agent_runs_post": "/api/v1/executions/{execution_id}", "create_git_branch_api_v1_projects__project_id__git_branches_post": "/api/v1/executions/{execution_id}", "create_project_api_v1_projects_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": "/api/v1/executions/{execution_id}", "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": "/api/v1/executions/{execution_id}", "discover_project_api_v1_projects_discover_post": "/api/v1/executions/{execution_id}", "emit_n8n_api_v1_integrations_n8n_emit_post": "/api/v1/executions/{execution_id}", "emit_n8n_event_api_v1_integrations_n8n_emit_event_post": "/api/v1/executions/{execution_id}", "execute_ai_execution_api_v1_model_gateway_ai_executions_post": "/api/v1/executions/{execution_id}", "execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": "/api/v1/executions/{execution_id}", "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": "/api/v1/executions/{execution_id}", "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": "/api/v1/executions/{execution_id}", "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": "/api/v1/executions/{execution_id}", "execute_remediation_api_v1_remediations__remediation_id__execute_post": "/api/v1/executions/{execution_id}", "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": "/api/v1/executions/{execution_id}", "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": "/api/v1/executions/{execution_id}", "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": "/api/v1/executions/{execution_id}", "init_git_repository_api_v1_projects__project_id__git_init_post": "/api/v1/executions/{execution_id}", "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": "/api/v1/executions/{execution_id}", "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": "/api/v1/executions/{execution_id}", "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": "/api/v1/executions/{execution_id}", "refresh_git_api_v1_projects__project_id__git_refresh_post": "/api/v1/executions/{execution_id}", "retrieval_reindex_api_v1_retrieval_reindex_post": "/api/v1/executions/{execution_id}", "route_execute_api_v1_model_gateway_route_execute_post": "/api/v1/executions/{execution_id}", "run_architect_agent_api_v1_agents_architect_runs_post": "/api/v1/executions/{execution_id}", "run_assessment_api_v1_projects__project_id__assessment_post": "/api/v1/executions/{execution_id}", "run_developer_agent_api_v1_agents_developer_runs_post": "/api/v1/executions/{execution_id}", "run_devops_agent_api_v1_agents_devops_runs_post": "/api/v1/executions/{execution_id}", "run_issue_to_patch_api_v1_workflows_issue_to_patch_post": "/api/v1/executions/{execution_id}", "run_issue_to_pr_api_v1_workflows_issue_to_pr_post": "/api/v1/executions/{execution_id}", "run_product_owner_agent_api_v1_agents_product_owner_runs_post": "/api/v1/executions/{execution_id}", "run_qa_agent_api_v1_agents_qa_runs_post": "/api/v1/executions/{execution_id}", "run_research_agent_api_v1_agents_research_runs_post": "/api/v1/executions/{execution_id}", "run_security_agent_api_v1_agents_security_runs_post": "/api/v1/executions/{execution_id}", "start_product_loop_api_v1_projects__project_id__product_loop_post": "/api/v1/executions/{execution_id}", "start_session_api_v1_cli_sessions_post": "/api/v1/executions/{execution_id}", "start_workflow_api_v1_workflows__workflow_id__start_post": "/api/v1/executions/{execution_id}", "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_skills_api_v1_skills_sync_post": "/api/v1/executions/{execution_id}", "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": "/api/v1/executions/{execution_id}", "test_n8n_target_api_v1_integrations_n8n_test_post": "/api/v1/executions/{execution_id}", "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": "/api/v1/executions/{execution_id}", "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": "/api/v1/executions/{execution_id}", "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": "/api/v1/executions/{execution_id}"};
+export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {"add_git_remote_api_v1_projects__project_id__git_remotes_post": "/api/v1/executions/{execution_id}", "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": "/api/v1/executions/{execution_id}", "aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": "/api/v1/executions/{execution_id}", "allocate_workspace_api_v1_workspaces_post": "/api/v1/executions/{execution_id}", "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": "/api/v1/executions/{execution_id}", "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": "/api/v1/executions/{execution_id}", "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": "/api/v1/executions/{execution_id}", "archive_workspace_api_v1_workspaces__workspace_id__archive_post": "/api/v1/executions/{execution_id}", "checkout_git_branch_api_v1_projects__project_id__git_checkout_post": "/api/v1/executions/{execution_id}", "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": "/api/v1/executions/{execution_id}", "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": "/api/v1/executions/{execution_id}", "create_agent_run_api_v1_agent_runs_post": "/api/v1/executions/{execution_id}", "create_git_branch_api_v1_projects__project_id__git_branches_post": "/api/v1/executions/{execution_id}", "create_project_api_v1_projects_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": "/api/v1/executions/{execution_id}", "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": "/api/v1/executions/{execution_id}", "discover_project_api_v1_projects_discover_post": "/api/v1/executions/{execution_id}", "emit_n8n_api_v1_integrations_n8n_emit_post": "/api/v1/executions/{execution_id}", "emit_n8n_event_api_v1_integrations_n8n_emit_event_post": "/api/v1/executions/{execution_id}", "execute_ai_execution_api_v1_model_gateway_ai_executions_post": "/api/v1/executions/{execution_id}", "execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": "/api/v1/executions/{execution_id}", "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": "/api/v1/executions/{execution_id}", "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": "/api/v1/executions/{execution_id}", "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": "/api/v1/executions/{execution_id}", "execute_remediation_api_v1_remediations__remediation_id__execute_post": "/api/v1/executions/{execution_id}", "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": "/api/v1/executions/{execution_id}", "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": "/api/v1/executions/{execution_id}", "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": "/api/v1/executions/{execution_id}", "init_git_repository_api_v1_projects__project_id__git_init_post": "/api/v1/executions/{execution_id}", "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": "/api/v1/executions/{execution_id}", "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": "/api/v1/executions/{execution_id}", "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": "/api/v1/executions/{execution_id}", "refresh_git_api_v1_projects__project_id__git_refresh_post": "/api/v1/executions/{execution_id}", "retrieval_reindex_api_v1_retrieval_reindex_post": "/api/v1/executions/{execution_id}", "route_execute_api_v1_model_gateway_route_execute_post": "/api/v1/executions/{execution_id}", "run_architect_agent_api_v1_agents_architect_runs_post": "/api/v1/executions/{execution_id}", "run_assessment_api_v1_projects__project_id__assessment_post": "/api/v1/executions/{execution_id}", "run_developer_agent_api_v1_agents_developer_runs_post": "/api/v1/executions/{execution_id}", "run_devops_agent_api_v1_agents_devops_runs_post": "/api/v1/executions/{execution_id}", "run_issue_to_patch_api_v1_workflows_issue_to_patch_post": "/api/v1/executions/{execution_id}", "run_issue_to_pr_api_v1_workflows_issue_to_pr_post": "/api/v1/executions/{execution_id}", "run_product_owner_agent_api_v1_agents_product_owner_runs_post": "/api/v1/executions/{execution_id}", "run_qa_agent_api_v1_agents_qa_runs_post": "/api/v1/executions/{execution_id}", "run_research_agent_api_v1_agents_research_runs_post": "/api/v1/executions/{execution_id}", "run_security_agent_api_v1_agents_security_runs_post": "/api/v1/executions/{execution_id}", "start_product_loop_api_v1_projects__project_id__product_loop_post": "/api/v1/executions/{execution_id}", "start_session_api_v1_cli_sessions_post": "/api/v1/executions/{execution_id}", "start_workflow_api_v1_workflows__workflow_id__start_post": "/api/v1/executions/{execution_id}", "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_skills_api_v1_skills_sync_post": "/api/v1/executions/{execution_id}", "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": "/api/v1/executions/{execution_id}", "test_n8n_target_api_v1_integrations_n8n_test_post": "/api/v1/executions/{execution_id}", "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": "/api/v1/executions/{execution_id}", "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": "/api/v1/executions/{execution_id}", "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": "/api/v1/executions/{execution_id}", "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": "/api/v1/executions/{execution_id}"};
 
 export const OPERATIONS_BY_ID = {
 	"list_agent_profiles_api_v1_agent_profiles_get": {"method": "GET", "operationId": "list_agent_profiles_api_v1_agent_profiles_get", "path": "/api/v1/agent-profiles", "summary": "List Agent Profiles"},
@@ -1767,6 +1794,11 @@ export const OPERATIONS_BY_ID = {
 	"list_chats_api_v1_legacy_chats_get": {"method": "GET", "operationId": "list_chats_api_v1_legacy_chats_get", "path": "/api/v1/legacy/chats", "summary": "List Chats"},
 	"list_pipelines_api_v1_legacy_pipelines_get": {"method": "GET", "operationId": "list_pipelines_api_v1_legacy_pipelines_get", "path": "/api/v1/legacy/pipelines", "summary": "List Pipelines"},
 	"list_sessions_api_v1_legacy_sessions_get": {"method": "GET", "operationId": "list_sessions_api_v1_legacy_sessions_get", "path": "/api/v1/legacy/sessions", "summary": "List Sessions"},
+	"list_local_endpoints_api_v1_local_endpoints_get": {"method": "GET", "operationId": "list_local_endpoints_api_v1_local_endpoints_get", "path": "/api/v1/local-endpoints", "summary": "List Local Endpoints"},
+	"create_local_endpoint_api_v1_local_endpoints_post": {"method": "POST", "operationId": "create_local_endpoint_api_v1_local_endpoints_post", "path": "/api/v1/local-endpoints", "summary": "Create Local Endpoint"},
+	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": {"method": "PATCH", "operationId": "patch_local_endpoint_api_v1_local_endpoints__provider_id__patch", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Patch Local Endpoint"},
+	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": {"method": "PATCH", "operationId": "patch_local_model_api_v1_local_endpoints__provider_id__models_patch", "path": "/api/v1/local-endpoints/{provider_id}/models", "summary": "Patch Local Model"},
+	"validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": {"method": "POST", "operationId": "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post", "path": "/api/v1/local-endpoints/{provider_id}/validate-model", "summary": "Validate Local Model"},
 	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
 	"list_memory_api_v1_memory_get": {"method": "GET", "operationId": "list_memory_api_v1_memory_get", "path": "/api/v1/memory", "summary": "List Memory"},
 	"create_memory_api_v1_memory_post": {"method": "POST", "operationId": "create_memory_api_v1_memory_post", "path": "/api/v1/memory", "summary": "Create Memory"},

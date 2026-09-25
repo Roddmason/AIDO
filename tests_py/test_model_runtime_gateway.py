@@ -39,6 +39,7 @@ from local_control_center.agents.runtime_registry import (
 )
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.app import create_app
+from local_control_center.control_plane.overview import build_overview_from_connection
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import _execute_atomic_statements, initialize_platform_schema
@@ -1359,6 +1360,93 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         assert result["usage"]["rawUsage"]["cost_status"] == "actual"
         assert handler.seen_requests[0]["path"] == "/v1/chat/completions"
         assert handler.seen_requests[0]["authorization"] == "Bearer sk-realgateway123456"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize(
+    ("pricing_mode", "free_tier", "expected_cost_usd"),
+    [("unknown", False, 0.000016), ("free", True, 0.0)],
+    ids=["paid", "free"],
+)
+def test_model_gateway_call_cost_is_counted_once_in_the_overview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pricing_mode: str,
+    free_tier: bool,
+    expected_cost_usd: float,
+) -> None:
+    """La UI suma todo `costUsage[].amountUsd`: cada llamada del gateway debe aportar su costo una vez.
+
+    La llamada pagada escribía la fila de compatibilidad del ledger y la fila `model_call` con el mismo
+    monto (costo duplicado en la barra de estado); la gratuita conserva su fila de $0.00 para que la UI
+    no muestre el costo como desconocido. El presupuesto (scope `model_call`) debe coincidir.
+    """
+    monkeypatch.setenv("MODEL_GATEWAY_REAL_KEY", "sk-realgateway123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, _handler, server = run_json_gateway_server(
+        {
+            "id": "chatcmpl-test",
+            "model": "configured_model",
+            "choices": [{"message": {"role": "assistant", "content": "real provider response"}}],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 5,
+                "total_tokens": 12,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            },
+        }
+    )
+    try:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+            initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
+            store = ProviderAccountStore(connection)
+            store.upsert_provider_account(
+                {
+                    "providerId": "openai_compatible",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "pricingMode": pricing_mode,
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:MODEL_GATEWAY_REAL_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+            store.upsert_model(
+                {
+                    "providerId": "openai_compatible",
+                    "model": "configured_model",
+                    "enabled": True,
+                    "freeTier": free_tier,
+                    "inputPricePerMtok": 1.0,
+                    "cachedInputPricePerMtok": 0.25,
+                    "outputPricePerMtok": 2.0,
+                    "reasoningPricePerMtok": 3.0,
+                    "source": "unit_test_pricing",
+                }
+            )
+            gateway = ModelGateway(connection)
+            plan = gateway.plan_model_call(
+                project_id="project-gateway",
+                provider="openai_compatible",
+                model="configured_model",
+                runtime_type="api",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            result = gateway.execute_model_call(plan)
+            overview = build_overview_from_connection(connection=connection, cwd=tmp_path)
+            budget_spend = AgentsRepository(connection).total_cost_usage(
+                project_id="project-gateway", scope="model_call"
+            )
+
+        assert result["status"] == "completed"
+        assert result["usage"]["actualCostUsd"] == expected_cost_usd
+        assert [row["amountUsd"] for row in overview["costUsage"]] == [pytest.approx(expected_cost_usd)]
+        assert budget_spend == pytest.approx(expected_cost_usd)
     finally:
         server.shutdown()
         server.server_close()

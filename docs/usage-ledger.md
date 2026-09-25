@@ -34,8 +34,12 @@ are not evidence of completed model work.
 - Existing `cost_usage` is updated only as a temporary read-model for older
   dashboards. New code must use `usage_ledger`; `cost_usage` compatibility is
   scheduled for removal on 2026-09-01. The compatibility row carries the
-  caller's project (the model gateway and AI execution pass it); a row recorded
-  without one keeps `projectId = null` in the overview contract.
+  caller's project (AI execution passes it); a row recorded without one keeps
+  `projectId = null` in the overview contract. The Control Center sums every
+  `cost_usage` row, so each call must appear once: the model gateway skips the
+  compatibility row (`record_cost_usage=False`) because its `model_call` row,
+  the one budget enforcement reads, already carries the call's cost (zero
+  included).
 - Benchmark rows derived only from usage intentionally leave success, QA pass and rework metrics empty. Once `model_benchmark_outcomes` rows exist, objective rates are computed only from outcomes with `provenance=automated_run` or `provenance=release_validation`; `operator_reported` rows are manual audit records and are not routing evidence.
 
 ## Limitations

@@ -258,16 +258,21 @@ class LoadStateCache:
         self._entries: dict[str, tuple[float, dict[str, LoadState]]] = {}
         self._inflight: dict[str, threading.Event] = {}
 
-    def get(self, account: Mapping[str, Any], *, max_wait_s: float = 1.0) -> dict[str, LoadState]:
+    def get(
+        self, account: Mapping[str, Any], *, max_wait_s: float = 1.0, allow_stale: bool = False
+    ) -> dict[str, LoadState]:
         """Estado vigente de la cuenta; si venció, refresca en segundo plano y espera ``max_wait_s``.
 
-        Sin una lectura vigente a tiempo devuelve ``{}`` (todo desconocido), nunca un estado vencido.
+        Sin una lectura vigente a tiempo devuelve ``{}`` (todo desconocido), nunca un estado vencido, salvo
+        con ``allow_stale``: las vistas consultadas por polling reciben al instante la última lectura de la
+        misma cuenta y URL mientras se refresca, sin esperar bajo el lock global del control-plane.
         """
         key = f"{account.get('providerId')}|{str(account.get('baseUrl') or '').rstrip('/')}"
         with self._lock:
             fresh = self._fresh(key)
             if fresh is not None:
                 return fresh
+            stale = self._entries.get(key) if allow_stale else None
             done = self._inflight.get(key)
             if done is None:
                 done = threading.Event()
@@ -278,6 +283,8 @@ class LoadStateCache:
                     daemon=True,
                     name=f"aido-load-state-{key}",
                 ).start()
+            if stale is not None:
+                return dict(stale[1])
         done.wait(max(0.0, max_wait_s))
         with self._lock:
             return self._fresh(key) or {}

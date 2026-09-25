@@ -12,10 +12,12 @@ otro.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -23,6 +25,7 @@ from local_control_center.shared.time import utc_now
 ENDPOINT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{1,95}$")
 LOCAL_RUNTIME_PREFERRED_ROLES = ("analyst", "product_owner", "developer", "technical_lead")
 LOCAL_RUNTIME_CATALOG_SOURCE = "local_runtime_catalog"
+ABSENT_MODEL_SOURCE = "endpoint_absent"
 
 
 def validate_endpoint_id(endpoint_id: str) -> str:
@@ -111,3 +114,24 @@ def upsert_local_runtime_records(
         """,
         (f"{endpoint_id}:chat", endpoint_id, json_dumps({"source": source}), timestamp, timestamp),
     )
+
+
+def reconcile_absent_models(
+    store: ProviderAccountStore, provider_id: str, present: Collection[str]
+) -> list[str]:
+    """Deshabilita los modelos habilitados que el servidor ya no anuncia y devuelve sus nombres.
+
+    Un listado vacío no reconcilia nada: con los adaptadores actuales es indistinguible de una
+    lectura fallida. Solo toca filas habilitadas: una fila que el operador apagó conserva su
+    procedencia, y un modelo ausente que reaparece vuelve a habilitarse en el siguiente sync porque
+    su fuente deja de ser ``operator_override``.
+    """
+    announced = {str(model) for model in present if str(model).strip()}
+    if not announced:
+        return []
+    absent: list[str] = []
+    for row in store.list_models(provider_id):
+        if row.get("enabled") and str(row["model"]) not in announced:
+            store.upsert_model({**row, "enabled": False, "source": ABSENT_MODEL_SOURCE})
+            absent.append(str(row["model"]))
+    return absent

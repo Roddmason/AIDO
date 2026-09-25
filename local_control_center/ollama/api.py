@@ -9,10 +9,8 @@ hacen visible como runtime, y ``model_catalog`` guarda sus modelos por ``provide
 
 from __future__ import annotations
 
-import re
 import time
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,13 +20,21 @@ from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.local_runtimes.endpoints import (
+    normalize_base_url as _normalize_base_url,
+)
+from local_control_center.local_runtimes.endpoints import (
+    reconcile_absent_models,
+    upsert_local_runtime_records,
+)
+from local_control_center.local_runtimes.endpoints import (
+    validate_endpoint_id as _validate_endpoint_id,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
-
-ENDPOINT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{1,95}$")
 
 
 class _AliasedModel(BaseModel):
@@ -109,23 +115,6 @@ class OllamaSyncModelsResponse(BaseModel):
     """Respuesta de sincronización de modelos Ollama."""
 
     models: list[dict[str, Any]]
-
-
-def _validate_endpoint_id(endpoint_id: str) -> str:
-    value = str(endpoint_id or "").strip()
-    if not ENDPOINT_ID_RE.match(value):
-        raise HTTPException(status_code=422, detail="Endpoint id must be a compact catalog id.")
-    return value
-
-
-def _normalize_base_url(base_url: str) -> str:
-    value = str(base_url or "").strip().rstrip("/")
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise HTTPException(status_code=422, detail="baseUrl must be an absolute http(s) URL.")
-    if parsed.params or parsed.query or parsed.fragment:
-        raise HTTPException(status_code=422, detail="baseUrl must not include params, query or fragment.")
-    return value
 
 
 def _infer_kind(base_url: str, requested: str | None) -> Literal["local", "remote"]:
@@ -216,26 +205,9 @@ def _endpoint_record(store: ProviderAccountStore, account: dict[str, Any]) -> di
     }
 
 
-def _upsert_runtime_capability(connection: Any, *, runtime_id: str) -> None:
-    timestamp = utc_now()
-    connection.execute(
-        """
-        INSERT INTO runtime_capabilities
-            (id, runtime, capability, enabled, metadata, created_at, updated_at)
-        VALUES (?, ?, 'chat', 1, ?, ?, ?)
-        ON CONFLICT(runtime, capability) DO UPDATE SET
-            enabled = 1,
-            metadata = excluded.metadata,
-            updated_at = excluded.updated_at
-        """,
-        (
-            f"{runtime_id}:chat",
-            runtime_id,
-            json_dumps({"source": "ollama_endpoints"}),
-            timestamp,
-            timestamp,
-        ),
-    )
+def _catalog_id(kind: str) -> str:
+    """Entrada de catálogo del endpoint: el local es ``ollama``; el remoto, ``ollama_remote``."""
+    return "ollama" if kind == "local" else "ollama_remote"
 
 
 def _upsert_runtime_records(
@@ -250,44 +222,19 @@ def _upsert_runtime_records(
     last_health_check_at: str | None = None,
     last_error: str | None = None,
 ) -> None:
-    capabilities = ["chat"]
-    preferred_roles = ["analyst", "product_owner", "developer", "technical_lead"]
-    runtime_repo.upsert_installation(
-        {
-            "runtimeId": endpoint_id,
-            "kind": _provider_type(kind),
-            "enabled": enabled,
-            "capabilities": capabilities,
-            "preferredRoles": preferred_roles,
-            "healthStatus": health_status,
-            "lastHealthCheckAt": last_health_check_at,
-            "lastError": last_error or "",
-            "configurationSource": "ollama_endpoint",
-            "metadata": {
-                "providerId": endpoint_id,
-                "displayName": display_name,
-                "kind": kind,
-            },
-        }
+    upsert_local_runtime_records(
+        runtime_repo,
+        endpoint_id=endpoint_id,
+        runtime_kind=_provider_type(kind),
+        display_name=display_name,
+        credential_ref=credential_ref,
+        enabled=enabled,
+        source="ollama_endpoint",
+        endpoint_kind=kind,
+        health_status=health_status,
+        last_health_check_at=last_health_check_at,
+        last_error=last_error,
     )
-    runtime_repo.upsert_runtime_account(
-        {
-            "runtimeId": endpoint_id,
-            "accountLabel": endpoint_id,
-            "authMode": "bearer" if credential_ref else "none",
-            "credentialStoreKind": "credential_ref" if credential_ref else "none",
-            "credentialRef": credential_ref,
-            "enabled": enabled,
-            "isDefault": True,
-            "capabilities": capabilities,
-            "preferredRoles": preferred_roles,
-            "healthStatus": health_status,
-            "lastValidationAt": last_health_check_at,
-            "configurationSource": "ollama_endpoint",
-            "metadata": {"providerId": endpoint_id, "kind": kind},
-        }
-    )
-    _upsert_runtime_capability(runtime_repo.connection, runtime_id=endpoint_id)
 
 
 def _health_payload(endpoint_id: str, provider: OllamaProvider) -> dict[str, Any]:
@@ -360,13 +307,14 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
         display_name = body.display_name or body.label or endpoint_id
-        provider = providers().upsert_provider_account(
+        providers().upsert_provider_account(
             {
                 "id": endpoint_id,
                 "providerId": endpoint_id,
                 "displayName": display_name,
                 "providerType": _provider_type(kind),
                 "apiFormat": "ollama",
+                "providerFamily": "ollama",
                 "baseUrl": base_url,
                 "credentialRef": credential_ref,
                 "enabled": body.enabled,
@@ -380,6 +328,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 },
             }
         )
+        provider = providers().set_provider_catalog_id(endpoint_id, _catalog_id(kind))
         _upsert_runtime_records(
             runtimes(),
             endpoint_id=endpoint_id,
@@ -460,14 +409,17 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(
                 status_code=503, detail=redact_secrets(health.get("message") or "unavailable")
             )
+        present = [str(model) for model in health.get("models", [])]
         stored = [
-            providers().upsert_model(_model_payload(endpoint_id, model)) for model in health.get("models", [])
+            providers().upsert_model(_model_payload(endpoint_id, model), preserve_operator_enabled=True)
+            for model in present
         ]
+        absent = reconcile_absent_models(providers(), endpoint_id, present)
         providers().record_health_check(provider_id=endpoint_id, status="available", payload=health)
         audit(
             "ollama.endpoint.models_synced",
             endpoint_id,
-            {"count": len(stored), "source": "ollama_api_tags"},
+            {"count": len(stored), "absentDisabled": len(absent), "source": "ollama_api_tags"},
         )
         return {"models": stored}
 

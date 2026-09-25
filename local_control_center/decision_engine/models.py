@@ -148,3 +148,101 @@ class DecisionOutcome(_Contract):
     tokens: Annotated[int, Field(strict=True, ge=0)] | None = None
     cost: Nonnegative | None = None
     human_override: bool | None = None
+
+
+class DecisionEngineStatusResponse(BaseModel):
+    """Estado del motor: configuración efectiva separada de lo observado, sin credenciales.
+
+    Con configuración inválida sólo viajan ``status``, ``reasonCode``, ``enabled`` y ``mode``; el
+    resto es opcional y la ruta lo omite (``exclude_unset``) en vez de mandarlo como ``null``.
+    """
+
+    status: str
+    enabled: bool
+    mode: str
+    reason_code: str | None = Field(default=None, alias="reasonCode")
+    provider: str | None = None
+    model: str | None = None
+    version: str | None = None
+    configuration_fingerprint: str | None = Field(default=None, alias="configurationFingerprint")
+    confidence_threshold: float | None = Field(default=None, alias="confidenceThreshold")
+    margin_threshold: float | None = Field(default=None, alias="marginThreshold")
+    consecutive_provider_failures: int | None = Field(default=None, alias="consecutiveProviderFailures")
+    credential_configured: bool | None = Field(default=None, alias="credentialConfigured")
+    real_calls_enabled: bool | None = Field(default=None, alias="realCallsEnabled")
+
+
+class DecisionListResponse(BaseModel):
+    """Página estable de receipts por secuencia durable.
+
+    Cada item es el receipt tal como se guardó, más ``sequence`` y su ``outcome`` observado. Es un
+    documento abierto a propósito: su esquema creció con el tiempo (los receipts viejos no traen
+    ``totalRoutingLatencyMs``), y un modelo cerrado descartaría claves en silencio o fallaría con
+    datos históricos.
+    """
+
+    items: list[dict[str, Any]]
+    next_after: int = Field(alias="nextAfter")
+
+
+class DecisionLatencySummary(BaseModel):
+    """Latencia de decisión de la página: conteo, promedio y máximo en milisegundos."""
+
+    count: int
+    average: float | None
+    maximum: float | None
+
+
+class DecisionReportMetrics(BaseModel):
+    """Métricas de una página explícita; el acuerdo con Jev nunca se presenta como exactitud."""
+
+    decision_count: int
+    provider_errors: int
+    timeouts: int
+    timeout_rate: float | None
+    fallback_rate: float | None
+    agreement_rate: float | None
+    disagreement_rate: float | None
+    decision_latency_ms: DecisionLatencySummary
+    routing_latency_ms: list[float]
+    total_routing_latency_ms: list[float]
+    confidence_distribution: list[float]
+    margin_distribution: list[float]
+    human_override_rate: float | None
+    success_rate: float | None
+    retry_rate: float | None
+    review_failure_rate: float | None
+    test_failure_rate: float | None
+
+
+class DecisionReportWindow(BaseModel):
+    """Ventana pedida y cuántos receipts devolvió realmente."""
+
+    after: int
+    limit: int
+    returned: int
+
+
+class DecisionReportDenominators(BaseModel):
+    """Denominador de cada tasa: cuántos casos la sostienen, para no leer un 100% de uno solo."""
+
+    completed: int
+    agreement: int
+    human_override: int
+    execution_succeeded: int
+    retries: int
+    review_passed: int
+    tests_passed: int
+
+
+class DecisionReportResponse(BaseModel):
+    """Comparación offline de decisiones y outcomes sobre una página explícita de receipts."""
+
+    metrics: DecisionReportMetrics
+    total_receipts: int = Field(alias="totalReceipts")
+    window: DecisionReportWindow
+    next_after: int = Field(alias="nextAfter")
+    denominators: DecisionReportDenominators
+    configuration_fingerprints: list[str] = Field(alias="configurationFingerprints")
+    comparisons: list[dict[str, Any]]
+    calibration: str

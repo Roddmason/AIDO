@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from .config import real_jev_calls_enabled, resolve_config
+from .models import DecisionEngineStatusResponse, DecisionListResponse, DecisionReportResponse
 from .reporting import decision_report
 from .repository import DecisionRepository
 
@@ -22,7 +23,11 @@ def create_router(*, platform: Any) -> APIRouter:
     """Expone únicamente lecturas locales usando la conexión de operación de AIDO."""
     router = APIRouter()
 
-    @router.get("/api/v1/decision-engine")
+    @router.get(
+        "/api/v1/decision-engine",
+        response_model=DecisionEngineStatusResponse,
+        response_model_exclude_unset=True,
+    )
     async def status(projectId: str | None = None) -> dict:
         """Separa configuración efectiva del estado observado sin revelar credenciales."""
         try:
@@ -67,7 +72,7 @@ def create_router(*, platform: Any) -> APIRouter:
             "realCallsEnabled": real_jev_calls_enabled(),
         }
 
-    @router.get("/api/v1/decision-engine/decisions")
+    @router.get("/api/v1/decision-engine/decisions", response_model=DecisionListResponse)
     async def decisions(
         projectId: str | None = None,
         after: int = Query(default=0, ge=0),
@@ -79,7 +84,7 @@ def create_router(*, platform: Any) -> APIRouter:
         )
         return {"items": items, "nextAfter": items[-1]["sequence"] if items else after}
 
-    @router.get("/api/v1/decision-engine/report")
+    @router.get("/api/v1/decision-engine/report", response_model=DecisionReportResponse)
     async def report(
         projectId: str | None = None,
         after: int = Query(default=0, ge=0),

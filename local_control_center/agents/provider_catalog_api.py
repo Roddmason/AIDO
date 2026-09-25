@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.local_runtimes.endpoints import (
     LOCAL_RUNTIME_CATALOG_SOURCE,
+    reconcile_absent_models,
     upsert_local_runtime_records,
 )
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
@@ -564,6 +565,11 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             for row in providers().list_models(provider_id):
                 if row.get("enabled") and excluded_by_catalog_rule(str(row.get("model") or "")):
                     providers().upsert_model({**row, "enabled": False})
+        absent: list[str] = []
+        if catalog_entry.provider_type == "local":
+            absent = reconcile_absent_models(
+                providers(), provider_id, [str(item.get("model") or "") for item in discovered]
+            )
         audit(
             "provider_catalog.account.models_synced",
             provider_id,
@@ -572,6 +578,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "catalogId": catalog_entry.id,
                 "count": len(stored),
                 "excludedByCatalogRule": excluded_count,
+                "absentDisabled": len(absent),
             },
         )
         return {"models": stored}

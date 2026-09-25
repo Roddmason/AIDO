@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -23,9 +23,35 @@ const supervised = Boolean(process.env.AIDO_QUALITY_SCRATCH && process.env.AIDO_
 const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-tests-${process.pid}`);
 const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
 const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.join(ownedQualityRoot, 'evidence');
+/**
+ * Removes what this run created under its own quality root, as the process exits.
+ *
+ * Only a run that owns its root registers this: a supervised run's scratch belongs to the
+ * supervisor. The SQLite databases under scratch were the whole leak (one per chunk, a few MB
+ * each, never read after the run), so scratch always goes. A failed run keeps its evidence for
+ * inspection; a green one leaves nothing behind. It hangs off the 'exit' event so it also covers
+ * uncaught errors, which is why it may only do synchronous work. A cleanup failure never changes
+ * the verdict: it warns and moves on.
+ *
+ * @param {number} code Exit code the process is leaving with.
+ */
+function releaseOwnedQualityRoot(code) {
+	const target = code === 0 ? ownedQualityRoot : qualityScratch;
+	try {
+		rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+	} catch (error) {
+		console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
+		return;
+	}
+	if (code !== 0) {
+		console.warn(`[run-web-tests] evidence kept at ${qualityRetained}`);
+	}
+}
+
 if (ownedQualityRoot) {
 	mkdirSync(qualityScratch, { recursive: true });
 	mkdirSync(qualityRetained, { recursive: true });
+	process.on('exit', releaseOwnedQualityRoot);
 }
 const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `playwright-control-center-${process.pid}.sqlite`);
 const playwrightProjects = ['desktop', 'mobile'];

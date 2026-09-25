@@ -22,6 +22,10 @@ APPROVED_SANDBOX_EXECUTION_FILES = {
     "local_control_center/agents/cli_runtimes/base.py",
     "local_control_center/agents/openhands_adapter.py",
     "local_control_center/agents/runtime_adapters/subprocess_adapter.py",
+    # Sonda de preflight de CLIs: todo camino al sandbox pasa antes por evaluate_action, y su smoke
+    # `codex_compatibility_smoke` es una operacion que el ToolBroker rechaza por diseno (reservada al
+    # servicio de aprobacion explicita), igual que en cli_runtimes/base.py.
+    "local_control_center/agents/runtime_preflight_cli.py",
     "local_control_center/agents/swe_agent_adapter.py",
     "local_control_center/agents/tool_broker.py",
     "local_control_center/integrations/mcp_gateway.py",

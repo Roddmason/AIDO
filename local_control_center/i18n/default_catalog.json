@@ -2187,6 +2187,14 @@
       "en": "Retry",
       "es": "Reintentar"
     },
+    "app.route.chunkLoadErrorBody": {
+      "en": "The code for this view could not be downloaded, usually because AIDO was updated while this tab was open. Reload the page to get the latest version.",
+      "es": "No se pudo descargar el código de esta vista, normalmente porque AIDO se actualizó mientras esta pestaña estaba abierta. Recarga la página para obtener la versión más reciente."
+    },
+    "app.route.reloadPage": {
+      "en": "Reload page",
+      "es": "Recargar página"
+    },
     "app.projects.filterLabel": {
       "en": "Project lane",
       "es": "Estado de proyectos"

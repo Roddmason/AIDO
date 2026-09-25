@@ -290,7 +290,7 @@ test('Local runtimes: the wizard, discovery and endpoints panel load with Settin
 	await expect(settings.getByText('Local endpoints', { exact: true })).toBeVisible();
 });
 
-test('Local runtimes: a failed endpoints-panel chunk keeps Settings usable with a retryable error', async ({
+test('Local runtimes: a failed endpoints-panel chunk keeps Settings usable and offers a page reload', async ({
 	page,
 }) => {
 	await page.route('**/assets/LocalEndpointsPanel-*.js', (route) => route.abort('failed'));
@@ -298,6 +298,7 @@ test('Local runtimes: a failed endpoints-panel chunk keeps Settings usable with 
 	await waitForControlPlane(page);
 	const settings = page.getByRole('dialog', { name: 'Settings' });
 	await expect(settings.getByText('This view could not be loaded', { exact: true })).toBeVisible();
+	await expect(settings.getByRole('button', { name: 'Reload page', exact: true })).toBeVisible();
 	await expect(settings.getByRole('button', { name: 'Detect local runtimes' })).toBeVisible();
 });
 

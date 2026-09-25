@@ -85,6 +85,25 @@ test('AIDO-69 optional route chunks load on navigation rather than the home requ
 	await testInfo.attach('route-assets.json', { body: JSON.stringify({ initial, initialSizes, afterNavigation: assets }), contentType: 'application/json' });
 });
 
+test('AIDO-69 a failed route chunk offers a page reload, which loads the view', async ({ page }) => {
+	let chunkRequests = 0;
+	await page.route('**/assets/ModelGatewayPage-*.js', (route) => {
+		chunkRequests += 1;
+		return chunkRequests === 1 ? route.abort('failed') : route.continue();
+	});
+	await page.goto('/#models');
+	const failure = page.getByRole('alert').filter({ hasText: 'This view could not be loaded' });
+	const viewHeading = page.getByRole('main').getByRole('heading', { name: 'Model Gateway', exact: true });
+	await expect(failure).toBeVisible();
+	await expect(viewHeading).toHaveCount(0);
+	// React.lazy keeps the rejected import, so a remount would never request the chunk again.
+	await expect(failure.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+	await failure.getByRole('button', { name: 'Reload page', exact: true }).click();
+	await expect(viewHeading).toBeVisible();
+	await expect(failure).toHaveCount(0);
+	expect(chunkRequests).toBe(2);
+});
+
 test('AIDO-69 failed optional chunk preserves the shell and navigation', async ({ page }) => {
 	await page.route('**/assets/ModelGatewayPage-*.js', (route) => route.abort('failed'));
 	await page.goto('/#home');

@@ -1,8 +1,13 @@
 /**
- * Error boundary around the active route: catches render failures and lazy-chunk load
- * errors so one broken page (or a failed chunk download over a flaky network) degrades
- * to a retryable message instead of blanking the whole shell. Retry remounts the subtree
- * (via a changing key) so a previously-rejected `React.lazy` import is attempted again.
+ * Error boundary around a lazily loaded subtree (the active route, a deferred Settings panel), so one
+ * broken view degrades to an error state instead of blanking the whole shell. The recovery it offers
+ * depends on what failed:
+ * - A render error offers Retry, which remounts the subtree via a changing key.
+ * - A failed chunk download offers a page reload. A remount cannot recover it: `React.lazy` keeps the
+ *   rejected import and rethrows it on every render without calling the import again, so only a full
+ *   page load requests the chunk again. The usual cause is a dashboard rebuild while the tab was open
+ *   (its old hashed chunks are gone), and the reload also picks up the new build. It stays an operator
+ *   action: reloading automatically on a chunk that keeps failing would loop forever.
  * Reports a fixed correlated signal; never sends the exception or form contents.
  * @author Rodrigo Mason
  */
@@ -12,6 +17,7 @@ import { Component, Fragment } from 'react';
 import { getHandshake } from '../api/client';
 
 import { Button, ErrorState } from '../components/ui';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface RouteErrorBoundaryProps {
 	children: ReactNode;
@@ -22,17 +28,52 @@ interface RouteErrorBoundaryProps {
 
 interface RouteErrorBoundaryState {
 	hasError: boolean;
+	/** The error was a failed chunk download, which only a full page load recovers. */
+	chunkLoadFailed: boolean;
 	retryKey: number;
+}
+
+/** How Chromium, Firefox and Safari word a failed dynamic import: the TypeError carries no code. */
+const CHUNK_LOAD_ERROR_MESSAGES = [
+	'Failed to fetch dynamically imported module',
+	'error loading dynamically imported module',
+	'Importing a module script failed',
+];
+
+function isChunkLoadError(error: unknown) {
+	return (
+		error instanceof TypeError &&
+		CHUNK_LOAD_ERROR_MESSAGES.some((message) => error.message.includes(message))
+	);
+}
+
+/** Resolves its own copy: a stale or missing chunk reads the same wherever the boundary sits. */
+function ChunkLoadErrorState({ title }: { title: string }) {
+	const { t } = useI18n();
+	return (
+		<ErrorState
+			title={title}
+			body={t(
+				'app.route.chunkLoadErrorBody',
+				'The code for this view could not be downloaded, usually because AIDO was updated while this tab was open. Reload the page to get the latest version.',
+			)}
+			action={
+				<Button variant="primary" onClick={() => window.location.reload()}>
+					{t('app.route.reloadPage', 'Reload page')}
+				</Button>
+			}
+		/>
+	);
 }
 
 export class RouteErrorBoundary extends Component<
 	RouteErrorBoundaryProps,
 	RouteErrorBoundaryState
 > {
-	state: RouteErrorBoundaryState = { hasError: false, retryKey: 0 };
+	state: RouteErrorBoundaryState = { hasError: false, chunkLoadFailed: false, retryKey: 0 };
 
-	static getDerivedStateFromError(): Partial<RouteErrorBoundaryState> {
-		return { hasError: true };
+	static getDerivedStateFromError(error: unknown): Partial<RouteErrorBoundaryState> {
+		return { hasError: true, chunkLoadFailed: isChunkLoadError(error) };
 	}
 
 	componentDidCatch() {
@@ -58,7 +99,9 @@ export class RouteErrorBoundary extends Component<
 
 	render() {
 		if (this.state.hasError) {
-			return (
+			return this.state.chunkLoadFailed ? (
+				<ChunkLoadErrorState title={this.props.title} />
+			) : (
 				<ErrorState
 					title={this.props.title}
 					body={this.props.body}

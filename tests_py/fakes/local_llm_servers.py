@@ -17,11 +17,12 @@ import json
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 LLAMA_ROUTER_CREATED = 1790187967
 LLAMA_ROUTER_MODELS: tuple[dict[str, Any], ...] = tuple(
@@ -362,3 +363,175 @@ def sqlite_text_dump(connection: sqlite3.Connection) -> str:
         for row in connection.execute(f'SELECT * FROM "{table}"').fetchall():
             chunks.extend(value for value in row if isinstance(value, str))
     return "\n".join(chunks)
+
+
+class _JsonRouteHandler(BaseHTTPRequestHandler):
+    """Responde rutas (método, path) con JSON fijo o calculado y registra cada pedido."""
+
+    routes: Mapping[tuple[str, str], Any] = {}
+    requests: list[dict[str, Any]] = []
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+    def _dispatch(self, method: str) -> None:
+        path = self.path.split("?", 1)[0]
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        record = {
+            "method": method,
+            "path": path,
+            "authorization": self.headers.get("Authorization"),
+            "body": body.decode("utf-8", "replace"),
+        }
+        type(self).requests.append(record)
+        route = type(self).routes.get((method, path))
+        if route is None:
+            status, payload = 404, {"error": {"message": f"no route for {method} {path}"}}
+        else:
+            status, payload = route(record) if callable(route) else route
+        if isinstance(payload, bytes):
+            raw = payload
+        elif payload is None:
+            raw = b""
+        else:
+            raw = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self) -> None:
+        self._dispatch("GET")
+
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+
+@dataclass
+class JsonRouteServer:
+    root_url: str
+    port: int
+    requests: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def base_url(self) -> str:
+        return f"{self.root_url}/v1"
+
+
+@contextmanager
+def json_route_server(routes: Mapping[tuple[str, str], Any]) -> Iterator[JsonRouteServer]:
+    """Sirve rutas JSON con el constructor único ``serve_http_double``; cierra con shutdown + server_close."""
+    requests: list[dict[str, Any]] = []
+    handler = type(
+        "JsonRouteTestHandler", (_JsonRouteHandler,), {"routes": dict(routes), "requests": requests}
+    )
+    with serve_http_double(handler, name="json-route-double") as root_url:
+        yield JsonRouteServer(root_url=root_url, port=int(urlsplit(root_url).port or 0), requests=requests)
+
+
+def _openai_models(models: Sequence[str], owned_by: str) -> dict[str, Any]:
+    return {
+        "object": "list",
+        "data": [{"id": model, "object": "model", "owned_by": owned_by} for model in models],
+    }
+
+
+def lm_studio_routes(
+    *,
+    models: Sequence[str],
+    loaded: Collection[str],
+    embeddings: Sequence[str] = (),
+    rest_v1: bool = True,
+) -> dict[tuple[str, str], Any]:
+    """LM Studio según lmstudio.ai/docs/developer/rest: v1 `models[].key/loaded_instances`, v0 `data[].state`."""
+    routes: dict[tuple[str, str], Any] = {
+        ("GET", "/v1/models"): (200, _openai_models([*models, *embeddings], "organization_owner")),
+        ("GET", "/api/v0/models"): (
+            200,
+            {
+                "object": "list",
+                "data": [
+                    *(
+                        {
+                            "id": model,
+                            "object": "model",
+                            "type": "llm",
+                            "state": "loaded" if model in loaded else "not-loaded",
+                            "max_context_length": 32768,
+                        }
+                        for model in models
+                    ),
+                    *(
+                        {"id": model, "object": "model", "type": "embeddings", "state": "loaded"}
+                        for model in embeddings
+                    ),
+                ],
+            },
+        ),
+    }
+    if rest_v1:
+        routes[("GET", "/api/v1/models")] = (
+            200,
+            {
+                "models": [
+                    *(
+                        {
+                            "type": "llm",
+                            "key": model,
+                            "display_name": model,
+                            "loaded_instances": [{"id": model, "config": {"context_length": 8192}}]
+                            if model in loaded
+                            else [],
+                        }
+                        for model in models
+                    ),
+                    *(
+                        {
+                            "type": "embedding",
+                            "key": model,
+                            "display_name": model,
+                            "loaded_instances": [{"id": model, "config": {"context_length": 2048}}],
+                        }
+                        for model in embeddings
+                    ),
+                ]
+            },
+        )
+    return routes
+
+
+def vllm_routes(*, model: str) -> dict[tuple[str, str], Any]:
+    """vLLM (docs.vllm.ai online serving): `/health` sin cuerpo y un único modelo con `owned_by=vllm`."""
+    return {
+        ("GET", "/health"): (200, None),
+        ("GET", "/v1/models"): (
+            200,
+            {
+                "object": "list",
+                "data": [{"id": model, "object": "model", "owned_by": "vllm", "max_model_len": 8192}],
+            },
+        ),
+    }
+
+
+def _chat_reply(record: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    requested = json.loads(record["body"] or "{}").get("model") or "unknown"
+    return 200, {
+        "id": "chatcmpl-local",
+        "object": "chat.completion",
+        "model": requested,
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": '{"ok": true}'}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+    }
+
+
+def generic_openai_routes(*, models: Sequence[str]) -> dict[tuple[str, str], Any]:
+    """Servidor OpenAI-compatible sin firma conocida: `/v1/models` + chat."""
+    return {
+        ("GET", "/v1/models"): (200, _openai_models(models, "system")),
+        ("POST", "/v1/chat/completions"): _chat_reply,
+    }

@@ -133,10 +133,72 @@ def read_no_load_states(
     return {}
 
 
+LM_STUDIO_STATE_TIMEOUT_S = 2.0
+LM_STUDIO_MAX_MODELS = 256
+_LM_STUDIO_NON_CHAT_TYPES = frozenset({"embedding", "embeddings"})
+_LM_STUDIO_V0_STATES: dict[str, LoadState] = {"loaded": "loaded", "not-loaded": "unloaded"}
+
+
+def _lm_studio_get(url: str, headers: Mapping[str, str], http_get_json: HttpGetJson) -> Any:
+    try:
+        return http_get_json(url, headers, LM_STUDIO_STATE_TIMEOUT_S)
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _lm_studio_chat_items(payload: Any, key: str) -> list[dict[str, Any]] | None:
+    items = payload.get(key) if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return None
+    return [
+        item
+        for item in items[:LM_STUDIO_MAX_MODELS]
+        if isinstance(item, dict)
+        and str(item.get("type") or "llm").strip().lower() not in _LM_STUDIO_NON_CHAT_TYPES
+    ]
+
+
+def read_lm_studio_rest_states(
+    root_url: str, headers: Mapping[str, str], http_get_json: HttpGetJson
+) -> dict[str, LoadState]:
+    """Lee el estado de carga de LM Studio: ``loaded_instances`` de la API REST v1, con fallback a v0.
+
+    ``/api/v1/models`` (LM Studio 0.4.0+) marca cargado un modelo con ``loaded_instances`` no vacío;
+    si esa ruta no existe o no trae ``models``, ``/api/v0/models`` (0.3.6+) informa ``state``
+    (``loaded``/``not-loaded``). Los modelos de embeddings se omiten y las listas se acotan. Un fallo de
+    lectura devuelve un dict vacío y un campo ausente ``unknown``: nunca lanza.
+    """
+    current = _lm_studio_chat_items(
+        _lm_studio_get(f"{root_url}/api/v1/models", headers, http_get_json), "models"
+    )
+    if current is not None:
+        states: dict[str, LoadState] = {}
+        for item in current:
+            key = str(item.get("key") or "").strip()
+            if not key:
+                continue
+            instances = item.get("loaded_instances")
+            states[key] = (
+                ("loaded" if instances else "unloaded") if isinstance(instances, list) else "unknown"
+            )
+        return states
+    legacy = _lm_studio_chat_items(
+        _lm_studio_get(f"{root_url}/api/v0/models", headers, http_get_json), "data"
+    )
+    if legacy is None:
+        return {}
+    return {
+        str(item.get("id")).strip(): _LM_STUDIO_V0_STATES.get(str(item.get("state") or ""), "unknown")
+        for item in legacy
+        if str(item.get("id") or "").strip()
+    }
+
+
 LOAD_STATE_READERS: dict[str, LoadStateSourceReader] = {
     "openai_models_status": read_openai_models_status_states,
     "single_model": read_single_model_states,
     "none": read_no_load_states,
+    "lm_studio_rest": read_lm_studio_rest_states,
 }
 """Lector por ``model_state_source`` del perfil; otras rebanadas registran fuentes nuevas aquí."""
 

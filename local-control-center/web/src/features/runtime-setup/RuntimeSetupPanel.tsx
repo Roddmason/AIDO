@@ -297,6 +297,10 @@ export function RuntimeSetupPanel({
 
 	const openWizard = (providerId: string | null) => {
 		wizardTrigger.current = document.activeElement as HTMLElement;
+		if (providerId && isLocalOpenAiRuntime(catalogEntry(providerId))) {
+			setLocalDraft(draftFromCatalog(providerId));
+			return;
+		}
 		setWizardProviderId(providerId);
 		setWizardOpen(true);
 	};

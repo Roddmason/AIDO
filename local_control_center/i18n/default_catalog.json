@@ -12920,6 +12920,50 @@
       "en": "Delete endpoint",
       "es": "Eliminar endpoint"
     },
+    "app.localRuntime.discovery.tokenRequired": {
+      "en": "A local write token is required to detect local runtimes.",
+      "es": "Se requiere un token local de escritura para detectar runtimes locales."
+    },
+    "app.localRuntime.discovery.failed": {
+      "en": "Local runtime detection failed",
+      "es": "Falló la detección de runtimes locales"
+    },
+    "app.localRuntime.discovery.title": {
+      "en": "Local runtimes found",
+      "es": "Runtimes locales encontrados"
+    },
+    "app.localRuntime.discovery.detect": {
+      "en": "Detect local runtimes",
+      "es": "Detectar runtimes locales"
+    },
+    "app.localRuntime.discovery.hint": {
+      "en": "Checks 127.0.0.1 on the usual llama.cpp, LM Studio, vLLM and compatible ports. Nothing is saved until you set one up.",
+      "es": "Revisa 127.0.0.1 en los puertos habituales de llama.cpp, LM Studio, vLLM y compatibles. No se guarda nada hasta que configures uno."
+    },
+    "app.localRuntime.discovery.none": {
+      "en": "No local runtime answered on this machine.",
+      "es": "Ningún runtime local respondió en este equipo."
+    },
+    "app.localRuntime.discovery.unknownServer": {
+      "en": "Unrecognized OpenAI-compatible server",
+      "es": "Servidor compatible con OpenAI no reconocido"
+    },
+    "app.localRuntime.discovery.configured": {
+      "en": "Already configured",
+      "es": "Ya configurado"
+    },
+    "app.localRuntime.discovery.models": {
+      "en": "models listed",
+      "es": "modelos listados"
+    },
+    "app.localRuntime.discovery.confirmUnknown": {
+      "en": "I confirm this is an OpenAI-compatible server I run and trust",
+      "es": "Confirmo que es un servidor compatible con OpenAI que yo ejecuto y en el que confío"
+    },
+    "app.localRuntime.discovery.setUp": {
+      "en": "Set up",
+      "es": "Configurar"
+    },
     "app.ollama.summary": {
       "en": "Run several Ollama servers side by side — the local daemon plus any remote host — and route each role to the one you trust.",
       "es": "Ejecuta varios servidores Ollama en paralelo — el daemon local y cualquier host remoto — y enruta cada rol al que prefieras."

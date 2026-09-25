@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from local_control_center.local_runtimes.contracts import LocalEndpointView
+
 AgentRole = Literal[
     "analyst",
     "assessor",
@@ -996,6 +998,7 @@ class RuntimeProvidersResponse(BaseModel):
 
     runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
     ollama: OllamaRuntimeProviderStatus
+    local: list[LocalEndpointView] = Field(default_factory=list)
     cli: CliRuntimeProviderStatus
     api: ApiRuntimeProviderStatus
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")

@@ -1110,7 +1110,9 @@ class RuntimeStatusService:
         return statuses
 
     def runtime_provider_status(self, *, project_id: str | None = None) -> dict[str, Any]:
-        """Summarize provider statuses into Ollama/CLI/API rollups and DeveloperAgent readiness."""
+        """Summarize provider statuses into Ollama/local/CLI/API rollups and DeveloperAgent readiness."""
+        from local_control_center.local_runtimes.endpoints import local_endpoint_views
+
         runtime_repo = RuntimeConfigRepository(self.connection)
         policy = runtime_repo.runtime_execution_policy(project_id=project_id)
         providers = self.list_provider_statuses(project_id=project_id)
@@ -1138,6 +1140,7 @@ class RuntimeStatusService:
                     (ollama_available or ollama or {}).get("reason") or "Ollama provider is not catalogued."
                 ),
             },
+            "local": local_endpoint_views(self.connection),
             "cli": {
                 "provider": "cli",
                 "available": any(provider["available"] for provider in cli_providers),

@@ -24,27 +24,57 @@ const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-te
 const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
 const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.join(ownedQualityRoot, 'evidence');
 /**
+ * Deletes a directory this run owns, without ever letting cleanup change the verdict.
+ *
+ * Runs from the 'exit' event, so it may only do synchronous work. Windows can hold a file for a
+ * moment after its process dies, hence the retries; if it still fails, it warns and moves on.
+ *
+ * @param {string} target Directory to remove.
+ * @returns {boolean} Whether the directory is gone.
+ */
+function removeOwnedDirectory(target) {
+	try {
+		rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+		return true;
+	} catch (error) {
+		console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
+		return false;
+	}
+}
+
+/**
  * Removes what this run created under its own quality root, as the process exits.
  *
  * Only a run that owns its root registers this: a supervised run's scratch belongs to the
  * supervisor. The SQLite databases under scratch were the whole leak (one per chunk, a few MB
  * each, never read after the run), so scratch always goes. A failed run keeps its evidence for
  * inspection; a green one leaves nothing behind. It hangs off the 'exit' event so it also covers
- * uncaught errors, which is why it may only do synchronous work. A cleanup failure never changes
- * the verdict: it warns and moves on.
+ * uncaught errors.
  *
  * @param {number} code Exit code the process is leaving with.
  */
 function releaseOwnedQualityRoot(code) {
-	const target = code === 0 ? ownedQualityRoot : qualityScratch;
-	try {
-		rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-	} catch (error) {
-		console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
-		return;
-	}
-	if (code !== 0) {
+	const removed = removeOwnedDirectory(code === 0 ? ownedQualityRoot : qualityScratch);
+	if (removed && code !== 0) {
 		console.warn(`[run-web-tests] evidence kept at ${qualityRetained}`);
+	}
+}
+
+/**
+ * Removes the Playwright output of a green run, as the process exits.
+ *
+ * The run owns `.tmp/playwright-artifacts-<pid>` only while PLAYWRIGHT_ARTIFACT_ROOT is unset; the
+ * supervised quality runner always sets it to its own evidence directory, so that path is never
+ * touched. A green run's output holds nothing worth keeping. A red one is exactly the traces and
+ * screenshots someone needs to read, so it stays and the path is reported.
+ *
+ * @param {number} code Exit code the process is leaving with.
+ */
+function releaseOwnedArtifactRoot(code) {
+	if (code === 0) {
+		removeOwnedDirectory(artifactRoot);
+	} else if (existsSync(artifactRoot)) {
+		console.warn(`[run-web-tests] Playwright output kept at ${artifactRoot}`);
 	}
 }
 
@@ -58,6 +88,9 @@ const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
 const artifactRoot = process.env.PLAYWRIGHT_ARTIFACT_ROOT || `.tmp/playwright-artifacts-${process.pid}`;
+if (!process.env.PLAYWRIGHT_ARTIFACT_ROOT) {
+	process.on('exit', releaseOwnedArtifactRoot);
+}
 const argumentsList = process.argv.slice(2);
 const grepIndex = argumentsList.indexOf('--grep');
 const selectedGrep = grepIndex < 0 ? null : argumentsList.splice(grepIndex, 2)[1];

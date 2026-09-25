@@ -40,8 +40,11 @@ import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';
-import { LocalRuntimeDiscovery } from './LocalRuntimeDiscovery';
-import { LocalRuntimeWizard } from './LocalRuntimeWizard';
+import {
+	DeferredLocalRuntime,
+	LocalRuntimeDiscovery,
+	LocalRuntimeWizard,
+} from './lazyLocalRuntime';
 import {
 	draftFromCatalog,
 	draftFromEndpoint,
@@ -368,13 +371,15 @@ export function RuntimeSetupPanel({
 						</button>
 					</div>
 				</div>
-				<LocalRuntimeDiscovery
-					token={token}
-					onSetUp={(draft) => {
-						wizardTrigger.current = document.activeElement as HTMLElement;
-						setLocalDraft(draft);
-					}}
-				/>
+				<DeferredLocalRuntime>
+					<LocalRuntimeDiscovery
+						token={token}
+						onSetUp={(draft) => {
+							wizardTrigger.current = document.activeElement as HTMLElement;
+							setLocalDraft(draft);
+						}}
+					/>
+				</DeferredLocalRuntime>
 				{executableCount === 0 ? (
 					<section className="empty-state" aria-live="polite">
 						<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
@@ -464,16 +469,18 @@ export function RuntimeSetupPanel({
 					setLocalDraft(draftFromCatalog(catalogId));
 				}}
 			/>
-			<LocalRuntimeWizard
-				draft={localDraft}
-				token={token}
-				onClose={() => setLocalDraft(null)}
-				onSaved={() => {
-					void loadGateway();
-					void onRefresh();
-					onLocalEndpointSaved?.();
-				}}
-			/>
+			<DeferredLocalRuntime placeholder={false}>
+				<LocalRuntimeWizard
+					draft={localDraft}
+					token={token}
+					onClose={() => setLocalDraft(null)}
+					onSaved={() => {
+						void loadGateway();
+						void onRefresh();
+						onLocalEndpointSaved?.();
+					}}
+				/>
+			</DeferredLocalRuntime>
 		</>
 	);
 }

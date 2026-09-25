@@ -30,7 +30,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { TranslationMaintainer } from '../../i18n/TranslationMaintainer';
 import { toneForStatus } from '../../lib/format';
 import type { Language } from '../projects/ProjectsPage';
-import { LocalEndpointsPanel } from '../runtime-setup/LocalEndpointsPanel';
+import { DeferredLocalRuntime, LocalEndpointsPanel } from '../runtime-setup/lazyLocalRuntime';
 import { OllamaEndpointsPanel } from '../runtime-setup/OllamaEndpointsPanel';
 import { RuntimeSetupPanel } from '../runtime-setup/RuntimeSetupPanel';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
@@ -93,11 +93,13 @@ export function RuntimeBody({
 				onLocalEndpointSaved={() => setGatewayRevision((revision) => revision + 1)}
 			/>
 			<OllamaEndpointsPanel token={token} onRefresh={refreshAfterEndpointMutation} />
-			<LocalEndpointsPanel
-				token={token}
-				revision={gatewayRevision}
-				onRefresh={refreshAfterEndpointMutation}
-			/>
+			<DeferredLocalRuntime>
+				<LocalEndpointsPanel
+					token={token}
+					revision={gatewayRevision}
+					onRefresh={refreshAfterEndpointMutation}
+				/>
+			</DeferredLocalRuntime>
 			<div className="settings-readouts">
 				<div>
 					<strong>{t('ui.static.local.control.api.f1f86c0e', 'Local Control API')}</strong>

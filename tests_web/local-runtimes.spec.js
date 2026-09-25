@@ -265,6 +265,42 @@ test('Local endpoints: deleting an endpoint a role policy uses lists the referen
 	}
 });
 
+test('Local runtimes: the wizard, discovery and endpoints panel load with Settings, not in the home request', async ({
+	page,
+}) => {
+	const assets = [];
+	page.on('request', (request) => {
+		const pathname = new URL(request.url()).pathname;
+		if (pathname.startsWith('/assets/')) assets.push(pathname);
+	});
+	await page.goto('/#home');
+	await waitForControlPlane(page);
+	const chunks = ['LocalRuntimeWizard', 'LocalRuntimeDiscovery', 'LocalEndpointsPanel'];
+	for (const chunk of chunks) {
+		expect(assets.some((asset) => asset.includes(`/${chunk}-`)), chunk).toBe(false);
+	}
+	await page.evaluate(() => {
+		window.location.hash = '#settings-runtime';
+	});
+	for (const chunk of chunks) {
+		await expect.poll(() => assets.some((asset) => asset.includes(`/${chunk}-`)), { message: chunk }).toBe(true);
+	}
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings.getByRole('button', { name: 'Detect local runtimes' })).toBeVisible();
+	await expect(settings.getByText('Local endpoints', { exact: true })).toBeVisible();
+});
+
+test('Local runtimes: a failed endpoints-panel chunk keeps Settings usable with a retryable error', async ({
+	page,
+}) => {
+	await page.route('**/assets/LocalEndpointsPanel-*.js', (route) => route.abort('failed'));
+	await page.goto('/#settings-runtime');
+	await waitForControlPlane(page);
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings.getByText('This view could not be loaded', { exact: true })).toBeVisible();
+	await expect(settings.getByRole('button', { name: 'Detect local runtimes' })).toBeVisible();
+});
+
 test('Runtime access: Providers & CLI shows the local runtimes switch and saves the per-call ceiling', async ({
 	page,
 }) => {

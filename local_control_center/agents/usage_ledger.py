@@ -1,9 +1,9 @@
 """Records per-call token usage and cost in the usage ledger with redaction.
 
-Persists one `usage_ledger` row per model/runtime call and, when a cost is known, a
-paired `cost_usage` row, sanitizing raw usage payloads before storage. Also derives a
-trustworthy `usageSource`/`tokenStatus`/`costStatus` so downstream summaries can tell
-provider-reported usage from estimates.
+Persists one `usage_ledger` row per model/runtime call and, when a cost is known and the
+caller does not record it itself, a paired `cost_usage` row, sanitizing raw usage payloads
+before storage. Also derives a trustworthy `usageSource`/`tokenStatus`/`costStatus` so
+downstream summaries can tell provider-reported usage from estimates.
 
 @author Rodrigo Mason
 """
@@ -101,11 +101,15 @@ class UsageLedger:
         latency_ms: int | None = None,
         raw_usage: dict[str, Any] | None = None,
         usage_source: str | None = None,
+        record_cost_usage: bool = True,
     ) -> dict[str, Any]:
         """Insert a ledger row (and a cost_usage row when cost is known) and return it.
 
         ``project_id`` attributes that cost_usage row to the caller's project; the ledger row
         has no project column, and callers without a project leave the cost row's project NULL.
+        ``record_cost_usage=False`` skips that row for a caller whose own cost_usage row already
+        carries the call's cost (the model gateway's ``model_call`` row): the Control Center sums
+        every cost_usage row, so a second one would count the call twice.
 
         Raw usage is redacted before storage. The two inserts are emitted on the caller's
         connection without an explicit commit, so they are atomic only within the caller's
@@ -164,7 +168,7 @@ class UsageLedger:
                 utc_now(),
             ),
         )
-        if estimated_cost_usd is not None or actual_cost_usd is not None:
+        if record_cost_usage and (estimated_cost_usd is not None or actual_cost_usd is not None):
             self.connection.execute(
                 """
                 INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)

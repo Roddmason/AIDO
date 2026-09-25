@@ -520,8 +520,9 @@ class AgentsRepository:
         cost_usd: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Record a model call and, when cost is non-zero, a paired `cost_usage` row.
+        """Record a model call and, when its cost is known (zero included), a paired `cost_usage` row.
 
+        That row is the model gateway's only cost_usage entry, so a free call still shows a known $0.00.
         Metadata is redacted before storage. Both inserts run on the caller's connection
         without an explicit commit, so they are atomic only within the caller's transaction.
         """
@@ -550,7 +551,7 @@ class AgentsRepository:
                 timestamp,
             ),
         )
-        if cost_usd:
+        if cost_usd is not None:
             self.connection.execute(
                 """
                 INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)

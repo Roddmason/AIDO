@@ -275,6 +275,11 @@ class ModelGateway:
         Falla cerrado: ante candidato no permitido, presupuesto excedido, configuración faltante o error del
         proveedor devuelve un estado de bloqueo/'unavailable' (motivo redactado) sin propagar la excepción.
 
+        Solo un intento real del modelo deja un recibo fallido en ``model_execution_health``: un deadline
+        agotado (``ExecutionDeadlineExceeded``, aunque sea un ``TimeoutError``) corta antes del request, y
+        una causa local transitoria (``TRANSIENT_LOCAL_RUNTIME_CAUSES``: modelo cargando o lease ocupada)
+        no es falla del modelo (P8).
+
         Returns:
             Estado 'completed' con contenido y uso, o un estado de bloqueo/unavailable; siempre con modelCall.
         """
@@ -372,8 +377,6 @@ class ModelGateway:
             http_status = error.code if isinstance(error, HTTPError) else getattr(error, "status_code", None)
             http_status = http_status if isinstance(http_status, int) and 100 <= http_status <= 599 else None
             failure_cause = self._local_failure_cause(provider_id, error, http_status)
-            # Un deadline agotado (hereda de TimeoutError) corta antes del request: no es un intento del
-            # modelo. P8: una causa transitoria (carga del modelo o lease ocupada) tampoco deja un recibo.
             if (
                 invoked
                 and not isinstance(error, ExecutionDeadlineExceeded)
@@ -556,7 +559,9 @@ class ModelGateway:
         """Valida que la cuenta pueda ejecutarse (o sondearse) sin llamar al proveedor.
 
         CLI/manual se bloquean; `api`/`gateway` exigen política remota y credencial; `local` delega en
-        `_local_provider_configuration`.
+        `_local_provider_configuration`. Una cuenta deshabilitada devuelve `blocked` y no
+        `configuration_required`: la acción del operador es habilitarla, no reingresar credenciales que ya
+        existen.
         """
         from .credentials import CredentialResolver
         from .provider_accounts import ProviderAccountStore
@@ -575,8 +580,6 @@ class ModelGateway:
                 "reason": f"Provider account not found: {provider_id}",
             }
         if not account.get("enabled"):
-            # Deshabilitada != sin configurar: la accion del operador es habilitarla, y decirle
-            # "configuration_required" lo manda a reingresar credenciales que ya existen.
             return {
                 "status": "blocked",
                 "reason": "Provider account is disabled; enable it to execute.",
@@ -968,11 +971,6 @@ def ollama_status(*, base_url: str | None = None, credential_ref: str | None = N
     }
 
 
-# El sondeo del daemon Ollama es una llamada de red (`/api/tags`) que, sin daemon o contra un endpoint
-# remoto no accesible, agota su timeout (~4 s medidos en Windows) en CADA request. El rollup de estado
-# que consume el shell se poléa ~cada 5 s reteniendo el lock global del control-plane, así que se cachea
-# el resultado por `(base_url, credential_ref)` con TTL. `ollama_status` sigue siendo un probe vivo para
-# health-checks explícitos; solo la ruta de polling usa la versión cacheada.
 _OLLAMA_STATUS_CACHE_TTL_SECONDS = 30.0
 _ollama_status_cache: dict[tuple[str | None, str | None], tuple[float, dict[str, Any]]] = {}
 _ollama_status_cache_lock = threading.Lock()
@@ -985,7 +983,14 @@ def reset_ollama_status_cache() -> None:
 
 
 def cached_ollama_status(*, base_url: str | None = None, credential_ref: str | None = None) -> dict[str, Any]:
-    """Devuelve ``ollama_status`` cacheado por TTL; ante fallo de caché sondea FUERA del candado del caché."""
+    """Devuelve ``ollama_status`` cacheado por TTL; ante fallo de caché sondea FUERA del candado del caché.
+
+    El sondeo del daemon (`/api/tags`) es una llamada de red que, sin daemon o contra un endpoint remoto
+    inaccesible, agota su timeout (~4 s medidos en Windows) en cada request, y el rollup de estado que el
+    shell consulta cada ~5 s retiene el lock global del control-plane: por eso se cachea por
+    ``(base_url, credential_ref)``. ``ollama_status`` sigue siendo el probe vivo de los health-checks
+    explícitos; solo la ruta de polling usa esta versión.
+    """
     key = (base_url, credential_ref)
     now = time.monotonic()
     with _ollama_status_cache_lock:

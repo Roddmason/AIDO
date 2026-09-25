@@ -748,9 +748,18 @@ def test_named_endpoint_profiles_and_security_selection_keep_endpoint_scope(
     assert selected_security_runtime == runtime
 
 
+@pytest.fixture
+def schema_connection(tmp_path: Path) -> Iterator[Any]:
+    """Conexión con el esquema y sin cuentas: los runners la consultan antes de llamar al broker."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        yield connection
+
+
 def test_named_endpoint_request_builders_emit_family_tool_and_endpoint_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    schema_connection: Any,
 ) -> None:
     runtime = {
         "id": "nvidia-team-a",
@@ -793,7 +802,9 @@ def test_named_endpoint_request_builders_emit_family_tool_and_endpoint_identity(
             }
 
     developer_broker = RecordingBroker()
-    DeveloperAgentRunner.__new__(DeveloperAgentRunner)._execute_model_runtime(
+    developer_runner = DeveloperAgentRunner.__new__(DeveloperAgentRunner)
+    developer_runner.connection = schema_connection
+    developer_runner._execute_model_runtime(
         payload=payload,
         runtime=runtime,
         workspace=workspace,
@@ -803,7 +814,9 @@ def test_named_endpoint_request_builders_emit_family_tool_and_endpoint_identity(
         broker=developer_broker,
     )
     product_owner_broker = RecordingBroker()
-    ProductOwnerAgentRunner.__new__(ProductOwnerAgentRunner)._execute_model_runtime(
+    product_owner_runner = ProductOwnerAgentRunner.__new__(ProductOwnerAgentRunner)
+    product_owner_runner.connection = schema_connection
+    product_owner_runner._execute_model_runtime(
         payload=payload,
         runtime=runtime,
         workspace=workspace,
@@ -814,7 +827,9 @@ def test_named_endpoint_request_builders_emit_family_tool_and_endpoint_identity(
         messages=[{"role": "user", "content": "Plan the request."}],
     )
     architect_broker = RecordingBroker()
-    ArchitectAgentRunner.__new__(ArchitectAgentRunner)._execute_model_runtime(
+    architect_runner = ArchitectAgentRunner.__new__(ArchitectAgentRunner)
+    architect_runner.connection = schema_connection
+    architect_runner._execute_model_runtime(
         payload=payload,
         runtime=runtime,
         workspace=workspace,
@@ -826,7 +841,7 @@ def test_named_endpoint_request_builders_emit_family_tool_and_endpoint_identity(
     )
     security_broker = RecordingBroker()
     security_runner = SecurityAgentRunner.__new__(SecurityAgentRunner)
-    security_runner.connection = object()
+    security_runner.connection = schema_connection
     security_runner.root = tmp_path
     security_runner._model_runtime = lambda _preferred_runtime: runtime  # type: ignore[method-assign]
     monkeypatch.setattr(

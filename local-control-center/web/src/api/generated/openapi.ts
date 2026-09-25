@@ -181,6 +181,7 @@ export type JobRunRecord = { "completedAt"?: null | string; "id": string; "jobId
 export type JobsListResponse = { "events"?: Array<EventRecord>; "jobs": Array<JobRecord> };
 export type LocalDeclarationRecord = { "declaredAt": string; "declaredBy": string; "host": string };
 export type LocalEndpointCreateRequest = { "baseUrl"?: null | string; "catalogId": string; "credentialRef"?: null | string; "displayName"?: null | string; "instanceId"?: null | string };
+export type LocalEndpointDeclareRequest = { "declared": boolean };
 export type LocalEndpointPatchRequest = { "baseUrl"?: null | string; "concurrencyLimit"?: null | number; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean | null };
 export type LocalEndpointView = { "baseUrl": string; "catalogId": string; "concurrencyLimit": number; "declaredLocal": boolean; "displayName": string; "enabled": boolean; "hasCredential": boolean; "healthCheckedAt"?: null | string; "healthReason"?: null | string; "healthStatus"?: null | string; "id": string; "loadedModels"?: Array<string>; "locality": "loopback" | "declared_local" | "remote"; "models"?: Array<LocalModelView>; "networkScope": "loopback" | "private_network" | "declared_local" | "public" };
 export type LocalEndpointsListResponse = { "endpoints": Array<LocalEndpointView> };
@@ -666,7 +667,9 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "list_sessions_api_v1_legacy_sessions_get", "path": "/api/v1/legacy/sessions", "summary": "List Sessions"},
 	{"method": "GET", "operationId": "list_local_endpoints_api_v1_local_endpoints_get", "path": "/api/v1/local-endpoints", "summary": "List Local Endpoints"},
 	{"method": "POST", "operationId": "create_local_endpoint_api_v1_local_endpoints_post", "path": "/api/v1/local-endpoints", "summary": "Create Local Endpoint"},
+	{"method": "DELETE", "operationId": "delete_local_endpoint_api_v1_local_endpoints__provider_id__delete", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Delete Local Endpoint"},
 	{"method": "PATCH", "operationId": "patch_local_endpoint_api_v1_local_endpoints__provider_id__patch", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Patch Local Endpoint"},
+	{"method": "PUT", "operationId": "declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put", "path": "/api/v1/local-endpoints/{provider_id}/declare-local", "summary": "Declare Local Endpoint"},
 	{"method": "PATCH", "operationId": "patch_local_model_api_v1_local_endpoints__provider_id__models_patch", "path": "/api/v1/local-endpoints/{provider_id}/models", "summary": "Patch Local Model"},
 	{"method": "POST", "operationId": "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post", "path": "/api/v1/local-endpoints/{provider_id}/validate-model", "summary": "Validate Local Model"},
 	{"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},
@@ -938,7 +941,9 @@ export type OperationRequestBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowCreateRequest,
 	"database_status_api_v1_operations_database_get": never,
 	"decisions_api_v1_decision_engine_decisions_get": never,
+	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointDeclareRequest,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
+	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"delete_setting_api_v1_settings__key__delete": never,
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteRequest | null,
@@ -1217,7 +1222,9 @@ export type OperationResponseBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
 	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
+	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
+	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
@@ -1500,7 +1507,9 @@ export type OperationResultBodies = {
 	"create_workflow_api_v1_workflows_post": WorkflowResponse,
 	"database_status_api_v1_operations_database_get": SqliteDiagnosticsResponse,
 	"decisions_api_v1_decision_engine_decisions_get": JsonObject,
+	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
+	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
 	"delete_thread_api_v1_threads__thread_id__delete": ThreadDeleteResponse,
@@ -1796,7 +1805,9 @@ export const OPERATIONS_BY_ID = {
 	"list_sessions_api_v1_legacy_sessions_get": {"method": "GET", "operationId": "list_sessions_api_v1_legacy_sessions_get", "path": "/api/v1/legacy/sessions", "summary": "List Sessions"},
 	"list_local_endpoints_api_v1_local_endpoints_get": {"method": "GET", "operationId": "list_local_endpoints_api_v1_local_endpoints_get", "path": "/api/v1/local-endpoints", "summary": "List Local Endpoints"},
 	"create_local_endpoint_api_v1_local_endpoints_post": {"method": "POST", "operationId": "create_local_endpoint_api_v1_local_endpoints_post", "path": "/api/v1/local-endpoints", "summary": "Create Local Endpoint"},
+	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": {"method": "DELETE", "operationId": "delete_local_endpoint_api_v1_local_endpoints__provider_id__delete", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Delete Local Endpoint"},
 	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": {"method": "PATCH", "operationId": "patch_local_endpoint_api_v1_local_endpoints__provider_id__patch", "path": "/api/v1/local-endpoints/{provider_id}", "summary": "Patch Local Endpoint"},
+	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": {"method": "PUT", "operationId": "declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put", "path": "/api/v1/local-endpoints/{provider_id}/declare-local", "summary": "Declare Local Endpoint"},
 	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": {"method": "PATCH", "operationId": "patch_local_model_api_v1_local_endpoints__provider_id__models_patch", "path": "/api/v1/local-endpoints/{provider_id}/models", "summary": "Patch Local Model"},
 	"validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": {"method": "POST", "operationId": "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post", "path": "/api/v1/local-endpoints/{provider_id}/validate-model", "summary": "Validate Local Model"},
 	"select_directory_api_v1_local_paths_select_directory_post": {"method": "POST", "operationId": "select_directory_api_v1_local_paths_select_directory_post", "path": "/api/v1/local-paths/select-directory", "summary": "Select Directory"},

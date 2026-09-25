@@ -13,9 +13,10 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.endpoint_locality import is_acceptable_declaration_host
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.provider_catalog import provider_catalog_entry
@@ -25,10 +26,12 @@ from local_control_center.runtime_team.contracts import RuntimeValidationRespons
 from local_control_center.runtime_team.probe import RuntimeValidationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.time import utc_now
 
 from .catalog import local_endpoint_entry
 from .contracts import (
     LocalEndpointCreateRequest,
+    LocalEndpointDeclareRequest,
     LocalEndpointPatchRequest,
     LocalEndpointsListResponse,
     LocalEndpointView,
@@ -38,7 +41,9 @@ from .contracts import (
 )
 from .endpoints import (
     LOCAL_ENDPOINT_SOURCE,
+    LocalEndpointInUseError,
     cached_load_states,
+    delete_local_endpoint_account,
     local_account_payload,
     local_endpoint_view,
     local_endpoint_views,
@@ -250,5 +255,47 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             {"model": body.model, "status": result.get("status")},
         )
         return {"validation": result}
+
+    @router.put("/local-endpoints/{provider_id}/declare-local", response_model=LocalEndpointView)
+    def declare_local_endpoint(
+        provider_id: str, body: LocalEndpointDeclareRequest, request: Request
+    ) -> dict[str, Any]:
+        """Declara (o retira) que el endpoint corre en este equipo vía WSL/Docker; queda auditado.
+
+        Solo se acepta un host IP literal privado o link-local, o ``host.docker.internal`` resuelto a
+        una IP aceptada; cualquier otro host responde 422 ``local_declaration_host_not_allowed``.
+        """
+        require_write(request)
+        account = local_account_or_404(provider_id)
+        endpoint_id = str(account["providerId"])
+        host = (urlparse(str(account.get("baseUrl") or "")).hostname or "").lower()
+        store = providers()
+        if body.declared:
+            if not is_acceptable_declaration_host(host):
+                raise HTTPException(
+                    status_code=422, detail={"code": "local_declaration_host_not_allowed", "host": host}
+                )
+            declaration = {"declaredBy": "operator", "declaredAt": utc_now(), "host": host}
+            with immediate_transaction(platform.connection):
+                store.set_local_declaration(endpoint_id, declaration)
+                audit("local_endpoint.declared_local", endpoint_id, declaration)
+        else:
+            with immediate_transaction(platform.connection):
+                store.set_local_declaration(endpoint_id, None)
+                audit("local_endpoint.declaration_revoked", endpoint_id, {"host": host})
+        return local_endpoint_view(platform.connection, store.get_provider_account(endpoint_id))
+
+    @router.delete("/local-endpoints/{provider_id}", status_code=204)
+    def delete_local_endpoint(provider_id: str, request: Request) -> Response:
+        """Borra el endpoint con tombstone; 409 con las referencias si un equipo o role policy lo usa."""
+        require_write(request)
+        account = local_account_or_404(provider_id)
+        try:
+            delete_local_endpoint_account(platform.connection, account)
+        except LocalEndpointInUseError as error:
+            raise HTTPException(
+                status_code=409, detail={"code": "local_endpoint_in_use", "references": error.references}
+            ) from error
+        return Response(status_code=204)
 
     return router

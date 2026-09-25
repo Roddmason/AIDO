@@ -27,11 +27,18 @@ from local_control_center.agents.local_model_state import LoadState
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.provider_catalog import PROVIDER_CATALOG_VERSION, ProviderCatalogEntry
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.configuration import (
+    ALLOWED_RUNTIMES_KEY,
+    ROLE_RUNTIMES_KEY,
+    THREAD_RUN_CONFIGURATION_KEY,
+)
 from local_control_center.runtime_team.validation import (
     RUNTIME_TEAM_FRESHNESS_SECONDS,
     runtime_validation_state,
 )
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 from .catalog import local_endpoint_entry, local_profile_entry
@@ -308,3 +315,120 @@ def runtime_records_source(account: Mapping[str, Any]) -> str:
     return (
         OLLAMA_ENDPOINT_SOURCE if str(account.get("apiFormat") or "") == "ollama" else LOCAL_ENDPOINT_SOURCE
     )
+
+
+TOMBSTONE_TABLES: tuple[tuple[str, str], ...] = (
+    ("model_catalog", "provider_id"),
+    ("local_endpoint_leases", "provider_id"),
+    ("provider_health_checks", "provider_id"),
+    ("runtime_capabilities", "runtime"),
+    ("runtime_accounts", "runtime_id"),
+    ("runtime_health_checks", "runtime_id"),
+    ("runtime_installations", "runtime_id"),
+    ("provider_accounts", "provider_id"),
+)
+"""Estado operativo que el borrado elimina con SQL directo; ledger, auditoría y evidencia se conservan.
+
+``local_model_settings`` no figura aquí: la borra ``delete_for_account`` en la misma transacción.
+"""
+_ROLE_POLICY_REFERENCE_COLUMNS = ("preferred_json", "fallback_json", "escalation_json")
+
+
+class LocalEndpointInUseError(RuntimeError):
+    """El endpoint está referenciado por equipos de hilo o role policies; el borrado no reasigna nada."""
+
+    def __init__(self, references: list[dict[str, str]]) -> None:
+        super().__init__("local_endpoint_in_use")
+        self.references = references
+
+
+def _thread_team_references(connection: sqlite3.Connection, provider_id: str) -> list[dict[str, str]]:
+    references: list[dict[str, str]] = []
+    rows = connection.execute(
+        "SELECT id, title, metadata FROM project_threads WHERE deleted_at IS NULL AND metadata LIKE ? ORDER BY id",
+        (f"%{provider_id}%",),
+    ).fetchall()
+    for row in rows:
+        metadata = json_loads(row["metadata"], {})
+        configuration = metadata.get(THREAD_RUN_CONFIGURATION_KEY) if isinstance(metadata, dict) else None
+        if not isinstance(configuration, dict):
+            continue
+        allowed = configuration.get(ALLOWED_RUNTIMES_KEY)
+        roles = configuration.get(ROLE_RUNTIMES_KEY)
+        in_allowed = isinstance(allowed, list) and provider_id in allowed
+        in_roles = isinstance(roles, dict) and provider_id in roles.values()
+        if in_allowed or in_roles:
+            references.append({"kind": "thread_team", "id": str(row["id"]), "label": str(row["title"])})
+    return references
+
+
+def _policy_ref_providers(raw: Any) -> set[str]:
+    """Extrae los providers de una lista de referencias de modelo, incluidas las filas legacy de strings."""
+    providers: set[str] = set()
+    for ref in raw if isinstance(raw, list) else []:
+        if isinstance(ref, str):
+            providers.add(ref.strip())
+        elif isinstance(ref, dict):
+            providers.update({str(ref.get("provider") or ""), str(ref.get("providerId") or "")})
+    return providers
+
+
+def _role_policy_references(connection: sqlite3.Connection, provider_id: str) -> list[dict[str, str]]:
+    rows = connection.execute(
+        "SELECT id, role, preferred_json, fallback_json, escalation_json FROM role_model_policies ORDER BY role"
+    ).fetchall()
+    return [
+        {"kind": "role_policy", "id": str(row["id"]), "label": str(row["role"])}
+        for row in rows
+        if any(
+            provider_id in _policy_ref_providers(json_loads(row[column], []))
+            for column in _ROLE_POLICY_REFERENCE_COLUMNS
+        )
+    ]
+
+
+def endpoint_references(connection: sqlite3.Connection, provider_id: str) -> list[dict[str, str]]:
+    """Equipos de hilo (``runConfiguration``) y role policies (preferidos, fallback, escalación) que usan el endpoint."""
+    return [
+        *_thread_team_references(connection, provider_id),
+        *_role_policy_references(connection, provider_id),
+    ]
+
+
+def delete_local_endpoint_account(
+    connection: sqlite3.Connection, account: Mapping[str, Any], *, actor: str = "operator"
+) -> dict[str, Any]:
+    """Borra el endpoint en una transacción y deja un tombstone auditado ``local_endpoint.deleted``.
+
+    Limpia la configuración por modelo con ``LocalModelSettingsRepository.delete_for_account`` y el
+    estado operativo de ``TOMBSTONE_TABLES``, y conserva ``usage_ledger``, auditoría,
+    ``model_execution_health`` y evidencia. Todo ocurre dentro de su propia ``immediate_transaction``:
+    si hay referencias no se escribe nada.
+
+    Raises:
+        LocalEndpointInUseError: si equipos de hilo o role policies referencian el endpoint.
+    """
+    provider_id = str(account["providerId"])
+    with immediate_transaction(connection):
+        references = endpoint_references(connection, provider_id)
+        if references:
+            raise LocalEndpointInUseError(references)
+        settings_removed = LocalModelSettingsRepository(connection).delete_for_account(provider_id)
+        removed = {"local_model_settings": settings_removed}
+        removed.update(
+            {
+                table: connection.execute(f"DELETE FROM {table} WHERE {column} = ?", (provider_id,)).rowcount
+                for table, column in TOMBSTONE_TABLES
+            }
+        )
+        tombstone = {
+            "providerId": provider_id,
+            "catalogId": account.get("providerCatalogId"),
+            "baseUrl": account.get("baseUrl"),
+            "deletedAt": utc_now(),
+            "removedRows": removed,
+        }
+        EventBus(connection).record_audit(
+            action="local_endpoint.deleted", target=provider_id, payload=tombstone, actor=actor
+        )
+    return tombstone

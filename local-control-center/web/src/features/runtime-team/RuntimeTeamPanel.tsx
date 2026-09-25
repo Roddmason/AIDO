@@ -7,19 +7,21 @@
  * the automatic ones follow the backend split for the current selection.
  * @author Rodrigo Mason
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { type RuntimeTeamCandidate, validateRuntime } from '../../api/client';
 import { Button, Checkbox, SelectField, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
 	isEligible,
+	loadedModelsOf,
 	mergeRoleRuntimes,
 	missingRequiredRoles,
 	OPTIONAL_TEAM_ROLES,
 	REQUIRED_TEAM_ROLES,
 	type RoleRuntimes,
 	type RuntimeTeamSelection,
+	suggestedRoleModel,
 	TEAM_ROLES,
 	type TeamRole,
 	toRoleRuntimes,
@@ -79,12 +81,21 @@ function optionalRoleHelp(t: Translate, role: TeamRole): string | undefined {
 	return undefined;
 }
 
-function rowHelp(t: Translate, candidate: RuntimeTeamCandidate): string | undefined {
+function rowHelp(t: Translate, candidate: RuntimeTeamCandidate): ReactNode {
 	if (candidate.eligibleRoles.length === 0) {
 		return t('app.runtimeTeam.noRole', 'No team role can use this runtime.');
 	}
 	if (candidate.kind === 'cli') {
 		return t('app.runtimeTeam.cliQuota', 'Testing uses your subscription quota.');
+	}
+	if (candidate.kind === 'local') {
+		const loaded = loadedModelsOf(candidate);
+		if (loaded.length === 0) return undefined;
+		return (
+			<StatusChip tone="info">
+				{`${t('app.runtimeTeam.loadedModel', 'Loaded model')}: ${loaded.join(', ')}`}
+			</StatusChip>
+		);
 	}
 	return undefined;
 }
@@ -313,33 +324,40 @@ export function RuntimeTeamPanel({
 					const options = candidates.filter(
 						(candidate) => allowed.includes(candidate.providerId) && isEligible(candidate, role),
 					);
+					const resolvedModel = suggestedRoleModel(data, role, roles[role]);
 					return (
-						<SelectField
-							key={role}
-							label={roleLabel(t, role)}
-							value={roles[role] ?? ''}
-							onChange={(event) => {
-								const value = event.currentTarget.value;
-								setManualRoles((current) => new Set(current).add(role));
-								setRoles((current) => withRole(current, role, value));
-							}}
-							help={OPTIONAL_TEAM_ROLES.includes(role) ? optionalRoleHelp(t, role) : undefined}
-							error={
-								allowed.length > 0 && REQUIRED_TEAM_ROLES.includes(role) && !roles[role]
-									? t(
-											'app.runtimeTeam.roleRequired',
-											'This role needs a runtime before the thread can run.',
-										)
-									: undefined
-							}
-						>
-							<option value="">{t('app.runtimeTeam.choose', 'Choose a runtime')}</option>
-							{options.map((candidate) => (
-								<option key={candidate.providerId} value={candidate.providerId}>
-									{candidate.label}
-								</option>
-							))}
-						</SelectField>
+						<div key={role} className="stack compact">
+							<SelectField
+								label={roleLabel(t, role)}
+								value={roles[role] ?? ''}
+								onChange={(event) => {
+									const value = event.currentTarget.value;
+									setManualRoles((current) => new Set(current).add(role));
+									setRoles((current) => withRole(current, role, value));
+								}}
+								help={OPTIONAL_TEAM_ROLES.includes(role) ? optionalRoleHelp(t, role) : undefined}
+								error={
+									allowed.length > 0 && REQUIRED_TEAM_ROLES.includes(role) && !roles[role]
+										? t(
+												'app.runtimeTeam.roleRequired',
+												'This role needs a runtime before the thread can run.',
+											)
+										: undefined
+								}
+							>
+								<option value="">{t('app.runtimeTeam.choose', 'Choose a runtime')}</option>
+								{options.map((candidate) => (
+									<option key={candidate.providerId} value={candidate.providerId}>
+										{candidate.label}
+									</option>
+								))}
+							</SelectField>
+							{resolvedModel ? (
+								<p className="field-help">
+									{`${t('app.runtimeTeam.resolvedModel', 'Resolved model')}: ${resolvedModel}`}
+								</p>
+							) : null}
+						</div>
 					);
 				})}
 				{deterministicRoles.map((label) => (

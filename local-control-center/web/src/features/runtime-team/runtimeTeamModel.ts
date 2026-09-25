@@ -72,6 +72,28 @@ export function isEligible(candidate: RuntimeTeamCandidate, role: TeamRole): boo
 	return candidate.eligibleRoles.includes(role);
 }
 
+/** Models a local server reports as loaded (shared 10 s cache); empty for any other runtime. */
+export function loadedModelsOf(candidate: RuntimeTeamCandidate): string[] {
+	return candidate.loadedModels ?? [];
+}
+
+/**
+ * Model the backend resolved for `role` in its suggested split. Shown only while the role still uses
+ * the suggested runtime: a manual pick has no preview until the server seals the team.
+ */
+export function suggestedRoleModel(
+	data: RuntimeTeamCandidatesResponse | null,
+	role: TeamRole,
+	assignedRuntime: string | undefined,
+): string | null {
+	if (!data || !assignedRuntime || data.suggestedRoleRuntimes[role] !== assignedRuntime) {
+		return null;
+	}
+	const models: Partial<Record<string, unknown>> = data.suggestedRoleModels ?? {};
+	const model = models[role];
+	return typeof model === 'string' && model ? model : null;
+}
+
 /**
  * Manual roles keep a still-valid choice; every other role follows the backend split for the
  * current selection, so adding a runtime redistributes the automatic roles. A role whose split

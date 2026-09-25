@@ -807,7 +807,6 @@ class ModelGateway:
             latency_ms=latency_ms,
             raw_usage=enriched_usage,
             usage_source="actual" if token_status == "actual" else "unknown",
-            # El model_call que registra el llamador lleva este costo a cost_usage (y al presupuesto).
             record_cost_usage=False,
         )
         return {

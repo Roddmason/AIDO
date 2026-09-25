@@ -319,6 +319,8 @@ def runtime_records_source(account: Mapping[str, Any]) -> str:
 TOMBSTONE_TABLES: tuple[tuple[str, str], ...] = (
     ("model_catalog", "provider_id"),
     ("local_endpoint_leases", "provider_id"),
+    ("provider_execution_leases", "provider_id"),
+    ("provider_limits", "provider_id"),
     ("provider_health_checks", "provider_id"),
     ("runtime_capabilities", "runtime"),
     ("runtime_accounts", "runtime_id"),
@@ -328,6 +330,8 @@ TOMBSTONE_TABLES: tuple[tuple[str, str], ...] = (
 )
 """Estado operativo que el borrado elimina con SQL directo; ledger, auditoría y evidencia se conservan.
 
+``provider_limits`` y ``provider_execution_leases`` van aquí porque el id de instancia por defecto es el del
+catálogo: sin borrarlos, volver a agregar el endpoint heredaría su cooldown y sus reservas de cuota.
 ``local_model_settings`` no figura aquí: la borra ``delete_for_account`` en la misma transacción.
 """
 _ROLE_POLICY_REFERENCE_COLUMNS = ("preferred_json", "fallback_json", "escalation_json")

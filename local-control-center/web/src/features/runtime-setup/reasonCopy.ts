@@ -78,6 +78,81 @@ export const REASON_COPY = new Map<string, { key: string; fallback: string }>([
 			fallback: 'The limit of simultaneous light jobs is already in use.',
 		},
 	],
+	[
+		'local_server_unreachable',
+		{
+			key: 'app.runtime.health.reason.local_server_unreachable',
+			fallback:
+				'The local server is not answering. Start it and probe again; under WSL, check localhost forwarding in .wslconfig and the Windows firewall.',
+		},
+	],
+	[
+		'model_loading',
+		{
+			key: 'app.runtime.health.reason.model_loading',
+			fallback: 'The server is still loading the model; try again when it finishes.',
+		},
+	],
+	[
+		'local_model_load_failed',
+		{
+			key: 'app.runtime.health.reason.local_model_load_failed',
+			fallback: 'The server could not load the model; check the server log and the model file.',
+		},
+	],
+	[
+		'local_auth_required',
+		{
+			key: 'app.runtime.health.reason.local_auth_required',
+			fallback:
+				'The server requires a token: add a reference to the key the server was started with.',
+		},
+	],
+	[
+		'context_length_exceeded',
+		{
+			key: 'app.runtime.health.reason.context_length_exceeded',
+			fallback:
+				"The request exceeded the model's context window; use a model or server setting with a larger context.",
+		},
+	],
+	[
+		'insecure_credential_transport',
+		{
+			key: 'app.runtime.health.reason.insecure_credential_transport',
+			fallback:
+				'A token is never sent over plain http to a remote host; use https or declare the endpoint as running on this machine.',
+		},
+	],
+	[
+		'local_endpoint_busy',
+		{
+			key: 'app.runtime.health.reason.local_endpoint_busy',
+			fallback:
+				'The local server is already serving another AIDO call; this call waited and gave up.',
+		},
+	],
+	[
+		'insufficient_time_for_model_load',
+		{
+			key: 'app.runtime.health.reason.insufficient_time_for_model_load',
+			fallback: 'Not enough execution time is left to load the model; retry the step.',
+		},
+	],
+	[
+		'local_model_not_validated',
+		{
+			key: 'app.runtime.health.reason.local_model_not_validated',
+			fallback: 'No model of this runtime is validated for this role; validate a model first.',
+		},
+	],
+	[
+		'local_model_not_selected',
+		{
+			key: 'app.runtime.health.reason.local_model_not_selected',
+			fallback: 'Another model of this runtime was chosen for this role.',
+		},
+	],
 ]);
 
 /** Text for one reason code, or the code itself when it has no known copy. */
@@ -86,9 +161,20 @@ export function describeReasonCode(code: string, t: Translate): string {
 	return copy ? t(copy.key, copy.fallback) : code;
 }
 
-/** Renders a comma-joined list of reason codes as text, keeping unknown codes (and prose) verbatim. */
+/** A reason that leads with a machine code and adds detail, as `LocalRuntimeError` formats it. */
+const LEADING_CODE_RE = /^([a-z][a-z0-9_]*)[:\s]\s*([\s\S]+)$/;
+
+/**
+ * Renders a reason as text: a comma-joined list of codes becomes their copy; a reason that starts
+ * with a known code (`local_server_unreachable: connection refused`) becomes that copy with the
+ * detail in parentheses; anything else (unknown codes, prose) stays verbatim.
+ */
 export function describeReason(reason: string, t: Translate): string {
 	const codes = reason.split(', ');
-	if (!codes.some((code) => REASON_COPY.has(code))) return reason;
-	return codes.map((code) => describeReasonCode(code, t)).join(' ');
+	if (codes.some((code) => REASON_COPY.has(code))) {
+		return codes.map((code) => describeReasonCode(code, t)).join(' ');
+	}
+	const leading = LEADING_CODE_RE.exec(reason.trim());
+	if (!leading || !REASON_COPY.has(leading[1])) return reason;
+	return `${describeReasonCode(leading[1], t)} (${leading[2].trim()})`;
 }

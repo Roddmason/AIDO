@@ -135,9 +135,12 @@ export const LOAD_STATE_META: Record<LoadState, LabelMeta> = {
 	},
 };
 
-/** Where the wizard was opened from: a catalog card may already have a stored account to edit. */
+/**
+ * Where the wizard was opened from: a catalog card may already have a stored account to read back,
+ * a suggestion is new, and an endpoint (a deep link to one instance) is edited as stored.
+ */
 export type LocalRuntimeDraft = {
-	source: 'catalog' | 'suggestion';
+	source: 'catalog' | 'suggestion' | 'endpoint';
 	catalogId: string;
 	baseUrl: string;
 	/** Stored endpoint being edited; null creates a new one. */
@@ -193,5 +196,15 @@ export function draftFromSuggestion(suggestion: LocalRuntimeSuggestion): LocalRu
 		baseUrl: suggestion.baseUrl,
 		endpointId: null,
 		displayName: '',
+	};
+}
+
+export function draftFromEndpoint(endpoint: LocalEndpointView): LocalRuntimeDraft {
+	return {
+		source: 'endpoint',
+		catalogId: endpoint.catalogId,
+		baseUrl: endpoint.baseUrl,
+		endpointId: endpoint.id,
+		displayName: endpoint.displayName,
 	};
 }

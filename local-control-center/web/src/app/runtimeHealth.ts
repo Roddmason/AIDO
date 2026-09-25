@@ -35,9 +35,12 @@ export type RuntimeHealthAlert = {
 	loginCommand: string;
 };
 
-/** Settings section that repairs a provider of the given kind (deep-linked with its providerId). */
+/**
+ * Settings section that repairs a provider of the given kind (deep-linked with its providerId). Local
+ * runtimes are repaired in Providers & CLI (endpoints, wizard), not in Credentials.
+ */
 function settingsSectionForKind(kind: string): string {
-	return kind === 'cli' ? 'providers-cli' : 'credentials';
+	return kind === 'cli' || kind === 'local' ? 'providers-cli' : 'credentials';
 }
 
 /**

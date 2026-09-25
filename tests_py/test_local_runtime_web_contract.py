@@ -7,13 +7,16 @@ reach the AI health modal without plain-language copy in both languages.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
+from local_control_center.agents.local_runtime_causes import LOCAL_RUNTIME_CAUSES
 from local_control_center.agents.provider_catalog import provider_catalog_entry
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_SRC = ROOT / "local-control-center" / "web" / "src"
+CATALOG = ROOT / "local_control_center" / "i18n" / "default_catalog.json"
 LOCAL_RUNTIME_IDS = ("llama_cpp", "lm_studio", "vllm", "local_openai_compatible")
 AUTH_KIND_BY_CREDENTIAL = {
     "optional_bearer_token": "optional_api_key",
@@ -88,3 +91,15 @@ def test_local_runtime_client_calls_the_contract_operations() -> None:
         assert f'"{operation}": "/api/v1/executions/{{execution_id}}"' in generated, (
             f"{operation} missing from EXECUTION_OPERATIONS: the client would stop at the 202"
         )
+
+
+def test_every_local_runtime_cause_has_health_copy_in_both_languages() -> None:
+    reason_copy = _read(WEB_SRC / "features" / "runtime-setup" / "reasonCopy.ts")
+    translations = json.loads(_read(CATALOG))["translations"]
+
+    for cause in sorted(LOCAL_RUNTIME_CAUSES):
+        key = f"app.runtime.health.reason.{cause}"
+        assert f"'{cause}'," in reason_copy, f"reasonCopy.ts has no copy for {cause}"
+        assert f"key: '{key}'," in reason_copy, cause
+        assert key in translations, f"default_catalog.json lacks {key}"
+        assert translations[key]["en"] != translations[key]["es"], key

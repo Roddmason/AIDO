@@ -14571,6 +14571,82 @@
     "app.runtime.health.reason.light_workload_capacity": {
       "en": "The limit of simultaneous light jobs is already in use.",
       "es": "El límite de trabajos livianos simultáneos ya está en uso."
+    },
+    "app.threads.event.local_model_switch": {
+      "en": "Local model switched",
+      "es": "Cambio de modelo local"
+    },
+    "app.localRuntime.deepLinkFailed": {
+      "en": "Could not open the setup of that local endpoint; use its card under Local endpoints.",
+      "es": "No se pudo abrir la configuración de ese endpoint local; usa su tarjeta en Endpoints locales."
+    },
+    "app.threads.modelSwitch.unknownModel": {
+      "en": "unknown model",
+      "es": "modelo desconocido"
+    },
+    "app.threads.modelSwitch.role": {
+      "en": "Role",
+      "es": "Rol"
+    },
+    "app.threads.modelSwitch.reason.loaded": {
+      "en": "The model was already loaded",
+      "es": "El modelo ya estaba cargado"
+    },
+    "app.threads.modelSwitch.reason.affinity": {
+      "en": "Same model as another role of this run",
+      "es": "Mismo modelo que otro rol de esta ejecución"
+    },
+    "app.threads.modelSwitch.reason.default": {
+      "en": "Runtime's default model",
+      "es": "Modelo predeterminado del runtime"
+    },
+    "app.threads.modelSwitch.reason.operator_order": {
+      "en": "First model in the operator's order",
+      "es": "Primer modelo según el orden del operador"
+    },
+    "app.threads.modelSwitch.reason.sealed": {
+      "en": "Model sealed for this role in the thread team",
+      "es": "Modelo sellado para este rol en el equipo del hilo"
+    },
+    "app.runtime.health.reason.local_server_unreachable": {
+      "en": "The local server is not answering. Start it and probe again; under WSL, check localhost forwarding in .wslconfig and the Windows firewall.",
+      "es": "El servidor local no responde. Inícialo y vuelve a sondear; en WSL, revisa el reenvío de localhost en .wslconfig y el firewall de Windows."
+    },
+    "app.runtime.health.reason.model_loading": {
+      "en": "The server is still loading the model; try again when it finishes.",
+      "es": "El servidor aún está cargando el modelo; vuelve a intentarlo cuando termine."
+    },
+    "app.runtime.health.reason.local_model_load_failed": {
+      "en": "The server could not load the model; check the server log and the model file.",
+      "es": "El servidor no pudo cargar el modelo; revisa el log del servidor y el archivo del modelo."
+    },
+    "app.runtime.health.reason.local_auth_required": {
+      "en": "The server requires a token: add a reference to the key the server was started with.",
+      "es": "El servidor requiere un token: agrega una referencia a la clave con la que se inició el servidor."
+    },
+    "app.runtime.health.reason.context_length_exceeded": {
+      "en": "The request exceeded the model's context window; use a model or server setting with a larger context.",
+      "es": "La solicitud superó la ventana de contexto del modelo; usa un modelo o una configuración del servidor con más contexto."
+    },
+    "app.runtime.health.reason.insecure_credential_transport": {
+      "en": "A token is never sent over plain http to a remote host; use https or declare the endpoint as running on this machine.",
+      "es": "Nunca se envía un token por http sin cifrar a un host remoto; usa https o declara que el endpoint corre en este equipo."
+    },
+    "app.runtime.health.reason.local_endpoint_busy": {
+      "en": "The local server is already serving another AIDO call; this call waited and gave up.",
+      "es": "El servidor local ya atiende otra llamada de AIDO; esta llamada esperó y desistió."
+    },
+    "app.runtime.health.reason.insufficient_time_for_model_load": {
+      "en": "Not enough execution time is left to load the model; retry the step.",
+      "es": "No queda tiempo de ejecución suficiente para cargar el modelo; reintenta el paso."
+    },
+    "app.runtime.health.reason.local_model_not_validated": {
+      "en": "No model of this runtime is validated for this role; validate a model first.",
+      "es": "Ningún modelo de este runtime está validado para este rol; valida un modelo primero."
+    },
+    "app.runtime.health.reason.local_model_not_selected": {
+      "en": "Another model of this runtime was chosen for this role.",
+      "es": "Se eligió otro modelo de este runtime para este rol."
     }
   }
 }

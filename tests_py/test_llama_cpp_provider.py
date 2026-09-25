@@ -36,9 +36,10 @@ def test_catalog_exposes_llama_cpp_as_a_local_openai_compatible_runtime(
     assert entry["requiredFields"] == []
 
 
-def test_from_catalog_llama_cpp_does_not_seed_code_capabilities_per_runtime(
+def test_from_catalog_llama_cpp_seeds_only_chat_per_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """El alta crea solo ``chat`` por instancia; ``code_edit``/``code_review`` son opt-in por modelo."""
     client = create_client(tmp_path, monkeypatch)
     response = client.post(
         "/api/v1/provider-accounts/from-catalog",
@@ -57,7 +58,8 @@ def test_from_catalog_llama_cpp_does_not_seed_code_capabilities_per_runtime(
             "SELECT capability FROM runtime_capabilities WHERE runtime = 'llama_cpp' AND enabled = 1"
         ).fetchall()
         instance = provider_instance("llama_cpp", connection=connection)
-    assert rows == []
+    # Solo chat por instancia; code_edit/code_review nunca se siembran por runtime.
+    assert [row["capability"] for row in rows] == ["chat"]
     assert isinstance(instance, OpenAICompatibleProvider)
     assert instance.base_url == LLAMA_CPP_BASE_URL
 

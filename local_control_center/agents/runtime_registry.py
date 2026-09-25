@@ -25,12 +25,13 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
-from .cli_runtimes.base import RuntimeRequest
+from .cli_runtimes.base import RuntimeRequest, RuntimeResult
 from .cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from .cli_runtimes.codex_cli import CodexCliRuntime
 from .cli_runtimes.manual import ManualRuntime
 from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
+from .providers.base import UsageRecord
 from .response_style import developer_summary_instruction, resolve_response_style
 
 CLI_EXECUTABLE_TOKENS = {
@@ -877,6 +878,32 @@ def runtime_for(
     if runtime_id not in runtimes:
         raise KeyError(f"Runtime not found: {runtime_id}")
     return runtimes[runtime_id]
+
+
+def build_runtime_command(
+    runtime_id: str,
+    request: RuntimeRequest,
+    *,
+    connection: sqlite3.Connection | None = None,
+    executable: str | None = None,
+) -> list[str]:
+    """Build the argv a runtime would run, without handing out a runnable runtime.
+
+    Code outside the registry gets commands and parsers, never an instance it could `.run()` past
+    runtime selection; the same reason the registry exports the `build_*_argv` builders.
+    """
+    return runtime_for(runtime_id, connection=connection, executable=executable).build_command(request)
+
+
+def parse_runtime_usage(
+    runtime_id: str,
+    result: RuntimeResult,
+    *,
+    connection: sqlite3.Connection | None = None,
+    executable: str | None = None,
+) -> UsageRecord | None:
+    """Parse token usage from a finished runtime result with that runtime's own parser."""
+    return runtime_for(runtime_id, connection=connection, executable=executable).parse_usage(result)
 
 
 def login_command_for(runtime_id: str) -> str:

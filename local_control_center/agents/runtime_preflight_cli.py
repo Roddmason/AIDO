@@ -37,8 +37,9 @@ from .runtime_registry import (
     PRODUCT_OWNER_CODEX_EXTRA_ARGS,
     RuntimeCommandUnavailableError,
     build_product_owner_agent_argv,
+    build_runtime_command,
     isolated_product_owner_codex_environment,
-    runtime_for,
+    parse_runtime_usage,
     validate_product_owner_codex_environment,
     validate_product_owner_runtime_argv,
 )
@@ -104,7 +105,7 @@ def _codex_preflight_smoke_request(
         envPolicy={"permissionProfile": "plan", "network": False, "secrets": False},
         extraArgs=[*PRODUCT_OWNER_CODEX_EXTRA_ARGS, "--json"],
     )
-    argv = runtime_for("codex_cli", connection=connection, executable=executable).build_command(smoke_request)
+    argv = build_runtime_command("codex_cli", smoke_request, connection=connection, executable=executable)
     return smoke_request, argv, compatibility
 
 
@@ -449,8 +450,8 @@ def validate_cli_candidate(
                 stdout=str(result.get("stdout") or ""),
                 stderr=str(result.get("stderr") or ""),
             )
-            tokens = runtime_for(provider, connection=connection, executable=executable).parse_usage(
-                runtime_result
+            tokens = parse_runtime_usage(
+                provider, runtime_result, connection=connection, executable=executable
             )
             session = CliSessionStore(connection).record_result(
                 runtime=provider,

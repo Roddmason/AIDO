@@ -12,7 +12,7 @@ import { healthCheckModelGatewayCliRuntime } from '../api/client';
 import { ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
 import { RuntimeHealthModal } from '../features/runtime-setup/RuntimeHealthModal';
-import { SettingsModal } from '../features/settings/SettingsModal';
+import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';
@@ -361,8 +361,8 @@ export function App() {
 				actions={commandActions}
 			/>
 
-			{/* Settings modal: global overlay, portaled via Dialog. */}
-			<SettingsModal
+			{/* Settings modal: global overlay, portaled via Dialog; its body loads on the first open. */}
+			<SettingsDialog
 				open={settingsModalOpen && !workspaceDialogOpen}
 				onClose={() => setSettingsModalOpen(false)}
 				projectId={selectedProject?.id}

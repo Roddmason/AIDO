@@ -116,6 +116,70 @@ test('AIDO-69 failed optional chunk preserves the shell and navigation', async (
 	await expect(page.locator('.content-frame')).toBeVisible();
 });
 
+test('AIDO-69 Settings opens at once and downloads its body on first open, not with the home request', async ({ page }) => {
+	const assets = [];
+	page.on('request', (request) => {
+		const pathname = new URL(request.url()).pathname;
+		if (pathname.startsWith('/assets/')) assets.push(pathname);
+	});
+	let releaseChunk;
+	const chunkHeld = new Promise((resolve) => {
+		releaseChunk = resolve;
+	});
+	await page.route('**/assets/SettingsModal-*.js', async (route) => {
+		await chunkHeld;
+		await route.continue();
+	});
+	await page.goto('/#home');
+	await expect(page.locator('.content-frame')).toBeVisible();
+	expect(assets.some((asset) => asset.includes('/SettingsModal-'))).toBe(false);
+	await page.getByRole('button', { name: 'Open settings' }).click();
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings.getByRole('status', { name: 'Loading settings...' })).toBeVisible();
+	releaseChunk();
+	await expect(settings.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+	await expect.poll(() => assets.some((asset) => asset.includes('/SettingsModal-'))).toBe(true);
+});
+
+test('AIDO-69 a failed Settings chunk shows the load error inside the dialog and keeps the shell usable', async ({ page }) => {
+	await page.route('**/assets/SettingsModal-*.js', (route) => route.abort('failed'));
+	await page.goto('/#home');
+	await expect(page.locator('.content-frame')).toBeVisible();
+	await page.getByRole('button', { name: 'Open settings' }).click();
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	await expect(settings.getByText('This view could not be loaded', { exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(settings).toBeHidden();
+	await expect(page.locator('.content-frame')).toBeVisible();
+});
+
+test('AIDO-69 a failed Settings chunk offers a page reload, after which Settings opens', async ({ page }) => {
+	let chunkRequests = 0;
+	await page.route('**/assets/SettingsModal-*.js', (route) => {
+		chunkRequests += 1;
+		return chunkRequests === 1 ? route.abort('failed') : route.continue();
+	});
+	await page.goto('/#home');
+	await expect(page.locator('.content-frame')).toBeVisible();
+	const openSettings = page.getByRole('button', { name: 'Open settings' });
+	const settings = page.getByRole('dialog', { name: 'Settings' });
+	const reload = settings.getByRole('button', { name: 'Reload page', exact: true });
+	await openSettings.click();
+	await expect(reload).toBeVisible();
+	await expect(settings.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+	// Reopening without a reload shows the same failure: React.lazy keeps the rejected import.
+	await page.keyboard.press('Escape');
+	await expect(settings).toBeHidden();
+	await openSettings.click();
+	await expect(reload).toBeVisible();
+	expect(chunkRequests).toBe(1);
+	await Promise.all([page.waitForEvent('load'), reload.click()]);
+	await expect(page.locator('.content-frame')).toBeVisible();
+	await openSettings.click();
+	await expect(settings.getByRole('navigation', { name: 'Settings sections' })).toBeVisible();
+	expect(chunkRequests).toBe(2);
+});
+
 function realQaEvidenceFields() {
 	return {
 		evidenceSource: 'qa_passed_by_command',
@@ -1779,9 +1843,10 @@ test('every settings section opens and renders real content, never a placeholder
 
 	const nav = dialog.locator('nav[aria-label="Settings sections"]');
 	const items = nav.locator('.settings-nav-item');
-	const total = await items.count();
 	// General (11) + Project (11, Git included) sections; dropping one must fail here, not silently.
-	expect(total).toBe(22);
+	// The navigator arrives with the lazily loaded body, so wait for it instead of counting at once.
+	await expect(items).toHaveCount(22);
+	const total = await items.count();
 
 	const content = dialog.locator('.settings-content');
 	for (let index = 0; index < total; index += 1) {

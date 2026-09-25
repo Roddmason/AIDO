@@ -3339,10 +3339,10 @@ test('Runtime settings shows guided setup actions when no runtime is executable'
 		await expect(dialog.getByRole('button', { name: label })).toBeVisible();
 	}
 	for (const provider of providers) {
-		// The setup catalog also renders an "Ollama remote" card, so 'Ollama' matches two; take the
-		// first (the local Ollama card precedes the remote one in catalog order). Every other
-		// provider's displayName matches exactly one card.
-		const card = dialog.locator('.card').filter({ hasText: provider.displayName }).first();
+		// Match each card by its exact title: other cards mention these names in their text (the
+		// catalog's "Ollama remote" card, llama.cpp's "Run llama-server with its OpenAI-compatible API").
+		const title = page.getByRole('heading', { name: provider.displayName, exact: true });
+		const card = dialog.locator('.card').filter({ has: title });
 		await expect(card).toContainText(provider.reason);
 		await expect(card.getByRole('button', { name: 'Detect & check' })).toBeVisible();
 	}

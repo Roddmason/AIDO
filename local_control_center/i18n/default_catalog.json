@@ -9435,6 +9435,18 @@
       "en": "Run llama-server with its OpenAI-compatible API (for example: llama-server -m model.gguf --port 8082), optionally protect it with --api-key and save that key as the credential, then sync models and test the runtime.",
       "es": "Levanta llama-server con su API compatible con OpenAI (por ejemplo: llama-server -m model.gguf --port 8082), opcionalmente protégelo con --api-key y guarda esa clave como credencial; luego sincroniza modelos y prueba el runtime."
     },
+    "app.runtime.instructions.lm_studio": {
+      "en": "Start LM Studio's local server (Developer tab or `lms server start`, port 1234 by default), load a model or enable just-in-time loading, then sync models and validate the default one.",
+      "es": "Inicia el servidor local de LM Studio (pestaña Developer o `lms server start`, puerto 1234 por defecto), carga un modelo o habilita la carga bajo demanda, luego sincroniza modelos y valida el modelo por defecto."
+    },
+    "app.runtime.instructions.vllm": {
+      "en": "Run vLLM in WSL2 or Linux (`vllm serve <model> --port 8000`, optionally `--api-key`); WSL forwards localhost to Windows by default. One process serves one model: sync models and validate it.",
+      "es": "Ejecuta vLLM en WSL2 o Linux (`vllm serve <modelo> --port 8000`, opcionalmente `--api-key`); WSL reenvía localhost a Windows por defecto. Un proceso sirve un solo modelo: sincroniza modelos y valídalo."
+    },
+    "app.runtime.instructions.local_openai_compatible": {
+      "en": "Any server on this machine that exposes /v1/models and /v1/chat/completions. Enter its base URL (ending in /v1), add a token reference only if it requires one, then sync models and validate the default one.",
+      "es": "Cualquier servidor en este equipo que exponga /v1/models y /v1/chat/completions. Ingresa su URL base (terminada en /v1), agrega una referencia a token solo si lo exige, luego sincroniza modelos y valida el modelo por defecto."
+    },
     "app.remediation.local.cause.local_server_unreachable": {
       "en": "The local server is not answering. Start it (for example llama-server, LM Studio or vLLM) and try again.",
       "es": "El servidor local no responde. Inícialo (por ejemplo llama-server, LM Studio o vLLM) y prueba de nuevo."

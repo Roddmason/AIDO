@@ -92,6 +92,19 @@ export type OllamaEndpointHealthResponse =
 	OperationResponse<'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post'>;
 export type OllamaSyncModelsResponse =
 	OperationResponse<'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post'>;
+export type LocalEndpointsListResponse =
+	OperationResponse<'list_local_endpoints_api_v1_local_endpoints_get'>;
+export type LocalEndpointView = LocalEndpointsListResponse['endpoints'][number];
+export type LocalModelView = NonNullable<LocalEndpointView['models']>[number];
+export type LocalEndpointCreateRequest =
+	MutationBody<'create_local_endpoint_api_v1_local_endpoints_post'>;
+export type LocalEndpointPatchRequest =
+	MutationBody<'patch_local_endpoint_api_v1_local_endpoints__provider_id__patch'>;
+export type LocalModelPatchRequest =
+	MutationBody<'patch_local_model_api_v1_local_endpoints__provider_id__models_patch'>;
+export type LocalRuntimeDiscoveryResponse =
+	OperationResponse<'discover_runtimes_api_v1_local_runtimes_discover_post'>;
+export type LocalRuntimeSuggestion = LocalRuntimeDiscoveryResponse['suggestions'][number];
 export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
 export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
 export type ThreadListResponse = OperationResponse<'list_threads_api_v1_threads_get'>;
@@ -1824,6 +1837,112 @@ export function syncOllamaEndpointModels(token: string, endpointId: string) {
 			pathParams: { endpoint_id: endpointId },
 		},
 	);
+}
+
+/** Local OpenAI-compatible servers with health, locality, load state and per-model settings. */
+export function getLocalEndpoints(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_local_endpoints_api_v1_local_endpoints_get'>(
+		'list_local_endpoints_api_v1_local_endpoints_get',
+		{ signal },
+	);
+}
+
+/** Registers a local server from its catalog preset; requires the write token. */
+export function createLocalEndpoint(token: string, body: LocalEndpointCreateRequest) {
+	return requestGeneratedOperation<
+		'create_local_endpoint_api_v1_local_endpoints_post',
+		LocalEndpointView
+	>('create_local_endpoint_api_v1_local_endpoints_post', { token, body });
+}
+
+/** Edits URL, name, enablement or credential reference of a local server; requires the write token. */
+export function patchLocalEndpoint(
+	token: string,
+	endpointId: string,
+	body: LocalEndpointPatchRequest,
+) {
+	return requestGeneratedOperation<
+		'patch_local_endpoint_api_v1_local_endpoints__provider_id__patch',
+		LocalEndpointView
+	>('patch_local_endpoint_api_v1_local_endpoints__provider_id__patch', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body,
+	});
+}
+
+/** Declares (or withdraws) that a non-loopback server runs on this machine (WSL/Docker); audited. */
+export function declareLocalEndpoint(token: string, endpointId: string, declared: boolean) {
+	return requestGeneratedOperation<
+		'declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put',
+		LocalEndpointView
+	>('declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body: { declared },
+	});
+}
+
+/** Updates one model of a local server (enabled, default, code capabilities, order). */
+export function patchLocalEndpointModel(
+	token: string,
+	endpointId: string,
+	body: LocalModelPatchRequest,
+) {
+	return requestGeneratedOperation<
+		'patch_local_model_api_v1_local_endpoints__provider_id__models_patch',
+		LocalModelView
+	>('patch_local_model_api_v1_local_endpoints__provider_id__models_patch', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body,
+	});
+}
+
+/**
+ * Real validation of one model: chat round trip plus JSON output against a schema. The route queues
+ * `local_endpoints.validate_model` (202); this resolves with the execution's final result.
+ */
+export function validateLocalEndpointModel(
+	token: string,
+	endpointId: string,
+	model: string,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post',
+		RuntimeValidationResponse
+	>('validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body: { model },
+		signal,
+	});
+}
+
+/**
+ * Tombstones a local server. While a sealed thread team or a role policy still uses it the backend
+ * answers 409 and this rejects with that detail (`local_endpoint_in_use` plus its references).
+ */
+export async function deleteLocalEndpoint(token: string, endpointId: string): Promise<void> {
+	await requestGeneratedOperation<
+		'delete_local_endpoint_api_v1_local_endpoints__provider_id__delete',
+		unknown
+	>('delete_local_endpoint_api_v1_local_endpoints__provider_id__delete', {
+		token,
+		pathParams: { provider_id: endpointId },
+	});
+}
+
+/**
+ * Probes 127.0.0.1 on the known local-runtime ports; returns suggestions and never creates accounts.
+ * The route queues `local_runtimes.discover` (202); this resolves with the execution's final result.
+ */
+export function discoverLocalRuntimes(token: string) {
+	return requestGeneratedOperation<
+		'discover_runtimes_api_v1_local_runtimes_discover_post',
+		LocalRuntimeDiscoveryResponse
+	>('discover_runtimes_api_v1_local_runtimes_discover_post', { token });
 }
 
 export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {

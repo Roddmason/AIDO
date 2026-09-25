@@ -188,7 +188,8 @@ test.afterAll(async ({ playwright }, testInfo) => {
 	} finally {
 		await context.dispose();
 	}
-	await closeServer(double.server);
+	// A failed beforeAll leaves no double: guard it so its real error is the one reported.
+	if (double) await closeServer(double.server);
 });
 
 test('Local endpoints: probing a synced server shows its health, loaded model and model count', async ({
@@ -321,8 +322,9 @@ test('Local runtime wizard: llama.cpp is added with an editable URL, a default m
 
 	const loadedRow = wizard.locator('.local-model-row[data-model="qwen3-8b"]');
 	const unloadedRow = wizard.locator('.local-model-row[data-model="gemma-3-4b"]');
-	await expect(loadedRow).toContainText('loaded', { timeout: 30_000 });
-	await expect(unloadedRow).toContainText('unloaded');
+	// Exact badge text: a substring match on 'loaded' would also pass on an 'unloaded' row.
+	await expect(loadedRow.getByText('loaded', { exact: true })).toBeVisible({ timeout: 30_000 });
+	await expect(unloadedRow.getByText('unloaded', { exact: true })).toBeVisible();
 	// Synced models start enabled (P19); the operator only unticks the ones AIDO must not use.
 	await expect(loadedRow.getByLabel('Enabled')).toBeChecked();
 	const unloadedEnabled = unloadedRow.getByLabel('Enabled');
@@ -405,9 +407,9 @@ test('Local runtime discovery: a llama.cpp suggestion opens the wizard prefilled
 	await expect(wizard.getByLabel('Base URL')).toHaveValue(new RegExp(`^${escapeRegExp(double.baseUrl)}`));
 	await wizard.getByLabel('Instance name').fill(DISCOVERED_ID);
 	await wizard.getByRole('button', { name: 'Next' }).click();
-	await expect(wizard.locator('.local-model-row[data-model="qwen3-8b"]')).toContainText('loaded', {
-		timeout: 30_000,
-	});
+	await expect(
+		wizard.locator('.local-model-row[data-model="qwen3-8b"]').getByText('loaded', { exact: true }),
+	).toBeVisible({ timeout: 30_000 });
 	await wizard.getByRole('button', { name: 'Close local runtime setup' }).click();
 
 	await expect(wizard).toBeHidden();

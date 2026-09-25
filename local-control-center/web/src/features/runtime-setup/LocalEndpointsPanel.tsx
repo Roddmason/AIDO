@@ -122,7 +122,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 				const result = await syncProviderAccountModels(token, endpointId);
 				notify({
 					title: t('app.localRuntime.panel.modelsSynced', 'Models synced'),
-					body: String((result as { models?: unknown[] }).models?.length ?? 0),
+					body: `${(result as { models?: unknown[] }).models?.length ?? 0} ${t('app.localRuntime.discovery.models', 'models listed')}`,
 					tone: 'ok',
 				});
 			}

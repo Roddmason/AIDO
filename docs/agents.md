@@ -112,9 +112,11 @@ usage recording and redaction before any provider adapter is allowed to run. The
 current implementation:
 
 - selects the first policy-allowed preferred/fallback provider;
-- honors `allowRemote` and `allowLocal`, classifying locality with
-  `agents/endpoint_locality.py` (a loopback or declared WSL/Docker `local`
-  account is local even under the `openai_compatible` family);
+- honors `allowRemote` and `allowLocal` through hardcoded name sets: only
+  `ollama` and `local_ollama` match the local policy; other local providers
+  (`llama_cpp`, `lm_studio`, `vllm`, `local_openai_compatible`) are not
+  recognized by this legacy path and are routed through `ModelRouter` instead,
+  which applies endpoint-locality classification via `agents/endpoint_locality.py`;
 - blocks calls that would exceed `maxCostUsd` or the explicit remaining budget;
 - returns `configuration_required`, `blocked` or `unavailable` instead of
   simulating execution when credentials, gates or endpoints are not ready;

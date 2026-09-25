@@ -350,3 +350,20 @@ test('Local runtime wizard: llama.cpp is added with an editable URL, a default m
 	});
 	expect(created.models.find((model) => model.model === 'gemma-3-4b').enabled).toBe(false);
 });
+
+test('Local runtime wizard: the llama.cpp catalog card opens the local wizard directly', async ({
+	page,
+}) => {
+	const settings = await openProvidersSettings(page);
+	const card = settings
+		.locator('article.card')
+		.filter({ has: page.locator('h4.card-title', { hasText: /^llama\.cpp$/ }) });
+	await card.getByRole('button', { name: 'Configure' }).click();
+
+	const wizard = settings.getByRole('region', { name: 'Set up a local runtime' });
+	await expect(wizard).toBeVisible();
+	await expect(settings.getByRole('region', { name: 'Add provider' })).toBeHidden();
+	await expect(wizard.getByLabel('Base URL')).toHaveValue('http://127.0.0.1:8082/v1');
+	await wizard.getByRole('button', { name: 'Cancel' }).click();
+	await expect(wizard).toBeHidden();
+});

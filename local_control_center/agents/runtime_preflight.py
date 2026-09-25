@@ -63,7 +63,7 @@ LOCAL_OUTPUT_TOKEN_LIMIT = 64
 
 
 def _in_quality_environment() -> bool:
-    """Explicit test seam: QA must replace this only together with a fake transport."""
+    """Explicit test seam: QA must replace this only together with a test transport."""
     return any(
         os.environ.get(key)
         for key in (

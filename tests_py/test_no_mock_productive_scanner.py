@@ -54,6 +54,24 @@ def test_scanner_allows_test_path_references_from_package_scripts(tmp_path: Path
     assert scanner.scan_root(tmp_path) == []
 
 
+def test_scanner_skips_repository_copies_inside_aido_workspaces(tmp_path: Path) -> None:
+    """Los workspaces de hilos de AIDO son copias completas del repo, no producto de este checkout.
+
+    Con AIDO trabajando sobre su propio repo, `.aido/workspaces/<id>/` repite cada archivo: una sola
+    violacion real aparecia 238 veces y el scan quedaba rojo por codigo que no esta aca.
+    """
+    scanner = _load_scanner()
+    token = "internal_" + "mo" + "ck"
+    copy = tmp_path / ".aido" / "workspaces" / "workspace-1" / "local_control_center" / "a.py"
+    _write(copy, f"X = '{token}'\n")
+    _write(tmp_path / "local_control_center" / "b.py", f"X = '{token}'\n")
+
+    violations = scanner.scan_root(tmp_path)
+
+    assert [violation.relative_path for violation in violations] == ["local_control_center/b.py"]
+    assert scanner._should_prune_directory(tmp_path, tmp_path / ".aido") is True
+
+
 def test_scanner_prunes_ignored_and_allowed_directories_before_walk(tmp_path: Path) -> None:
     scanner = _load_scanner()
 

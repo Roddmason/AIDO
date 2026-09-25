@@ -9,7 +9,14 @@
  * @author Rodrigo Mason
  */
 
-import { CheckCircle2, KeyRound, RefreshCw, XCircle } from 'lucide-react';
+import {
+	CheckCircle2,
+	CircleDashed,
+	KeyRound,
+	type LucideIcon,
+	RefreshCw,
+	XCircle,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import {
@@ -58,19 +65,27 @@ type ModelPatch = Omit<LocalModelPatchRequest, 'model'>;
 
 const VALIDATION_META: Record<
 	ValidationRecord['status'],
-	{ tone: StatusTone; labelKey: string; fallback: string }
+	{ tone: StatusTone; labelKey: string; fallback: string; Icon: LucideIcon }
 > = {
 	validated: {
+		Icon: CheckCircle2,
 		tone: 'ok',
 		labelKey: 'app.localRuntime.validation.validated',
 		fallback: 'Validated',
 	},
+	// A deferred validation (model loading, endpoint busy) is not a failure: neutral pending icon.
 	deferred: {
+		Icon: CircleDashed,
 		tone: 'warn',
 		labelKey: 'app.localRuntime.validation.deferred',
 		fallback: 'Deferred',
 	},
-	failed: { tone: 'danger', labelKey: 'app.localRuntime.validation.failed', fallback: 'Failed' },
+	failed: {
+		Icon: XCircle,
+		tone: 'danger',
+		labelKey: 'app.localRuntime.validation.failed',
+		fallback: 'Failed',
+	},
 };
 
 async function readEndpoint(endpointId: string): Promise<LocalEndpointView> {
@@ -555,11 +570,7 @@ export function LocalRuntimeWizard({ draft, token, onClose, onSaved }: LocalRunt
 						</Button>
 						{validation && validationMeta ? (
 							<div className="inline" role="status">
-								{validation.status === 'validated' ? (
-									<CheckCircle2 aria-hidden="true" size={15} />
-								) : (
-									<XCircle aria-hidden="true" size={15} />
-								)}
+								<validationMeta.Icon aria-hidden="true" size={15} />
 								<Badge tone={validationMeta.tone}>
 									{t(validationMeta.labelKey, validationMeta.fallback)}
 								</Badge>

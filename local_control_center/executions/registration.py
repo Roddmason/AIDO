@@ -17,6 +17,7 @@ _DOMAINS = {
     "git": "git_workspace.api",
     "integrations": "integrations.api",
     "local_endpoints": "local_runtimes.api",
+    "local_runtimes": "local_runtimes.api",
     "models": "agents.model_gateway_api",
     "ollama": "ollama.api",
     "product_loop": "product_loop.api",

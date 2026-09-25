@@ -62,7 +62,7 @@ def test_team_roles_are_confined_to_their_assigned_runtime(coordinator):
     qa = {"role": "qa_engineer", "kind": "review", "capabilities": ["test_design"]}
     assert _team_request(coordinator, build, TEAM).allowed_provider_ids == ["codex_cli"]
     assert _team_request(coordinator, security, TEAM).allowed_provider_ids == ["nvidia_nim"]
-    assert _team_request(coordinator, qa, TEAM).allowed_provider_ids == ["codex_cli", "nvidia_nim"]
+    assert _team_request(coordinator, qa, TEAM).allowed_provider_ids == ["codex_cli"]
     assert _team_request(coordinator, build, {}).allowed_provider_ids is None
 
 

@@ -39,6 +39,7 @@ import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';
+import { LocalRuntimeDiscovery } from './LocalRuntimeDiscovery';
 import { LocalRuntimeWizard } from './LocalRuntimeWizard';
 import { draftFromCatalog, type LocalRuntimeDraft } from './localEndpoints';
 import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
@@ -340,6 +341,13 @@ export function RuntimeSetupPanel({
 						</button>
 					</div>
 				</div>
+				<LocalRuntimeDiscovery
+					token={token}
+					onSetUp={(draft) => {
+						wizardTrigger.current = document.activeElement as HTMLElement;
+						setLocalDraft(draft);
+					}}
+				/>
 				{executableCount === 0 ? (
 					<section className="empty-state" aria-live="polite">
 						<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>

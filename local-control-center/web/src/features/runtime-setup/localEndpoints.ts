@@ -7,7 +7,7 @@
  * @author Rodrigo Mason
  */
 
-import type { LocalEndpointView, LocalModelView } from '../../api/client';
+import type { LocalEndpointView, LocalModelView, LocalRuntimeSuggestion } from '../../api/client';
 import type { StatusTone } from '../../components/ui';
 import { type EndpointHealthTone, endpointHealthTone } from './ollamaEndpoints';
 import { catalogEntry } from './runtimeSetup';
@@ -184,4 +184,14 @@ export function draftFromCatalog(catalogId: string): LocalRuntimeDraft {
 export function errorCode(error: unknown): string {
 	const code = detailObject(error)?.code;
 	return typeof code === 'string' ? code : '';
+}
+
+export function draftFromSuggestion(suggestion: LocalRuntimeSuggestion): LocalRuntimeDraft {
+	return {
+		source: 'suggestion',
+		catalogId: suggestion.catalogId,
+		baseUrl: suggestion.baseUrl,
+		endpointId: null,
+		displayName: '',
+	};
 }

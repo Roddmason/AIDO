@@ -367,3 +367,78 @@ test('Local runtime wizard: the llama.cpp catalog card opens the local wizard di
 	await wizard.getByRole('button', { name: 'Cancel' }).click();
 	await expect(wizard).toBeHidden();
 });
+
+/** The real discovery scans fixed loopback ports (the host's own llama-server included): intercept it. */
+async function interceptDiscovery(page, suggestion) {
+	await page.route('**/api/v1/local-runtimes/discover', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({ suggestions: [suggestion] }),
+		}),
+	);
+}
+
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+test('Local runtime discovery: a llama.cpp suggestion opens the wizard prefilled', async ({ page }) => {
+	await interceptDiscovery(page, {
+		catalogId: 'llama_cpp',
+		baseUrl: `${double.baseUrl}/v1`,
+		server: 'llama_cpp',
+		models: DOUBLE_MODELS.map((model) => model.id),
+		alreadyConfigured: false,
+		requiresConfirmation: false,
+	});
+	const settings = await openProvidersSettings(page);
+	await settings.getByRole('button', { name: 'Detect local runtimes' }).click();
+	const found = settings.getByRole('region', { name: 'Local runtimes found' });
+	const suggestion = found.locator('article').filter({ hasText: double.baseUrl });
+	await expect(suggestion).toBeVisible({ timeout: 30_000 });
+	await expect(suggestion).toContainText('llama.cpp');
+	await expect(suggestion).toContainText(`${DOUBLE_MODELS.length} models listed`);
+	await suggestion.getByRole('button', { name: 'Set up' }).click();
+
+	const wizard = settings.getByRole('region', { name: 'Set up a local runtime' });
+	await expect(wizard.getByLabel('Base URL')).toHaveValue(new RegExp(`^${escapeRegExp(double.baseUrl)}`));
+	await wizard.getByLabel('Instance name').fill(DISCOVERED_ID);
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard.locator('.local-model-row[data-model="qwen3-8b"]')).toContainText('loaded', {
+		timeout: 30_000,
+	});
+	await wizard.getByRole('button', { name: 'Close local runtime setup' }).click();
+
+	await expect(wizard).toBeHidden();
+	await expect(localCard(settings, DISCOVERED_ID)).toBeVisible();
+});
+
+test('Local runtime discovery: an unrecognized server needs confirmation before the wizard opens', async ({
+	page,
+}) => {
+	await interceptDiscovery(page, {
+		catalogId: 'local_openai_compatible',
+		baseUrl: `${double.baseUrl}/v1`,
+		server: 'unknown_openai_compatible',
+		models: DOUBLE_MODELS.map((model) => model.id),
+		alreadyConfigured: false,
+		requiresConfirmation: true,
+	});
+	const settings = await openProvidersSettings(page);
+	await settings.getByRole('button', { name: 'Detect local runtimes' }).click();
+	const found = settings.getByRole('region', { name: 'Local runtimes found' });
+	const suggestion = found.locator('article').filter({ hasText: 'Unrecognized OpenAI-compatible server' });
+	await expect(suggestion).toBeVisible({ timeout: 30_000 });
+	const setUp = suggestion.getByRole('button', { name: 'Set up' });
+	await expect(setUp).toBeDisabled();
+	await suggestion.getByLabel('I confirm this is an OpenAI-compatible server I run and trust').check();
+	await expect(setUp).toBeEnabled();
+	await setUp.click();
+
+	const wizard = settings.getByRole('region', { name: 'Set up a local runtime' });
+	await expect(wizard.getByRole('heading', { level: 3 })).toContainText('Local OpenAI-compatible server');
+	await expect(wizard.getByLabel('Base URL')).toHaveValue(new RegExp(`^${escapeRegExp(double.baseUrl)}`));
+	await wizard.getByRole('button', { name: 'Close local runtime setup' }).click();
+	await expect(wizard).toBeHidden();
+});

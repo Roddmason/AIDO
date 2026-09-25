@@ -28,6 +28,7 @@ from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.time import utc_now
 
+from . import discovery
 from .catalog import local_endpoint_entry
 from .contracts import (
     LocalEndpointCreateRequest,
@@ -38,6 +39,7 @@ from .contracts import (
     LocalModelPatchRequest,
     LocalModelValidateRequest,
     LocalModelView,
+    LocalRuntimeDiscoveryResponse,
 )
 from .endpoints import (
     LOCAL_ENDPOINT_SOURCE,
@@ -297,5 +299,19 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 status_code=409, detail={"code": "local_endpoint_in_use", "references": error.references}
             ) from error
         return Response(status_code=204)
+
+    @router.post("/local-runtimes/discover", response_model=LocalRuntimeDiscoveryResponse)
+    @queued_operation("local_runtimes.discover", workload_class="control_plane")
+    async def discover_runtimes(request: Request) -> dict[str, Any]:
+        """Detecta servidores locales en puertos conocidos de 127.0.0.1; nunca crea cuentas ni envía credenciales."""
+        require_write(request)
+        configured = [str(account.get("baseUrl") or "") for account in providers().list_provider_accounts()]
+        suggestions = discovery.discover_local_runtimes(configured_base_urls=configured)
+        audit(
+            "local_runtimes.discovered",
+            "local_runtimes",
+            {"count": len(suggestions), "servers": [item["server"] for item in suggestions]},
+        )
+        return {"suggestions": suggestions}
 
     return router

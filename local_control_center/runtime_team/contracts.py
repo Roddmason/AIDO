@@ -63,6 +63,7 @@ class RuntimeTeamCandidateRecord(BaseModel):
     kind: RuntimeTeamKind
     validation: RuntimeTeamValidationRecord
     eligible_roles: list[RuntimeTeamRole] = Field(alias="eligibleRoles")
+    loaded_models: list[str] = Field(default_factory=list, alias="loadedModels")
 
 
 class RoleRuntimesRecord(BaseModel):
@@ -82,3 +83,4 @@ class RuntimeTeamCandidatesResponse(BaseModel):
     candidates: list[RuntimeTeamCandidateRecord]
     freshness_seconds: int = Field(alias="freshnessSeconds")
     suggested_role_runtimes: RoleRuntimesRecord = Field(alias="suggestedRoleRuntimes")
+    suggested_role_models: dict[str, str] = Field(default_factory=dict, alias="suggestedRoleModels")

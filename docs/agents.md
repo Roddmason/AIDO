@@ -21,7 +21,11 @@ Agents are modeled as contracts, not personalities.
 - `api`: provider/API runtime mode; adapter execution is gated and not direct.
 - `cli`: CLI runtime mode; tool calls are brokered, policy-recorded, and not
   shell-executed directly by the agent API.
-- `ollama`: local model runtime mode; detection uses the local HTTP API.
+- `local`: any enabled local model runtime whose endpoint is loopback or a
+  declared WSL/Docker endpoint (Ollama, llama.cpp, LM Studio, vLLM or a generic
+  local OpenAI-compatible server); see `docs/runtime-providers.md#local-runtimes`.
+- `ollama`: backward-compatible sub-mode of `local` restricted to Ollama
+  endpoints.
 - `hybrid`: mixed mode for profiles that may use API, CLI, or local models.
 - `manual`: human/manual runtime mode.
 
@@ -85,8 +89,21 @@ Built-in adapters are deliberately narrow:
   workflow execution.
 - `OllamaAdapter`: uses the real Ollama HTTP API and fails closed when base URL,
   daemon health, model, or messages are missing.
-- `OpenAICompatibleAdapter`: uses real OpenAI-compatible HTTP calls only when
-  base URL, API key, model, and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` are set.
+- `ProviderFactoryAdapter` (`runtime_adapters/provider_factory.py`): the adapter
+  the broker registry binds to every model provider family. It resolves the
+  persisted provider account, runtime policy and `credentialRef` fail-closed
+  before calling the provider. Local OpenAI-compatible accounts (`llama_cpp`,
+  `lm_studio`, `vllm`, `local_openai_compatible`) need a base URL and a model;
+  a bearer token is optional and is never sent over `http://` to a remote host.
+- `OpenAICompatibleAdapter`: the environment-configured adapter
+  (`AIDO_OPENAI_COMPATIBLE_*`). It is not registered in the broker registry and
+  keeps requiring a base URL, a key and a model because it only targets
+  environment-configured remote endpoints.
+- For model adapters, `AIDO_ENABLE_REAL_PROVIDER_CALLS` is only an environment
+  override: the runtime policy reports it as a configuration warning and the
+  SQLite runtime settings stay authoritative, so no adapter above (and no local
+  runtime flow) requires it. Outside the adapters it only authorizes real Jev
+  decision-engine calls, which local model selection does not need.
 
 ## Model Gateway
 
@@ -95,7 +112,9 @@ usage recording and redaction before any provider adapter is allowed to run. The
 current implementation:
 
 - selects the first policy-allowed preferred/fallback provider;
-- honors `allowRemote` and `allowLocal`;
+- honors `allowRemote` and `allowLocal`, classifying locality with
+  `agents/endpoint_locality.py` (a loopback or declared WSL/Docker `local`
+  account is local even under the `openai_compatible` family);
 - blocks calls that would exceed `maxCostUsd` or the explicit remaining budget;
 - returns `configuration_required`, `blocked` or `unavailable` instead of
   simulating execution when credentials, gates or endpoints are not ready;

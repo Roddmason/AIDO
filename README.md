@@ -150,7 +150,10 @@ AIDO models agents as contracts, not personalities.
   sessions.
 - API provider modes for OpenAI-compatible providers, OpenRouter, NVIDIA NIM,
   LiteLLM-style gateways, and similar OpenAI-compatible endpoints.
-- Local Ollama support through the Ollama HTTP API.
+- Local model runtimes: Ollama and OpenAI-compatible local servers (llama.cpp,
+  LM Studio, vLLM or any local server) with load-state-aware model selection
+  and zero-cost self-hosted inference; see
+  [Local Runtimes](docs/runtime-providers.md#local-runtimes).
 - CLI runtime status for Codex CLI, Claude Code CLI, OpenHands, and SWE-agent
   adapter boundaries.
 - Manual provider state for human/operator paths.
@@ -418,6 +421,11 @@ Never commit `.env` files, raw provider keys, local SQLite databases, generated
 artifacts, or workspace snapshots. For real provider keys, prefer
 OpenBao/Vault-compatible `credentialRef` values documented in
 [docs/credentials.md](docs/credentials.md).
+
+Local OpenAI-compatible servers (llama.cpp, LM Studio, vLLM or any local
+server) have no environment variables: detect and add them from Settings or
+with `POST /api/v1/local-endpoints`. A bearer token is optional. See
+[Local Runtimes](docs/runtime-providers.md#local-runtimes).
 
 ## Run A Real `issue_to_patch` Workflow
 

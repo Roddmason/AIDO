@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import get_args
 
+from local_control_center.agents.contracts import RuntimeMode
 from local_control_center.agents.local_runtime_causes import LOCAL_RUNTIME_CAUSES
 from local_control_center.agents.provider_catalog import PROVIDER_CATALOG, ProviderCatalogEntry
 from local_control_center.host_resources.models import WorkloadProfile
@@ -140,3 +142,20 @@ def test_model_routing_doc_states_the_local_private_locality_rule() -> None:
     assert rule in doc
     assert "`declared_local`" in doc
     assert "docs/runtime-providers.md#local-runtimes" in doc
+
+
+def test_agents_doc_lists_every_runtime_mode_and_the_provider_backed_adapter() -> None:
+    doc = _read("docs/agents.md")
+    for mode in get_args(RuntimeMode):
+        assert f"- `{mode}`:" in doc, mode
+    assert "- `ollama`: local model runtime mode" not in doc
+    assert "base URL, API key, model, and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` are set" not in doc
+    assert "`ProviderFactoryAdapter`" in doc
+    assert "a bearer token is optional" in doc
+    assert "For model adapters, `AIDO_ENABLE_REAL_PROVIDER_CALLS` is only an environment" in doc
+
+
+def test_readme_points_local_runtimes_to_the_runtime_providers_doc() -> None:
+    readme = _read("README.md")
+    assert "- Local Ollama support through the Ollama HTTP API." not in readme
+    assert "docs/runtime-providers.md#local-runtimes" in readme

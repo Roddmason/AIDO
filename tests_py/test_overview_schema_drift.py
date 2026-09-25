@@ -4,7 +4,8 @@ Cubre la deriva de esquema que devolvía HTTP 500 (`ResponseValidationError`) cu
 contenía artefactos `project_assessment`/`product_owner_manifest` o un perfil con rol `assessor`:
 valores que los subsistemas de assessment y product-owner escriben pero que el `response_model`
 `OverviewResponse` no listaba en sus `Literal`. Si el contrato y lo persistido vuelven a divergir,
-este test falla con el mismo 500 que veía el usuario.
+este test falla con el mismo 500 que veía el usuario. También cubre las filas `cost_usage` sin
+proyecto que el usage ledger escribía para cada llamada con costo conocido (`costUsage[].projectId`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.projects.repository import ProjectsRepository
 
@@ -64,6 +66,36 @@ def test_overview_serializes_assessment_and_product_owner_artifacts(tmp_path: Pa
         assert {"project_assessment", "product_owner_manifest"} <= artifact_kinds
         roles = {profile["role"] for profile in payload["agentProfiles"]}
         assert "assessor" in roles
+    finally:
+        runtime.close()
+
+
+def test_overview_serializes_paid_usage_with_and_without_a_project(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Costs", path=tmp_path / "costs", template_id="other"
+        )
+        ledger = UsageLedger(runtime.connection)
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="m",
+            runtime_type="api",
+            actual_cost_usd=0.25,
+        )
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="m",
+            runtime_type="api",
+            project_id=project["id"],
+            actual_cost_usd=0.5,
+        )
+
+        response = client.get("/api/v1/overview")
+
+        assert response.status_code == 200, response.text
+        costs = {(row["projectId"], row["amountUsd"]) for row in response.json()["costUsage"]}
+        assert costs == {(None, 0.25), (project["id"], 0.5)}
     finally:
         runtime.close()
 

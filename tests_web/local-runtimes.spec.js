@@ -297,3 +297,56 @@ test('Runtime access: Providers & CLI shows the local runtimes switch and saves 
 		expect(cleared.status()).toBe(204);
 	}
 });
+
+test('Local runtime wizard: llama.cpp is added with an editable URL, a default model and a real validation', async ({
+	page,
+}) => {
+	const settings = await openProvidersSettings(page);
+	await settings.getByRole('button', { name: 'Add provider' }).click();
+	const providerWizard = settings.getByRole('region', { name: 'Add provider' });
+	await providerWizard.getByLabel('Provider', { exact: true }).selectOption('llama_cpp');
+	await providerWizard.getByRole('button', { name: 'Next' }).click();
+
+	const wizard = settings.getByRole('region', { name: 'Set up a local runtime' });
+	await expect(wizard).toBeVisible();
+	const baseUrl = wizard.getByLabel('Base URL');
+	await expect(baseUrl).toHaveValue('http://127.0.0.1:8082/v1');
+	await baseUrl.fill('http://203.0.113.10:8082/v1');
+	await expect(wizard.getByText('Not a loopback host')).toBeVisible();
+	await expect(wizard.getByLabel('Runs on this machine (WSL/Docker)')).toBeVisible();
+	await baseUrl.fill(`${double.baseUrl}/v1`);
+	await expect(wizard.getByText('Not a loopback host')).toBeHidden();
+	await wizard.getByLabel('Instance name').fill(WIZARD_ID);
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	const loadedRow = wizard.locator('.local-model-row[data-model="qwen3-8b"]');
+	const unloadedRow = wizard.locator('.local-model-row[data-model="gemma-3-4b"]');
+	await expect(loadedRow).toContainText('loaded', { timeout: 30_000 });
+	await expect(unloadedRow).toContainText('unloaded');
+	// Synced models start enabled (P19); the operator only unticks the ones AIDO must not use.
+	await expect(loadedRow.getByLabel('Enabled')).toBeChecked();
+	const unloadedEnabled = unloadedRow.getByLabel('Enabled');
+	await expect(unloadedEnabled).toBeChecked();
+	await unloadedEnabled.click();
+	await expect(unloadedEnabled).not.toBeChecked();
+	await wizard.getByLabel('Default model').selectOption('qwen3-8b');
+	await expect(loadedRow).toContainText('default');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+
+	await wizard.getByRole('button', { name: 'Validate default model' }).click();
+	await expect(wizard.getByRole('status')).toContainText('Validated', { timeout: 60_000 });
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard).toContainText(WIZARD_ID);
+	await wizard.getByRole('button', { name: 'Finish' }).click();
+
+	await expect(wizard).toBeHidden();
+	await expect(localCard(settings, WIZARD_ID)).toBeVisible();
+	const listed = await (await page.request.get('/api/v1/local-endpoints')).json();
+	const created = listed.endpoints.find((endpoint) => endpoint.id === WIZARD_ID);
+	expect(created.baseUrl).toBe(`${double.baseUrl}/v1`);
+	expect(created.models.find((model) => model.model === 'qwen3-8b')).toMatchObject({
+		isDefault: true,
+		validated: true,
+	});
+	expect(created.models.find((model) => model.model === 'gemma-3-4b').enabled).toBe(false);
+});

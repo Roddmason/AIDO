@@ -39,6 +39,8 @@ import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { AddProviderWizard } from './AddProviderWizard';
+import { LocalRuntimeWizard } from './LocalRuntimeWizard';
+import { draftFromCatalog, type LocalRuntimeDraft } from './localEndpoints';
 import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
 import {
 	apiProviderIdsNeedingProbe,
@@ -46,6 +48,7 @@ import {
 	deriveRuntimeAction,
 	deriveRuntimeState,
 	INSTRUCTIONS_KEY,
+	isLocalOpenAiRuntime,
 	KIND_LABEL,
 	type MergedProvider,
 	mergeProviders,
@@ -79,6 +82,8 @@ type RuntimeSetupPanelProps = {
 	onRefresh: () => Promise<unknown> | undefined;
 	initialProviderId?: string | null;
 	gatewayRevision?: number;
+	/** Called after the local-runtime wizard wrote an endpoint, so sibling panels re-read it. */
+	onLocalEndpointSaved?: () => void;
 };
 
 export function RuntimeSetupPanel({
@@ -88,6 +93,7 @@ export function RuntimeSetupPanel({
 	onRefresh,
 	initialProviderId,
 	gatewayRevision = 0,
+	onLocalEndpointSaved,
 }: RuntimeSetupPanelProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
@@ -98,11 +104,12 @@ export function RuntimeSetupPanel({
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [wizardOpen, setWizardOpen] = useState(false);
 	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
+	const [localDraft, setLocalDraft] = useState<LocalRuntimeDraft | null>(null);
 	const openedInitialProviderRef = useRef<string | null>(null);
 	const wizardTrigger = useRef<HTMLElement | null>(null);
 	useEffect(() => {
-		if (!wizardOpen) wizardTrigger.current?.focus();
-	}, [wizardOpen]);
+		if (!wizardOpen && localDraft === null) wizardTrigger.current?.focus();
+	}, [wizardOpen, localDraft]);
 
 	const loadGateway = useCallback(async () => {
 		try {
@@ -130,6 +137,10 @@ export function RuntimeSetupPanel({
 		const entry = catalogEntry(providerId);
 		if (!entry || entry.group === 'cli') return;
 		openedInitialProviderRef.current = providerId;
+		if (isLocalOpenAiRuntime(entry)) {
+			setLocalDraft(draftFromCatalog(providerId));
+			return;
+		}
 		setWizardProviderId(providerId);
 		setWizardOpen(true);
 	}, [initialProviderId]);
@@ -292,7 +303,7 @@ export function RuntimeSetupPanel({
 
 	return (
 		<>
-			<div hidden={wizardOpen}>
+			<div hidden={wizardOpen || localDraft !== null}>
 				<p className="muted">
 					{t(
 						'app.runtime.summary',
@@ -408,6 +419,20 @@ export function RuntimeSetupPanel({
 				onSaved={() => {
 					void loadGateway();
 					void onRefresh();
+				}}
+				onLocalRuntimeSelected={(catalogId) => {
+					setWizardOpen(false);
+					setLocalDraft(draftFromCatalog(catalogId));
+				}}
+			/>
+			<LocalRuntimeWizard
+				draft={localDraft}
+				token={token}
+				onClose={() => setLocalDraft(null)}
+				onSaved={() => {
+					void loadGateway();
+					void onRefresh();
+					onLocalEndpointSaved?.();
 				}}
 			/>
 		</>

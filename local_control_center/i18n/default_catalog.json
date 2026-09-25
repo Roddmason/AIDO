@@ -12508,6 +12508,214 @@
       "en": "Ollama endpoints",
       "es": "Endpoints de Ollama"
     },
+    "app.localRuntime.loadState.loaded": {
+      "en": "loaded",
+      "es": "cargado"
+    },
+    "app.localRuntime.loadState.loading": {
+      "en": "loading",
+      "es": "cargando"
+    },
+    "app.localRuntime.loadState.unloaded": {
+      "en": "unloaded",
+      "es": "no cargado"
+    },
+    "app.localRuntime.loadState.unknown": {
+      "en": "state unknown",
+      "es": "estado desconocido"
+    },
+    "app.localRuntime.wizard.stepEndpoint": {
+      "en": "Endpoint",
+      "es": "Endpoint del servidor"
+    },
+    "app.localRuntime.wizard.stepModels": {
+      "en": "Models",
+      "es": "Modelos"
+    },
+    "app.localRuntime.wizard.stepValidate": {
+      "en": "Validate",
+      "es": "Validar"
+    },
+    "app.localRuntime.wizard.stepDone": {
+      "en": "Done",
+      "es": "Listo"
+    },
+    "app.localRuntime.wizard.errorBaseUrl": {
+      "en": "Enter an absolute http(s) URL with no query string.",
+      "es": "Ingresa una URL http(s) absoluta sin parámetros de consulta."
+    },
+    "app.localRuntime.wizard.errorInstanceId": {
+      "en": "Use 2 to 96 lowercase letters, digits, dot, colon, dash or underscore for the instance name, starting with a letter or digit.",
+      "es": "Usa entre 2 y 96 minúsculas, dígitos, punto, dos puntos, guion o guion bajo para el nombre de la instancia, empezando por una letra o un dígito."
+    },
+    "app.localRuntime.wizard.notReady": {
+      "en": "The server did not pass the health check:",
+      "es": "El servidor no pasó el chequeo de salud:"
+    },
+    "app.localRuntime.wizard.declarationRejected": {
+      "en": "Only a private or link-local IP address, or host.docker.internal, can be declared as running on this machine.",
+      "es": "Solo una IP privada o link-local, o host.docker.internal, puede declararse como ejecutándose en este equipo."
+    },
+    "app.localRuntime.wizard.errorDefaultModel": {
+      "en": "Enable a model and make it the default before validating.",
+      "es": "Habilita un modelo y márcalo como predeterminado antes de validar."
+    },
+    "app.localRuntime.wizard.title": {
+      "en": "Set up a local runtime",
+      "es": "Configurar un runtime local"
+    },
+    "app.localRuntime.wizard.close": {
+      "en": "Close local runtime setup",
+      "es": "Cerrar la configuración del runtime local"
+    },
+    "app.localRuntime.wizard.stepsAria": {
+      "en": "Local runtime setup steps",
+      "es": "Pasos de configuración del runtime local"
+    },
+    "app.localRuntime.wizard.baseUrl": {
+      "en": "Base URL",
+      "es": "URL base"
+    },
+    "app.localRuntime.wizard.baseUrlHelp": {
+      "en": "Prefilled with the server default; change it if your server listens elsewhere. Saving again keeps what you enter here.",
+      "es": "Viene con el valor por defecto del servidor; cámbiala si tu servidor escucha en otra dirección. Guardar de nuevo conserva lo que ingreses aquí."
+    },
+    "app.localRuntime.wizard.instanceId": {
+      "en": "Instance name",
+      "es": "Nombre de la instancia"
+    },
+    "app.localRuntime.wizard.instanceIdHelp": {
+      "en": "Optional. Name a second server of the same kind, for example llama-lab; empty uses the catalog id.",
+      "es": "Opcional. Nombra un segundo servidor del mismo tipo, por ejemplo llama-lab; vacío usa el id del catálogo."
+    },
+    "app.localRuntime.wizard.displayName": {
+      "en": "Display name",
+      "es": "Nombre visible"
+    },
+    "app.localRuntime.wizard.credentialRef": {
+      "en": "Token reference (optional)",
+      "es": "Referencia de token (opcional)"
+    },
+    "app.localRuntime.wizard.credentialRefHelp": {
+      "en": "Only when the server was started with an API key. Reference an existing secret (env:, keyring:, openbao:, vault:); the secret is never shown.",
+      "es": "Solo si el servidor se inició con una API key. Referencia un secreto existente (env:, keyring:, openbao:, vault:); el secreto nunca se muestra."
+    },
+    "app.localRuntime.wizard.remoteHostAria": {
+      "en": "Host is not loopback",
+      "es": "El host no es loopback"
+    },
+    "app.localRuntime.wizard.remoteHost": {
+      "en": "Not a loopback host",
+      "es": "Host no loopback"
+    },
+    "app.localRuntime.wizard.remoteHostHelp": {
+      "en": "AIDO treats this server as remote: local-only privacy rejects it and a token is never sent to it over plain http. If it runs on this machine through WSL or Docker, declare it here.",
+      "es": "AIDO trata este servidor como remoto: la privacidad solo-local lo rechaza y nunca se le envía un token por http sin cifrar. Si corre en este equipo mediante WSL o Docker, decláralo aquí."
+    },
+    "app.localRuntime.wizard.declareLocal": {
+      "en": "Runs on this machine (WSL/Docker)",
+      "es": "Corre en este equipo (WSL/Docker)"
+    },
+    "app.localRuntime.wizard.declareLocalHelp": {
+      "en": "Recorded in the audit log. Accepted only for private or link-local IP addresses and host.docker.internal.",
+      "es": "Queda registrado en la auditoría. Solo se acepta para IP privadas o link-local y para host.docker.internal."
+    },
+    "app.localRuntime.wizard.prefillFailed": {
+      "en": "Could not read the stored endpoint; check the URL before saving.",
+      "es": "No se pudo leer el endpoint guardado; revisa la URL antes de guardar."
+    },
+    "app.localRuntime.wizard.modelsEnabled": {
+      "en": "enabled",
+      "es": "habilitados"
+    },
+    "app.localRuntime.wizard.resync": {
+      "en": "Sync models again",
+      "es": "Sincronizar modelos otra vez"
+    },
+    "app.localRuntime.wizard.noModels": {
+      "en": "The server listed no models. Load or download one, then sync again.",
+      "es": "El servidor no listó modelos. Carga o descarga uno y vuelve a sincronizar."
+    },
+    "app.localRuntime.wizard.isDefault": {
+      "en": "default",
+      "es": "predeterminado"
+    },
+    "app.localRuntime.wizard.modelEnabled": {
+      "en": "Enabled",
+      "es": "Habilitado"
+    },
+    "app.localRuntime.wizard.codeEdit": {
+      "en": "Can edit code",
+      "es": "Puede editar código"
+    },
+    "app.localRuntime.wizard.codeReview": {
+      "en": "Can review code",
+      "es": "Puede revisar código"
+    },
+    "app.localRuntime.wizard.defaultModel": {
+      "en": "Default model",
+      "es": "Modelo predeterminado"
+    },
+    "app.localRuntime.wizard.defaultModelHelp": {
+      "en": "Used when no loaded model fits a role. Code capabilities are opt-in per model.",
+      "es": "Se usa cuando ningún modelo cargado sirve para un rol. Las capacidades de código se activan por modelo."
+    },
+    "app.localRuntime.wizard.chooseDefault": {
+      "en": "Choose a default model",
+      "es": "Elige un modelo predeterminado"
+    },
+    "app.localRuntime.wizard.validateHelp": {
+      "en": "Runs a real chat round trip with the default model and checks that it returns valid JSON. A model that is still loading is not a failure: try again when it is ready.",
+      "es": "Ejecuta una ida y vuelta de chat real con el modelo predeterminado y verifica que devuelva JSON válido. Un modelo que aún se está cargando no es un fallo: vuelve a intentarlo cuando esté listo."
+    },
+    "app.localRuntime.wizard.validate": {
+      "en": "Validate default model",
+      "es": "Validar modelo predeterminado"
+    },
+    "app.localRuntime.wizard.summaryEndpoint": {
+      "en": "Endpoint",
+      "es": "Endpoint del servidor"
+    },
+    "app.localRuntime.wizard.summaryValidation": {
+      "en": "Validation",
+      "es": "Validación"
+    },
+    "app.localRuntime.wizard.notValidated": {
+      "en": "not validated",
+      "es": "sin validar"
+    },
+    "app.localRuntime.wizard.doneHelp": {
+      "en": "The runtime is listed under Local endpoints and, once validated, offered as a candidate for thread teams.",
+      "es": "El runtime aparece en Endpoints locales y, una vez validado, se ofrece como candidato para los equipos de hilo."
+    },
+    "app.localRuntime.wizard.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.localRuntime.wizard.back": {
+      "en": "Back",
+      "es": "Atrás"
+    },
+    "app.localRuntime.wizard.finish": {
+      "en": "Finish",
+      "es": "Finalizar"
+    },
+    "app.localRuntime.wizard.next": {
+      "en": "Next",
+      "es": "Siguiente"
+    },
+    "app.localRuntime.validation.validated": {
+      "en": "Validated",
+      "es": "Validado"
+    },
+    "app.localRuntime.validation.deferred": {
+      "en": "Deferred",
+      "es": "Diferido"
+    },
+    "app.localRuntime.validation.failed": {
+      "en": "Failed",
+      "es": "Falló"
+    },
     "app.localRuntime.locality.loopback": {
       "en": "this machine",
       "es": "este equipo"

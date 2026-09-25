@@ -90,6 +90,7 @@ export function RuntimeBody({
 				onRefresh={onRefresh}
 				initialProviderId={initialProviderId}
 				gatewayRevision={gatewayRevision}
+				onLocalEndpointSaved={() => setGatewayRevision((revision) => revision + 1)}
 			/>
 			<OllamaEndpointsPanel token={token} onRefresh={refreshAfterEndpointMutation} />
 			<LocalEndpointsPanel

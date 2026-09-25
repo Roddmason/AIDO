@@ -8,7 +8,10 @@
 
 import type { ModelGatewayRolePolicy, OllamaEndpoint } from '../../api/types';
 
-/** Mirrors the backend `ENDPOINT_ID_RE`, so an invalid id is rejected before the 422 round-trip. */
+/**
+ * Mirrors the backend `local_runtimes.endpoints.ENDPOINT_ID_RE`, the rule for Ollama endpoint ids
+ * and for the `instanceId` of local endpoints, so an invalid id is rejected before the 422.
+ */
 const ENDPOINT_ID_RE = /^[a-z0-9][a-z0-9_.:-]{1,95}$/;
 
 /** Health tones for the badge; anything the backend has not catalogued reads as a warning. */

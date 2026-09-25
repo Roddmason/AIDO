@@ -7,7 +7,7 @@
  * @author Rodrigo Mason
  */
 
-import type { LocalEndpointView } from '../../api/client';
+import type { LocalEndpointView, LocalModelView } from '../../api/client';
 import type { StatusTone } from '../../components/ui';
 import { type EndpointHealthTone, endpointHealthTone } from './ollamaEndpoints';
 import { catalogEntry } from './runtimeSetup';
@@ -115,4 +115,73 @@ export function endpointInUseReferences(error: unknown): EndpointReference[] | n
 	const detail = detailObject(error);
 	if (detail?.code !== 'local_endpoint_in_use' || !Array.isArray(detail.references)) return null;
 	return detail.references.filter(isReference);
+}
+
+const IPV4_LOOPBACK_RE = /^127(?:\.\d{1,3}){3}$/;
+/** `new URL()` rewrites an IPv4-mapped `::ffff:127.x.y.z` host to its hex form `::ffff:7fxx:yyyy`. */
+const MAPPED_LOOPBACK_RE = /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/;
+
+export type LoadState = LocalModelView['loadState'];
+
+/** Load state of one model as the server reports it; `unknown` is never shown as unloaded. */
+export const LOAD_STATE_META: Record<LoadState, LabelMeta> = {
+	loaded: { tone: 'ok', labelKey: 'app.localRuntime.loadState.loaded', fallback: 'loaded' },
+	loading: { tone: 'warn', labelKey: 'app.localRuntime.loadState.loading', fallback: 'loading' },
+	unloaded: { tone: 'info', labelKey: 'app.localRuntime.loadState.unloaded', fallback: 'unloaded' },
+	unknown: {
+		tone: 'pending',
+		labelKey: 'app.localRuntime.loadState.unknown',
+		fallback: 'state unknown',
+	},
+};
+
+/** Where the wizard was opened from: a catalog card may already have a stored account to edit. */
+export type LocalRuntimeDraft = {
+	source: 'catalog' | 'suggestion';
+	catalogId: string;
+	baseUrl: string;
+	/** Stored endpoint being edited; null creates a new one. */
+	endpointId: string | null;
+	displayName: string;
+};
+
+/** The enabled model marked as default, or null while the operator has not chosen one. */
+export function defaultModelOf(endpoint: LocalEndpointView): string | null {
+	return (endpoint.models ?? []).find((model) => model.isDefault && model.enabled)?.model ?? null;
+}
+
+/**
+ * Client-side hint only: the backend decides locality (and re-resolves declared names). Anything
+ * that is not literally loopback is shown as remote until the operator declares it.
+ */
+export function isLoopbackUrl(value: string): boolean {
+	let hostname: string;
+	try {
+		hostname = new URL(value.trim()).hostname;
+	} catch {
+		return false;
+	}
+	const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+	return (
+		host === 'localhost' ||
+		host === '::1' ||
+		IPV4_LOOPBACK_RE.test(host) ||
+		MAPPED_LOOPBACK_RE.test(host)
+	);
+}
+
+export function draftFromCatalog(catalogId: string): LocalRuntimeDraft {
+	return {
+		source: 'catalog',
+		catalogId,
+		baseUrl: catalogEntry(catalogId)?.defaultBaseUrl ?? '',
+		endpointId: null,
+		displayName: '',
+	};
+}
+
+/** Machine code of a structured error detail (`local_declaration_host_not_allowed`…), or ''. */
+export function errorCode(error: unknown): string {
+	const code = detailObject(error)?.code;
+	return typeof code === 'string' ? code : '';
 }

@@ -45,7 +45,12 @@ import {
 	rolePreferredNeedsUpdate,
 	rolePrefersProvider,
 } from './providerCardModel';
-import { catalogEntry, PROVIDER_CATALOG, type ProviderCatalogEntry } from './runtimeSetup';
+import {
+	catalogEntry,
+	isLocalOpenAiRuntime,
+	PROVIDER_CATALOG,
+	type ProviderCatalogEntry,
+} from './runtimeSetup';
 
 type WizardStep = 'provider' | 'credential' | 'models' | 'validate' | 'roles';
 const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate', 'roles'];
@@ -129,6 +134,7 @@ export function AddProviderWizard({
 	initialBaseUrl = '',
 	onClose,
 	onSaved,
+	onLocalRuntimeSelected,
 }: {
 	open: boolean;
 	token: string;
@@ -139,6 +145,8 @@ export function AddProviderWizard({
 	initialBaseUrl?: string;
 	onClose: () => void;
 	onSaved: () => void;
+	/** Local OpenAI-compatible servers continue in the local-runtime wizard instead of this one. */
+	onLocalRuntimeSelected?: (catalogId: string) => void;
 }) {
 	const { t } = useI18n();
 	const [step, setStep] = useState<WizardStep>('provider');
@@ -536,6 +544,10 @@ export function AddProviderWizard({
 
 	const goNext = async () => {
 		if (step === 'provider') {
+			if (onLocalRuntimeSelected && isLocalOpenAiRuntime(entry)) {
+				onLocalRuntimeSelected(entry.id);
+				return;
+			}
 			setStep('credential');
 			return;
 		}

@@ -1,14 +1,16 @@
 /**
  * Platform-wide runtime transport switches for the Providers & CLI settings section.
  *
- * These four flags (`runtime.cli|remote|ollama|nvidia.enabled`) are declared in the backend
+ * These flags (`runtime.cli|remote|local|ollama|nvidia.enabled`) are declared in the backend
  * settings registry but had no rendering surface, so an operator could neither see nor change
  * them — the control plane silently vetoed transports with no way to find out why. The runtime
  * policy is a conjunction of the global flag AND the project flag, so a project can still veto a
  * transport locally but can never enable what is switched off here.
  *
  * Turning one off is a platform-wide kill switch and a wired boolean commits on click, so the
- * off-transition is confirmed first; turning one back on stays a single click.
+ * off-transition is confirmed first; turning one back on stays a single click. The ceiling of one
+ * local model call (`runtime.local.maxCallSeconds`) sits under the switches: it is a number that
+ * commits with Save like any setting, so it never goes through the kill-switch confirmation.
  * @author Rodrigo Mason
  */
 
@@ -24,15 +26,19 @@ import type { ResolvedSetting, SettingScope } from './useSettings';
 type RuntimeAccessContext = WiredEditing & { resolved: ResolvedSetting[] };
 
 /**
- * Filtered by explicit key, never by `section`: nine descriptors share `section="runtime"` and
- * five of them are project-scoped, so a section filter would render the wrong rows here.
+ * Filtered by explicit key, never by `section`: many descriptors share `section="runtime"` and
+ * several of them are project-scoped, so a section filter would render the wrong rows here.
  */
 const RUNTIME_FLAG_KEYS = [
 	'runtime.cli.enabled',
 	'runtime.remote.enabled',
+	'runtime.local.enabled',
 	'runtime.ollama.enabled',
 	'runtime.nvidia.enabled',
 ];
+
+/** Platform-wide numeric limits of the transports above; plain settings, never kill switches. */
+const RUNTIME_LIMIT_KEYS = ['runtime.local.maxCallSeconds'];
 
 type PendingDisable = {
 	key: string;
@@ -51,6 +57,9 @@ export function RuntimeAccessPanel({ ctx }: { ctx: RuntimeAccessContext }) {
 	}, [pending]);
 	const flags = ctx.resolved.filter((setting: ResolvedSetting) =>
 		RUNTIME_FLAG_KEYS.includes(setting.key),
+	);
+	const limits = ctx.resolved.filter((setting: ResolvedSetting) =>
+		RUNTIME_LIMIT_KEYS.includes(setting.key),
 	);
 
 	if (flags.length === 0) return null;
@@ -87,6 +96,7 @@ export function RuntimeAccessPanel({ ctx }: { ctx: RuntimeAccessContext }) {
 				)}
 			</p>
 			<WiredRows ctx={guarded} settings={flags} />
+			<WiredRows ctx={ctx} settings={limits} />
 			{pending ? (
 				<section
 					ref={confirmationRef}

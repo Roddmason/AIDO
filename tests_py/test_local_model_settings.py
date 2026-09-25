@@ -180,3 +180,23 @@ def test_phase80_retires_runtime_seeded_code_capabilities_of_llama_cpp_accounts(
     }
     assert remaining >= {("llama-lan", "chat"), ("llama-operator", "code_edit"), ("omniroute", "code_edit")}
     assert not remaining & {("llama-lan", "code_edit"), ("llama-lan", "code_review")}
+
+
+def test_phase80_tolerates_a_process_that_registered_it_after_the_applied_check(connection):
+    """El chequeo de "ya aplicada" corre fuera de BEGIN IMMEDIATE: dos arranques simultaneos lo pasan ambos."""
+
+    class _LateCheckConnection:
+        def __init__(self, inner: sqlite3.Connection) -> None:
+            self._inner = inner
+
+        def __getattr__(self, name: str):
+            return getattr(self._inner, name)
+
+        def execute(self, statement: str, parameters: tuple = ()):
+            if statement.startswith("SELECT 1 FROM schema_migrations WHERE version = 80"):
+                return self._inner.execute("SELECT 1 WHERE 0")
+            return self._inner.execute(statement, parameters)
+
+    init_phase80_schema(_LateCheckConnection(connection))
+    registered = connection.execute("SELECT COUNT(*) FROM schema_migrations WHERE version = 80").fetchone()[0]
+    assert registered == 1

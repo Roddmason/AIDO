@@ -17,6 +17,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.local_runtimes.endpoints import (
+    LOCAL_RUNTIME_CATALOG_SOURCE,
+    upsert_local_runtime_records,
+)
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
@@ -187,10 +191,14 @@ def _normalize_base_url(value: str) -> str:
     return candidate.rstrip("/")
 
 
-def _base_url_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest) -> str:
+def _base_url_for_request(
+    entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest, stored_base_url: str = ""
+) -> str:
     provided = str(body.base_url or "").strip()
     if provided:
         return _normalize_base_url(provided)
+    if entry.provider_type == "local" and stored_base_url.strip():
+        return stored_base_url.strip()
     deployment_mode = body.deployment_mode or entry.deployment_mode
     api_family = body.api_family or entry.api_family
     if entry.provider_family == "nvidia_nim" and api_family in {
@@ -217,6 +225,14 @@ def _base_url_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFrom
     return entry.default_base_url or ""
 
 
+def _stored_base_url(store: ProviderAccountStore, provider_id: str) -> str:
+    """URL guardada de la cuenta, o vacío si la cuenta aún no existe."""
+    try:
+        return str(store.get_provider_account(provider_id).get("baseUrl") or "")
+    except KeyError:
+        return ""
+
+
 def _credential_ref_for_request(entry: ProviderCatalogEntry, body: ProviderAccountFromCatalogRequest) -> str:
     credential_ref = str(body.credential_ref or "").strip()
     deployment_mode = body.deployment_mode or entry.deployment_mode
@@ -238,26 +254,6 @@ def _catalog_metadata(entry: ProviderCatalogEntry, metadata: dict[str, Any]) -> 
         "docsUrl": entry.docs_url,
         "pricingSource": entry.pricing_source,
     }
-
-
-LOCAL_RUNTIME_PREFERRED_ROLES = ("analyst", "product_owner", "developer", "technical_lead")
-
-
-def _upsert_local_runtime_installation(
-    runtime_repo: RuntimeConfigRepository, entry: ProviderCatalogEntry, *, instance_id: str, enabled: bool
-) -> None:
-    """Registra la instalación propia de la instancia local, no la fila compartida de su familia."""
-    runtime_repo.upsert_installation(
-        {
-            "runtimeId": instance_id,
-            "kind": entry.provider_type,
-            "enabled": enabled,
-            "capabilities": ["chat"],
-            "preferredRoles": list(LOCAL_RUNTIME_PREFERRED_ROLES),
-            "configurationSource": "local_runtime_catalog",
-            "metadata": {"providerId": instance_id, "catalogId": entry.id},
-        }
-    )
 
 
 def _validate_catalog_semantics(
@@ -426,7 +422,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             "adapterProfile": body.adapter_profile or entry.adapter_profile,
             "termsMode": body.terms_mode or entry.terms_mode,
             "pricingMode": body.pricing_mode or entry.pricing_mode,
-            "baseUrl": _base_url_for_request(entry, body),
+            "baseUrl": _base_url_for_request(entry, body, _stored_base_url(providers(), instance_id)),
             "credentialRef": _credential_ref_for_request(entry, body),
             "enabled": body.enabled,
             "quotaMode": "provider_reported" if entry.provider_family == "gemini" else "none",
@@ -466,8 +462,14 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 provider_store.upsert_provider_account(account_payload)
                 provider = provider_store.set_provider_catalog_id(instance_id, entry.id)
                 if entry.local_profile is not None:
-                    _upsert_local_runtime_installation(
-                        runtimes(), entry, instance_id=instance_id, enabled=body.enabled
+                    upsert_local_runtime_records(
+                        runtimes(),
+                        endpoint_id=instance_id,
+                        runtime_kind=entry.provider_type,
+                        display_name=str(provider["displayName"]),
+                        credential_ref=str(provider.get("credentialRef") or "") or None,
+                        enabled=bool(provider["enabled"]),
+                        source=LOCAL_RUNTIME_CATALOG_SOURCE,
                     )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error

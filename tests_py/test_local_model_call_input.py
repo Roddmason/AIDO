@@ -247,3 +247,72 @@ def test_structured_output_reaches_the_provider_as_a_strict_json_schema_response
         "type": "json_schema",
         "json_schema": {"name": SCHEMA["name"], "schema": SCHEMA["schema"], "strict": True},
     }
+
+
+def _record_probe(monkeypatch: pytest.MonkeyPatch, *, result: bool | Exception) -> list[dict]:
+    """Reemplaza la sonda real de `runtime_team.probe` y registra con qué se la llamó."""
+    from local_control_center.runtime_team import probe
+
+    calls: list[dict] = []
+
+    def fake_probe(provider, model_id, profile, *, was_loaded):
+        calls.append({"model": model_id, "was_loaded": was_loaded})
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(probe, "probe_local_json_schema_capability", fake_probe)
+    return calls
+
+
+def test_the_first_json_contract_call_discovers_the_capability_of_an_unprobed_model(connection, monkeypatch):
+    """Visto en vivo: el PO corrió en un modelo nunca sondeado y sin gramática omitió un campo requerido."""
+    calls = _record_probe(monkeypatch, result=True)
+
+    first = local_model_call_input(
+        connection, provider_id="llama_cpp", model="gemma-a", response_schema=SCHEMA
+    )
+    second = local_model_call_input(
+        connection, provider_id="llama_cpp", model="gemma-a", response_schema=SCHEMA
+    )
+
+    assert first == second == {"structuredOutput": "json_schema", "responseSchema": SCHEMA}
+    assert calls == [{"model": "gemma-a", "was_loaded": True}]
+    setting = LocalModelSettingsRepository(connection).get("llama_cpp", "gemma-a")
+    assert setting.json_schema is True
+    assert setting.provenance["json_schema"] == "runtime_validation"
+
+
+def test_an_unloaded_model_is_probed_with_the_cold_start_budget(connection, monkeypatch):
+    calls = _record_probe(monkeypatch, result=False)
+
+    result = local_model_call_input(
+        connection, provider_id="llama_cpp", model="qwen-b", response_schema=SCHEMA
+    )
+
+    assert calls == [{"model": "qwen-b", "was_loaded": False}]
+    assert result == {"coldStartExpected": True}
+
+
+def test_a_known_capability_is_never_probed_again(connection, monkeypatch):
+    LocalModelSettingsRepository(connection).upsert(
+        "llama_cpp", "gemma-a", actor="operator", json_schema=False
+    )
+    calls = _record_probe(monkeypatch, result=True)
+
+    assert (
+        local_model_call_input(connection, provider_id="llama_cpp", model="gemma-a", response_schema=SCHEMA)
+        == {}
+    )
+    assert calls == []
+
+
+def test_a_failing_probe_leaves_the_call_without_structured_output(connection, monkeypatch):
+    _record_probe(monkeypatch, result=OSError("connection refused"))
+
+    assert (
+        local_model_call_input(connection, provider_id="llama_cpp", model="gemma-a", response_schema=SCHEMA)
+        == {}
+    )
+    setting = LocalModelSettingsRepository(connection).get("llama_cpp", "gemma-a")
+    assert setting is None or "json_schema" not in setting.provenance

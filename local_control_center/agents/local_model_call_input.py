@@ -54,6 +54,16 @@ def local_model_call_input(
     if resolution.requires_switch:
         call_input["coldStartExpected"] = True
     canonical_id = str(account["providerId"])
+    if response_schema is not None:
+        # Un modelo nunca sondeado se descubre aqui, en la primera llamada con contrato JSON: el
+        # preflight solo sondea cuando valida de nuevo, y con evidencia vigente dejaba al modelo sin
+        # gramatica (visto en vivo: el PO en gemma-4-26b-a4b omitio `productBriefPatch.title`). Una vez
+        # por modelo: con procedencia registrada no vuelve a sondear; un fallo solo queda en el log.
+        from local_control_center.agents.runtime_preflight import probe_json_schema_capability_if_unknown
+
+        probe_json_schema_capability_if_unknown(
+            connection, account=account, model_id=model, was_loaded=not resolution.requires_switch
+        )
     if response_schema is not None and LocalModelSettingsRepository(connection).json_schema_enabled(
         canonical_id, model
     ):

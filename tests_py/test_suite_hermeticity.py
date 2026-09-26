@@ -26,3 +26,13 @@ def test_temporary_repositories_do_not_inherit_the_global_git_template(
     assert run_git(["init"], cwd=tmp_path).returncode == 0
 
     assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+
+
+def test_diagnostics_do_not_write_to_the_user_folder() -> None:
+    """El sink de diagnósticos de la suite no comparte carpeta ni lock con el AIDO del usuario."""
+    from local_control_center.shared import diagnostics
+
+    user_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local/share") / "AIDO/diagnostics"
+
+    assert diagnostics.diagnostic_root() != user_root
+    assert diagnostics.ensure_diagnostics().root != user_root

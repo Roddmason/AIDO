@@ -32,6 +32,7 @@ from local_control_center.product_loop.coordinator import (
     ProductLoopTransitionError,
     _bounded_instruction,
     _compact_runtime_result,
+    continuation_run_message,
 )
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
@@ -80,6 +81,26 @@ def test_compact_runtime_result_tolerates_missing_or_partial_agent_run() -> None
     assert _compact_runtime_result(no_agent_run) == no_agent_run
     partial = {"agentRun": {"id": "agent-run-2"}}
     assert _compact_runtime_result(partial) == {"agentRun": {"id": "agent-run-2"}}
+
+
+def test_a_new_change_request_marks_the_earlier_ones_as_handled() -> None:
+    """Los pedidos se acumulan ronda a ronda; sin marcarlos, el developer volvía a aplicar uno ya resuelto.
+
+    Visto en vivo: el pedido de quitar una línea muerta (ya quitada) seguía en el mensaje del segundo
+    rework y el modelo entró en un bucle razonando en comentarios sobre esa regex.
+    """
+    header = "[Operator change request after delivery review]"
+    first = continuation_run_message("Add top_words.", f"{header}\nRemove the dead line.")
+    second = continuation_run_message(first, f"{header}\nFix the tie-break.")
+
+    assert first == f"Add top_words.\n\n{header}\nRemove the dead line."
+    assert second == (
+        "Add top_words.\n\n"
+        "[Earlier change request - handled in a previous review round; the latest change request takes "
+        "precedence]\nRemove the dead line.\n\n"
+        f"{header}\nFix the tie-break."
+    )
+    assert continuation_run_message(first, "") == first
 
 
 def test_runtime_validation_is_visible_before_resource_selection(tmp_path, monkeypatch):

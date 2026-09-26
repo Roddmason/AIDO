@@ -262,6 +262,23 @@ def _question_priority(question: dict[str, Any]) -> str:
     return QUESTION_CONFIDENCE_PRIORITY.get(str(question.get("confidence")), "medium")
 
 
+def _stale_needs_input(output: dict[str, Any], *, unresolved_count: int) -> bool:
+    """``needs_input`` del modelo que ya no pide nada: AIDO suprimió todas sus preguntas.
+
+    ``ImpactQuestionEngine`` descarta las preguntas ya formuladas o deducibles. Si no queda ninguna
+    para este turno, no hay decisión escalada y el modelo igual entregó backlog, su estado es un
+    resto de antes de la supresión: conservarlo dejaba el loop bloqueado para siempre justo después
+    de que el operador respondiera (visto en vivo con gemma: 2 candidatas, 2 suprimidas, 0 por
+    preguntar). Sin backlog no se normaliza: no habría nada con qué seguir.
+    """
+    return (
+        output.get("status") in {NEEDS_INPUT_STATUS, "questions_required"}
+        and not output.get("questions")
+        and not unresolved_count
+        and bool(output.get("userStories"))
+    )
+
+
 def _autonomy_candidate(decision: dict[str, Any]) -> dict[str, Any] | None:
     """Mapea una decisión bloqueante a una candidata de autonomía (categoría ``product``).
 
@@ -1824,6 +1841,8 @@ class ProductOwnerAgentRunner:
         routing = self._route_decisions(output["blockingDecisions"], engine=engine)
         existing_unresolved = assessment.get("unresolvedDecisions") or []
         unresolved_count = len(routing["escalated"]) + len(existing_unresolved)
+        if _stale_needs_input(output, unresolved_count=unresolved_count):
+            output["status"] = "backlog_ready"
         completeness = self.agent.calculate_completeness(
             brief=output["brief"],
             unresolved_blocking=unresolved_count,

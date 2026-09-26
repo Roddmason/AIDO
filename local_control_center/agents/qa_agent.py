@@ -151,6 +151,34 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
     return normalized
 
 
+def _normalize_not_applicable_commands(commands: list[Any]) -> list[dict[str, Any]]:
+    """Valida los comandos que el llamador decidio de antemano que no aplican (con motivo).
+
+    A diferencia de `_normalize_commands`, estos nunca llegan al broker: solo necesitan un argv
+    estructurado para mostrar y un `reason` no vacio que quede visible en la evidencia. No son
+    resultados de QA (no se intentaron y no fallaron), asi que no participan del veredicto.
+    """
+    normalized: list[dict[str, Any]] = []
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            raise ValueError(f"notApplicableCommands[{index}] must be an object.")
+        argv = command.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise ValueError(f"notApplicableCommands[{index}].argv must be a non-empty structured argv list.")
+        resolved_argv = [str(item) for item in argv]
+        reason = str(command.get("reason") or "").strip()
+        if not reason:
+            raise ValueError(f"notApplicableCommands[{index}] must include a non-empty reason.")
+        normalized.append(
+            {
+                "label": str(command.get("label") or "").strip() or _display_command(resolved_argv),
+                "argv": resolved_argv,
+                "reason": reason,
+            }
+        )
+    return normalized
+
+
 def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
     """Infiere los comandos de QA desde la toolchain que el proyecto realmente usa.
 
@@ -342,6 +370,43 @@ class QAAgentRunner:
         result["outputRefs"] = artifact_ids
         return result, artifact_ids
 
+    def _not_applicable_result(
+        self,
+        *,
+        project_id: str,
+        command: dict[str, Any],
+        index: int,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Registra un comando que no aplica a este cambio, sin el broker y fuera del veredicto.
+
+        Usado por el gate de QA proporcional (cambios de solo documentacion): el comando nunca se
+        intenta ejecutar porque no correspondia correrlo, asi que NO es un resultado de QA (no es
+        `skipped_with_reason`, que sigue reservado a un comando que si debia correr y no pudo).
+        Queda visible con su propio artefacto con hash, igual que un comando que si paso por
+        `ToolBroker`, pero en una coleccion aparte que el veredicto ignora.
+        """
+        result: dict[str, Any] = {
+            "index": index,
+            "label": command["label"],
+            "command": _display_command(command["argv"]),
+            "argv": command["argv"],
+            "status": "not_applicable",
+            "executed": False,
+            "exitCode": None,
+            "reason": command["reason"],
+            "metadata": {
+                "operation": "qa_agent_command",
+                "decision": "not_applicable_doc_only_gate",
+                "decisionReason": command["reason"],
+            },
+        }
+        output_artifact = self._output_artifact(project_id=project_id, result=result)
+        result["outputArtifactId"] = output_artifact["id"]
+        result["artifactHashes"] = {"outputArtifactHash": output_artifact["hash"]}
+        result["outputRef"] = output_artifact["id"]
+        result["outputRefs"] = [output_artifact["id"]]
+        return result, [output_artifact["id"]]
+
     def run_for_context(
         self,
         *,
@@ -355,6 +420,7 @@ class QAAgentRunner:
         parent_agent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         story_specs: str | None = None,
+        not_applicable_commands: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Run QA commands for a context and return the verdict, results, and artifact ids.
 
@@ -363,10 +429,16 @@ class QAAgentRunner:
         ``story_specs`` (el spec renderizado de las HUs bajo prueba) se persiste como
         artefacto y contexto del run para trazar la evidencia QA a los criterios de
         aceptacion; NO altera el veredicto, que sigue siendo por exit codes y artifacts.
+        ``not_applicable_commands`` (usado por el gate de QA proporcional de historias de solo
+        documentacion) nunca llega al broker ni entra a ``results``/al veredicto: son comandos
+        que no correspondia correr para este cambio, no comandos que debian correr y no
+        pudieron. Cada uno queda en ``notApplicableCommands`` con su propio artefacto, visible
+        en la evidencia sin afectar el calculo de ``passed``/``failed``.
         """
         workspace = self._workspace(project_id=project_id, workspace_id=workspace_id)
         discovered_or_supplied = commands if commands else discover_qa_commands(workspace["path"])
         normalized = _normalize_commands(discovered_or_supplied)
+        normalized_not_applicable = _normalize_not_applicable_commands(not_applicable_commands or [])
         profile = self._ensure_profile()
         story_specs_text = str(story_specs or "").strip()
         input_payload: dict[str, Any] = {
@@ -377,6 +449,8 @@ class QAAgentRunner:
         }
         if story_specs_text:
             input_payload["storySpecs"] = story_specs_text
+        if normalized_not_applicable:
+            input_payload["notApplicableCommands"] = normalized_not_applicable
         agent_run = self.agents.create_agent_run(
             project_id=project_id,
             agent_profile_id=QA_AGENT_ID,
@@ -421,6 +495,16 @@ class QAAgentRunner:
             results.append(result)
             artifact_ids.extend(command_artifacts)
 
+        not_applicable_commands: list[dict[str, Any]] = []
+        for offset, command in enumerate(normalized_not_applicable):
+            result, command_artifacts = self._not_applicable_result(
+                project_id=project_id,
+                command=command,
+                index=len(normalized) + offset,
+            )
+            not_applicable_commands.append(result)
+            artifact_ids.extend(command_artifacts)
+
         story_specs_artifact_id: str | None = None
         if story_specs_text:
             spec_artifact_id = f"artifact-{uuid.uuid4()}"
@@ -458,6 +542,8 @@ class QAAgentRunner:
             "artifactIds": sorted(set(artifact_ids)),
             "policyDecisions": policy_decisions,
         }
+        if not_applicable_commands:
+            output_payload["notApplicableCommands"] = not_applicable_commands
         if story_specs_artifact_id:
             output_payload["storySpecsArtifactId"] = story_specs_artifact_id
         agent_run = self.agents.update_agent_run_status(
@@ -472,6 +558,7 @@ class QAAgentRunner:
             "workspace": workspace,
             "agentRun": agent_run,
             "results": results,
+            "notApplicableCommands": not_applicable_commands,
             "artifactIds": sorted(set(artifact_ids)),
             "policyDecisions": policy_decisions,
             "contract": qa_agent_contract(),

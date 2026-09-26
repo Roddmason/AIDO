@@ -46,6 +46,7 @@ from .developer_agent_contract import (
 from .local_model_call_input import local_model_call_input
 from .model_output_text import json_candidate_text
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
+from .qa_doc_gate import is_doc_only_change, resolve_doc_only_qa_plan
 from .repository import AgentsRepository
 from .response_style import resolve_response_style
 from .runtime_adapters.transient_output import prefer_transient_output
@@ -695,6 +696,20 @@ class DeveloperAgentRunner:
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
             diff["blockerState"] = diff_blocker_state
 
+        # Gate de QA proporcional: solo se activa sin qaCommands explicitos (que siempre ganan) y
+        # con un diff capturado de forma limpia (`captured`); cualquier otro estado -degradado,
+        # intent-to-add bloqueado, diff indeterminable- conserva el plan de descubrimiento
+        # completo, porque `git diff --check` no seria confiable sobre un patch incompleto.
+        explicit_qa_commands = payload.get("qaCommands") or []
+        qa_commands: list[Any] = explicit_qa_commands
+        qa_not_applicable_commands: list[dict[str, Any]] | None = None
+        if (
+            not explicit_qa_commands
+            and diff.get("state") == "captured"
+            and is_doc_only_change(diff.get("nameOnly") or [])
+        ):
+            qa_commands, qa_not_applicable_commands = resolve_doc_only_qa_plan(workspace["path"])
+
         qa_results: list[dict[str, Any]] = []
         qa_artifact_ids: list[str] = []
         qa_agent_run: dict[str, Any] | None = None
@@ -703,17 +718,21 @@ class DeveloperAgentRunner:
                 project_id=payload["projectId"],
                 workspace_id=workspace["id"],
                 task_id=payload["taskId"],
-                commands=payload.get("qaCommands") or [],
+                commands=qa_commands,
                 workflow_run_id=workflow_run_id,
                 workflow_step_id=qa_workflow_step_id,
                 job_id=job["id"],
                 parent_agent_run_id=agent_run["id"],
                 metadata={"source": DEVELOPER_AGENT_ID},
                 story_specs=payload.get("storySpecs") if isinstance(payload.get("storySpecs"), str) else None,
+                not_applicable_commands=qa_not_applicable_commands,
             )
             qa_results = qa_summary["results"]
             qa_artifact_ids = qa_summary["artifactIds"]
             qa_agent_run = qa_summary["agentRun"]
+            # Se propaga al runtimeResult (no a qaResults/al veredicto) para que el hilo y la
+            # evidencia muestren que se omitio y por que, sin que cuente como un resultado de QA.
+            runtime_result["notApplicableCommands"] = qa_summary["notApplicableCommands"]
 
         final_status, qa_verdict, final_reason = _complete_run_status(
             runtime_status=runtime_status,

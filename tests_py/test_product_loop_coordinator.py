@@ -5730,6 +5730,30 @@ def test_run_user_message_blocks_an_unavailable_runtime_with_its_real_cause(tmp_
         assert not any(blocker == "review_diff_unavailable" for blocker, _ in actions)
 
 
+def test_loop_story_runs_leave_the_human_gate_to_the_delivery_approval(tmp_path: Path) -> None:
+    """Cada historia pedía su propia aprobación de patch que nadie resolvía: quedaban huérfanas en
+    Aprobaciones (visto en vivo: 2 `agent.developer.approve_patch` pendientes tras la entrega)."""
+    if not git_available():
+        pytest.skip("git CLI is required for git worktree review remediation")
+    runtime = _UnavailableRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "story-approval-gate")
+        ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement one story.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+    assert runtime.run_payloads
+    assert all(payload["requireApproval"] is False for payload in runtime.run_payloads)
+
+
 def test_run_user_message_blocks_when_review_diff_capture_crashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -8588,7 +8612,11 @@ def test_continue_feedback_queues_real_product_loop_continuation(tmp_path: Path)
         assert continuation_job["status"] == "queued"
         assert continuation_job["payload"]["threadId"] == thread["id"]
         assert continuation_job["payload"]["messageId"] == source_message["id"]
-        assert continuation_job["payload"]["message"] == message
+        # El run repite el mensaje original MÁS el pedido de cambios, que es lo que PO y Developer leen.
+        assert continuation_job["payload"]["message"] == (
+            f"{message}\n\n[Operator change request after delivery review]\n"
+            "Evidence needs a targeted rework decision.\nContinue with the requested rework."
+        )
         assert continuation_job["payload"]["root"] == str(tmp_path.resolve(strict=False))
         assert continuation_job["payload"]["continueOfLoopId"] == reworked["loop"]["id"]
         assert continuation_job["payload"]["feedbackId"] == continued["feedback"]["id"]

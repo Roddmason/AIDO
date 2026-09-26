@@ -833,6 +833,24 @@ class ProductLoopCoordinator:
         user_messages = [message for message in threads.list_messages(thread_id) if message["kind"] == "user"]
         return user_messages[-1] if user_messages else None
 
+    def _delivery_change_request(self, loop_id: str, feedback: str) -> str:
+        """Bloque con lo que el operador pidió cambiar, para que el PO y el Developer lo lean.
+
+        El run de continuación repite el mensaje original del hilo; sin este bloque el pedido de
+        cambios (el último ``request_changes`` y el texto del ``continue``) solo quedaba en metadatos
+        que ningún agente lee, y el rework rehacía exactamente lo mismo que se había rechazado.
+        """
+        notes = [
+            str(item.get("feedback") or "").strip()
+            for item in self.repository.list_feedback(loop_id=loop_id)
+            if item.get("action") == "request_changes"
+        ][-1:]
+        notes.append(str(feedback or "").strip())
+        unique = [note for note in dict.fromkeys(notes) if note]
+        if not unique:
+            return ""
+        return "[Operator change request after delivery review]\n" + "\n".join(unique)
+
     def _queue_delivery_feedback_continuation(
         self,
         *,
@@ -878,6 +896,8 @@ class ProductLoopCoordinator:
         if not root:
             raise ProductLoopTransitionError("Project root is required to queue Product Loop continuation.")
 
+        change_request = self._delivery_change_request(loop["id"], feedback)
+        run_message = f"{message}\n\n{change_request}" if change_request else message
         queued_at = utc_now()
         plan_only = bool(request_meta.get("planOnly") or request_meta.get("plan_only"))
         approved_resource_selections = self._approved_resource_selections_from_durable(durable)
@@ -898,7 +918,7 @@ class ProductLoopCoordinator:
                 "threadId": thread_id,
                 "messageId": message_id,
                 "projectId": loop["projectId"],
-                "message": message,
+                "message": run_message,
                 "title": thread["title"] or loop["title"],
                 "root": root,
                 "decision": request_meta.get("decision"),

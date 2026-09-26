@@ -676,6 +676,96 @@ def test_review_action_denial_requests_product_loop_delivery_feedback(tmp_path: 
         runtime.close()
 
 
+def test_review_denial_with_a_source_message_reworks_with_the_change_request(tmp_path: Path) -> None:
+    """Rechazar la entrega exige un motivo, que es el pedido de cambios: se trabaja de inmediato.
+
+    Visto en vivo: tras "pedir cambios" el loop quedaba en awaiting_feedback con el hilo en
+    "reworking" y nada en marcha, y aun continuando, el run repetía el mensaje original sin el
+    pedido (continueReason solo iba en metadatos que ningún agente lee).
+    """
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review rework", path=tmp_path / "review-rework", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review rework loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "qa_running",
+            "security_running",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        threads = ThreadsRepository(connection)
+        thread = threads.create_thread(
+            project_id=project_id, owner_type="workspace", owner_id=project_id, title="Review rework thread"
+        )
+        source = threads.append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Add top_words to textkit."
+        )
+        threads.set_status(thread["id"], "awaiting_approval")
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"], "messageId": source["id"]},
+                    "message": "Add top_words to textkit.",
+                    "requestMeta": {"messageId": source["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        denied = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/deny",
+            json={"reason": "Restore the original README and delete the stray textkit/utils.py."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert denied.status_code == 202, denied.text
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "reworking"
+        continuation = [
+            item
+            for item in JobsRepository(connection).list_jobs(project_id=project_id)
+            if item["kind"] == "thread.product_loop.run"
+        ]
+        assert len(continuation) == 1
+        message = continuation[0]["payload"]["message"]
+        assert message.startswith("Add top_words to textkit.")
+        assert "Restore the original README and delete the stray textkit/utils.py." in message
+        assert threads.get_thread(thread["id"])["status"] == "queued"
+    finally:
+        runtime.close()
+
+
 def test_aido_decide_answers_questions_and_records_product_decisions(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:

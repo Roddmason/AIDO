@@ -103,8 +103,10 @@ export function useThreadConversation(
 						}),
 					{ awaitRefresh: false },
 				);
-				reload();
 			} finally {
+				// Also on failure: a 409 means part of the batch was applied, and those decisions
+				// must leave the list; the error itself reaches the caller untouched.
+				reload();
 				setBusy(false);
 			}
 		},

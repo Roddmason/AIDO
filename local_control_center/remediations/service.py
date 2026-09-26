@@ -3191,41 +3191,20 @@ class BlockerRemediationService:
                     "safely resolve this decision until the active run finishes."
                 ),
             }
-        decision_metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
-        allows_free_form = str(decision_metadata.get("source") or "").strip() == PRODUCT_OWNER_DECISION_SOURCE
-        options = self._answer_options(decision=decision, action_payload=action_payload)
-        resolved_options: list[str] = []
-        for raw_option in selected_options:
-            matched = self._matched_option(raw_option, options)
-            if matched is None:
-                if options:
-                    return {
-                        "status": "blocked",
-                        "action": "answer_question",
-                        "decisionId": decision_id,
-                        "answer": raw_option,
-                        "options": options,
-                        "reason": "Answer must match one of the offered decision options.",
-                    }
-                resolved_options.append(raw_option)
-            else:
-                resolved_options.append(matched)
-        if free_text and not allows_free_form and options:
+        try:
+            combined_answer = self._validated_answer(
+                decision=decision,
+                action_payload=action_payload,
+                selected_options=selected_options,
+                free_text=free_text,
+            )
+        except ValueError as error:
             return {
                 "status": "blocked",
                 "action": "answer_question",
                 "decisionId": decision_id,
-                "reason": "Free text is only accepted for Product Owner questions and decisions.",
-            }
-        combined_answer = [*resolved_options]
-        if free_text:
-            combined_answer.append(free_text)
-        if not combined_answer:
-            return {
-                "status": "blocked",
-                "action": "answer_question",
-                "decisionId": decision_id,
-                "reason": "answer, selectedOptions or freeText is required.",
+                "options": self._answer_options(decision=decision, action_payload=action_payload),
+                "reason": str(error),
             }
         answer = ", ".join(combined_answer)
         suppress_message = bool(payload.get("suppressMessage"))
@@ -3543,7 +3522,95 @@ class BlockerRemediationService:
     @staticmethod
     def _answer_options(*, decision: dict[str, Any], action_payload: dict[str, Any]) -> list[str]:
         raw_options = decision.get("options") or action_payload.get("options") or []
-        return [str(option).strip() for option in raw_options if str(option).strip()]
+        return list(dict.fromkeys(str(option).strip() for option in raw_options if str(option).strip()))
+
+    def _validated_answer(
+        self,
+        *,
+        decision: dict[str, Any],
+        action_payload: dict[str, Any],
+        selected_options: list[str],
+        free_text: str,
+    ) -> list[str]:
+        """Partes de una respuesta válida (opciones canónicas + texto libre) o ``ValueError`` con el motivo.
+
+        Única definición de qué respuesta acepta una decisión: la usan la resolución real
+        (``_answer_question``) y la validación previa del lote, para que un lote no descubra a mitad
+        de camino una respuesta que la resolución iba a rechazar. Solo las preguntas del PO admiten
+        varias opciones y texto libre; similitud, funcionalidad existente e intake son excluyentes.
+        """
+        metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
+        allows_free_form = str(metadata.get("source") or "").strip() == PRODUCT_OWNER_DECISION_SOURCE
+        options = self._answer_options(decision=decision, action_payload=action_payload)
+        if not allows_free_form and len(selected_options) > 1:
+            raise ValueError("This decision accepts a single option.")
+        resolved: list[str] = []
+        for raw_option in selected_options:
+            matched = self._matched_option(raw_option, options)
+            if matched is None and options:
+                raise ValueError("Answer must match one of the offered decision options.")
+            resolved.append(matched or raw_option)
+        if free_text and not allows_free_form and options:
+            raise ValueError("Free text is only accepted for Product Owner questions and decisions.")
+        combined = list(dict.fromkeys(resolved))
+        if free_text:
+            combined.append(free_text)
+        if not combined:
+            raise ValueError("answer, selectedOptions or freeText is required.")
+        return combined
+
+    def validate_thread_decision_answer(
+        self,
+        *,
+        thread_id: str,
+        decision_id: str,
+        selected_options: list[str],
+        free_text: str | None,
+    ) -> None:
+        """Comprueba, sin mutar nada, que ``resolve_thread_decision`` aceptaría esta respuesta.
+
+        Replica cada rechazo de la resolución real (decisión del hilo y pendiente, remediación
+        vigente, opciones ofrecidas, exclusividad, texto libre, hilo sin run activo). El lote la
+        corre para todas sus respuestas antes de resolver la primera: resolver es irreversible y un
+        rechazo a mitad de camino dejaba decisiones resueltas sin su mensaje en el chat.
+
+        Raises:
+            KeyError: la decisión no existe o no es de ese hilo.
+            ValueError: la respuesta o el estado actual impedirían resolverla.
+        """
+        threads = ThreadsRepository(self.connection)
+        decision = threads.get_decision(decision_id)
+        if decision["threadId"] != thread_id:
+            raise KeyError(f"Decision not found: {decision_id}")
+        if decision["status"] != "pending":
+            raise ValueError(f"Decision {decision_id} is already {decision['status']}.")
+        thread = threads.get_thread(thread_id)
+        thread_status = str(thread.get("status") or "").strip()
+        if thread_status in {"queued", "running"}:
+            raise ValueError(f"Thread is already {thread_status}; wait until the active run finishes.")
+        matching_actions = [
+            action
+            for action in self.list_for_thread(thread_id=thread_id)
+            if action.get("actionType") == "answer_question"
+            and str((action.get("payload") or {}).get("decisionId") or "").strip() == decision_id
+        ]
+        usable = [action for action in matching_actions if action.get("status") in {"pending", "dismissed"}]
+        if matching_actions and not usable:
+            raise ValueError("Decision remediation is no longer pending.")
+        if not matching_actions and self._decision_requires_product_loop_remediation(
+            thread_id=thread_id, project_id=thread["projectId"], decision_id=decision_id
+        ):
+            raise ValueError(
+                "Product Loop decision remediation is unavailable; resolution is blocked to avoid "
+                "starting an incomplete decision batch."
+            )
+        action_payload = usable[-1].get("payload") if usable else {}
+        self._validated_answer(
+            decision=decision,
+            action_payload=action_payload if isinstance(action_payload, dict) else {},
+            selected_options=[str(item).strip() for item in selected_options if str(item).strip()],
+            free_text=(free_text or "").strip(),
+        )
 
     @classmethod
     def _matched_option(cls, answer: str, options: list[str]) -> str | None:

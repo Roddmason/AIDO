@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { getThreadEvents } from '../../api/client';
-import type { ThreadAgentEvent, ThreadEvents } from '../../api/types';
+import type { ThreadAgentEvent, ThreadEta, ThreadEvents } from '../../api/types';
 
 const POLL_INTERVAL_MS = 1000;
 const IDLE_POLL_INTERVAL_MS = 15000;
@@ -30,6 +30,7 @@ export type ThreadEventStreamState = {
 	events: ThreadAgentEvent[];
 	running: boolean;
 	threadStatus: ThreadEvents['threadStatus'] | null;
+	eta: ThreadEta | null;
 	loading: boolean;
 	error: string;
 };
@@ -42,6 +43,7 @@ export function useThreadEventStream(
 	const [events, setEvents] = useState<ThreadAgentEvent[]>([]);
 	const [running, setRunning] = useState(false);
 	const [threadStatus, setThreadStatus] = useState<ThreadEvents['threadStatus'] | null>(null);
+	const [eta, setEta] = useState<ThreadEta | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const lastSeqRef = useRef(0);
@@ -52,6 +54,7 @@ export function useThreadEventStream(
 			setEvents([]);
 			setRunning(false);
 			setThreadStatus(null);
+			setEta(null);
 			setLoading(false);
 			setError('');
 			lastSeqRef.current = 0;
@@ -62,6 +65,7 @@ export function useThreadEventStream(
 		setEvents([]);
 		setRunning(true);
 		setThreadStatus(null);
+		setEta(null);
 		setLoading(true);
 		setError('');
 		lastSeqRef.current = 0;
@@ -86,6 +90,7 @@ export function useThreadEventStream(
 					emptyPolls += 1;
 				}
 				setThreadStatus(page.threadStatus);
+				setEta(page.eta ?? null);
 				setRunning(page.running);
 				setLoading(false);
 				setError('');
@@ -126,5 +131,5 @@ export function useThreadEventStream(
 		};
 	}, [threadId, refreshKey]);
 
-	return { events, running, threadStatus, loading, error };
+	return { events, running, threadStatus, eta, loading, error };
 }

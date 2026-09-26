@@ -494,6 +494,25 @@ class ThreadBoardResponse(BaseModel):
     progress: ThreadBoardProgress
 
 
+ThreadEtaStatus = Literal["estimating", "waiting_operator", "insufficient_history"]
+
+
+class ThreadEta(BaseModel):
+    """Estimación de tiempo restante del hilo (``product_loop.eta.estimate_thread_eta``).
+
+    ``estimating`` trae ambos campos de segundos; ``waiting_operator`` (el loop espera una decisión,
+    incluida la aprobación del brief) e ``insufficient_history`` (menos de 3 muestras para algún estado
+    del camino restante) los dejan en ``None`` a propósito: nunca un número inventado.
+    """
+
+    status: ThreadEtaStatus
+    remaining_seconds: int | None = Field(default=None, alias="remainingSeconds")
+    remaining_p90_seconds: int | None = Field(default=None, alias="remainingP90Seconds")
+    current_state: str = Field(alias="currentState")
+    sample_count: int = Field(alias="sampleCount")
+    includes_operator_approval: bool = Field(alias="includesOperatorApproval")
+
+
 class ProductLoopStartRequest(BaseModel):
     """Cuerpo para arrancar un product loop en ``goal_received``, con su política de gobierno opcional."""
 

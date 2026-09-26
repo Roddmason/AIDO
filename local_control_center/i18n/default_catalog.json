@@ -1263,6 +1263,30 @@
       "en": "Board",
       "es": "Tablero"
     },
+    "app.threads.eta.minutesRemaining": {
+      "en": "≈ {minutes} min left",
+      "es": "≈ {minutes} min restantes"
+    },
+    "app.threads.eta.lessThanMinute": {
+      "en": "< 1 min left",
+      "es": "< 1 min restante"
+    },
+    "app.threads.eta.title": {
+      "en": "up to {p90} min · based on {samples} previous runs",
+      "es": "hasta {p90} min · basado en {samples} ejecuciones previas"
+    },
+    "app.threads.eta.titleApprovalSuffix": {
+      "en": "+ your approval",
+      "es": "+ tu aprobación"
+    },
+    "app.threads.eta.waitingOperator": {
+      "en": "Waiting for your decision",
+      "es": "Esperando tu decisión"
+    },
+    "app.threads.eta.learning": {
+      "en": "Remaining time: learning",
+      "es": "Tiempo restante: aprendiendo"
+    },
     "app.threads.consoleLoading": {
       "en": "syncing",
       "es": "sincronizando"

@@ -58,6 +58,7 @@ import type {
 	ThreadArtifactRecord,
 	ThreadDecisionRecord,
 	ThreadDetailResponse,
+	ThreadEta,
 	ThreadEventsResponse,
 	ThreadMessageRecord,
 	ThreadMessageResultResponse,
@@ -92,6 +93,7 @@ export type ThreadAgentEvent = ThreadAgentEventRecord;
 export type ThreadDecision = ThreadDecisionRecord;
 export type ThreadDetail = ThreadDetailResponse;
 export type ThreadEvents = ThreadEventsResponse;
+export type { ThreadEta };
 export type ThreadMessageResult = ThreadMessageResultResponse;
 export type ThreadSimilarityCandidate = ThreadSimilarityCandidateRecord;
 export type TeamActivity = TeamActivityResponse;

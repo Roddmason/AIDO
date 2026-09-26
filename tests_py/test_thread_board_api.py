@@ -20,6 +20,15 @@ from tests_py.test_workspace_isolation_contract import make_app as make_app
 pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
+def record_loop_event(threads: ThreadsRepository, *, thread_id: str, loop_id: str, event_type: str) -> None:
+    """Replica el evento que ``_transition_run_state`` deja en cada avance real del loop: el resolutor
+    hilo→loop (``product_loop.repository._thread_loop_ids_by_recency``) lee ``thread_agent_events`` en
+    vez de escanear ``context`` de todo el proyecto, así que un loop sembrado directamente en los tests
+    (sin pasar por el coordinator) necesita este evento para ser encontrado.
+    """
+    threads.record_event(thread_id=thread_id, type=event_type, payload={"loopId": loop_id})
+
+
 def _durable(
     thread_id: str, tasks: list[dict[str, Any]], progress: list[dict[str, Any]], output_id: str | None = None
 ) -> dict[str, Any]:
@@ -103,8 +112,9 @@ def _seed(store: Any, tmp_path: Path) -> dict[str, Any]:
             ),
         }
     )
+    record_loop_event(threads, thread_id=thread["id"], loop_id=loop["id"], event_type="qa_running")
     foreign_story = story("Other thread story", "draft", "critical", "po-output-other")
-    loops.create_loop(
+    other_loop = loops.create_loop(
         {
             "projectId": project["id"],
             "title": "Other loop",
@@ -113,6 +123,7 @@ def _seed(store: Any, tmp_path: Path) -> dict[str, Any]:
             "context": _durable(other["id"], [task(foreign_story, "todo")], [], "po-output-other"),
         }
     )
+    record_loop_event(threads, thread_id=other["id"], loop_id=other_loop["id"], event_type="executing")
     connection.commit()
     return {"project": project, "thread": thread, "loop": loop, "backlog": backlog}
 
@@ -183,6 +194,12 @@ def test_thread_board_reads_the_most_recent_planned_loop(
             "context": _durable(seeded["thread"]["id"], [newer_task], []),
         }
     )
+    record_loop_event(
+        ThreadsRepository(store.connection),
+        thread_id=seeded["thread"]["id"],
+        loop_id=newer_loop["id"],
+        event_type="executing",
+    )
     store.connection.commit()
 
     body = client.get(f"/api/v1/threads/{seeded['thread']['id']}/board").json()
@@ -215,7 +232,7 @@ def test_thread_board_ignores_loops_of_another_project(
     foreign_task = backlog.create_agent_task(
         {"projectId": foreign["id"], "storyId": foreign_story["id"], "title": "Foreign", "role": "developer"}
     )
-    ProductLoopRepository(store.connection).create_loop(
+    foreign_loop = ProductLoopRepository(store.connection).create_loop(
         {
             "projectId": foreign["id"],
             "title": "Foreign loop",
@@ -223,6 +240,12 @@ def test_thread_board_ignores_loops_of_another_project(
             "status": "active",
             "context": _durable(seeded["thread"]["id"], [foreign_task], []),
         }
+    )
+    record_loop_event(
+        ThreadsRepository(store.connection),
+        thread_id=seeded["thread"]["id"],
+        loop_id=foreign_loop["id"],
+        event_type="executing",
     )
     store.connection.commit()
 

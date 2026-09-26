@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from local_control_center.product_loop.models import ThreadEta
 from local_control_center.runtime_team.contracts import RoleRuntimesRecord
 from local_control_center.shared.schemas import AuditEventRecord
 
@@ -176,6 +177,7 @@ class ThreadDetailResponse(BaseModel):
     artifacts: list[ThreadArtifactRecord]
     decisions: list[ThreadDecisionRecord]
     events: list[ThreadAgentEventRecord]
+    eta: ThreadEta | None = None
 
 
 class ThreadEventsResponse(BaseModel):
@@ -185,6 +187,7 @@ class ThreadEventsResponse(BaseModel):
     last_seq: int = Field(alias="lastSeq")
     thread_status: ThreadStatus = Field(alias="threadStatus")
     running: bool
+    eta: ThreadEta | None = None
 
 
 class ThreadCreateRequest(BaseModel):

@@ -62,6 +62,7 @@ import type {
 	ThreadAgentEvent,
 	ThreadArtifact,
 	ThreadDetail,
+	ThreadEta,
 	ThreadMessage,
 	ThreadSimilarityCandidate,
 } from '../../api/types';
@@ -548,6 +549,7 @@ export function ThreadConversation({
 		);
 		const consoleEvents = stageEvents;
 		const threadStatus = eventStream.threadStatus ?? detail.thread.status;
+		const threadEta = eventStream.eta ?? detail.eta ?? null;
 		const latestQueueSequence =
 			consoleEvents.findLast(
 				(event) =>
@@ -583,6 +585,7 @@ export function ThreadConversation({
 								]}
 							/>
 						) : null}
+						{threadEta ? <ThreadEtaIndicator eta={threadEta} /> : null}
 						<StatusChip tone={threadStatusTone(threadStatus)}>
 							{threadStatus.replace(/_/g, ' ')}
 						</StatusChip>
@@ -927,6 +930,45 @@ function researchTone(status: string): 'ok' | 'warn' | 'danger' | 'info' | 'pend
 	if (status === 'research_running') return 'pending';
 	if (status === 'research_required') return 'warn';
 	return 'info';
+}
+
+/** Remaining-time chip next to the header status chip; a null ``eta`` (no loop yet) renders nothing. */
+function ThreadEtaIndicator({ eta }: { eta: ThreadEta }) {
+	const { t } = useI18n();
+	if (eta.status === 'waiting_operator') {
+		return (
+			<StatusChip tone="pending">
+				{t('app.threads.eta.waitingOperator', 'Waiting for your decision')}
+			</StatusChip>
+		);
+	}
+	if (eta.status === 'insufficient_history') {
+		return (
+			<StatusChip tone="info">
+				{t('app.threads.eta.learning', 'Remaining time: learning')}
+			</StatusChip>
+		);
+	}
+	if (eta.remainingSeconds == null) return null;
+	const label =
+		eta.remainingSeconds < 60
+			? t('app.threads.eta.lessThanMinute', '< 1 min left')
+			: t('app.threads.eta.minutesRemaining', '≈ {minutes} min left').replace(
+					'{minutes}',
+					String(Math.round(eta.remainingSeconds / 60)),
+				);
+	const p90Minutes = Math.round((eta.remainingP90Seconds ?? eta.remainingSeconds) / 60);
+	let title = t('app.threads.eta.title', 'up to {p90} min · based on {samples} previous runs')
+		.replace('{p90}', String(p90Minutes))
+		.replace('{samples}', String(eta.sampleCount));
+	if (eta.includesOperatorApproval) {
+		title = `${title} ${t('app.threads.eta.titleApprovalSuffix', '+ your approval')}`;
+	}
+	return (
+		<StatusChip tone="pending" title={title}>
+			{label}
+		</StatusChip>
+	);
 }
 
 /** One chat transcript row; intentionally flat so the thread reads like a console chat, not cards. */

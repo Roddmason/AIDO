@@ -213,10 +213,18 @@ def test_busy_parent_defers_immediately_with_real_capacity_reason(admitted_paren
     """El padre (request 1 GiB) cabe en 1,25 de margen; una segunda rama (0,5) ya no."""
     from local_control_center.host_resources import branch_admission
 
-    def no_wait(_seconds):
-        pytest.fail("Nonblocking preflight must not sleep")
+    class _NoSleepTime:
+        """Solo `branch_admission` ve este reloj: `branch_admission.time` es el módulo `time` compartido,
+        así que parchear su `sleep` también lo cambiaba para el hilo de diagnósticos y lo mataba."""
 
-    monkeypatch.setattr(branch_admission.time, "sleep", no_wait)
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        @staticmethod
+        def sleep(_seconds):
+            pytest.fail("Nonblocking preflight must not sleep")
+
+    monkeypatch.setattr(branch_admission, "time", _NoSleepTime())
     parent = admitted_parent
     with execution_scope(parent.context):
         admission = BranchAdmission(

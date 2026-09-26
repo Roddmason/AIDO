@@ -116,6 +116,25 @@ def hermetic_git_template(tmp_path_factory) -> Iterator[None]:
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def hermetic_diagnostics_dir(tmp_path_factory) -> Iterator[None]:
+    """Los diagnósticos de los tests no escriben en la carpeta real del usuario.
+
+    Sin esto el sink compartido (`shared/diagnostics.py`) escribe en `%LOCALAPPDATA%\\AIDO\\diagnostics`
+    y compite por el lock de presupuesto con el AIDO que esté corriendo; esa contención hace que el
+    hilo escritor espere con `time.sleep` y un test que simula el reloj lo mate. Los tests que prueban
+    diagnósticos fijan su propia carpeta con `monkeypatch.setenv`, que manda sobre este default.
+    """
+    from local_control_center.shared import diagnostics
+
+    root = tmp_path_factory.mktemp("aido-diagnostics")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("AIDO_DIAGNOSTICS_DIR", str(root))
+        if diagnostics._sink is not None:
+            diagnostics.configure_diagnostics(root)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def isolated_default_process_database(tmp_path, monkeypatch):
     """Evita que ejecuciones reales de sandbox en tests escriban la base del operador."""

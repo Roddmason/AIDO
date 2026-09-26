@@ -26,6 +26,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop import coordinator as coordinator_module
 from local_control_center.product_loop.coordinator import DEFAULT_AUTO_REWORK_ROUNDS, ProductLoopCoordinator
 from local_control_center.product_loop.phases.story_loop import match_carried_over
+from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.security_policy.git_command_runner import git_available
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
@@ -603,6 +604,92 @@ def test_a_retry_skips_stories_already_done_in_the_source_loop(tmp_path: Path) -
             ("done", "carried_over"),
             ("done", None),
         ]
+
+
+def _reworded_two_story_po() -> _ProductOwnerRunner:
+    """PO que, si vuelve a ejecutarse, redacta distinto las mismas historias (como un modelo real)."""
+    runner = _two_story_po()
+    stories = [{**story, "title": f"{story['title']} (reworded)"} for story in runner.result["userStories"]]
+    runner.result["userStories"] = stories
+    runner.result["output"]["userStories"] = stories
+    return runner
+
+
+def _retry_after_blocked_story(
+    tmp_path: Path, *, trusted: bool
+) -> tuple[dict[str, Any], dict[str, Any], _ProductOwnerRunner, _PerStoryRuntime]:
+    first_runtime = _PerStoryRuntime(qa_failures={2: 99})
+    retry_runtime = _PerStoryRuntime()
+    reworded = _reworded_two_story_po()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-resume")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+        blocked = _run(coordinator, project, first_runtime)
+        assert blocked["status"] == "blocked"
+        thread_id = blocked["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        run_metadata: dict[str, Any] = {
+            "retryOfLoopId": blocked["loop"]["id"],
+            "functionalityDecision": "continue_existing",
+        }
+        if trusted:
+            action = RemediationActionsRepository(connection).create_action(
+                project_id=project["id"],
+                thread_id=thread_id,
+                loop_id=blocked["loop"]["id"],
+                stage="worker",
+                blocker_type="runtime_execution_failed",
+                title="Resume the loop",
+                description="Resume from the pending stories.",
+                action_type="retry_loop",
+            )
+            run_metadata["remediationActionId"] = action["id"]
+
+        _fresh_host_sample(connection)
+        retried = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement the onboarding readiness experience story by story.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=retry_runtime,
+            git_service=_GitGate(),
+            product_owner_runner=reworded,
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+            security_runner=_SecurityGate(),
+            thread_id=thread_id,
+            run_metadata=run_metadata,
+        )
+    return blocked, retried, reworded, retry_runtime
+
+
+def test_a_trusted_retry_resumes_the_source_plan_without_rerunning_the_product_owner(tmp_path: Path) -> None:
+    """Re-ejecutar al PO re-redacta las historias y el reintento rehacía historias ya terminadas."""
+    blocked, retried, reworded, retry_runtime = _retry_after_blocked_story(tmp_path, trusted=True)
+
+    assert reworded.run_payloads == []
+    assert retried["status"] == "awaiting_approval"
+    assert len(retry_runtime.run_payloads) == 1
+    assert retry_runtime.run_payloads[0]["taskId"].endswith(":s2")
+    assert "(reworded)" not in retry_runtime.run_payloads[0]["storySpecs"]
+    durable = retried["loop"]["context"]["durableRun"]
+    assert [(entry["status"], entry["outcome"]) for entry in durable["storyProgress"]] == [
+        ("done", "carried_over"),
+        ("done", None),
+    ]
+    assert durable["productOwner"]["replayedFromLoopId"] == blocked["loop"]["id"]
+    # No hubo llamada al PO: no se registra un aprendizaje de recursos inventado.
+    assert durable["productOwner"]["resourceLearning"]["status"] == "not_applicable"
+
+
+def test_a_retry_without_a_trusted_remediation_replans_with_the_product_owner(tmp_path: Path) -> None:
+    _blocked, retried, reworded, retry_runtime = _retry_after_blocked_story(tmp_path, trusted=False)
+
+    assert len(reworded.run_payloads) == 1
+    assert retried["status"] == "awaiting_approval"
+    # Historias re-redactadas no calzan con las huellas del origen: ambas vuelven a ejecutarse.
+    assert len(retry_runtime.run_payloads) == 2
+    assert "replayedFromLoopId" not in retried["loop"]["context"]["durableRun"]["productOwner"]
 
 
 def test_a_retry_follows_the_retry_chain_to_the_last_loop_with_story_progress(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.process_supervision.repository import ManagedProcessRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.product_loop.repository import ProductLoopRepository
+from local_control_center.remediations.payloads import resume_interrupted_loop_spec
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -307,6 +308,19 @@ def reconcile_product_loop_timeout(
             payload=details,
             technical_reason="execution_deadline_exhausted",
             primary=True,
+        )
+        resume = resume_interrupted_loop_spec(details)
+        cards.create_action(
+            project_id=loop["projectId"],
+            thread_id=thread["id"],
+            loop_id=loop["id"],
+            stage="worker",
+            blocker_type="runtime_execution_failed",
+            action_type=resume["actionType"],
+            title=resume["title"],
+            description=resume["description"],
+            payload=resume["payload"],
+            technical_reason="execution_deadline_exhausted",
         )
         return {"status": "reconciled", "loopId": updated["id"], "actionId": action["id"]}
 

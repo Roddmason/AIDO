@@ -863,6 +863,42 @@ def _runtime_execution_denied_specs(context: BlockerPayloadContext) -> list[dict
     ]
 
 
+def resume_interrupted_loop_spec(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Reanudar, a pedido del operador, un loop que el deadline de ejecución cortó.
+
+    Nunca se reanuda solo (sin replay automático) y la revisión de lo parcial sigue siendo la acción
+    principal. Sin esta acción el hilo quedaba sin forma de continuar: solo se podía mirar el diff
+    (visto en vivo con un timeout de 900 s en la tercera de cuatro historias). El reintento reutiliza
+    el plan del PO y salta las historias terminadas (``phases/discovery.replayed_product_owner_result``).
+    """
+    return {
+        "actionType": "retry_loop",
+        "title": "Resume the loop",
+        "description": (
+            "Continue from the pending stories: finished stories are kept and the interrupted story "
+            "restarts on top of the preserved changes."
+        ),
+        "payload": dict(payload),
+    }
+
+
+def interrupted_execution_specs(details: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Acciones de un loop cortado por el deadline: revisar lo parcial primero, luego reanudar."""
+    reference = {
+        "interruptedExecutionId": details["interruptedExecutionId"],
+        "workspaceId": details.get("workspaceId"),
+    }
+    return [
+        {
+            "actionType": "view_diff",
+            "title": "Review preserved workspace changes",
+            "description": "Review partial changes before deciding how to continue.",
+            "payload": reference,
+        },
+        resume_interrupted_loop_spec(reference),
+    ]
+
+
 def _runtime_execution_failed_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
     """Offer recovery without equating catalog health with successful model execution."""
     return [

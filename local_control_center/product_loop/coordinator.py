@@ -3947,6 +3947,16 @@ class ProductLoopCoordinator:
         product_owner_status: str,
         evidence_ref: str,
     ) -> dict[str, Any]:
+        if product_owner_result.get("replayedFromLoopId"):
+            # Un plan reutilizado no llamó a ningún recurso: registrar un éxito inventaría evidencia.
+            return {
+                "status": "not_applicable",
+                "loopId": loop_id,
+                "projectId": project_id,
+                "evidenceRef": evidence_ref,
+                "observationCount": 0,
+                "observations": [],
+            }
         valid_completion = product_owner_status in {
             "backlog_ready",
             "brief_ready",

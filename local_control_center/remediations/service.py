@@ -33,6 +33,7 @@ from local_control_center.remediations.payloads import (
     blocker_runtime_id,
     build_blocker_payload_context,
     decision_engine_failure,
+    interrupted_execution_specs,
     jev_confidence_below_threshold_failure,
     resource_policy_summary,
     resource_selection_constraint_failure,
@@ -95,17 +96,7 @@ class BlockerRemediationService:
         )
         if stage == "worker" and clean_details.get("interruptedExecutionId") and loop_id:
             blocker_type = "runtime_execution_failed"
-            specs = [
-                {
-                    "actionType": "view_diff",
-                    "title": "Review preserved workspace changes",
-                    "description": "Review partial changes before deciding how to continue.",
-                    "payload": {
-                        "interruptedExecutionId": clean_details["interruptedExecutionId"],
-                        "workspaceId": clean_details.get("workspaceId"),
-                    },
-                }
-            ]
+            specs = interrupted_execution_specs(clean_details)
         if not str(loop_id or "").strip():
             specs = [
                 spec

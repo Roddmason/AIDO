@@ -15,7 +15,78 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
 
-__all__ = ["persist_product_owner_results", "route_product_owner_outcome", "run_discovery_phase"]
+__all__ = [
+    "persist_product_owner_results",
+    "replayed_product_owner_result",
+    "route_product_owner_outcome",
+    "run_discovery_phase",
+]
+
+_PRODUCT_OWNER_OUTPUT_KEYS = (
+    "status",
+    "summary",
+    "confidence",
+    "questions",
+    "assumptions",
+    "decisions",
+    "productBriefPatch",
+    "epics",
+    "userStories",
+    "risks",
+    "recommendedNextAction",
+)
+
+
+def replayed_product_owner_result(
+    coordinator: ProductLoopCoordinator, run: _UserMessageRun
+) -> dict[str, Any] | None:
+    """Salida del PO del loop de origen cuando un reintento de confianza reanuda su plan.
+
+    Un reintento de un loop que ya ejecutaba historias (cursor ``storyProgress``) continúa ese plan.
+    Volver a correr al PO (un modelo) re-redacta las historias: sus huellas dejan de coincidir y el
+    reintento rehace las ya terminadas (visto en vivo al reanudar tras el deadline de 900 s). Exige
+    la procedencia de una remediación ``retry_loop`` del loop de origen, el mismo proyecto, hilo y
+    mensaje, y un plan que llegó a ``backlog_ready``; si no, el PO planifica de nuevo. Las preguntas y
+    decisiones se reusan por id, sin duplicarlas.
+    """
+    request_meta = run.request_meta or {}
+    source_id = str(request_meta.get("retryOfLoopId") or "").strip()
+    if not source_id or not run.thread_id:
+        return None
+    try:
+        source = coordinator.repository.get_loop(source_id)
+    except KeyError:
+        return None
+    durable = coordinator._durable_run_context(source)
+    thread = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+    product_owner = durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
+    output_id = str(product_owner.get("productOwnerOutputId") or "").strip()
+    if (
+        source["projectId"] != run.project_id
+        or str(thread.get("projectThreadId") or "") != str(run.thread_id)
+        or not any(isinstance(entry, dict) for entry in durable.get("storyProgress") or [])
+        or not output_id
+        or str(durable.get("message") or "").strip() != str(run.message_text or "").strip()
+        or not coordinator._trusted_remediation_resource_approval_marker(
+            request_meta=request_meta, source_loop=source, expected_action_type="retry_loop"
+        )
+    ):
+        return None
+    try:
+        record = coordinator.discovery.get_product_owner_output(output_id)
+    except KeyError:
+        return None
+    if record.get("projectId") != run.project_id or record.get("status") != "backlog_ready":
+        return None
+    return {
+        "status": record["status"],
+        "reason": record.get("summary") or "",
+        "output": {key: record.get(key) for key in _PRODUCT_OWNER_OUTPUT_KEYS},
+        "questions": [{"id": item} for item in product_owner.get("clarificationQuestionIds") or []],
+        "blockingDecisions": [{"id": item} for item in product_owner.get("productDecisionIds") or []],
+        "replayedFromLoopId": source["id"],
+        "replayedProductOwnerOutputId": record["id"],
+    }
 
 
 def run_discovery_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRun) -> dict[str, Any] | None:
@@ -138,7 +209,9 @@ def run_discovery_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRu
     if thread_initiative is not None:
         product_owner_payload["initiativeId"] = thread_initiative["id"]
     try:
-        product_owner_result = coordinator._run_with_failover(
+        product_owner_result = replayed_product_owner_result(
+            coordinator, run
+        ) or coordinator._run_with_failover(
             runtime=product_owner,
             payload=product_owner_payload,
             run=run,
@@ -639,6 +712,8 @@ def persist_product_owner_results(
         "productDecisionIds": [item["id"] for item in product_decisions],
         "pendingThreadDecisions": pending_thread_decisions,
     }
+    if product_owner_result.get("replayedFromLoopId"):
+        product_owner_context["replayedFromLoopId"] = product_owner_result["replayedFromLoopId"]
     evidence_ids = [*coordinator._external_evidence_ids(product_owner_result), po_evidence["id"]]
     coordinator._record_thread_event(
         thread_id=thread_id,

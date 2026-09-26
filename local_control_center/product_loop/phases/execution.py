@@ -34,7 +34,7 @@ COMMIT_FAILURE_DETAIL_CHARS = 500
 def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=None):
     from local_control_center.process_supervision.context import CURRENT_EXECUTION
     from local_control_center.process_supervision.repository import ManagedProcessRepository
-    from local_control_center.product_loop.coordinator import _ProductLoopCancelled
+    from local_control_center.product_loop.coordinator import _compact_runtime_result, _ProductLoopCancelled
 
     context = CURRENT_EXECUTION.get()
     if (
@@ -64,7 +64,7 @@ def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=Non
             "interruptedExecutionId": context.execution_id,
             "workspaceId": run.workspace["id"],
             "workspacePath": run.workspace["path"],
-            "runtimeResult": runtime_result or {},
+            "runtimeResult": _compact_runtime_result(runtime_result),
             "partialEvidence": True,
         },
     )
@@ -281,7 +281,6 @@ def execute_developer_phase(
     effective_preferred_runtime = run.effective_preferred_runtime
     agent_tasks = run.active_story_tasks if run.active_story_tasks is not None else run.agent_tasks
     team_schedule = run.team_schedule
-    team_assignments = run.team_assignments
     product_owner_output_record = run.product_owner_output_record
     backlog_artifact = run.backlog_artifact
     instruction = _bounded_instruction(message_text)
@@ -295,9 +294,10 @@ def execute_developer_phase(
         "taskId": task_id,
         "instruction": instruction,
         "storySpecs": coordinator._story_specs_for_tasks(agent_tasks),
-        "agentTasks": agent_tasks,
-        "teamSchedule": team_schedule,
-        "agentAssignments": team_assignments,
+        # teamSchedule/agentAssignments/agentTasks stay out on purpose: the runner never reads them
+        # (nothing under local_control_center/agents/ references these keys), they already live in
+        # durableRun.teamSchedule/agentTasks, and agent_runs.input would otherwise duplicate several
+        # MB of the same schedule/assignments on every developer run of the loop.
         "productOwnerOutputId": product_owner_output_record["id"],
         "backlogArtifactId": backlog_artifact["id"],
         "preferredRuntime": effective_preferred_runtime,
@@ -398,6 +398,7 @@ def capture_review_evidence(
     de QA, que evalúa el estado vigente del código ya commiteado.
     """
     from local_control_center.product_loop.coordinator import (
+        _compact_runtime_result,
         _review_from_diff,
         _review_from_runtime,
         capture_git_diff,
@@ -466,7 +467,7 @@ def capture_review_evidence(
                     "workspaceId": workspace["id"],
                     "workspacePath": workspace["path"],
                     "runtimeStatus": runtime_status,
-                    "runtimeResult": runtime_result,
+                    "runtimeResult": _compact_runtime_result(runtime_result),
                     "review": review,
                     "teamSchedule": team_schedule,
                     "agentTaskIds": [task["id"] for task in agent_tasks],
@@ -560,6 +561,8 @@ def block_without_changed_files(
     Guard fail-closed de "el runtime terminó sin trabajo": lo usan la captura por historia (runtime
     no sano sin cambios) y el cierre acumulado (ninguna historia del run dejó cambios).
     """
+    from local_control_center.product_loop.coordinator import _compact_runtime_result
+
     workspace = run.workspace
     reason = (
         "Product Loop runtime completed without real changed files in the assigned worktree."
@@ -577,7 +580,7 @@ def block_without_changed_files(
             "workspaceId": workspace["id"],
             "workspacePath": workspace["path"],
             "runtimeStatus": runtime_status,
-            "runtimeResult": run.runtime_result,
+            "runtimeResult": _compact_runtime_result(run.runtime_result),
             "review": review,
             "teamSchedule": run.team_schedule,
             "agentTaskIds": [task["id"] for task in run.agent_tasks],

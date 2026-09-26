@@ -376,7 +376,6 @@ class _UserMessageRun:
     backlog_artifact: dict[str, Any] = field(default_factory=dict)
     agent_tasks: list[dict[str, Any]] = field(default_factory=list)
     team_schedule: dict[str, Any] = field(default_factory=dict)
-    team_assignments: list[dict[str, Any]] = field(default_factory=list)
     runtime: Any = None
     execution_resource: dict[str, Any] = field(default_factory=dict)
     effective_preferred_runtime: str | None = None
@@ -532,6 +531,26 @@ def _review_from_runtime(runtime_result: dict[str, Any]) -> dict[str, Any]:
         "toolCalls": [],
         "policyDecisionIds": [],
     }
+
+
+def _compact_runtime_result(runtime_result: dict[str, Any] | None) -> dict[str, Any]:
+    """Compacta ``runtimeResult`` del DeveloperAgent antes de guardarlo en ``durableRun``.
+
+    ``runtimeResult["agentRun"]`` es la fila completa de ``agent_runs``: repite el payload de entrada
+    del developer (``input``, varios MB con ``teamSchedule``/``agentAssignments``/``agentTasks``) y su
+    espejo en ``output``, ambos ya persistidos en ``agent_runs`` (``agents/repository.py``). Nadie lee
+    ``agentRun.input``/``agentRun.output`` desde el contexto del loop, así que aquí queda solo la
+    referencia (``id``/``status``) que un lector eventual necesitaría. Es la única función de
+    compactación: todo escritor de ``runtimeResult`` en ``durableRun`` pasa por ella. No muta
+    ``runtime_result``; devuelve una copia superficial.
+    """
+    if not isinstance(runtime_result, dict):
+        return {}
+    agent_run = runtime_result.get("agentRun")
+    if not isinstance(agent_run, dict):
+        return runtime_result
+    reference = {key: agent_run[key] for key in ("id", "status") if key in agent_run}
+    return {**runtime_result, "agentRun": reference}
 
 
 def _diff_ref_from_review(review: dict[str, Any]) -> dict[str, Any]:

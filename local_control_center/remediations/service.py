@@ -3740,11 +3740,11 @@ class BlockerRemediationService:
             if runtime_risk_review_failure(details) is not None or details.get("runtimeRiskReviewInvalid"):
                 return "runtime_risk_review_required"
             if jev_confidence_below_threshold_failure(details) is not None:
-                # Jev no tuvo confianza para desempatar candidatos ya validados; no es un runtime
-                # inejecutable ni una constraint de política. Reutiliza el blocker existente que
-                # abre el equipo de runtimes del hilo (la asignación del operador resuelve la
-                # ambigüedad, ver runtime_team.configuration.role_allowlist).
-                return "runtime_team_validation_expired"
+                # Jev no tuvo confianza para desempatar candidatos ya validados: no es un runtime
+                # inejecutable, ni una constraint de política, ni una validación vencida. Tiene su
+                # propio tipo para que la tarjeta diga eso y no "el equipo necesita una prueba
+                # reciente"; la acción es asignar un runtime al rol en el equipo del hilo.
+                return "runtime_selection_ambiguous"
             if decision_engine_failure(details) is not None:
                 return "decision_engine_unavailable"
             if resource_selection_constraint_failure(details) is not None:

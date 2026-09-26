@@ -11628,6 +11628,18 @@
       "en": "AIDO will not switch to another runtime on its own; the run stays blocked until you re-test it.",
       "es": "AIDO no cambiará a otro runtime por su cuenta; la ejecución sigue bloqueada hasta que lo vuelvas a probar."
     },
+    "app.threads.remediation.blocker.runtime_selection_ambiguous.title": {
+      "en": "AIDO could not choose a runtime",
+      "es": "AIDO no pudo elegir un runtime"
+    },
+    "app.threads.remediation.blocker.runtime_selection_ambiguous.explanation": {
+      "en": "Several validated runtimes fit this role and none was clearly better, so AIDO did not pick one at random.",
+      "es": "Varios runtimes validados sirven para este rol y ninguno fue claramente mejor, así que AIDO no eligió uno al azar."
+    },
+    "app.threads.remediation.blocker.runtime_selection_ambiguous.impact": {
+      "en": "The run stays blocked until you assign a runtime to this role in the thread's AI team and retry.",
+      "es": "La ejecución sigue bloqueada hasta que asignes un runtime a este rol en el equipo IA del hilo y reintentes."
+    },
     "app.threads.remediation.blocker.runtime_output_invalid.title": {
       "en": "Runtime returned invalid output",
       "es": "El runtime devolvió una salida inválida"

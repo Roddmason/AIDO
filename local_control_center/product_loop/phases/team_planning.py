@@ -270,6 +270,7 @@ def plan_team_and_resources(
             team_schedule=team_schedule,
             agent_tasks=agent_tasks,
             product_owner_selected_resource=run.product_owner_selected_resource,
+            thread_id=run.thread_id,
         )
     except Exception as error:
         reason = f"AIResourceManager failed to select AI resources: {redact_secrets(str(error))}"

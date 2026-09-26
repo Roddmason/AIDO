@@ -2994,6 +2994,7 @@ class ProductLoopCoordinator:
         agent_tasks: list[dict[str, Any]],
         runtime_risk_review_id: str | None = None,
         product_owner_selected_resource: dict[str, Any] | None = None,
+        thread_id: str | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         manager = AIResourceManager(self.connection)
         privacy_level = self._resource_privacy_level(request_meta)
@@ -3063,6 +3064,8 @@ class ProductLoopCoordinator:
                         "productOwnerProviderId": po_provider_id,
                         "reason": "no_candidates_for_product_owner_provider",
                     },
+                    # Con el hilo, si el bus de eventos falla el registro cae al hilo en vez de perderse.
+                    thread_id=thread_id,
                 )
             decision = self._resource_decision_with_approval_override(
                 role=role,

@@ -713,6 +713,13 @@ def test_review_denial_with_a_source_message_reworks_with_the_change_request(tmp
             thread_id=thread["id"], kind="user", author="operator", content="Add top_words to textkit."
         )
         threads.set_status(thread["id"], "awaiting_approval")
+        control_root = tmp_path / "control-plane-root"
+        original_run = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="thread.product_loop.run",
+            status="completed",
+            payload={"threadId": thread["id"], "root": str(control_root)},
+        )["job"]
         job = JobsRepository(connection).create_job(
             project_id=project_id,
             kind="product_loop_delivery_approval",
@@ -737,7 +744,7 @@ def test_review_denial_with_a_source_message_reworks_with_the_change_request(tmp
                     "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
                     "thread": {"projectThreadId": thread["id"], "messageId": source["id"]},
                     "message": "Add top_words to textkit.",
-                    "requestMeta": {"messageId": source["id"]},
+                    "requestMeta": {"messageId": source["id"], "jobId": original_run["id"]},
                 },
             },
         )
@@ -755,9 +762,13 @@ def test_review_denial_with_a_source_message_reworks_with_the_change_request(tmp
         continuation = [
             item
             for item in JobsRepository(connection).list_jobs(project_id=project_id)
-            if item["kind"] == "thread.product_loop.run"
+            if item["kind"] == "thread.product_loop.run" and item["id"] != original_run["id"]
         ]
         assert len(continuation) == 1
+        # Same control-plane root as the continued run, never the project path: evidence written
+        # under the project root dirtied the user's repo and blocked the next run (seen live).
+        assert continuation[0]["payload"]["root"] == str(control_root)
+        assert continuation[0]["payload"]["root"] != str(project["path"])
         message = continuation[0]["payload"]["message"]
         assert message.startswith("Add top_words to textkit.")
         assert "Restore the original README and delete the stray textkit/utils.py." in message

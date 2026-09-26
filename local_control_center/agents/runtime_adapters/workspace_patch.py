@@ -114,6 +114,7 @@ class WorkspacePatchBrokerAdapter:
 
         written_paths = {Path(item["path"]).as_posix() for item in normalized}
         removals: list[str] = []
+        already_absent: list[str] = []
         for index, raw in enumerate(deletions):
             path = raw if isinstance(raw, str) else ""
             path_error = _workspace_patch_path_error(workspace, path)
@@ -126,11 +127,16 @@ class WorkspacePatchBrokerAdapter:
                     "reason": f"deleteFiles[{index}] is also written by this patch.",
                 }
             target = workspace / path
+            if not target.exists():
+                # The goal state already holds (an earlier story deleted it): not a reason to drop
+                # the whole patch, which is what blocked a live rework.
+                already_absent.append(path)
+                continue
             if not target.is_file():
                 return {
                     "executed": False,
                     "blocked": True,
-                    "reason": f"deleteFiles[{index}] is not an existing file in the workspace.",
+                    "reason": f"deleteFiles[{index}] is not a regular file in the workspace.",
                 }
             removals.append(path)
 
@@ -152,6 +158,7 @@ class WorkspacePatchBrokerAdapter:
                         "summary": patch_input.get("summary"),
                         "writtenFiles": written,
                         "deletedFiles": removals,
+                        "alreadyAbsentFiles": already_absent,
                         "source": "developer_agent_patch_apply",
                     }
                 ),
@@ -184,9 +191,13 @@ class WorkspacePatchBrokerAdapter:
             "executed": True,
             "blocked": False,
             "returnCode": 0,
-            "stdout": json.dumps({"writtenFiles": written, "deletedFiles": removals}, ensure_ascii=False),
+            "stdout": json.dumps(
+                {"writtenFiles": written, "deletedFiles": removals, "alreadyAbsentFiles": already_absent},
+                ensure_ascii=False,
+            ),
             "stderr": "",
             "outputArtifactId": output_artifact_id,
             "writtenFiles": written,
             "deletedFiles": removals,
+            "alreadyAbsentFiles": already_absent,
         }

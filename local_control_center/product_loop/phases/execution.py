@@ -70,21 +70,36 @@ def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=Non
     )
 
 
-def _block_unavailable_runtime(coordinator, run, runtime_result):
-    """Bloquea en ``runtime`` con la causa real cuando el DeveloperAgent no tuvo runtime ejecutable.
+def _block_unavailable_runtime(coordinator, run, runtime_result, *, unavailable: bool = True):
+    """Bloquea en ``runtime`` con la causa real cuando el DeveloperAgent no hizo trabajo.
 
-    Sin runtime no hubo trabajo. Si el run seguía a la captura del diff, el guard de "sin cambios"
-    lo reportaba como "el runtime terminó sin cambios reales" y ofrecía ver/guardar un diff que no
-    existe (visto en vivo con la salud de llama.cpp vencida a mitad del loop). ``executable=False``
-    lo clasifica como ``runtime_not_executable``: revalidar, cambiar de runtime o reintentar.
+    Sin runtime (o con un runtime que falló sin tocar el workspace) no hubo trabajo. Si el run
+    seguía a la captura del diff, el guard de "sin cambios" lo reportaba como "el runtime terminó sin
+    cambios reales" y ofrecía ver/guardar un diff que no existe (visto en vivo: salud de llama.cpp
+    vencida a mitad del loop; un patch rechazado en un rework). Un runtime no disponible lleva
+    ``executable=False`` (``runtime_not_executable``: revalidar o cambiar de runtime); uno que falló
+    queda como ``runtime_output_invalid``, que ofrece reintentar.
     """
     from local_control_center.agents.runtime_selection import RUNTIME_UNAVAILABLE_STATUS
     from local_control_center.product_loop.coordinator import _compact_runtime_result
 
     runtime = runtime_result.get("runtime") if isinstance(runtime_result.get("runtime"), dict) else {}
     runtime_id = str(runtime.get("id") or "unresolved")
-    cause = str(runtime_result.get("reason") or runtime.get("reason") or RUNTIME_UNAVAILABLE_STATUS)
-    reason = f"DeveloperAgent runtime {runtime_id} is not executable: {cause}"
+    execution = (
+        runtime_result.get("runtimeResult") if isinstance(runtime_result.get("runtimeResult"), dict) else {}
+    )
+    cause = str(
+        (None if unavailable else execution.get("reason"))
+        or runtime_result.get("reason")
+        or runtime.get("reason")
+        or RUNTIME_UNAVAILABLE_STATUS
+    )
+    status = RUNTIME_UNAVAILABLE_STATUS if unavailable else "failed"
+    reason = (
+        f"DeveloperAgent runtime {runtime_id} is not executable: {cause}"
+        if unavailable
+        else f"DeveloperAgent runtime {runtime_id} failed without changing the workspace: {cause}"
+    )
     agent_tasks = run.active_story_tasks if run.active_story_tasks is not None else run.agent_tasks
     blocked_result = coordinator._block_run(
         run.loop,
@@ -92,14 +107,14 @@ def _block_unavailable_runtime(coordinator, run, runtime_result):
         reason=reason,
         actor=run.actor,
         details={
-            "status": RUNTIME_UNAVAILABLE_STATUS,
+            "status": status,
             "reason": reason,
-            "executable": False,
+            **({"executable": False} if unavailable else {}),
             "runtimeId": runtime_id,
             "blockingReasons": list(runtime.get("blockingReasons") or []),
             "workspaceId": run.workspace["id"],
             "workspacePath": run.workspace["path"],
-            "runtimeStatus": RUNTIME_UNAVAILABLE_STATUS,
+            "runtimeStatus": status,
             "runtimeResult": _compact_runtime_result(runtime_result),
             "teamSchedule": run.team_schedule,
             "agentTaskIds": [task["id"] for task in agent_tasks],
@@ -563,6 +578,8 @@ def capture_review_evidence(
             run.review = review
             run.story_noop = run.rework_round == 0 and qa_evidence_passes(runtime_result)
             return None
+        if runtime_status == "failed":
+            return _block_unavailable_runtime(coordinator, run, runtime_result, unavailable=False)
         return block_without_changed_files(coordinator, run, review, runtime_status=runtime_status)
     if workspace["isolationType"] == "git_worktree" and review.get("changedFiles"):
         try:

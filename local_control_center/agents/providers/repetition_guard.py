@@ -6,10 +6,11 @@ DeveloperAgent (~10k tokens, 3,5 min por llamada) y la salida terminaba inválid
 stream al detectarlo ahorra ese tiempo; el llamador la trata como salida inválida (el DeveloperAgent
 y el ProductOwnerAgent la reparan una vez).
 
-La señal es una cola periódica: la misma unidad de al menos ``MIN_PERIOD_CHARS`` caracteres repetida
-``MIN_REPEATS`` veces seguidas. Cubre la línea repetida (con salto real o escapado dentro de un
-string JSON) y la frase repetida sin saltos; código legítimo no repite ocho veces seguidas un
-bloque idéntico de ese largo.
+La señal es una cola periódica: la misma unidad de al menos ``MIN_PERIOD_CHARS`` caracteres y
+``MIN_DISTINCT_CHARS`` caracteres distintos repetida ``MIN_REPEATS`` veces seguidas. Cubre la línea
+repetida (con salto real o escapado dentro de un string JSON) y la frase repetida sin saltos; no
+toma por bucle un separador ni un relleno (uno o dos caracteres), y código legítimo no repite diez
+veces seguidas un bloque idéntico de ese largo.
 
 @author Rodrigo Mason
 """
@@ -20,7 +21,8 @@ __all__ = ["MIN_REPEATS", "RepetitionGuard", "has_repetition_loop"]
 
 MIN_PERIOD_CHARS = 24
 MAX_PERIOD_CHARS = 400
-MIN_REPEATS = 8
+MIN_REPEATS = 10
+MIN_DISTINCT_CHARS = 3
 CHECK_EVERY_CHARS = 256
 
 
@@ -31,7 +33,8 @@ def has_repetition_loop(text: str) -> bool:
         span = period * MIN_REPEATS
         if span > len(tail):
             return False
-        if tail[-span:] == tail[-period:] * MIN_REPEATS:
+        unit = tail[-period:]
+        if tail[-span:] == unit * MIN_REPEATS and len(set(unit)) >= MIN_DISTINCT_CHARS:
             return True
     return False
 

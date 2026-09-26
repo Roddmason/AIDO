@@ -16,8 +16,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from local_control_center.agents.providers.base import ModelRequest
+from local_control_center.agents.providers.http_transport import ResponseTooLargeError
 from local_control_center.agents.providers.openai_compatible import (
+    MAX_STREAM_LINE_BYTES,
     REPETITION_LOOP_FINISH_REASON,
     OpenAICompatibleProvider,
 )
@@ -96,6 +100,13 @@ def test_a_repeated_line_is_a_loop_and_a_real_patch_is_not() -> None:
     assert not has_repetition_loop(LEGIT_PATCH)
     assert not has_repetition_loop(DEGENERATE_LINE * 3)
     assert not has_repetition_loop("")
+
+
+def test_separators_and_padding_are_not_loops() -> None:
+    """Un separador largo o relleno legítimo repite uno o dos caracteres, no un fragmento con contenido."""
+    assert not has_repetition_loop("# Title\n" + "=" * 600)
+    assert not has_repetition_loop("rows:\n" + ("-" * 40 + "\n") * 20)
+    assert not has_repetition_loop("x = [" + " " * 800 + "]")
 
 
 def test_the_guard_checks_in_batches_and_reports_the_accumulated_text() -> None:
@@ -198,6 +209,15 @@ def test_a_looping_stream_is_cut_long_before_the_token_cap() -> None:
     assert response.finish_reason == REPETITION_LOOP_FINISH_REASON
     assert len(response.content) < 20 * CHECK_EVERY_CHARS
     assert server.written < len(chunks)
+
+
+def test_a_stream_line_over_the_cap_is_rejected_before_it_fills_memory() -> None:
+    """Un servidor local no es de confianza: una sola "línea" SSE enorme no se lee entera."""
+    oversized = "x" * (MAX_STREAM_LINE_BYTES + 1024)
+    with streaming_server([oversized]) as server, pytest.raises(ResponseTooLargeError):
+        local_provider(server.base_url).chat_completion(
+            ModelRequest(model="gemma", messages=MESSAGES, stream=True, timeoutSeconds=30)
+        )
 
 
 def test_a_server_that_ignores_stream_is_read_as_a_normal_answer() -> None:

@@ -908,6 +908,34 @@ class QuotaManager:
             if (cooldown := _parse_utc(row["cooldown_until"])) is not None and cooldown > now
         }
 
+    def providers_in_cooldown_detail(self) -> dict[str, str]:
+        """Como :meth:`providers_in_cooldown`, pero con el ``cooldownUntil`` vigente de cada uno.
+
+        Lo usa la reanudación automática de bloqueos por cooldown para saber cuándo reintentar:
+        el proveedor con el ``cooldown_until`` más temprano marca el próximo instante útil de
+        reintento. Mismas garantías fail-closed que su hermano: ante error de lectura, vacío.
+        """
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT provider_id, cooldown_until FROM provider_limits
+                WHERE enabled = 1 AND cooldown_until IS NOT NULL
+                """
+            ).fetchall()
+        except sqlite3.Error:
+            return {}
+        now = self._now()
+        detail: dict[str, str] = {}
+        for row in rows:
+            cooldown = _parse_utc(row["cooldown_until"])
+            if cooldown is None or cooldown <= now:
+                continue
+            provider_id = str(row["provider_id"])
+            current = detail.get(provider_id)
+            if current is None or str(row["cooldown_until"]) < current:
+                detail[provider_id] = str(row["cooldown_until"])
+        return detail
+
     def record_rate_limit(
         self,
         *,

@@ -14,7 +14,12 @@ import { useMemo, useState } from 'react';
 import type { TestResultRecord } from '../api/generated/openapi';
 import type { EventRecord, Overview } from '../api/types';
 import { DataTable, EmptyState, IconButton, Tabs } from '../components/ui';
-import { ThreadConsoleRow } from '../features/shell/ThreadExecutionPanel';
+import {
+	mergeConsoleEntries,
+	ThreadConsoleFailureGroupRow,
+	ThreadConsoleRow,
+} from '../features/shell/ThreadExecutionPanel';
+import { groupConsoleFailures, isFailureGroup } from '../features/shell/threadConsoleGrouping';
 import { useThreadEventStream } from '../features/shell/useThreadEventStream';
 import { useI18n } from '../i18n/I18nProvider';
 
@@ -84,6 +89,12 @@ export function BottomPanel({
 
 	const streamThreadId = collapsed || activeTab !== 'logs' ? null : threadId;
 	const { events: threadEvents, error: streamError } = useThreadEventStream(streamThreadId);
+	// Same grouping ThreadExecutionPanel applies: a blocked product loop leaves several `blocked`/
+	// `state_changed` events milliseconds apart, and this dock has no messages to interleave.
+	const consoleEntries = useMemo(
+		() => groupConsoleFailures(mergeConsoleEntries(threadEvents, [])),
+		[threadEvents],
+	);
 
 	const projectEvents = useMemo<EventRecord[]>(() => {
 		if (!overview || threadId) return [];
@@ -127,9 +138,13 @@ export function BottomPanel({
 					aria-live="polite"
 					aria-relevant="additions"
 				>
-					{threadEvents.map((event) => (
-						<ThreadConsoleRow key={event.id} event={event} />
-					))}
+					{consoleEntries.map((entry) =>
+						isFailureGroup(entry) ? (
+							<ThreadConsoleFailureGroupRow key={entry.key} group={entry} />
+						) : entry.kind === 'event' ? (
+							<ThreadConsoleRow key={entry.key} event={entry.event} />
+						) : null,
+					)}
 				</div>
 			);
 		}

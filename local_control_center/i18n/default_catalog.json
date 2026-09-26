@@ -1483,6 +1483,14 @@
       "en": "Cancelled",
       "es": "Cancelado"
     },
+    "app.threads.event.state_changed": {
+      "en": "State changed",
+      "es": "Cambio de estado"
+    },
+    "app.threads.event.groupedCount": {
+      "en": "{count} related records",
+      "es": "{count} registros relacionados"
+    },
     "app.composer.permissions": {
       "en": "Action approval",
       "es": "Aprobación de acciones"

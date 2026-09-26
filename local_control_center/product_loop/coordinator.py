@@ -1771,6 +1771,13 @@ class ProductLoopCoordinator:
         raw_output = result.get("output")
         if not isinstance(raw_output, dict):
             reason = str(result.get("reason") or "").strip()
+            if reason.startswith("ProductOwnerAgent"):
+                # ``reason`` ya es una oración completa con el mismo sujeto que el prefijo genérico
+                # (p. ej. "ProductOwnerAgent runtime output is not valid JSON."); anteponerlo duplicaba
+                # el motivo visible en la consola del hilo ("... must be a JSON object: ProductOwnerAgent
+                # runtime output is not valid JSON."). Un reason que no la describe (fallo de transporte,
+                # de validación de un campo puntual) sí necesita el prefijo para tener contexto.
+                raise ProductOwnerOutputValidationError(reason)
             suffix = f": {reason}" if reason else "."
             raise ProductOwnerOutputValidationError(f"ProductOwnerAgent output must be a JSON object{suffix}")
         output = dict(raw_output)

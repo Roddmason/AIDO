@@ -227,6 +227,7 @@ function seedControlledAIResource() {
 from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.settings.repository import SettingsRepository
 
 with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
     initialize_platform_schema(connection)
@@ -247,6 +248,13 @@ with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
         "privacyLevel": "local_private",
         "evidence": [{"id": "seed-thread-lifecycle-e2e-resource", "kind": "test_seed"}],
     })
+    # This spec proves the pipeline, not host capacity: with the product defaults (16/8 GiB, 65% CPU)
+    # a busy dev machine parks steps in resource_wait, and the paused worker's single run-once per
+    # operation never retries admission. Only this fixture DB changes.
+    settings = SettingsRepository(connection)
+    settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
+    settings.set_value("resources.minFreeMemoryGiB", "general", None, 2)
+    settings.set_value("resources.maxCpuPercent", "general", None, 95)
 `;
 	const seed = pythonCommandForScript(script);
 	const result = spawnSync(seed.command, seed.args, { cwd: repoRoot, encoding: 'utf8' });
@@ -406,8 +414,14 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			}, { timeout: 30_000 }).toBe(true);
 		} catch (error) {
 			// afterAll never runs when beforeAll throws; stop the spawned server here so a failed
-			// boot cannot leak an orphan python process holding the port.
-			await stopDashboard();
+			// boot cannot leak an orphan python process holding the port. A cleanup failure must not
+			// replace the boot error: that masked why the dashboard or worker had died.
+			try {
+				await stopDashboard();
+			} catch (cleanupError) {
+				console.log(`[lifecycle] cleanup after failed boot also failed: ${cleanupError.message}`);
+			}
+			console.log(`[lifecycle] boot failed; process log tail:\n${dashboardLog.slice(-60).join('')}`);
 			throw error;
 		}
 	});
@@ -447,7 +461,6 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			writeFileSync(destination, body, { encoding: 'utf8', flag: 'wx' });
 			await testInfo.attach(name, { path: destination, contentType });
 		}
-		expect(snapshot.status, snapshot.stderr).toBe(0);
 		if (testInfo.status !== testInfo.expectedStatus) {
 			console.log(`[lifecycle] mock calls: ${JSON.stringify(mockCalls)}`);
 			console.log(`[lifecycle] dashboard log tail:\n${dashboardLog.slice(-40).join('')}`);
@@ -459,6 +472,8 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				))}`);
 			} catch (error) { console.log(`[lifecycle] operation diagnostics unavailable: ${error.name}`); }
 		}
+		// Last: a failed snapshot must not hide the diagnostics printed above.
+		expect(snapshot.status, snapshot.stderr).toBe(0);
 	});
 
 	test('a real Git project runs goal -> queued -> worker -> diff -> QA/gitleaks -> approval -> archive -> rename -> similarity', async ({

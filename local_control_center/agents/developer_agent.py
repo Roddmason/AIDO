@@ -329,6 +329,27 @@ def _developer_model_messages(
     ]
 
 
+DEVELOPER_MODEL_REPAIR_ATTEMPTS = 1
+"""Reintentos de la llamada al modelo cuando su salida no es un patch JSON válido.
+
+Un modelo local puede entrar en un bucle de repetición y cortar el JSON por tope de tokens (visto en
+vivo: 46 KB de la misma línea en un rework). La salida es estocástica: un segundo intento que le dice
+qué falló suele bastar, igual que la reparación del ProductOwnerAgent. Más intentos solo gastan.
+"""
+
+
+def _repair_note(error: str) -> dict[str, str]:
+    """Mensaje que se agrega al reintento: qué falló y cómo evitarlo, sin reenviar la salida rota."""
+    return {
+        "role": "user",
+        "content": (
+            f"Your previous answer was rejected: {error} It was probably cut off by repeating the "
+            "same lines. Answer again with ONLY the JSON object, write each file once with its "
+            "complete content, and never repeat lines."
+        ),
+    }
+
+
 def _parse_model_patch(content: str) -> dict[str, Any]:
     try:
         payload = json.loads(json_candidate_text(content))
@@ -471,70 +492,87 @@ class DeveloperAgentRunner:
         profile: dict[str, Any],
         broker: ToolBroker,
     ) -> dict[str, Any]:
-        timeout_seconds = remaining_execution_timeout(900)
         runtime_id = str(runtime["id"])
         model = payload.get("model")
         ollama_runtime = is_ollama_runtime(runtime)
         provider_family = runtime_provider_family(runtime)
         if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
-        model_eval = broker.evaluate_tool_call(
+        messages = _developer_model_messages(
+            instruction=str(payload["instruction"]),
+            qa_commands=payload.get("qaCommands") or [],
+            story_specs=payload.get("storySpecs"),
+            constitution=payload.get("constitution"),
+            connection=self.connection,
             project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": provider_family,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "developer_agent_model_call",
-                "runtimeId": runtime_id,
-                "capability": "chat",
-                "input": {
-                    "providerId": runtime_id,
-                    "model": model,
-                    "messages": _developer_model_messages(
-                        instruction=str(payload["instruction"]),
-                        qa_commands=payload.get("qaCommands") or [],
-                        story_specs=payload.get("storySpecs"),
-                        constitution=payload.get("constitution"),
-                        connection=self.connection,
-                        project_id=payload["projectId"],
-                        workspace_path=str(workspace["path"]),
-                        base_commit=str(
-                            ((workspace.get("metadata") or {}).get("gitWorktree") or {}).get("sourceCommit")
-                            or ""
-                        ),
-                    ),
-                    "temperature": 0.2,
-                    **local_model_call_input(
-                        self.connection,
-                        provider_id=runtime_id,
-                        model=model,
-                        response_schema={
-                            "name": DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
-                            "schema": DEVELOPER_MODEL_PATCH_SCHEMA,
-                        },
-                    ),
-                },
-                "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
-                # Provider credentials are injected by the adapter transport and never enter the prompt.
-                "secretsRequired": False,
-                "approvalGrantId": payload.get("approvalGrantId"),
-                "execute": True,
-                "timeoutSeconds": timeout_seconds,
-            },
+            workspace_path=str(workspace["path"]),
+            base_commit=str(
+                ((workspace.get("metadata") or {}).get("gitWorktree") or {}).get("sourceCommit") or ""
+            ),
         )
-        model_result = _execution_result_from_tool_call(model_eval["toolCall"])
-        if model_result["status"] != "completed":
-            return {
-                "status": "failed",
-                "modelCall": model_result,
-                "reason": model_result.get("reason"),
-                "localRuntimeCause": model_result.get("localRuntimeCause"),
-            }
-        patch_payload = _parse_model_patch(self._model_output_text(model_result))
+        repair_attempts = 0
+        while True:
+            model_eval = broker.evaluate_tool_call(
+                project_id=payload["projectId"],
+                agent_run_id=agent_run["id"],
+                agent_profile=profile,
+                job_id=job["id"],
+                tool_call={
+                    "tool": provider_family,
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "path": workspace["path"],
+                    "operation": "developer_agent_model_call",
+                    "runtimeId": runtime_id,
+                    "capability": "chat",
+                    "input": {
+                        "providerId": runtime_id,
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.2,
+                        **local_model_call_input(
+                            self.connection,
+                            provider_id=runtime_id,
+                            model=model,
+                            response_schema={
+                                "name": DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
+                                "schema": DEVELOPER_MODEL_PATCH_SCHEMA,
+                            },
+                        ),
+                    },
+                    "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
+                    # Provider credentials are injected by the adapter transport and never enter the prompt.
+                    "secretsRequired": False,
+                    "approvalGrantId": payload.get("approvalGrantId"),
+                    "execute": True,
+                    "timeoutSeconds": remaining_execution_timeout(900),
+                },
+            )
+            model_result = _execution_result_from_tool_call(model_eval["toolCall"])
+            if model_result["status"] != "completed":
+                return {
+                    "status": "failed",
+                    "modelCall": model_result,
+                    "reason": model_result.get("reason"),
+                    "localRuntimeCause": model_result.get("localRuntimeCause"),
+                    "repairAttempts": repair_attempts,
+                }
+            try:
+                patch_payload = _parse_model_patch(self._model_output_text(model_result))
+                break
+            except ValueError as error:
+                # Invalid output is a model failure, not an unavailable runtime: repair once, then
+                # fail with the cause so the loop offers a retry instead of "revalidate runtime".
+                if repair_attempts >= DEVELOPER_MODEL_REPAIR_ATTEMPTS:
+                    return {
+                        "status": "failed",
+                        "modelCall": model_result,
+                        "reason": str(error),
+                        "outputArtifactId": model_result.get("outputArtifactId"),
+                        "repairAttempts": repair_attempts,
+                    }
+                repair_attempts += 1
+                messages = [*messages, _repair_note(str(error))]
         patch_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
             agent_run_id=agent_run["id"],
@@ -560,6 +598,7 @@ class DeveloperAgentRunner:
             "patchApply": patch_result,
             "reason": patch_result.get("reason"),
             "outputArtifactId": model_result.get("outputArtifactId"),
+            "repairAttempts": repair_attempts,
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:

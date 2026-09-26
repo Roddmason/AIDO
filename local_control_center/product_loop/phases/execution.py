@@ -70,6 +70,58 @@ def _block_interrupted_execution(coordinator, run, *, reason, runtime_result=Non
     )
 
 
+def _block_unavailable_runtime(coordinator, run, runtime_result):
+    """Bloquea en ``runtime`` con la causa real cuando el DeveloperAgent no tuvo runtime ejecutable.
+
+    Sin runtime no hubo trabajo. Si el run seguía a la captura del diff, el guard de "sin cambios"
+    lo reportaba como "el runtime terminó sin cambios reales" y ofrecía ver/guardar un diff que no
+    existe (visto en vivo con la salud de llama.cpp vencida a mitad del loop). ``executable=False``
+    lo clasifica como ``runtime_not_executable``: revalidar, cambiar de runtime o reintentar.
+    """
+    from local_control_center.agents.runtime_selection import RUNTIME_UNAVAILABLE_STATUS
+    from local_control_center.product_loop.coordinator import _compact_runtime_result
+
+    runtime = runtime_result.get("runtime") if isinstance(runtime_result.get("runtime"), dict) else {}
+    runtime_id = str(runtime.get("id") or "unresolved")
+    cause = str(runtime_result.get("reason") or runtime.get("reason") or RUNTIME_UNAVAILABLE_STATUS)
+    reason = f"DeveloperAgent runtime {runtime_id} is not executable: {cause}"
+    agent_tasks = run.active_story_tasks if run.active_story_tasks is not None else run.agent_tasks
+    blocked_result = coordinator._block_run(
+        run.loop,
+        stage="runtime",
+        reason=reason,
+        actor=run.actor,
+        details={
+            "status": RUNTIME_UNAVAILABLE_STATUS,
+            "reason": reason,
+            "executable": False,
+            "runtimeId": runtime_id,
+            "blockingReasons": list(runtime.get("blockingReasons") or []),
+            "workspaceId": run.workspace["id"],
+            "workspacePath": run.workspace["path"],
+            "runtimeStatus": RUNTIME_UNAVAILABLE_STATUS,
+            "runtimeResult": _compact_runtime_result(runtime_result),
+            "teamSchedule": run.team_schedule,
+            "agentTaskIds": [task["id"] for task in agent_tasks],
+        },
+        thread_id=run.thread_id,
+    )
+    evidence_ref = str((blocked_result.get("evidencePackage") or {}).get("id") or "").strip()
+    if evidence_ref:
+        resource_learning = coordinator._record_resource_learning_best_effort(
+            project_id=run.project_id,
+            loop_id=run.loop["id"],
+            team_schedule=run.team_schedule,
+            runtime_result=runtime_result,
+            evidence_ref=evidence_ref,
+            success=False,
+            rework=False,
+            quality_score=0.0,
+        )
+        blocked_result = coordinator._attach_resource_learning_to_result(blocked_result, resource_learning)
+    return blocked_result
+
+
 def prepare_developer_execution(
     coordinator: ProductLoopCoordinator, run: _UserMessageRun
 ) -> dict[str, Any] | None:
@@ -372,6 +424,10 @@ def execute_developer_phase(
                 resource_learning,
             )
         return blocked_result
+    from local_control_center.agents.runtime_selection import RUNTIME_UNAVAILABLE_STATUS
+
+    if runtime_result.get("status") == RUNTIME_UNAVAILABLE_STATUS:
+        return _block_unavailable_runtime(coordinator, run, runtime_result)
     execution_result = runtime_result.get("runtimeResult") or {}
     if execution_result.get("timedOut") is True:
         return _block_interrupted_execution(

@@ -5672,6 +5672,64 @@ def test_run_user_message_blocks_empty_review_diff_with_review_remediation(tmp_p
         assert ("review_diff_unavailable", "retry_loop") in actions
 
 
+class _UnavailableRuntime(_ControlledRuntime):
+    """El DeveloperAgent no tuvo runtime ejecutable: no corrió nada ni dejó cambios."""
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        return {
+            "status": "runtime_unavailable",
+            "reason": "health_check_required",
+            "runtime": {
+                "id": "llama_cpp",
+                "executable": False,
+                "blockingReasons": ["health_check_required"],
+            },
+            "runtimeResult": {"execution": "not_executed", "status": "runtime_unavailable"},
+            "agentRun": {"id": "agent-run-unavailable"},
+            "job": {"id": "job-unavailable"},
+            "evidencePackage": {"id": "evidence-unavailable", "qaVerdict": "blocked"},
+            "qaResults": [],
+            "diffSummary": {"changedFiles": []},
+        }
+
+
+def test_run_user_message_blocks_an_unavailable_runtime_with_its_real_cause(tmp_path: Path) -> None:
+    """Sin runtime no hubo trabajo: el bloqueo dice por qué y ofrece arreglar el runtime.
+
+    Visto en vivo: con la salud de llama.cpp vencida, el guard de "sin cambios" lo reportaba como
+    "el runtime terminó sin cambios reales" y ofrecía ver/guardar un diff que nunca existió.
+    """
+    if not git_available():
+        pytest.skip("git CLI is required for git worktree review remediation")
+    runtime = _UnavailableRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "unavailable-runtime")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement with a runtime whose health evidence expired.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
+        assert result["status"] == "blocked"
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "runtime"
+        assert "llama_cpp" in result["reason"]
+        assert "health_check_required" in result["reason"]
+        assert "without real changed files" not in result["reason"]
+        assert ("runtime_not_executable", "retry_loop") in actions
+        assert not any(blocker == "review_diff_unavailable" for blocker, _ in actions)
+
+
 def test_run_user_message_blocks_when_review_diff_capture_crashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

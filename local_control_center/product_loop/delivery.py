@@ -37,6 +37,17 @@ from local_control_center.workspaces_projects.repository import WorkspacesReposi
 from .spec_artifacts import exclude_aido_artifacts
 
 PR_MODES = {"auto_pr", "manual_pr"}
+DELIVERY_LANDING_JOB_KIND = "product_loop.land_delivery"
+"""Job del worker que completa un aterrizaje que el gobernador de recursos dejó esperando."""
+LANDING_WAITING_CAPACITY = "landing_waiting_capacity"
+"""El gobernador de recursos no admitió un git del aterrizaje: se reintenta en un job del worker."""
+
+
+def _blocked_for_capacity(step: dict[str, Any]) -> bool:
+    """Si un paso git quedó sin ejecutar por capacidad del host: reintentable, no un fallo del repo."""
+    return step.get("status") in {"git_blocked", "blocked"} and str(step.get("reason") or "").startswith(
+        "resource_wait"
+    )
 
 
 def technical_lead_gate(loop: dict[str, Any] | None) -> dict[str, Any]:
@@ -175,7 +186,9 @@ class ProductLoopDeliveryService:
             result["merge"] = merged
             result["baseBranch"] = base_branch
             if merged.get("status") != "merged":
-                result["status"] = "landing_blocked"
+                result["status"] = (
+                    LANDING_WAITING_CAPACITY if _blocked_for_capacity(merged) else "landing_blocked"
+                )
                 return result
             if has_remote:
                 result["push"] = push_branch_to_remote(
@@ -204,7 +217,9 @@ class ProductLoopDeliveryService:
         )
         result["baseBranch"] = base_branch
         if result["push"].get("status") != "pushed":
-            result["status"] = "landing_blocked"
+            result["status"] = (
+                LANDING_WAITING_CAPACITY if _blocked_for_capacity(result["push"]) else "landing_blocked"
+            )
             return result
         if effective_mode == "manual_pr":
             result["status"] = "pending_manual_pr"

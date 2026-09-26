@@ -268,6 +268,36 @@ def row_to_agent_assignment(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_agent_assignment_summary(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``agent_assignments`` con todas sus columnas salvo ``metadata``.
+
+    ``metadata`` guarda el snapshot de decisión de recursos (``resourceDecision``), que puede pesar
+    cientos de KB por asignación —medido: ~554 KB en una sola, dominado por
+    ``resourceDecision.rejected`` (historial de candidatos de runtime descartados)—. Omitir la
+    columna del ``SELECT`` evita decodificar ese JSON para consumidores que sólo necesitan el resto
+    del contrato de la asignación (el listado agregado del Workbench).
+    """
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "taskId": row["task_id"],
+        "agentId": row["agent_id"],
+        "role": row["role"],
+        "status": row["status"],
+        "assignedBy": row["assigned_by"],
+        "assignedAt": row["assigned_at"],
+        "releasedAt": row["released_at"],
+        "inputSchema": json_loads(row["input_schema"], {}),
+        "outputSchema": json_loads(row["output_schema"], {}),
+        "canonicalArtifactId": row["canonical_artifact_id"],
+        "handoffId": row["handoff_id"],
+        "reviewRequired": _as_bool(row["review_required"]),
+        "metadata": {},
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 def row_to_assignment_handoff(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``assignment_handoffs`` al dict camelCase del contrato."""
     return {
@@ -1087,6 +1117,35 @@ class BacklogRepository:
             f"SELECT * FROM agent_assignments {where} ORDER BY created_at DESC", params
         ).fetchall()
         return [row_to_agent_assignment(row) for row in rows]
+
+    def list_agent_assignment_summaries(
+        self,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Como ``list_agent_assignments`` pero sin ``metadata`` (ver ``row_to_agent_assignment_summary``)."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if task_id:
+            conditions.append("task_id = ?")
+            params.append(task_id)
+        if agent_id:
+            conditions.append("agent_id = ?")
+            params.append(agent_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        columns = (
+            "id, project_id, task_id, agent_id, role, status, assigned_by, assigned_at, released_at,"
+            " input_schema, output_schema, canonical_artifact_id, handoff_id, review_required,"
+            " created_at, updated_at"
+        )
+        rows = self.connection.execute(
+            f"SELECT {columns} FROM agent_assignments {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        return [row_to_agent_assignment_summary(row) for row in rows]
 
     def update_agent_assignment(self, assignment_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una asignación (status, role, releasedAt, metadata).

@@ -55,7 +55,12 @@ FeedbackClassification = Literal[
 
 
 class ProductLoopRecord(BaseModel):
-    """Estado durable de un product loop tal como se expone al cliente."""
+    """Estado durable de un product loop tal como se expone al cliente.
+
+    ``context`` es opcional: el listado agregado del proyecto lo omite por defecto (puede pesar
+    cientos de MB acumulados); pedirlo explícitamente con ``?includeContext=true`` en
+    ``GET /projects/{id}/product-loop`` restaura el comportamiento completo.
+    """
 
     id: str
     project_id: str = Field(alias="projectId")
@@ -64,7 +69,7 @@ class ProductLoopRecord(BaseModel):
     state: str
     previous_state: str | None = Field(default=None, alias="previousState")
     status: str
-    context: dict[str, Any]
+    context: dict[str, Any] | None = None
     version: int
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")

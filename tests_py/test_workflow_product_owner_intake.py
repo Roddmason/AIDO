@@ -92,7 +92,9 @@ def test_idea_to_pr_start_runs_product_owner_and_blocks_with_evidence_when_runti
     backlog_step = next(step for step in body["workflowSteps"] if step["name"] == "backlog_generation")
     assert backlog_step["status"] == "pending"
 
-    loop_state = client.get(f"/api/v1/projects/{project['id']}/product-loop").json()
+    loop_state = client.get(
+        f"/api/v1/projects/{project['id']}/product-loop", params={"includeContext": True}
+    ).json()
     loop = next(item for item in loop_state["loops"] if item["id"] == intake["loopId"])
     assert loop["state"] == "blocked"
     assert loop["context"]["intake"]["source"] == "workflow_start"

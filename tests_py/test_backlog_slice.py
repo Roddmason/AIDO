@@ -292,6 +292,72 @@ def test_agent_assignment_creates_structured_artifact_handoff_and_review_contrac
             )
 
 
+def test_list_agent_assignment_summaries_omits_metadata_but_keeps_the_rest(tmp_path: Path) -> None:
+    """El resumen (usado por el agregado del product loop) no trae ``metadata`` —puede pesar cientos
+    de KB: el snapshot de decisión de recursos, medido hasta ~554 KB por asignación en producción—,
+    pero conserva el resto de las columnas de ``list_agent_assignments``."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        projects = ProjectsRepository(connection)
+        repo = BacklogRepository(connection)
+
+        project = projects.create_project(name="Summary", path=tmp_path / "summary", template_id="other")
+        project_id = project["id"]
+        epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
+        task = repo.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Backend work",
+                "role": "backend_engineer",
+            }
+        )
+        full = repo.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-backend",
+                "role": "backend_engineer",
+                "assignedBy": "iteration_planner",
+                "metadata": {"resourceDecision": {"rejected": list(range(500))}},
+            }
+        )
+        assert full["metadata"]["resourceDecision"]["rejected"] == list(range(500))
+
+        summaries = repo.list_agent_assignment_summaries(project_id=project_id)
+
+        assert len(summaries) == 1
+        summary = summaries[0]
+        assert summary["metadata"] == {}
+        for key in (
+            "id",
+            "projectId",
+            "taskId",
+            "agentId",
+            "role",
+            "status",
+            "assignedBy",
+            "assignedAt",
+            "releasedAt",
+            "inputSchema",
+            "outputSchema",
+            "canonicalArtifactId",
+            "handoffId",
+            "reviewRequired",
+            "createdAt",
+            "updatedAt",
+        ):
+            assert summary[key] == full[key]
+
+
 def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_resolved(
     tmp_path: Path,
 ) -> None:

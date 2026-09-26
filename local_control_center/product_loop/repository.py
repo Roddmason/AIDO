@@ -77,6 +77,22 @@ def row_to_product_loop(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_product_loop_summary(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``product_loops`` con todas sus columnas salvo ``context``."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "initiativeId": row["initiative_id"],
+        "title": row["title"],
+        "state": row["state"],
+        "previousState": row["previous_state"],
+        "status": row["status"],
+        "version": row["version"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 def row_to_product_loop_state_summary(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea las columnas *livianas* de ``product_loops`` (sin ``context`` ni lo que va después de él).
 
@@ -209,7 +225,7 @@ class ProductLoopRepository:
         return row_to_product_loop(row)
 
     def list_loops(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista loops (todos o por proyecto), el más recientemente actualizado primero."""
+        """Lista loops (todos o por proyecto) con su ``context`` completo, el más reciente primero."""
         if project_id:
             rows = self.connection.execute(
                 "SELECT * FROM product_loops WHERE project_id = ? ORDER BY updated_at DESC",
@@ -218,6 +234,26 @@ class ProductLoopRepository:
         else:
             rows = self.connection.execute("SELECT * FROM product_loops ORDER BY updated_at DESC").fetchall()
         return [row_to_product_loop(row) for row in rows]
+
+    def list_loop_summaries(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        """Como ``list_loops`` pero sin ``context`` (medido hasta ~136 MB acumulados por proyecto).
+
+        Mismo orden y resto de columnas; para el listado agregado del Workbench
+        (``GET /projects/{id}/product-loop``), que nunca necesita el ``context`` de la lista completa
+        de loops —sólo el detalle de un loop puntual (``get_loop``) lo usa—. Omitir la columna en el
+        ``SELECT`` evita que SQLite decodifique su contenido: no es sólo no transferirlo por HTTP.
+        """
+        columns = "id, project_id, initiative_id, title, state, previous_state, status, version, created_at, updated_at"
+        if project_id:
+            rows = self.connection.execute(
+                f"SELECT {columns} FROM product_loops WHERE project_id = ? ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                f"SELECT {columns} FROM product_loops ORDER BY updated_at DESC"
+            ).fetchall()
+        return [row_to_product_loop_summary(row) for row in rows]
 
     def latest_planned_loop_for_thread(self, thread_id: str, *, project_id: str) -> dict[str, Any] | None:
         """Loop más reciente del hilo que ya tiene tareas planificadas (``durableRun.agentTasks``).

@@ -45,7 +45,7 @@ def _capture_selection(monkeypatch) -> list:
     return captured
 
 
-def _team_request(coordinator, role_plan, request_meta):
+def _team_request(coordinator, role_plan, request_meta, *, product_owner_provider_id=None):
     return coordinator._team_resource_request(
         project_id="project-team",
         loop_id="loop-1",
@@ -53,7 +53,29 @@ def _team_request(coordinator, role_plan, request_meta):
         team_schedule=SCHEDULE,
         role_plan=role_plan,
         agent_tasks=[{"id": "task-1", "role": role_plan["role"]}],
+        product_owner_provider_id=product_owner_provider_id,
     )
+
+
+def _fake_select_resource(responses: dict):
+    """Responde por ``allowed_provider_ids`` (tupla o ``None``) sin tocar Jev ni el catálogo real."""
+    calls: list = []
+
+    def _select(self, request, *, record=True, allow_decision_inference=False, **kwargs):
+        calls.append(request)
+        key = tuple(request.allowed_provider_ids) if request.allowed_provider_ids else None
+        response = responses[key]
+        return {
+            "routingDecisionId": f"routing-{len(calls)}",
+            "selected": response.get("selected"),
+            "candidates": response.get("candidates", []),
+            "rejected": [],
+            "decisionReason": response.get("decisionReason", ""),
+            "policyResult": {"localModelSelections": response.get("localModelSelections", [])},
+            "approvalRequired": False,
+        }
+
+    return calls, _select
 
 
 def test_team_roles_are_confined_to_their_assigned_runtime(coordinator):
@@ -64,6 +86,103 @@ def test_team_roles_are_confined_to_their_assigned_runtime(coordinator):
     assert _team_request(coordinator, security, TEAM).allowed_provider_ids == ["nvidia_nim"]
     assert _team_request(coordinator, qa, TEAM).allowed_provider_ids == ["codex_cli"]
     assert _team_request(coordinator, build, {}).allowed_provider_ids is None
+
+
+def test_thread_without_a_team_confines_the_role_to_the_product_owners_runtime(coordinator):
+    build = {"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}
+    request = _team_request(coordinator, build, {}, product_owner_provider_id="llama_cpp")
+    assert request.allowed_provider_ids == ["llama_cpp"]
+    # Con equipo, la herencia del PO no debe alterar la asignación real del rol.
+    assert _team_request(
+        coordinator, build, TEAM, product_owner_provider_id="llama_cpp"
+    ).allowed_provider_ids == ["codex_cli"]
+
+
+def test_thread_without_a_team_completes_selection_with_a_single_po_candidate(coordinator, monkeypatch):
+    """Con un solo candidato dentro del proveedor del PO, la selección se completa sin bloqueo."""
+    role_plan = {"role": "aido_lead", "kind": "reason", "capabilities": ["planning"]}
+    schedule = {**SCHEDULE, "roles": [role_plan]}
+    responses = {
+        ("llama_cpp",): {
+            "selected": {"providerId": "llama_cpp", "model": "gemma-4-26b-a4b", "runtime": "local"},
+            "candidates": [{"providerId": "llama_cpp"}],
+            "localModelSelections": [{"runtimeId": "llama_cpp", "model": "gemma-4-26b-a4b"}],
+        }
+    }
+    calls, fake = _fake_select_resource(responses)
+    monkeypatch.setattr(AIResourceManager, "select_resource", fake)
+    enriched, blockers = coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta={},
+        team_schedule=schedule,
+        agent_tasks=[{"id": "task-1", "role": "aido_lead"}],
+        product_owner_selected_resource={"providerId": "llama_cpp", "model": "gemma-4-26b-a4b"},
+    )
+    assert blockers == []
+    assert len(calls) == 1
+    assert calls[0].allowed_provider_ids == ["llama_cpp"]
+    assert calls[0].local_model_affinity == {"llama_cpp": "gemma-4-26b-a4b"}
+    assert enriched["roles"][0]["resourceDecision"]["selected"]["providerId"] == "llama_cpp"
+
+
+def test_role_with_no_candidates_under_the_po_provider_widens_to_the_full_set(coordinator, monkeypatch):
+    """Herencia blanda: capacidades/política descartan al proveedor del PO -> se reintenta sin restringir."""
+    role_plan = {"role": "security_engineer", "kind": "review", "capabilities": ["security_review"]}
+    schedule = {**SCHEDULE, "roles": [role_plan]}
+    responses = {
+        ("llama_cpp",): {"selected": None, "candidates": []},
+        None: {
+            "selected": {"providerId": "codex_cli", "model": "gpt-5.5", "runtime": "cli"},
+            "candidates": [{"providerId": "codex_cli"}],
+        },
+    }
+    calls, fake = _fake_select_resource(responses)
+    monkeypatch.setattr(AIResourceManager, "select_resource", fake)
+    events: list = []
+    monkeypatch.setattr(coordinator, "_record_loop_event", lambda **kwargs: events.append(kwargs))
+    enriched, blockers = coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta={},
+        team_schedule=schedule,
+        agent_tasks=[{"id": "task-1", "role": "security_engineer"}],
+        product_owner_selected_resource={"providerId": "llama_cpp", "model": "gemma-4-26b-a4b"},
+    )
+    assert blockers == []
+    assert [call.allowed_provider_ids for call in calls] == [["llama_cpp"], None]
+    assert enriched["roles"][0]["resourceDecision"]["selected"]["providerId"] == "codex_cli"
+    assert len(events) == 1
+    assert events[0]["event_type"] == "product_loop.runtime_allowlist_widened"
+    assert events[0]["payload"]["role"] == "security_engineer"
+
+
+def test_confidence_below_threshold_is_not_widened(coordinator, monkeypatch):
+    """Jev bloqueado por baja confianza (2+ candidatos) no debe ampliarse: el diseño respeta que no
+    hay respaldo determinista cuando Jev no está seguro."""
+    role_plan = {"role": "aido_lead", "kind": "reason", "capabilities": ["planning"]}
+    schedule = {**SCHEDULE, "roles": [role_plan]}
+    responses = {
+        ("llama_cpp",): {
+            "selected": None,
+            "candidates": [{"providerId": "llama_cpp"}, {"providerId": "gemini"}],
+            "decisionReason": "Jev runtime selection blocked: confidence_below_threshold.",
+        },
+    }
+    calls, fake = _fake_select_resource(responses)
+    monkeypatch.setattr(AIResourceManager, "select_resource", fake)
+    _enriched, blockers = coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta={},
+        team_schedule=schedule,
+        agent_tasks=[{"id": "task-1", "role": "aido_lead"}],
+        product_owner_selected_resource={"providerId": "llama_cpp", "model": "gemma-4-26b-a4b"},
+    )
+    assert len(calls) == 1
+    assert calls[0].allowed_provider_ids == ["llama_cpp"]
+    assert len(blockers) == 1
+    assert blockers[0]["role"] == "aido_lead"
 
 
 def test_product_owner_selection_only_offers_the_assigned_runtime(coordinator, monkeypatch):

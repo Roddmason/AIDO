@@ -2971,17 +2971,31 @@ class ProductLoopCoordinator:
         team_schedule: dict[str, Any],
         agent_tasks: list[dict[str, Any]],
         runtime_risk_review_id: str | None = None,
+        product_owner_selected_resource: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         manager = AIResourceManager(self.connection)
         privacy_level = self._resource_privacy_level(request_meta)
         enriched_roles: list[dict[str, Any]] = []
         blockers: list[dict[str, Any]] = []
         local_affinity: dict[str, str] = {}
+        # Sin equipo de runtimes en el hilo, cada rol hereda el proveedor donde corrió el PO de este
+        # loop (evita que un candidato remoto que el operador nunca eligió compita en la ambigüedad
+        # de Jev, ver runtime_team.configuration.role_allowlist). Con equipo no cambia nada.
+        thread_has_team = runtime_team_of(request_meta) is not None
+        po_provider_id = str((product_owner_selected_resource or {}).get("providerId") or "").strip() or None
+        po_model = str((product_owner_selected_resource or {}).get("model") or "").strip()
+        if not thread_has_team and po_provider_id and po_model:
+            local_affinity[po_provider_id] = po_model
         for role_plan in team_schedule["roles"]:
             role = str(role_plan["role"])
             task = self._task_for_assignment(role, agent_tasks)
             resource_policy = self._resource_role_policy(role)
             routing_started = time.perf_counter()
+            select_kwargs = {
+                "record": True,
+                "allow_decision_inference": runtime_risk_review_id is None,
+                **({"runtime_risk_review_id": runtime_risk_review_id} if runtime_risk_review_id else {}),
+            }
             decision = manager.select_resource(
                 self._team_resource_request(
                     project_id=project_id,
@@ -2991,11 +3005,43 @@ class ProductLoopCoordinator:
                     role_plan=role_plan,
                     agent_tasks=agent_tasks,
                     local_model_affinity=local_affinity,
+                    product_owner_provider_id=po_provider_id,
                 ),
-                record=True,
-                allow_decision_inference=runtime_risk_review_id is None,
-                **({"runtime_risk_review_id": runtime_risk_review_id} if runtime_risk_review_id else {}),
+                **select_kwargs,
             )
+            # Herencia BLANDA: si el proveedor del PO no cubre las capacidades/política del rol, el
+            # rol se queda sin candidatos (no es la ambigüedad de Jev, que sí tiene candidatos) y se
+            # reintenta ese único rol con el conjunto completo, como antes de esta herencia. Se
+            # respeta la continuación de un riesgo ya revisado (``runtime_risk_review_id``): ese
+            # request debe reproducir exactamente el que el operador aprobó, sin ampliarlo.
+            if (
+                runtime_risk_review_id is None
+                and not thread_has_team
+                and po_provider_id
+                and not decision.get("candidates")
+            ):
+                widened_request = self._team_resource_request(
+                    project_id=project_id,
+                    loop_id=loop_id,
+                    request_meta=request_meta,
+                    team_schedule=team_schedule,
+                    role_plan=role_plan,
+                    agent_tasks=agent_tasks,
+                    local_model_affinity=local_affinity,
+                    product_owner_provider_id=None,
+                )
+                decision = manager.select_resource(widened_request, **select_kwargs)
+                self._record_loop_event(
+                    project_id=project_id,
+                    event_type="product_loop.runtime_allowlist_widened",
+                    loop_id=loop_id,
+                    payload={
+                        "role": role,
+                        "taskId": task["id"],
+                        "productOwnerProviderId": po_provider_id,
+                        "reason": "no_candidates_for_product_owner_provider",
+                    },
+                )
             decision = self._resource_decision_with_approval_override(
                 role=role,
                 decision=decision,
@@ -3061,6 +3107,7 @@ class ProductLoopCoordinator:
         role_plan: dict[str, Any],
         agent_tasks: list[dict[str, Any]],
         local_model_affinity: dict[str, str] | None = None,
+        product_owner_provider_id: str | None = None,
     ) -> AIResourceRequest:
         role = str(role_plan["role"])
         profile = self._profile_by_role(project_id).get(role) or {}
@@ -3082,7 +3129,9 @@ class ProductLoopCoordinator:
             else str(team_schedule.get("mode") or "balanced"),
             context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
             required_capabilities=self._resource_required_capabilities(role_plan),
-            allowed_provider_ids=role_allowlist(request_meta, team_role),
+            allowed_provider_ids=role_allowlist(
+                request_meta, team_role, product_owner_provider_id=product_owner_provider_id
+            ),
             local_model_pins=role_model_pins(request_meta, team_role),
             local_model_affinity=dict(local_model_affinity or {}),
             privacy_level=self._resource_privacy_level(request_meta),

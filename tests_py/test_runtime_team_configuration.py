@@ -376,3 +376,28 @@ def test_unassigned_roles_follow_the_product_owner_runtime_so_selection_has_one_
     assert role_allowlist(meta, None) == ["codex_cli"]
     assert role_allowlist(meta, "architect") == ["codex_cli"]
     assert role_allowlist(meta, "developer") == ["claude_code_cli"]
+
+
+def test_threads_without_a_team_inherit_the_product_owners_runtime():
+    """Hilo creado por API (p. ej. plugin OpenClaw) sin equipo de runtimes: cada rol se confina al
+    proveedor donde corrió el PO del loop, para que Jev no deba desempatar candidatos remotos que el
+    operador nunca eligió (visto en vivo: ``aido_lead`` bloqueado con confidence 0.48/0.84/0.38 entre
+    ``gemini`` y ``llama_cpp``).
+    """
+    assert role_allowlist({}, "aido_lead", product_owner_provider_id="llama_cpp") == ["llama_cpp"]
+    assert role_allowlist({}, None, product_owner_provider_id="llama_cpp") == ["llama_cpp"]
+    # Compatibilidad: sin selección del PO disponible, el comportamiento previo se conserva.
+    assert role_allowlist({}, "developer") is None
+    assert role_allowlist({}, "developer", product_owner_provider_id=None) is None
+
+
+def test_threads_with_a_team_ignore_the_product_owner_inheritance_override():
+    """Hilo CON equipo: la herencia por-ausencia-de-equipo nunca debe alterar la asignación real."""
+    meta = {
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["claude_code_cli", "codex_cli"],
+            "roleRuntimes": {"product_owner": "codex_cli", "developer": "claude_code_cli"},
+        }
+    }
+    assert role_allowlist(meta, "architect", product_owner_provider_id="llama_cpp") == ["codex_cli"]
+    assert role_allowlist(meta, "developer", product_owner_provider_id="llama_cpp") == ["claude_code_cli"]

@@ -63,6 +63,11 @@ class ControlledJev:
         probabilities = {
             identity: (0.96 if identity == selected else 0.04 / (len(ids) - 1)) for identity in ids
         }
+        if self.outcome == "low_margin" and len(ids) > 1:
+            # Casi empatados: confianza alta pero sin margen para separar al primero del segundo.
+            probabilities = {
+                identity: (0.52 if identity == selected else 0.48 / (len(ids) - 1)) for identity in ids
+            }
         if len(ids) == 1:
             probabilities[selected] = 1.0
         margin = probabilities[selected] - (probabilities[ranking[1]] if len(ids) > 1 else 0.0)
@@ -621,3 +626,38 @@ def test_jev_cannot_fall_back_to_the_preferred_model_on_rejection(selection_lane
     assert evidence[0]["effectiveDecision"] is None
     assert evidence[0]["fallbackUsed"] is False
     assert evidence[0]["reasonCode"] != "recommendation_usable"
+
+
+def test_confidence_below_threshold_reason_names_the_real_cause_and_the_fix(selection_lane):
+    """El motivo no debe insinuar un problema de validación cuando Jev sólo desempató mal."""
+    lane = selection_lane
+    lane.jev.outcome = "low_confidence"
+    decision = select(lane)
+
+    assert decision["selected"] is None
+    engine = decision["policyResult"]["decisionEngine"]
+    assert engine["reasonCode"] == "confidence_below_threshold"
+    reason = decision["decisionReason"]
+    assert "2 AIDO-validated candidates" in reason
+    assert "0.20" in reason
+    assert "0.85" in reason
+    assert "thread's ai team" in reason.lower()
+    assert "requires current successful model validation" not in reason
+    assert "executable runtime health" not in reason
+
+
+def test_margin_below_threshold_reason_names_the_real_cause_and_the_fix(selection_lane):
+    """El mismo síntoma que la confianza baja: Jev no separa a los dos primeros, no falla una validación."""
+    lane = selection_lane
+    lane.jev.outcome = "low_margin"
+    decision = select(lane)
+
+    assert decision["selected"] is None
+    engine = decision["policyResult"]["decisionEngine"]
+    assert engine["reasonCode"] == "margin_below_threshold"
+    reason = decision["decisionReason"]
+    assert "2 AIDO-validated candidates" in reason
+    assert "margin 0.04" in reason
+    assert "0.20" in reason
+    assert "thread's ai team" in reason.lower()
+    assert "requires current successful model validation" not in reason

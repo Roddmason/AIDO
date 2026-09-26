@@ -737,6 +737,22 @@ class AIResourceManager:
                 decision["decisionReason"] = (
                     "Jev proposed an eligible runtime; explicit risk review is required before selection."
                 )
+            elif decision_engine["reasonCode"] in {"confidence_below_threshold", "margin_below_threshold"}:
+                # No es un problema de validación ni de runtime: Jev sí tuvo candidatos ya
+                # validados, sólo no pudo desempatar con la confianza o el margen mínimos exigidos.
+                # Por diseño no hay respaldo determinista para ese caso
+                # (decision_engine/runtime_selection.py); la acción que resuelve la ambigüedad es que
+                # el operador asigne un runtime al rol.
+                by_margin = decision_engine["reasonCode"] == "margin_below_threshold"
+                decision["decisionReason"] = self._jev_confidence_blocked_reason(
+                    candidates=candidates,
+                    measure="margin" if by_margin else "confidence",
+                    value=decision_engine.get("margin" if by_margin else "confidence"),
+                    threshold=decision_config.margin_threshold
+                    if by_margin
+                    else decision_config.confidence_threshold,
+                    task_type=request.task_type,
+                )
             else:
                 decision["decisionReason"] = (
                     f"Jev runtime selection blocked: {decision_engine['reasonCode']}. "
@@ -2034,6 +2050,28 @@ class AIResourceManager:
         return (
             f"Selected {selected['providerId']}/{selected['model']} for {request.task_type} "
             f"using deterministic explainable scoring.{approval}"
+        )
+
+    @staticmethod
+    def _jev_confidence_blocked_reason(
+        *,
+        candidates: list[dict[str, Any]],
+        measure: str,
+        value: float | None,
+        threshold: float,
+        task_type: str,
+    ) -> str:
+        """La verdad del bloqueo por confianza o margen de Jev bajo el umbral: ninguna validación falló.
+
+        Sin equipo o sin runtime propio para el rol, ninguna heurística determinista reemplaza a
+        Jev cuando no está seguro (por diseño); asignarle un runtime al rol es lo único que decide.
+        """
+        value_text = f"{value:.2f}" if value is not None else "unavailable"
+        return (
+            f"Jev could not confidently rank {len(candidates)} AIDO-validated candidates for "
+            f"{task_type} ({measure} {value_text} below the {threshold:.2f} required threshold). "
+            "This is not a validation or runtime-health problem: assign a runtime to this role in the "
+            "thread's AI team so the operator's choice, not Jev's uncertainty, decides."
         )
 
     @staticmethod

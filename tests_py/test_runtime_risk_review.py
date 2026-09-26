@@ -16,6 +16,9 @@ from local_control_center.jobs_approvals.commands import approve_action
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
+from local_control_center.product_loop.runtime_risk_review import (
+    _durable_product_owner_selected_resource,
+)
 from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -1011,4 +1014,28 @@ def test_legacy_plan_materialization_persists_one_review_and_reuses_action_and_j
             "SELECT COUNT(*) FROM jobs WHERE kind='product_loop_runtime_risk_approval'"
         ).fetchone()[0]
         == 1
+    )
+
+
+def test_durable_product_owner_selected_resource_reads_the_persisted_decision():
+    """``_checkpoint`` y ``resume_runtime_risk_planning`` heredan el proveedor del PO desde el mismo
+    lugar durable, para que el request reconstruido siga dando el mismo ``requestHash``."""
+    durable = {
+        "productOwner": {
+            "status": "backlog_ready",
+            "resourceDecision": {
+                "selected": {"providerId": "llama_cpp", "model": "gemma-4-26b-a4b", "runtime": "local"}
+            },
+        }
+    }
+    assert _durable_product_owner_selected_resource(durable) == {
+        "providerId": "llama_cpp",
+        "model": "gemma-4-26b-a4b",
+        "runtime": "local",
+    }
+    assert _durable_product_owner_selected_resource({}) == {}
+    assert _durable_product_owner_selected_resource({"productOwner": {"resourceDecision": {}}}) == {}
+    assert (
+        _durable_product_owner_selected_resource({"productOwner": {"resourceDecision": {"selected": None}}})
+        == {}
     )

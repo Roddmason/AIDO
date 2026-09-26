@@ -90,6 +90,25 @@ def runtime_risk_review_failure(details: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
+def jev_confidence_below_threshold_failure(details: dict[str, Any]) -> dict[str, Any] | None:
+    """Jev had validated candidates but could not rank them confidently; not a validation failure.
+
+    Distinguishing this reasonCode keeps it out of the generic ``rejected``-text classification,
+    which would otherwise attribute the block to an unrelated candidate's rejection reason.
+    """
+    for blocker in details.get("resourceBlockers") or []:
+        decision = blocker.get("decision") if isinstance(blocker, dict) else None
+        if not isinstance(decision, dict) or decision.get("selected") is not None:
+            continue
+        engine = (decision.get("policyResult") or {}).get("decisionEngine") or {}
+        if engine.get("mode") == "runtime_selection" and engine.get("reasonCode") in {
+            "confidence_below_threshold",
+            "margin_below_threshold",
+        }:
+            return decision
+    return None
+
+
 def resource_selection_constraint_failure(details: dict[str, Any]) -> dict[str, Any] | None:
     """Separate policy/capacity deferrals from evidence that a runtime is absent."""
     blockers = details.get("resourceBlockers")

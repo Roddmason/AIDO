@@ -27,6 +27,7 @@ import pytest
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.host_resources.retention import (
     ADMISSION_DECISION_RETENTION_SECONDS,
+    drain_resource_history,
     prune_resource_history,
 )
 from local_control_center.shared.db import open_sqlite_connection
@@ -249,3 +250,51 @@ def test_the_only_two_readers_still_see_the_latest_verdict(connection) -> None:
     waiting = repository.waiting_requests()
 
     assert [request.execution_id for request in waiting] == ["exec-1"]
+
+
+def _old_decisions(connection, count: int, *, days_ago: float = 30) -> None:
+    with connection:
+        connection.executemany(
+            "INSERT INTO resource_admission_decisions "
+            "(id, execution_id, job_id, workload_class, owner_id, status, reason_code, reason, "
+            " request_json, snapshot_json, lease_id, created_at) "
+            "VALUES (?, ?, NULL, 'qa_light', 'w', 'resource_wait', 'minimum_free_memory', '', '{}', '{}', NULL, ?)",
+            [(f"old-{days_ago}-{index}", f"exec-{index}", _iso(days_ago)) for index in range(count)],
+        )
+
+
+def test_the_backlog_drains_in_bounded_batches_so_the_live_system_keeps_writing(connection) -> None:
+    """131.757 decisiones vencidas en la instalación real: borrarlas de una vez retiene el candado.
+
+    Cada lote es su propia transacción corta (la conexión es autocommit), así que el API y el
+    worker siguen escribiendo entre lotes. Con un tope de lotes, una corrida nunca se alarga.
+    """
+    _old_decisions(connection, 12)
+    _old_decisions(connection, 2, days_ago=0.5)
+
+    assert drain_resource_history(connection, batch_size=5, max_batches=1) == 5
+    assert drain_resource_history(connection, batch_size=5) == 7
+    assert connection.execute("SELECT COUNT(*) FROM resource_admission_decisions").fetchone()[0] == 2
+
+
+def test_the_worker_hourly_prune_actually_drains_the_resource_history(tmp_path: Path) -> None:
+    """La guarda que faltaba: probar la función no probaba que producción la llamara.
+
+    `prune_resource_history` cubría las dos tablas desde el 19-09, pero el único llamador de
+    producción (`governor.record_sample`) seguía podando solo las muestras.
+    """
+    from local_control_center.workers.runtime import LocalWorkerRuntime
+
+    db_path = tmp_path / "platform.sqlite"
+    with closing(open_sqlite_connection(db_path)) as handle:
+        with handle:
+            initialize_platform_schema(handle)
+        _old_decisions(handle, 3)
+
+    worker = object.__new__(LocalWorkerRuntime)
+    worker.db_path = db_path
+    worker._last_telemetry_prune_monotonic = None
+    worker._prune_telemetry_if_due()
+
+    with closing(open_sqlite_connection(db_path)) as handle:
+        assert handle.execute("SELECT COUNT(*) FROM resource_admission_decisions").fetchone()[0] == 0

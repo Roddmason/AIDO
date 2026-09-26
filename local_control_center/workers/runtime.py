@@ -24,6 +24,7 @@ from local_control_center.host_resources.governor import HostResourceGovernor
 from local_control_center.host_resources.models import ResourceSnapshot
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.repository import ResourceRepository
+from local_control_center.host_resources.retention import drain_resource_history
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import UNSET, SettingsRepository
@@ -695,6 +696,7 @@ class LocalWorkerRuntime:
             try:
                 initialize_platform_schema(connection)
                 prune_high_volume_events(connection)
+                drain_resource_history(connection)
             finally:
                 connection.close()
         except Exception:  # pragma: no cover - la retencion nunca debe interrumpir el batch

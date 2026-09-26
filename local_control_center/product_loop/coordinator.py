@@ -1880,6 +1880,11 @@ class ProductLoopCoordinator:
                     "ProductOwnerAgent blocked output must include an actionable question or decision with options."
                 )
             return "needs_input"
+        if status == "completed":
+            # The agent already applied requireBriefApproval and scope_is_clear (it returns
+            # brief_ready for those) and persisted the backlog; the model's own "brief_ready" label
+            # must not park the loop with nothing for the operator to act on (seen live).
+            return "backlog_ready"
         if status == "scope_is_clear" or output_status == "scope_is_clear":
             return "brief_ready"
         if status == "brief_ready" or output_status == "brief_ready":

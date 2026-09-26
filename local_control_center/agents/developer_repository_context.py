@@ -11,6 +11,10 @@ Solo entra lo que git considera parte del proyecto (versionado o nuevo sin ignor
 con forma de secreto, y todo texto pasa por ``redact_secrets``: el prompt puede ir a un proveedor
 remoto.
 
+En un rework también entra la versión base (el commit del que partió el hilo) de los archivos que el
+hilo ya cambió: sin ella un pedido como "restaura el README original" era imposible, porque el modelo
+solo veía la versión actual, la que él mismo había dañado (visto en vivo).
+
 @author Rodrigo Mason
 """
 
@@ -33,6 +37,9 @@ MAX_CONTENT_CHARS = 60_000
 
 MAX_FILE_CHARS = 12_000
 """Un archivo más grande se lista pero no se incluye: el modelo no podría reescribirlo completo."""
+
+MAX_BASE_CHARS = 24_000
+"""Presupuesto aparte para las versiones base de lo que el hilo ya cambió."""
 
 LOCKFILE_NAMES = frozenset(
     {
@@ -90,6 +97,54 @@ def workspace_paths(workspace_path: Path) -> list[str]:
     if completed.returncode != 0:
         return []
     return sorted({path for path in completed.stdout.split("\0") if path.strip()})
+
+
+def changed_since_base(workspace_path: Path, base_commit: str) -> list[str]:
+    """Rutas que el hilo cambió respecto del commit base (commiteadas o no), en orden estable."""
+    if not base_commit.strip() or not workspace_path.is_dir():
+        return []
+    try:
+        completed = run_git(["diff", "--name-only", "-z", base_commit, "--"], cwd=workspace_path)
+    except OSError as error:
+        logger.warning("DeveloperAgent base diff unavailable: %s", type(error).__name__)
+        return []
+    if completed.returncode != 0:
+        return []
+    return sorted({path for path in completed.stdout.split("\0") if path.strip()})
+
+
+def _base_version(workspace_path: Path, base_commit: str, path: str) -> str | None:
+    """Contenido del archivo en el commit base, o ``None`` si no existía o no es texto."""
+    try:
+        completed = run_git(["show", f"{base_commit}:{path}"], cwd=workspace_path)
+    except OSError:
+        return None
+    if completed.returncode != 0 or "\0" in completed.stdout[:8192]:
+        return None
+    return completed.stdout
+
+
+def render_base_versions(workspace_path: Path, base_commit: str, paths: list[str]) -> str:
+    """Bloque con la versión base de cada archivo cambiado que existía antes del hilo."""
+    sections: list[str] = []
+    remaining = MAX_BASE_CHARS
+    for path in paths:
+        if _is_secret_like(path) or PurePosixPath(path).name in LOCKFILE_NAMES:
+            continue
+        text = _base_version(workspace_path, base_commit, path)
+        if text is None or len(text) > MAX_FILE_CHARS or len(text) > remaining:
+            continue
+        remaining -= len(text)
+        sections.append(f"=== {path} (before this thread) ===\n{redact_secrets(text)}")
+    if not sections:
+        return ""
+    return "\n".join(
+        [
+            "Original content before this thread's changes (use it when asked to restore or keep "
+            "what existed before):",
+            *sections,
+        ]
+    )
 
 
 def _is_secret_like(path: str) -> bool:
@@ -172,7 +227,11 @@ def render_repository_context(workspace_path: Path, paths: list[str], *, focus_t
     return "\n".join(lines)
 
 
-def repository_context(workspace_path: str | Path, *, focus_text: str) -> str:
+def repository_context(workspace_path: str | Path, *, focus_text: str, base_commit: str = "") -> str:
     """Contexto del repositorio listo para el prompt, o cadena vacía si no hay nada que mostrar."""
     root = Path(workspace_path)
-    return render_repository_context(root, workspace_paths(root), focus_text=focus_text)
+    current = render_repository_context(root, workspace_paths(root), focus_text=focus_text)
+    base = (
+        render_base_versions(root, base_commit, changed_since_base(root, base_commit)) if base_commit else ""
+    )
+    return "\n\n".join(part for part in (current, base) if part)

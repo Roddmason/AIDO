@@ -288,6 +288,7 @@ def _developer_model_messages(
     connection: sqlite3.Connection | None = None,
     project_id: str | None = None,
     workspace_path: str | None = None,
+    base_commit: str = "",
 ) -> list[dict[str, str]]:
     """Mensajes del DeveloperAgent sobre un modelo: contrato JSON, tarea y contexto del repositorio.
 
@@ -300,7 +301,9 @@ def _developer_model_messages(
         '"tests":["test command or blocker"],"risks":["risk or blocker"]}'
     )
     context = (
-        repository_context(workspace_path, focus_text=f"{instruction}\n{story_specs or ''}")
+        repository_context(
+            workspace_path, focus_text=f"{instruction}\n{story_specs or ''}", base_commit=base_commit
+        )
         if workspace_path
         else ""
     )
@@ -499,6 +502,10 @@ class DeveloperAgentRunner:
                         connection=self.connection,
                         project_id=payload["projectId"],
                         workspace_path=str(workspace["path"]),
+                        base_commit=str(
+                            ((workspace.get("metadata") or {}).get("gitWorktree") or {}).get("sourceCommit")
+                            or ""
+                        ),
                     ),
                     "temperature": 0.2,
                     **local_model_call_input(

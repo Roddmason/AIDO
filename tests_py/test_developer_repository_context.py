@@ -143,3 +143,21 @@ def test_git_failure_degrades_to_no_context(tmp_path: Path, monkeypatch: pytest.
     )
 
     assert context_module.workspace_paths(tmp_path) == []
+
+
+def test_rework_context_shows_the_base_version_of_files_the_thread_changed(src_layout_repo: Path) -> None:
+    """Visto en vivo: un rework pidió "restaura el README original" y el modelo solo veía la versión
+    que él mismo había dañado. El contexto trae la versión del commit del que partió el hilo."""
+    _git(src_layout_repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "base")
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=src_layout_repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _write(src_layout_repo, "README.md", "# damaged\n")
+
+    rendered = repository_context(src_layout_repo, focus_text="restore the README", base_commit=base_commit)
+    without_base = repository_context(src_layout_repo, focus_text="restore the README")
+
+    assert "=== README.md ===\n# damaged\n" in rendered
+    assert "=== README.md (before this thread) ===\n# textkit\n\nUtilities for text.\n" in rendered
+    assert "before this thread" not in without_base
+    assert "src/textkit/stats.py (before this thread)" not in rendered

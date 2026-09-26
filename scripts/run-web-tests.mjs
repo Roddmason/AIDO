@@ -63,7 +63,8 @@ function releaseOwnedQualityRoot(code) {
 /**
  * Removes the Playwright output of a green run, as the process exits.
  *
- * The run owns `.tmp/playwright-artifacts-<pid>` only while PLAYWRIGHT_ARTIFACT_ROOT is unset; the
+ * The run owns its artifact root only while PLAYWRIGHT_ARTIFACT_ROOT is unset (inside its own
+ * evidence directory when it owns a quality root, `.tmp/playwright-artifacts-<pid>` otherwise); the
  * supervised quality runner always sets it to its own evidence directory, so that path is never
  * touched. A green run's output holds nothing worth keeping. A red one is exactly the traces and
  * screenshots someone needs to read, so it stays and the path is reported.
@@ -87,7 +88,11 @@ const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `play
 const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
-const artifactRoot = process.env.PLAYWRIGHT_ARTIFACT_ROOT || `.tmp/playwright-artifacts-${process.pid}`;
+// A standalone run keeps its Playwright output inside its own evidence directory, the same contract
+// the supervised runner uses; the lifecycle spec refuses to retain evidence anywhere else.
+const artifactRoot =
+	process.env.PLAYWRIGHT_ARTIFACT_ROOT ||
+	(ownedQualityRoot ? path.join(qualityRetained, 'playwright-artifacts') : `.tmp/playwright-artifacts-${process.pid}`);
 if (!process.env.PLAYWRIGHT_ARTIFACT_ROOT) {
 	process.on('exit', releaseOwnedArtifactRoot);
 }
@@ -316,6 +321,10 @@ if (status === 0) {
 		const projectDbPath = process.env.PLAYWRIGHT_DB_PATH || dbPath.replace(/\.sqlite$/, `-${project}.sqlite`);
 		const projectEnv = {
 			...process.env,
+			// Same contract as the supervised runner (local_control_center/quality/paths.py): temp files
+			// of the specs live inside the owned scratch. The lifecycle fixture refuses a database outside
+			// it, so without this the real-pipeline spec could only pass under the supervised runner.
+			...(supervised ? {} : { TEMP: qualityScratch, TMP: qualityScratch, TMPDIR: qualityScratch }),
 			AIDO_QUALITY_SCRATCH: qualityScratch,
 			AIDO_QUALITY_RETAINED: qualityRetained,
 			PLAYWRIGHT_DASHBOARD_PORT: dashboardPort,

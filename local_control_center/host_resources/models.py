@@ -108,6 +108,7 @@ class WorkloadProfile(_AliasedModel):
     exclusive: bool = False
     cpu_limit_percent: float = Field(alias="cpuLimitPercent", ge=1, le=100)
     memory_limit_bytes: int = Field(alias="memoryLimitBytes", ge=0)
+    memory_request_bytes: int | None = Field(default=None, alias="memoryRequestBytes", ge=0)
     process_limit: int = Field(alias="processLimit", ge=1)
     gpu_required: bool = Field(alias="gpuRequired")
 
@@ -132,6 +133,7 @@ class ResourceLease(_AliasedModel):
     owner_id: str = Field(alias="ownerId")
     cpu_limit_percent: float = Field(alias="cpuLimitPercent")
     memory_limit_bytes: int = Field(alias="memoryLimitBytes")
+    memory_request_bytes: int | None = Field(default=None, alias="memoryRequestBytes")
     process_limit: int = Field(alias="processLimit")
     gpu_required: bool = Field(alias="gpuRequired")
     acquired_at: str = Field(alias="acquiredAt")

@@ -59,10 +59,11 @@ def test_synthetic_endpoint_uses_funded_light_budget_without_changing_real_local
 
 
 def test_synthetic_scope_still_rejects_real_resource_pressure(owned_scope):
+    """La llamada remota reserva 0,5 GiB: con 16,25 GiB el margen sobre el piso es 0,25."""
     with closing(open_sqlite_connection(owned_scope)) as connection:
         initialize_platform_schema(connection)
         ResourceRepository(connection).record_sample(
-            ResourceSnapshot.test_snapshot(available_memory_bytes=17 * 1024**3)
+            ResourceSnapshot.test_snapshot(available_memory_bytes=int(16.25 * 1024**3))
         )
         with synthetic_runtime_scope(ENDPOINT, owned_scope):
             result = readiness(connection)

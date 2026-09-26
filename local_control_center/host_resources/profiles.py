@@ -54,6 +54,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=15,
         memory_limit_bytes=2 * GIB,
+        memory_request_bytes=GIB // 2,
         process_limit=4,
         gpu_required=False,
     ),
@@ -74,6 +75,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=40,
         memory_limit_bytes=8 * GIB,
+        memory_request_bytes=4 * GIB,
         process_limit=16,
         gpu_required=False,
     ),
@@ -94,6 +96,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=65,
         memory_limit_bytes=16 * GIB,
+        memory_request_bytes=10 * GIB,
         process_limit=32,
         gpu_required=False,
     ),
@@ -163,6 +166,21 @@ class ResourcePolicy:
 def workload_profile(workload_class: WorkloadClass) -> WorkloadProfile:
     """Devuelve el perfil canónico e inmutable de una clase de workload."""
     return WORKLOAD_PROFILES[workload_class]
+
+
+def admission_memory_bytes(profile: WorkloadProfile) -> int:
+    """Memoria que la admisión reserva para la clase: lo medido, o su tope si no hay medición.
+
+    El tope (``memory_limit_bytes``) sigue siendo el límite duro del Job Object; la reserva solo
+    decide cuánto margen del host se da por ocupado al admitir. Los valores salen de 20.747
+    procesos medidos con un margen de 34-40% sobre el máximo observado: ``agent_cli`` 4 GiB (máximo
+    2,99 GB), ``build_heavy`` 10 GiB (7,16 GB), ``remote_llm_light`` 512 MiB (87 MB). Las clases sin
+    muestra suficiente o con uso bimodal (``qa_light`` mezcla git de 42 MB con suites de 4 GB)
+    reservan su tope.
+    """
+    return (
+        profile.memory_limit_bytes if profile.memory_request_bytes is None else profile.memory_request_bytes
+    )
 
 
 def _setting(repository: SettingsRepository, key: str) -> Any:

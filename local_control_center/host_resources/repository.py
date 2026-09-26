@@ -23,6 +23,7 @@ from .models import (
     ResourceViolation,
     WorkloadProfile,
 )
+from .profiles import admission_memory_bytes
 
 
 def _lease_from_row(row: sqlite3.Row) -> ResourceLease:
@@ -34,6 +35,9 @@ def _lease_from_row(row: sqlite3.Row) -> ResourceLease:
             "ownerId": row["owner_id"],
             "cpuLimitPercent": row["cpu_limit_percent"],
             "memoryLimitBytes": row["memory_limit_bytes"],
+            "memoryRequestBytes": row["memory_request_bytes"]
+            if "memory_request_bytes" in row.keys()
+            else None,
             "processLimit": row["process_limit"],
             "gpuRequired": bool(row["gpu_required"]),
             "acquiredAt": row["acquired_at"],
@@ -125,9 +129,9 @@ class ResourceRepository:
             """
             INSERT INTO resource_leases
                 (id, execution_id, workload_class, owner_id, cpu_limit_percent,
-                 memory_limit_bytes, process_limit, gpu_required, acquired_at,
+                 memory_limit_bytes, memory_request_bytes, process_limit, gpu_required, acquired_at,
                  heartbeat_at, expires_at, released_at, release_reason, parent_execution_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?)
             """,
             (
                 lease_id,
@@ -136,6 +140,7 @@ class ResourceRepository:
                 request.owner_id,
                 profile.cpu_limit_percent,
                 profile.memory_limit_bytes,
+                admission_memory_bytes(profile),
                 profile.process_limit,
                 int(profile.gpu_required),
                 now_iso,

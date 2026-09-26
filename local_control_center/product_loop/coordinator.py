@@ -833,6 +833,26 @@ class ProductLoopCoordinator:
         user_messages = [message for message in threads.list_messages(thread_id) if message["kind"] == "user"]
         return user_messages[-1] if user_messages else None
 
+    def _continuation_root(self, request_meta: dict[str, Any]) -> str | None:
+        """Raíz del control plane con la que corrió el run que se continúa.
+
+        La continuación debe escribir su evidencia donde la escribió el run original. Sin raíz propia
+        (API de feedback, deny de la entrega) caía a la ruta del proyecto: el run dejaba
+        ``.tmp/evidence-artifacts`` dentro del repo del usuario y el siguiente run se bloqueaba por
+        árbol git sucio (visto en vivo en el flujo de punto a punto).
+        """
+        if self.root is not None:
+            return str(self.root)
+        job_id = str(request_meta.get("jobId") or "").strip()
+        if not job_id:
+            return None
+        try:
+            payload = self.jobs.get_job(job_id).get("payload") or {}
+        except KeyError:
+            return None
+        root = str(payload.get("root") or "").strip() if isinstance(payload, dict) else ""
+        return root or None
+
     def _delivery_change_request(self, loop_id: str, feedback: str) -> str:
         """Bloque con lo que el operador pidió cambiar, para que el PO y el Developer lo lean.
 
@@ -892,9 +912,11 @@ class ProductLoopCoordinator:
         if not message_id or not message:
             raise ProductLoopTransitionError("Feedback action continue requires the original thread message.")
 
-        root = self._queue_root(loop["projectId"])
+        root = self._continuation_root(request_meta)
         if not root:
-            raise ProductLoopTransitionError("Project root is required to queue Product Loop continuation.")
+            raise ProductLoopTransitionError(
+                "The control-plane root of the continued run is required to queue its continuation."
+            )
 
         change_request = self._delivery_change_request(loop["id"], feedback)
         run_message = f"{message}\n\n{change_request}" if change_request else message

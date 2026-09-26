@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.provider_health_retention import prune_provider_health_checks
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.executions.retention import prune_operational_executions
 from local_control_center.host_resources.governor import HostResourceGovernor
 from local_control_center.host_resources.models import ResourceSnapshot
 from local_control_center.host_resources.probes import HostResourceProbe
@@ -27,9 +29,11 @@ from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.host_resources.retention import drain_resource_history
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.process_supervision.memory_usage import live_memory_by_lease
+from local_control_center.remediations.retention import drain_remediation_retention
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import UNSET, SettingsRepository
-from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.db import incremental_vacuum_if_enabled, open_sqlite_connection
+from local_control_center.shared.diagnostics import diagnostic_event
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
@@ -695,7 +699,8 @@ class LocalWorkerRuntime:
 
         Complementa la poda de arranque del API para procesos de larga duracion; usa una
         conexion propia (el hilo del worker no puede reusar la del platform) y jamas
-        interrumpe el batch ante un fallo de poda.
+        interrumpe el batch ante un fallo de poda. Tras la retencion, libera paginas ya
+        truncables si la BD esta en modo incremental (no-op en cualquier otro modo).
         """
         now_monotonic = time.monotonic()
         last = self._last_telemetry_prune_monotonic
@@ -708,10 +713,19 @@ class LocalWorkerRuntime:
                 initialize_platform_schema(connection)
                 prune_high_volume_events(connection)
                 drain_resource_history(connection)
+                drain_remediation_retention(connection)
+                prune_provider_health_checks(connection)
+                prune_operational_executions(connection)
+                incremental_vacuum_if_enabled(connection)
             finally:
                 connection.close()
-        except Exception:  # pragma: no cover - la retencion nunca debe interrumpir el batch
-            pass
+        except Exception as error:  # la retencion nunca debe interrumpir el batch
+            diagnostic_event(
+                "worker.telemetry_prune.failed",
+                component="worker",
+                error=error,
+                level="WARNING",
+            )
 
     def _record_worker_event(self, event_type: str, payload: dict[str, Any] | None = None) -> None:
         connection = open_sqlite_connection(self.db_path)

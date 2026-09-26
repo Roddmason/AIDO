@@ -19,10 +19,18 @@ from typing import Any
 
 
 def open_sqlite_connection(db_path: str | Path, *, busy_timeout_ms: int = 30000) -> sqlite3.Connection:
-    """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit."""
+    """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit.
+
+    Una BD que todavia no existe (o existe con 0 bytes) nace en ``auto_vacuum=INCREMENTAL``. Ese
+    PRAGMA debe fijarse antes de cualquier escritura real al archivo: verificado empiricamente que
+    ``journal_mode=WAL`` ya cuenta como esa primera escritura (fija el header de la pagina 1) y
+    congela el modo en NONE aunque todavia no exista ninguna tabla — más estricto que "antes del
+    primer CREATE TABLE" (https://www.sqlite.org/pragma.html#pragma_auto_vacuum).
+    """
     require_safe_sqlite_runtime()
     resolved = Path(db_path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
+    is_new_database = not resolved.exists() or resolved.stat().st_size == 0
     connection = None
     started = time.monotonic()
     try:
@@ -31,6 +39,8 @@ def open_sqlite_connection(db_path: str | Path, *, busy_timeout_ms: int = 30000)
         )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        if is_new_database:
+            connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
         return connection
@@ -146,6 +156,20 @@ def sqlite_database_diagnostics(
         "walBytes": wal_path.stat().st_size if wal_path.exists() else 0,
         "sharedMemoryBytes": shm_path.stat().st_size if shm_path.exists() else 0,
     }
+
+
+def incremental_vacuum_if_enabled(connection: sqlite3.Connection, *, pages: int = 8192) -> bool:
+    """Libera hasta ``pages`` paginas ya truncables si la BD esta en ``auto_vacuum=INCREMENTAL``.
+
+    No-op (devuelve ``False``) en cualquier otro modo: el modo solo se fija en una BD nueva
+    (``initialize_platform_schema``) o mediante ``VACUUM`` (comando ``compact-db``), nunca aqui.
+    Con el ``page_size`` por defecto (4096 B), 8192 paginas son ~32 MiB por pasada.
+    """
+    mode = int(connection.execute("PRAGMA auto_vacuum").fetchone()[0])
+    if mode != 2:
+        return False
+    connection.execute(f"PRAGMA incremental_vacuum({int(pages)})")
+    return True
 
 
 def passive_wal_checkpoint(

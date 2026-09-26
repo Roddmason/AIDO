@@ -12,6 +12,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.remediations.compaction import compact_remediation_payload
 from local_control_center.remediations.contracts import (
     BLOCKER_TYPES,
     REMEDIATION_ACTION_TYPES,
@@ -142,7 +143,7 @@ class RemediationActionsRepository:
                 (
                     clean_title or existing["title"],
                     clean_description or existing["description"],
-                    json_dumps(redact_secrets(merged_payload)),
+                    json_dumps(compact_remediation_payload(redact_secrets(merged_payload))),
                     clean_reason or existing["technical_reason"],
                     1 if primary or bool(existing["is_primary"]) else 0,
                     1 if destructive or bool(existing["is_destructive"]) else 0,
@@ -172,7 +173,7 @@ class RemediationActionsRepository:
                 clean_title,
                 clean_description,
                 action_type,
-                json_dumps(clean_payload),
+                json_dumps(compact_remediation_payload(clean_payload)),
                 clean_reason,
                 1 if primary else 0,
                 1 if destructive else 0,

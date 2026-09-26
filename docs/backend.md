@@ -189,6 +189,96 @@ available at `GET /api/v1/telemetry/status`.
 collector smoke path. It skips cleanly unless `AIDO_OTEL_SMOKE=1` is set and
 does not make Docker a startup requirement.
 
+## Disk Retention And Vacuum
+
+Three tables grow unbounded from normal operation and are trimmed at the
+source, retained, and reclaimed from disk:
+
+- `provider_health_checks` (write: `agents/provider_accounts.py`
+  `ProviderAccountStore.record_health_check`, shared by the Ollama endpoint
+  router, the model gateway health-check route, provider catalog sync
+  failures, and the runtime preflight model-execution probe): the full model
+  list is never persisted. Only `modelCount` and the first 20 model ids are
+  stored; the live model list is always recomputed from the provider, never
+  read back from this table. Retention
+  (`agents/provider_health_retention.py`) drops rows older than 7 days while
+  always keeping the most recent row per `provider_id` (the only reader,
+  `ollama/api.py` `_latest_latency_for_provider`, always asks for that row).
+- `remediation_actions` (write: `remediations/repository.py`
+  `RemediationActionsRepository.create_action`): `payload.details` is
+  compacted before every insert/update through
+  `remediations/compaction.py`. `teamSchedule.roles` (the full per-role
+  execution profile: tools, quality gates, output JSON schema) is reduced to
+  one summary per role (`role`, `runtime`/model, `status`, `reason`, each
+  capped at 500 chars); no known reader walks the full role profile.
+  `resourceBlockers` keeps its nested shape (the resource-manager
+  reclassification in `remediations/payloads.py`
+  `decision_engine_failure`/`resource_selection_constraint_failure` reads
+  `decision.policyResult.decisionEngine` structurally and only checks for the
+  *presence* of a given `reason` inside `decision.rejected`/`.candidates`)
+  but is capped at 20 entries with every string truncated to 500 chars.
+  Measured: a single blocker can carry 3,454 rejected candidates (~547 KiB)
+  behind a handful of distinct `reason` values, so `rejected`/`candidates`
+  longer than 20 are sampled to keep one representative per distinct
+  `reason` (plus `<key>Total`/`<key>ByReason`) instead of a blind head-cut,
+  so a reader that only asks "does this reason exist" sees the same answer
+  before and after compaction. `remediations/retention.py` backfills rows
+  written before this change (`backfill_oversized_remediation_payloads`):
+  each pass reads and compacts outside any transaction and writes one
+  autocommit `UPDATE` per row (compacting a huge blocker costs ~300ms of
+  CPU, so batching writes inside a transaction would hold the write lock
+  while the API's own `busy_timeout` is running), bounded to 25 rows or 10
+  seconds per hourly pass, whichever comes first; idempotent (a row already
+  under the byte limit stops qualifying). Terminal actions
+  (`resolved`/`dismissed`/`failed`) older than 30 days are pruned;
+  `pending` rows are never pruned.
+- `operational_executions` (the durable queue/history behind
+  `executions/repository.py`): `executions/retention.py` prunes terminal
+  rows (`cancelled`/`completed`/`failed`/`blocked`/`interrupted`). Health
+  checks (`models.provider_health_check`, `models.health_cli_runtime`) use a
+  7-day window; every other operation uses 30 days. The most recent
+  completed `git.refresh` per project is always kept (the Git workspace
+  cache in `git_workspace/api.py` reads exactly that row).
+
+All three retention modules batch deletes/updates at 5,000 rows per
+transaction with a bounded number of batches per call, the same shape as
+`host_resources/retention.py` `drain_resource_history`: each batch is a
+short-lived operation so a large backlog never holds the write lock while
+the API and worker keep writing. They run once per hour from
+`workers/runtime.py` `LocalWorkerRuntime._prune_telemetry_if_due`, alongside
+the existing `prune_high_volume_events`/`drain_resource_history` calls. A
+failure in any retention step is captured and recorded through
+`shared.diagnostics.diagnostic_event` (level `WARNING`) instead of silently
+swallowed; it never interrupts the worker's job batch.
+
+SQLite's `auto_vacuum` mode can only move away from `NONE` before the first
+real write to the database file, or with `VACUUM`
+(https://www.sqlite.org/pragma.html#pragma_auto_vacuum). A brand-new
+database (file missing or 0 bytes) is opened in `auto_vacuum=INCREMENTAL` by
+`shared/db.py` `open_sqlite_connection`, and that PRAGMA must run before
+`journal_mode=WAL` is set: switching to WAL already performs the first real
+write (the page-1 header), so setting `auto_vacuum` afterwards is silently
+ignored even though no table exists yet. After every hourly retention pass,
+`shared/db.py` `incremental_vacuum_if_enabled` runs `PRAGMA
+incremental_vacuum(8192)` (~32 MiB per pass with the default 4 KiB page
+size) only when the database is already in incremental mode; it is a no-op
+otherwise.
+
+Converting an existing database (mode `NONE`, e.g. the platform database
+created before this change) to incremental mode is a one-time maintenance
+operation, not something the running worker should do implicitly:
+
+```powershell
+uv run python -m local_control_center.maintenance compact-db --db <path-to-platform.sqlite>
+```
+
+It refuses to run while the local worker looks alive (a
+`worker_leader_leases.heartbeat_at` younger than 60 seconds — that table,
+managed by `workers/leadership.py` `WorkerLeadershipRepository`, is the real
+leadership heartbeat; `jobs_approvals` has no worker heartbeat of its own)
+and otherwise runs `PRAGMA auto_vacuum=INCREMENTAL; VACUUM;`, reporting the
+file size before and after.
+
 ## API Composition
 
 `local_control_center.app.create_app()` is the canonical FastAPI composition

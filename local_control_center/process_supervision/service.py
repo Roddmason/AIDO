@@ -118,6 +118,19 @@ def _default_backend() -> ProcessSupervisor:
     return PosixProcessGroupSupervisor()
 
 
+def hard_memory_floor_bytes(connection: sqlite3.Connection) -> int:
+    """Piso duro de memoria libre (bytes) que protege al equipo en `_watch_control_loop`.
+
+    Lee `resources.hardFreeMemoryGiB` igual que `host_resources.profiles.resolve_resource_policy`.
+    Aislada como función de módulo para que la suite de tests pueda acotarla a un umbral de
+    agotamiento real sin tocar este comportamiento de producción (ver `tests_py/conftest.py`).
+    """
+    from local_control_center.host_resources.profiles import GIB, _setting
+    from local_control_center.settings.repository import SettingsRepository
+
+    return int(float(_setting(SettingsRepository(connection), "resources.hardFreeMemoryGiB")) * GIB)
+
+
 class ProcessSupervisorService:
     """Une persistencia, backend nativo, cancelación y liberación idempotente."""
 
@@ -759,13 +772,7 @@ class ProcessSupervisorService:
                         return
                     if not self.cleanup_only and time.monotonic() >= next_memory_check:
                         phase = "resource_check"
-                        from local_control_center.host_resources.profiles import GIB, _setting
-                        from local_control_center.settings.repository import SettingsRepository
-
-                        floor = (
-                            float(_setting(SettingsRepository(connection), "resources.hardFreeMemoryGiB"))
-                            * GIB
-                        )
+                        floor = hard_memory_floor_bytes(connection)
                         available = psutil.virtual_memory().available
                         if available < floor:
                             if pressure_since is None:

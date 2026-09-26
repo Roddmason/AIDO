@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import os
+import sqlite3
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -202,3 +203,36 @@ def manage_testclient_event_loops(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
         if getattr(client, "_aido_auto_entered", False):
             client.__exit__(None, None, None)
     gc.collect()
+
+
+REAL_HARD_FLOOR_MARKER = "real_hard_floor"
+TEST_HARD_MEMORY_FLOOR_BYTES = 3 * 1024**3
+"""Umbral de agotamiento real: bajo ~3 GiB libres Windows ya empieza a paginar fuerte, asi que por
+debajo de eso el corte deja de ser una decision de test y pasa a proteger al equipo de verdad."""
+
+
+@pytest.fixture(autouse=True)
+def capped_hard_memory_floor(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Acota el piso duro del vigilante de procesos a un umbral de agotamiento real en la suite.
+
+    `_watch_control_loop` (`process_supervision/service.py`) compara `resources.hardFreeMemoryGiB`
+    (8 GiB por defecto, sin gobernador que muestree en los tests) contra la memoria libre REAL del
+    equipo (`psutil.virtual_memory().available`), no contra un snapshot inyectado. En un equipo de
+    desarrollo con WSL y el navegador abiertos esa memoria libre oscila entre 7,8 y 9 GiB, asi que
+    el vigilante cancelaba ejecuciones (`hard_memory_floor`) al azar solo por la maquina donde
+    corre la suite, no por el codigo bajo prueba (visto en `test_durable_executions.py` y
+    `test_qa_agent_node_provisioning.py`). Se acota al MENOR entre el setting y
+    `TEST_HARD_MEMORY_FLOOR_BYTES`: nunca se relaja un piso mas bajo que alguien haya configurado a
+    proposito. Los tests que ejercitan el piso real con sus propios valores de memoria disponible
+    (`real_hard_floor`) quedan exentos.
+    """
+    if request.node.get_closest_marker(REAL_HARD_FLOOR_MARKER):
+        return
+    from local_control_center.process_supervision import service as process_supervision_service
+
+    original = process_supervision_service.hard_memory_floor_bytes
+
+    def capped_floor(connection: sqlite3.Connection) -> int:
+        return min(original(connection), TEST_HARD_MEMORY_FLOOR_BYTES)
+
+    monkeypatch.setattr(process_supervision_service, "hard_memory_floor_bytes", capped_floor)

@@ -36,6 +36,7 @@ pythonpath = ["."]
 testpaths = ["tests_py"]
 markers = [
     "real_host_resources: la admision usa la capacidad real del equipo en vez del host controlado.",
+    "real_hard_floor: el piso duro de memoria del vigilante usa el setting real, no el acotado de test.",
 ]
 filterwarnings = ["error"]
 # La suite se quedaba sin disco sola: pytest retenia el scratch de TODOS los tests, no solo de

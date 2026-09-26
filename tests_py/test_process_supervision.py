@@ -414,6 +414,7 @@ def test_durable_cancel_is_seen_by_running_process_and_blocks_next_stage(tmp_pat
             managed.process.stderr.close()
 
 
+@pytest.mark.real_hard_floor
 def test_hard_memory_floor_cancels_active_process_and_prevents_next_stage(tmp_path, monkeypatch):
     import time
     from types import SimpleNamespace
@@ -440,6 +441,7 @@ def test_hard_memory_floor_cancels_active_process_and_prevents_next_stage(tmp_pa
         service.complete(child, exit_code=child.process.poll())
 
 
+@pytest.mark.real_hard_floor
 def test_hard_memory_floor_spares_essential_control_plane_process(tmp_path, monkeypatch):
     import time
     from types import SimpleNamespace
@@ -473,6 +475,7 @@ def test_hard_memory_floor_spares_essential_control_plane_process(tmp_path, monk
         service.complete(essential, exit_code=0)
 
 
+@pytest.mark.real_hard_floor
 def test_local_backstop_yields_to_an_active_governor_in_the_gray_zone(tmp_path, monkeypatch):
     """Entre piso/2 y piso, con el gobernador global activo, el vigilante local no cancela solo."""
     import time
@@ -503,6 +506,7 @@ def test_local_backstop_yields_to_an_active_governor_in_the_gray_zone(tmp_path, 
         service.complete(child, exit_code=child.process.poll())
 
 
+@pytest.mark.real_hard_floor
 def test_local_backstop_still_stops_below_half_the_floor_even_with_an_active_governor(tmp_path, monkeypatch):
     """El piso/2 es una emergencia: manda incluso con el gobernador global activo."""
     import time
@@ -535,6 +539,7 @@ def test_local_backstop_still_stops_below_half_the_floor_even_with_an_active_gov
         service.complete(child, exit_code=child.process.poll())
 
 
+@pytest.mark.real_hard_floor
 def test_local_backstop_stops_when_the_governor_sample_is_stale_or_missing(tmp_path, monkeypatch):
     """Sin una muestra reciente del gobernador global, el vigilante local vuelve a ser la única red."""
     import time
@@ -562,6 +567,7 @@ def test_local_backstop_stops_when_the_governor_sample_is_stale_or_missing(tmp_p
         service.complete(child, exit_code=child.process.poll())
 
 
+@pytest.mark.real_hard_floor
 def test_local_backstop_escalates_after_sustained_pressure_even_with_an_active_governor(
     tmp_path, monkeypatch
 ):

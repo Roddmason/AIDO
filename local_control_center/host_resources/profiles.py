@@ -149,6 +149,9 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=15,
         memory_limit_bytes=2 * GIB,
+        # Cliente HTTP de un servidor residente: corre dentro del proceso del job y el modelo ya
+        # figura como memoria usada. Reserva como el otro cliente HTTP (remote_llm_light); ver ADR-004.
+        memory_request_bytes=GIB // 2,
         process_limit=4,
         gpu_required=False,
     ),

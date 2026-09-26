@@ -24,6 +24,7 @@ from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.host_resources.governor import HostResourceGovernor
 from local_control_center.process_supervision.service import ProcessSupervisorService
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.workers.runtime import LocalWorkerRuntime
 from tests_py.operational_acceptance_support import evidence, identities_gone, native_readback, wait_until
@@ -83,6 +84,14 @@ def test_http_worker_dispatcher_native_cli_keeps_api_and_contains_writers(
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "private-local"))
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=db)
     runtime.init()
+    # Los modos os-* lanzan el worker canónico como proceso aparte: el monkeypatch del host
+    # controlado no lo alcanza y con los pisos por defecto (16/8 GiB, 65% CPU) un equipo con 8-10
+    # GiB libres deja el job en resource_wait hasta el deadline. Este test prueba el watchdog y la
+    # contención de escritores, no la capacidad del host: solo esta BD de prueba baja los pisos.
+    settings = SettingsRepository(runtime.connection)
+    settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
+    settings.set_value("resources.minFreeMemoryGiB", "general", None, 2)
+    settings.set_value("resources.maxCpuPercent", "general", None, 95)
     register_workspace(runtime.connection, "offline-workspace", workspace)
     RuntimeConfigRepository(runtime.connection).upsert_installation(
         {"runtimeId": "codex_cli", "enabled": True, "executablePath": str(offline_codex)}

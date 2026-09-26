@@ -446,5 +446,4 @@ def finish_team_planning(coordinator, run, *, agent_tasks, team_schedule, backlo
     run.backlog_artifact = backlog_artifact
     run.agent_tasks = agent_tasks
     run.team_schedule = team_schedule
-    run.team_assignments = team_assignments
     return None

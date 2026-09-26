@@ -10,6 +10,7 @@ con cursor al agotar el rework.
 
 from __future__ import annotations
 
+import re
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -71,7 +72,13 @@ def _two_story_po() -> _ProductOwnerRunner:
 
 
 class _PerStoryRuntime(_ControlledRuntime):
-    """Runtime controlado cuyo resultado depende de la posición de la historia del payload."""
+    """Runtime controlado cuyo resultado depende de la posición de la historia del payload.
+
+    El payload del developer ya no trae ``agentTasks`` (adelgazamiento del contexto): la posición se
+    lee del sufijo ``:s{N}`` de ``taskId`` (``_run_story`` en ``story_loop.py`` lo arma con el mismo
+    índice que ``order_story_batches``). La identidad real de cada historia (``storyId``) se resuelve
+    después, desde el cursor durable, con ``_story_order_from_result``.
+    """
 
     def __init__(
         self,
@@ -82,13 +89,13 @@ class _PerStoryRuntime(_ControlledRuntime):
         super().__init__()
         self.qa_failures = dict(qa_failures or {})
         self.changed_by_story = dict(changed_files or {})
-        self.story_order: list[str] = []
 
-    def story_position(self, payload: dict[str, Any]) -> int:
-        story_id = str(payload["agentTasks"][0]["storyId"])
-        if story_id not in self.story_order:
-            self.story_order.append(story_id)
-        return self.story_order.index(story_id) + 1
+    @staticmethod
+    def story_position(payload: dict[str, Any]) -> int:
+        match = re.search(r":s(\d+)", str(payload.get("taskId") or ""))
+        if not match:
+            raise AssertionError(f"taskId is missing its story index marker: {payload.get('taskId')!r}")
+        return int(match.group(1))
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
         position = self.story_position(payload)
@@ -101,6 +108,17 @@ class _PerStoryRuntime(_ControlledRuntime):
         result["evidencePackage"] = {**result["evidencePackage"], "id": f"evidence-story-{position}"}
         result["qaResults"] = [{**item, "command": f"qa story {position}"} for item in self.qa_results]
         return result
+
+
+def _story_order_from_result(result: dict[str, Any]) -> list[str]:
+    """``storyId`` de cada historia en el orden real de ejecución, leído del cursor durable.
+
+    Reemplaza la lectura previa de ``payload["agentTasks"][0]["storyId"]``: el payload del developer
+    ya no trae ``agentTasks``. ``storyProgress`` se inicializa para todas las historias antes de
+    ejecutar la primera (mismo orden de ``order_story_batches``), asi que la posicion es estable
+    incluso si el loop bloquea a mitad de camino.
+    """
+    return [entry["storyId"] for entry in result["loop"]["context"]["durableRun"]["storyProgress"]]
 
 
 def _run(
@@ -138,8 +156,8 @@ def test_each_story_gets_its_own_scoped_developer_run(tmp_path: Path) -> None:
         assert result["status"] == "awaiting_approval"
         assert len(runtime.run_payloads) == 2
         first, second = runtime.run_payloads
-        assert {task["storyId"] for task in first["agentTasks"]} == {runtime.story_order[0]}
-        assert {task["storyId"] for task in second["agentTasks"]} == {runtime.story_order[1]}
+        assert "agentTasks" not in first
+        assert "agentTasks" not in second
         assert "Readiness checklist" in first["storySpecs"]
         assert "Setup reminders" not in first["storySpecs"]
         assert "Setup reminders" in second["storySpecs"]
@@ -177,7 +195,7 @@ def test_story_statuses_events_and_cursor_follow_each_story(tmp_path: Path) -> N
             for event in ThreadsRepository(connection).list_events(thread_id)
             if event["type"] == "story_progress"
         ]
-        first, second = runtime.story_order
+        first, second = _story_order_from_result(result)
         assert progress_events == [
             (first, "in_progress", 1, 2),
             (first, "qa", 1, 2),
@@ -229,7 +247,7 @@ def test_a_story_that_exhausts_rework_blocks_the_loop_and_keeps_the_cursor(tmp_p
         durable = result["loop"]["context"]["durableRun"]
         assert durable["blockedStage"] == "qa_rework"
         assert len(runtime.run_payloads) == 1 + 1 + DEFAULT_AUTO_REWORK_ROUNDS
-        first, second = runtime.story_order
+        first, second = _story_order_from_result(result)
         assert [(entry["storyId"], entry["status"]) for entry in durable["storyProgress"]] == [
             (first, "done"),
             (second, "blocked"),
@@ -252,7 +270,7 @@ def test_a_story_without_changes_is_closed_as_noop(tmp_path: Path) -> None:
         result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime)
 
         assert result["status"] == "awaiting_approval"
-        first, _second = runtime.story_order
+        first, _second = _story_order_from_result(result)
         story = BacklogRepository(connection).get_user_story(first)
         assert story["status"] == "done"
         assert story["metadata"]["outcome"] == "noop"
@@ -284,7 +302,7 @@ def _assert_story_one_verified_by_qa(
     suffixes = [payload["taskId"].split(":", 1)[1] for payload in runtime.run_payloads]
     assert suffixes == ["s1", "s1:r1", "s2"]
     assert "story_noop" not in [item.get("trigger") for item in result["transitions"]]
-    story = BacklogRepository(connection).get_user_story(runtime.story_order[0])
+    story = BacklogRepository(connection).get_user_story(_story_order_from_result(result)[0])
     assert story["status"] == "done"
     assert story["metadata"].get("outcome") != "noop"
 
@@ -511,7 +529,7 @@ def test_a_story_commit_failure_blocks_before_qa_and_security(
         assert all(LEAKED_TOKEN not in str(item.get("reason")) for item in result["transitions"])
         assert len(runtime.run_payloads) == 1
         assert security.run_payloads == []
-        first = runtime.story_order[0]
+        first = _story_order_from_result(result)[0]
         assert BacklogRepository(connection).get_user_story(first)["status"] == "blocked"
 
 

@@ -46,6 +46,7 @@ def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) 
         DEFAULT_AUTO_REWORK_ROUNDS,
         REWORK_STATE,
         ProductLoopStopConditionError,
+        _compact_runtime_result,
     )
     from local_control_center.shared.redaction import redact_secrets
 
@@ -70,7 +71,11 @@ def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) 
         actor=actor,
         context_patch=coordinator._durable_run_patch(
             loop,
-            {"status": "qa_running", "runtimeResult": runtime_result, "review": review},
+            {
+                "status": "qa_running",
+                "runtimeResult": _compact_runtime_result(runtime_result),
+                "review": review,
+            },
             evidence_package_ids=evidence_ids,
         ),
         thread_id=thread_id,
@@ -82,7 +87,7 @@ def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) 
         str(result.get("status") or "").strip().lower() for result in qa_results if isinstance(result, dict)
     ]
     qa_block_details = {
-        **runtime_result,
+        **_compact_runtime_result(runtime_result),
         "status": "qa_blocked",
         "workspaceId": workspace["id"],
         "workspacePath": workspace["path"],
@@ -286,7 +291,7 @@ def evaluate_qa_gate(coordinator: ProductLoopCoordinator, run: _UserMessageRun) 
             reason=reason,
             actor=actor,
             details={
-                **runtime_result,
+                **_compact_runtime_result(runtime_result),
                 "reason": reason,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],

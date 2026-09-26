@@ -31,6 +31,7 @@ from local_control_center.product_loop.coordinator import (
     ProductLoopStopConditionError,
     ProductLoopTransitionError,
     _bounded_instruction,
+    _compact_runtime_result,
 )
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
@@ -44,6 +45,41 @@ from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import ThreadMemoryService
 
 LOOP_TABLES = {"product_loops", "product_loop_transitions", "product_loop_feedback"}
+
+
+def test_compact_runtime_result_reduces_agent_run_to_id_and_status() -> None:
+    huge_input = {"teamSchedule": {"roles": ["x" * 1000] * 50}, "agentAssignments": ["y" * 1000] * 50}
+    runtime_result = {
+        "status": "completed",
+        "qaResults": [{"status": "passed"}],
+        "evidencePackage": {"qaVerdict": "passed"},
+        "agentRun": {
+            "id": "agent-run-1",
+            "status": "completed",
+            "input": huge_input,
+            "output": {"runtimeResult": {"status": "completed"}},
+        },
+    }
+
+    compacted = _compact_runtime_result(runtime_result)
+
+    assert compacted["agentRun"] == {"id": "agent-run-1", "status": "completed"}
+    assert "input" not in compacted["agentRun"]
+    assert "output" not in compacted["agentRun"]
+    # Everything else on runtimeResult is untouched (readers other than agentRun keep working).
+    assert compacted["qaResults"] == runtime_result["qaResults"]
+    assert compacted["evidencePackage"] == runtime_result["evidencePackage"]
+    # The input passed in is never mutated.
+    assert runtime_result["agentRun"]["input"] is huge_input
+
+
+def test_compact_runtime_result_tolerates_missing_or_partial_agent_run() -> None:
+    assert _compact_runtime_result(None) == {}
+    assert _compact_runtime_result({}) == {}
+    no_agent_run = {"status": "failed", "reason": "boom"}
+    assert _compact_runtime_result(no_agent_run) == no_agent_run
+    partial = {"agentRun": {"id": "agent-run-2"}}
+    assert _compact_runtime_result(partial) == {"agentRun": {"id": "agent-run-2"}}
 
 
 def test_runtime_validation_is_visible_before_resource_selection(tmp_path, monkeypatch):
@@ -3047,7 +3083,10 @@ def test_run_user_message_backlog_ready_persists_backlog_and_generates_agent_tas
         assert tasks
         assert tasks[0]["metadata"]["source"] == "technical_lead"
         assert technical_lead.payloads[0]["userStories"][0]["id"] == stories[0]["id"]
-        assert runtime.run_payloads[0]["agentTasks"][0]["id"] == tasks[0]["id"]
+        # agentTasks no viaja en el payload del developer (ya vive en durableRun.agentTasks); el
+        # runner nunca lo lee y agent_runs.input duplicaría el mismo blob por cada run del loop.
+        assert "agentTasks" not in runtime.run_payloads[0]
+        assert result["loop"]["context"]["durableRun"]["agentTasks"][0]["id"] == tasks[0]["id"]
         artifact_names = {
             artifact["metadata"].get("name")
             for artifact in EvidenceRepository(connection).list_all_artifacts()
@@ -3095,8 +3134,9 @@ def test_run_user_message_default_technical_lead_planner_generates_role_tasks(
         assert all(task["metadata"]["technicalLeadTaskId"] for task in tasks)
         qa_task = next(task for task in tasks if task["role"] == "qa_engineer")
         assert len(backlog.list_task_dependencies(task_id=qa_task["id"])) >= 2
-        runtime_roles = {task["role"] for task in runtime.run_payloads[0]["agentTasks"]}
-        assert {"frontend_engineer", "backend_engineer", "qa_engineer"} <= runtime_roles
+        assert "agentTasks" not in runtime.run_payloads[0]
+        durable_roles = {task["role"] for task in result["loop"]["context"]["durableRun"]["agentTasks"]}
+        assert {"frontend_engineer", "backend_engineer", "qa_engineer"} <= durable_roles
 
 
 def test_run_user_message_generic_feature_scope_still_generates_executable_agent_tasks(
@@ -3131,7 +3171,8 @@ def test_run_user_message_generic_feature_scope_still_generates_executable_agent
         roles = {task["role"] for task in tasks}
         assert {"backend_engineer", "qa_engineer"} <= roles
         assert "backend" in result["loop"]["context"]["durableRun"]["teamSchedule"]["scope"]
-        assert runtime.run_payloads[0]["agentTasks"]
+        assert "agentTasks" not in runtime.run_payloads[0]
+        assert result["loop"]["context"]["durableRun"]["agentTasks"]
 
 
 def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assignments(
@@ -3178,13 +3219,10 @@ def test_run_user_message_refactor_frontend_backend_creates_targeted_team_assign
             assignment["metadata"]["resourceDecision"]["selected"]["model"] == "qwen2.5-coder"
             for assignment in assignments
         )
-        assert runtime.run_payloads[0]["teamSchedule"]["schedulerVersion"] == 2
-        assert (
-            runtime.run_payloads[0]["teamSchedule"]["roles"][0]["resourceDecision"]["policyResult"][
-                "opaqueMlUsed"
-            ]
-            is False
-        )
+        # teamSchedule ya no viaja en el payload del developer (ver durableRun.teamSchedule arriba,
+        # que ya cubre schedulerVersion/roles); el runner nunca lo lee.
+        assert "teamSchedule" not in runtime.run_payloads[0]
+        assert team_schedule["roles"][0]["resourceDecision"]["policyResult"]["opaqueMlUsed"] is False
         assert runtime.run_payloads[0]["preferredRuntime"] == "ollama"
         assert runtime.run_payloads[0]["model"] == "qwen2.5-coder"
         assert runtime.run_payloads[0]["resourceSelection"]["providerId"] == "ollama"
@@ -5112,7 +5150,6 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
         assert runtime.run_payloads[0]["projectId"] == project["id"]
         assert runtime.run_payloads[0]["workspaceId"].startswith("workspace-")
         assert runtime.run_payloads[0]["instruction"] == "Implement an auditable onboarding dashboard."
-        assert runtime.run_payloads[0]["agentTasks"]
         assert git.gitleaks_calls == 1
         assert [item["toState"] for item in result["transitions"]] == [
             "goal_received",
@@ -5131,6 +5168,60 @@ def test_run_user_message_with_controlled_runtime_executes_and_awaits_approval(t
             "review_ready",
             "awaiting_approval",
         ]
+
+
+def test_developer_payload_drops_team_planning_blobs_and_context_keeps_agent_run_reference(
+    tmp_path: Path,
+) -> None:
+    """El contrato nuevo: el payload del developer no repite teamSchedule/agentAssignments/agentTasks
+
+    (ya viven completos en ``durableRun``, y el runner nunca los lee del payload), y ``durableRun``
+    guarda ``runtimeResult.agentRun`` como referencia (``id``/``status``) en vez de la fila completa
+    de ``agent_runs`` (que trae de vuelta el payload de entrada del developer en ``input``).
+    """
+    runtime = _ControlledRuntime()
+    git = _GitGate()
+    product_owner = _backlog_ready_po()
+    assessment = _AssessmentRunner()
+    technical_lead = _TechnicalLeadPlanner()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "developer-payload-slim")
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        result = coordinator.run_user_message(
+            project_id=project["id"],
+            message="Implement an auditable onboarding dashboard.",
+            preferred_runtime="controlled_test_runtime",
+            runtime_runner=runtime,
+            git_service=git,
+            product_owner_runner=product_owner,
+            assessment_runner=assessment,
+            technical_lead_runner=technical_lead,
+        )
+
+        assert result["status"] == "awaiting_approval"
+        payload = runtime.run_payloads[0]
+        assert "teamSchedule" not in payload
+        assert "agentAssignments" not in payload
+        assert "agentTasks" not in payload
+        # The runner still gets everything it actually reads.
+        assert payload["projectId"] == project["id"]
+        assert payload["workspaceId"]
+        assert payload["taskId"]
+        assert payload["instruction"]
+        assert payload["storySpecs"] is not None
+        assert payload["metadata"]["loopId"] == result["loop"]["id"]
+
+        durable = result["loop"]["context"]["durableRun"]
+        # The canonical single copies used by runtime_risk_review/thread_board stay intact.
+        assert durable["teamSchedule"]
+        assert durable["agentTasks"]
+        agent_run_ref = durable["runtimeResult"]["agentRun"]
+        assert agent_run_ref == {"id": "agent-run-controlled"}
+        assert "input" not in agent_run_ref
+        assert "output" not in agent_run_ref
 
 
 def test_run_user_message_keeps_durable_result_when_thread_event_persistence_crashes(

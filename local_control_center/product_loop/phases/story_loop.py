@@ -199,6 +199,8 @@ def _finish_noop_story(
     total: int,
     runs: int,
 ) -> None:
+    from local_control_center.product_loop.coordinator import _compact_runtime_result
+
     run.loop = coordinator._transition_run_state(
         run.loop,
         to_state="qa_running",
@@ -206,7 +208,7 @@ def _finish_noop_story(
         trigger="story_noop",
         actor=run.actor,
         context_patch=coordinator._durable_run_patch(
-            run.loop, {"status": "qa_running", "runtimeResult": run.runtime_result}
+            run.loop, {"status": "qa_running", "runtimeResult": _compact_runtime_result(run.runtime_result)}
         ),
         thread_id=run.thread_id,
     )

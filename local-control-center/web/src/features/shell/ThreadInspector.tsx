@@ -47,6 +47,7 @@ import type {
 	AgentProfile,
 	Overview,
 	Project,
+	ThreadAgentEvent,
 	ThreadArtifact,
 	ThreadDetail,
 } from '../../api/types';
@@ -205,6 +206,7 @@ export function ThreadInspector({
 		panel = (
 			<PlanPanel
 				loop={loop}
+				events={detail.data?.events}
 				hasRepairCard={hasRepairCard}
 				onFocusRepair={focusRepair}
 				onOpenSettings={onOpenSettings}
@@ -284,7 +286,7 @@ function ThreadVitals({
 	const { t } = useI18n();
 	if (!threadId) return null;
 	const thread = detail.data?.thread ?? null;
-	const activeLoop = loop.data ? activeLoopOf(loop.data) : null;
+	const activeLoop = loop.data ? threadLoopOf(loop.data, detail.data?.events) : null;
 	const pendingDecisions =
 		detail.data?.decisions.filter((decision) => decision.status === 'pending').length ?? 0;
 	if (!thread && !activeLoop) return null;
@@ -957,6 +959,25 @@ function activeLoopOf(data: LoopData): LoopRecord | null {
 }
 
 /**
+ * The thread's own loop: the newest one its events reference. The loop resource is project-wide, so
+ * the most recently updated loop could belong to another thread, or be an old loop of this thread
+ * closed after its delivery (seen live: "cancelled" on a delivered thread). Falls back to the
+ * project-wide choice while the thread has no loop events yet.
+ */
+function threadLoopOf(
+	data: LoopData,
+	events: ReadonlyArray<ThreadAgentEvent> | undefined,
+): LoopRecord | null {
+	const loops = new Map(data.loops.map((loop) => [loop.id, loop]));
+	const newestFirst = [...(events ?? [])].sort((left, right) => right.sequence - left.sequence);
+	for (const event of newestFirst) {
+		const loopId = event.payload?.loopId;
+		if (typeof loopId === 'string' && loops.has(loopId)) return loops.get(loopId) ?? null;
+	}
+	return activeLoopOf(data);
+}
+
+/**
  * The blocked loop, stated first and paired with the one control that clears it. The repair itself is
  * never re-implemented here: when the thread has a persisted remediation the action moves focus to that
  * card — the only place carrying the backend's recommended fix — and otherwise it falls back to opening
@@ -999,11 +1020,13 @@ function PlanBlockerBanner({
 
 function PlanPanel({
 	loop,
+	events,
 	hasRepairCard,
 	onFocusRepair,
 	onOpenSettings,
 }: {
 	loop: InspectorResource<LoopData>;
+	events: ReadonlyArray<ThreadAgentEvent> | undefined;
 	hasRepairCard: boolean;
 	onFocusRepair: () => void;
 	onOpenSettings: (section?: string) => void;
@@ -1012,7 +1035,7 @@ function PlanPanel({
 	return (
 		<ResourceGate resource={loop}>
 			{(data) => {
-				const activeLoop = activeLoopOf(data);
+				const activeLoop = threadLoopOf(data, events);
 				if (!activeLoop) {
 					return (
 						<EmptyState

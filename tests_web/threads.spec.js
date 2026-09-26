@@ -130,7 +130,13 @@ test('Threads: a failed first message keeps the intake and retries the same empt
 	const afterFailure = await afterFailureResponse.json();
 	expect(afterFailure.threads).toHaveLength(before.threads.length + 1);
 
+	// The retried POST reaches the real backend (route.continue()); wait for its response to land
+	// before asserting on persisted state, or the direct API reads below can race the in-flight write.
+	const retryPostResponse = page.waitForResponse(
+		(response) => response.url().includes('/messages') && response.request().method() === 'POST',
+	);
 	await page.getByRole('button', { name: 'Create thread' }).click();
+	await retryPostResponse;
 	await expect.poll(() => postAttempts, { timeout: 20_000 }).toBe(2);
 	const afterRetryResponse = await page.request.get(`/api/v1/threads?projectId=${project.id}`);
 	const afterRetry = await afterRetryResponse.json();

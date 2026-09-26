@@ -16,6 +16,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 
+from local_control_center.product_loop.eta import safe_estimate_thread_eta
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_team.configuration import write_thread_runtime_team
 from local_control_center.runtime_team.facts import load_runtime_facts
@@ -95,6 +96,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "artifacts": repo.list_artifacts(thread_id, limit=THREAD_DETAIL_ARTIFACT_TAIL),
             "decisions": repo.list_decisions(thread_id),
             "events": repo.list_events(thread_id, limit=THREAD_DETAIL_EVENT_TAIL),
+            "eta": safe_estimate_thread_eta(
+                platform.connection, thread_id=thread_id, project_id=thread["projectId"]
+            ),
         }
 
     def latest_thread_audit(thread_id: str, action: str, project_id: str) -> dict[str, Any]:
@@ -426,6 +430,9 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "lastSeq": last_seq,
                 "threadStatus": thread["status"],
                 "running": thread["status"] in {"queued", "running"},
+                "eta": safe_estimate_thread_eta(
+                    platform.connection, thread_id=thread_id, project_id=thread["projectId"]
+                ),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error

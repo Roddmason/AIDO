@@ -21,15 +21,17 @@ export interface StatusChipProps {
 	children: ReactNode;
 	tone?: StatusTone;
 	className?: string;
+	title?: string;
 }
 
-export function StatusChip({ children, tone, className }: StatusChipProps) {
+export function StatusChip({ children, tone, className, title }: StatusChipProps) {
 	const prefersReducedMotion = useReducedMotion();
 	return (
 		<m.span
 			key={tone ?? 'default'}
 			className={cn('badge', className)}
 			data-tone={tone}
+			title={title}
 			variants={TONE_CHANGE}
 			initial={prefersReducedMotion ? false : 'initial'}
 			animate="animate"

@@ -556,13 +556,27 @@ def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -
             title="Review approval thread",
         )
         ThreadsRepository(connection).set_status(thread["id"], "awaiting_approval")
-        # Pregunta del PO de un run anterior que quedó pendiente: tras aceptar la entrega ya no aplica.
+        delivered_message = ThreadsRepository(connection).append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Deliver the review."
+        )
+        newer_message = ThreadsRepository(connection).append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Now add a changelog."
+        )
+        # Pregunta del PO de un run anterior del mismo pedido: tras aceptar la entrega ya no aplica.
         stale_question = ThreadsRepository(connection).create_decision(
             thread_id=thread["id"],
             title="README template?",
             prompt="Should the README section follow a template?",
             options=["Standard Markdown documentation"],
-            metadata={"source": "product_owner_agent"},
+            metadata={"source": "product_owner_agent", "sourceMessageId": delivered_message["id"]},
+        )
+        # Pregunta vigente de OTRO pedido del mismo hilo: aceptar esta entrega no la puede tocar.
+        live_question = ThreadsRepository(connection).create_decision(
+            thread_id=thread["id"],
+            title="Changelog format?",
+            prompt="Which changelog format?",
+            options=["Keep a Changelog"],
+            metadata={"source": "product_owner_agent", "sourceMessageId": newer_message["id"]},
         )
         job = JobsRepository(connection).create_job(
             project_id=project_id,
@@ -586,7 +600,7 @@ def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -
                 "durableRun": {
                     **dict(loop["context"].get("durableRun") or {}),
                     "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
-                    "thread": {"projectThreadId": thread["id"]},
+                    "thread": {"projectThreadId": thread["id"], "messageId": delivered_message["id"]},
                 },
             },
         )
@@ -607,6 +621,7 @@ def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -
         # Visto en vivo: la pregunta seguía en la barra de ejecución del hilo ya entregado; responderla
         # habría reabierto trabajo sobre una entrega aceptada.
         assert ThreadsRepository(connection).get_decision(stale_question["id"])["status"] == "dismissed"
+        assert ThreadsRepository(connection).get_decision(live_question["id"])["status"] == "pending"
         # El job solo contiene la decisión: si quedaba "queued", el worker lo fallaba con
         # "Unsupported job kind" justo después de una entrega aprobada (visto en vivo).
         assert JobsRepository(connection).get_job(job["id"])["status"] == "completed"

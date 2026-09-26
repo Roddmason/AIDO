@@ -1080,9 +1080,11 @@ class ProductLoopCoordinator:
         thread_id = self._delivery_thread_id(loop)
         if not thread_id:
             return None
+        dismissed: list[str] = []
         if decision == "accept":
             status = "resolved"
             event_type = "completed"
+            dismissed = self._dismiss_open_product_owner_decisions(thread_id)
         elif decision == "request_changes":
             status = "open"
             event_type = "reworking"
@@ -1109,7 +1111,39 @@ class ProductLoopCoordinator:
             "threadId": thread_id,
             "decision": decision,
             "status": status,
+            **({"dismissedDecisionIds": dismissed} if dismissed else {}),
         }
+
+    def _dismiss_open_product_owner_decisions(self, thread_id: str) -> list[str]:
+        """Descarta las preguntas del PO que siguen pendientes en un hilo cuya entrega se aceptó.
+
+        Visto en vivo: una pregunta de un run anterior seguía en la barra de ejecución del hilo ya
+        entregado; responderla habría reabierto trabajo sobre una entrega aceptada. También cierra la
+        pregunta o decisión de producto enlazada, para que el PO no la vuelva a pedir.
+        """
+        threads = ThreadsRepository(self.connection)
+        dismissed: list[str] = []
+        for item in threads.list_decisions(thread_id):
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            if item["status"] != "pending" or metadata.get("source") != PRODUCT_OWNER_AGENT_ID:
+                continue
+            threads.resolve_decision(
+                thread_id=thread_id,
+                decision_id=item["id"],
+                resolution="Superseded: the delivery was accepted without this answer.",
+                decided_by="aido_lead",
+                status="dismissed",
+            )
+            question_id = str(metadata.get("clarificationQuestionId") or "").strip()
+            if question_id:
+                with suppress(KeyError):
+                    self.discovery.update_clarification_question(question_id, {"status": "dismissed"})
+            product_decision_id = str(metadata.get("productDecisionId") or "").strip()
+            if product_decision_id:
+                with suppress(KeyError):
+                    self.discovery.update_product_decision(product_decision_id, {"status": "superseded"})
+            dismissed.append(item["id"])
+        return dismissed
 
     def _record_loop_event(
         self,

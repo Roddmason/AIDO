@@ -406,6 +406,13 @@ class ThreadMessageResultResponse(BaseModel):
     events: list[ThreadAgentEventRecord]
 
 
+MAX_DECISION_FREE_TEXT_CHARS = 4000
+"""Tope del texto libre de una respuesta: el PO lo relee entero en su próximo turno."""
+
+MAX_DECISION_SELECTED_OPTIONS = 20
+"""Tope de opciones elegidas en una respuesta; ninguna pregunta real ofrece tantas."""
+
+
 class ThreadDecisionResolveRequest(BaseModel):
     """Cuerpo para resolver una solicitud de decisión pendiente del hilo.
 
@@ -414,9 +421,11 @@ class ThreadDecisionResolveRequest(BaseModel):
     debe traer contenido.
     """
 
-    resolution: str | None = None
-    selected_options: list[str] = Field(default_factory=list, alias="selectedOptions")
-    free_text: str | None = Field(default=None, alias="freeText")
+    resolution: str | None = Field(default=None, max_length=MAX_DECISION_FREE_TEXT_CHARS)
+    selected_options: list[str] = Field(
+        default_factory=list, alias="selectedOptions", max_length=MAX_DECISION_SELECTED_OPTIONS
+    )
+    free_text: str | None = Field(default=None, alias="freeText", max_length=MAX_DECISION_FREE_TEXT_CHARS)
     decided_by: str | None = Field(default=None, alias="decidedBy")
 
 
@@ -431,8 +440,10 @@ class ThreadDecisionBatchAnswer(BaseModel):
     """Una respuesta dentro de un lote: misma forma que ``ThreadDecisionResolveRequest`` por decisión."""
 
     decision_id: str = Field(alias="decisionId")
-    selected_options: list[str] = Field(default_factory=list, alias="selectedOptions")
-    free_text: str | None = Field(default=None, alias="freeText")
+    selected_options: list[str] = Field(
+        default_factory=list, alias="selectedOptions", max_length=MAX_DECISION_SELECTED_OPTIONS
+    )
+    free_text: str | None = Field(default=None, alias="freeText", max_length=MAX_DECISION_FREE_TEXT_CHARS)
 
 
 class ThreadDecisionBatchResolveRequest(BaseModel):

@@ -839,6 +839,10 @@
       "en": "Send answers",
       "es": "Enviar respuestas"
     },
+    "app.threads.decision.submitFailed": {
+      "en": "The answers could not be sent: {reason}",
+      "es": "No se pudieron enviar las respuestas: {reason}"
+    },
     "app.threads.decision.option.continueExisting.label": {
       "en": "Continue the existing work",
       "es": "Continuar el trabajo existente"

@@ -19,7 +19,7 @@
  */
 import { AlertTriangle } from 'lucide-react';
 import { m } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import type { ThreadDecision } from '../../api/types';
 import { Button, Checkbox, Radio, TextArea } from '../../components/ui';
@@ -64,6 +64,10 @@ type ThreadDecisionAnswersProps = {
 	onSubmit: (answers: DecisionAnswer[]) => Promise<void> | void;
 };
 
+/** Same bound as the API (`threads/contracts.py::MAX_DECISION_FREE_TEXT_CHARS`): the Product
+ * Owner re-reads the whole free text on its next turn. */
+const MAX_FREE_TEXT_CHARS = 4000;
+
 function hasAnswer(draft: Draft | undefined): boolean {
 	if (!draft) return false;
 	return draft.selectedOptions.length > 0 || draft.freeText.trim().length > 0;
@@ -74,6 +78,9 @@ function hasAnswer(draft: Draft | undefined): boolean {
 export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecisionAnswersProps) {
 	const { t } = useI18n();
 	const [drafts, setDrafts] = useState<DraftState>({});
+	const [submitError, setSubmitError] = useState('');
+	// A ref, not state: a fast double click fires twice before the host's `busy` re-renders.
+	const submittingRef = useRef(false);
 
 	const answerable = useMemo(
 		() => decisions.filter((decision) => decision.status === 'pending'),
@@ -94,9 +101,29 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 	if (answerable.length === 0) return null;
 
 	const handleSubmit = async () => {
-		if (readyAnswers.length === 0) return;
-		await onSubmit(readyAnswers);
-		setDrafts({});
+		if (readyAnswers.length === 0 || submittingRef.current) return;
+		submittingRef.current = true;
+		setSubmitError('');
+		try {
+			await onSubmit(readyAnswers);
+			setDrafts({});
+		} catch (error) {
+			// The API validates the whole batch before resolving any answer; on failure the drafts
+			// stay so nothing typed is lost, and the host reloads the thread so an answer that was
+			// already applied (a 409 partial batch) leaves this list.
+			const reason =
+				error instanceof Error && error.message
+					? error.message
+					: t('app.controlPlane.error.operationFailed', 'Operation failed.');
+			setSubmitError(
+				t('app.threads.decision.submitFailed', 'The answers could not be sent: {reason}').replace(
+					'{reason}',
+					reason,
+				),
+			);
+		} finally {
+			submittingRef.current = false;
+		}
 	};
 
 	const setDraft = (decisionId: string, patch: Partial<Draft>) => {
@@ -117,7 +144,9 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 		>
 			{answerable.map((decision) => {
 				const draft = drafts[decision.id] ?? { selectedOptions: [], freeText: '' };
-				const hasOptions = decision.options.length > 0;
+				// A repeated option would collide as a React key and render twice.
+				const options = Array.from(new Set(decision.options));
+				const hasOptions = options.length > 0;
 				const isPoDecision = isProductOwnerDecision(decision);
 				// Mutually exclusive types (similarity, existing functionality, intake) keep a single
 				// choice; only Product Owner questions/decisions accept several plus free text.
@@ -138,7 +167,7 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 						{hasOptions && allowsMultiple ? (
 							<fieldset className="thread-decision-options">
 								<legend className="sr-only">{decision.title}</legend>
-								{decision.options.map((option) => (
+								{options.map((option) => (
 									<Checkbox
 										key={option}
 										label={decisionOptionLabel(option, t)}
@@ -161,7 +190,7 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 								role="radiogroup"
 								aria-label={decision.title}
 							>
-								{decision.options.map((option) => (
+								{options.map((option) => (
 									<Radio
 										key={option}
 										name={`decision-${decision.id}`}
@@ -183,6 +212,7 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 									"If none of the options fit, describe what you want instead — it's used along with anything you checked above.",
 								)}
 								rows={2}
+								maxLength={MAX_FREE_TEXT_CHARS}
 								disabled={busy}
 								value={draft.freeText}
 								onChange={(event) => setDraft(decision.id, { freeText: event.target.value })}
@@ -196,6 +226,7 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 									'No preset options for this one: type the answer AIDO should work from.',
 								)}
 								rows={3}
+								maxLength={MAX_FREE_TEXT_CHARS}
 								disabled={busy}
 								value={draft.freeText}
 								onChange={(event) => setDraft(decision.id, { freeText: event.target.value })}
@@ -212,6 +243,11 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 			>
 				{t('app.threads.decision.submitAnswers', 'Send answers')}
 			</Button>
+			{submitError ? (
+				<div className="form-error" role="alert">
+					{submitError}
+				</div>
+			) : null}
 		</section>
 	);
 }

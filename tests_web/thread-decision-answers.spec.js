@@ -339,3 +339,39 @@ test('Decisions: a Product Owner question with options still offers free text fo
 		]);
 	await expect(answerCard).toBeHidden({ timeout: 20_000 });
 });
+
+test('Decisions: a rejected batch says why inline and keeps what the operator typed', async ({ page }) => {
+	await mockThreadDecisions(page, [
+		{
+			id: 'decision-rejected',
+			title: 'Backend Language',
+			prompt: 'Which backend language should the team use?',
+			options: [],
+			metadata: { source: 'product_owner_agent' },
+			status: 'pending',
+		},
+	]);
+	// Registered after the mock, so it takes precedence: the real endpoint answers 422 with the
+	// reason of the first answer it could not accept, before resolving any of them.
+	await page.route('**/api/v1/threads/*/decisions/resolve-batch', async (route) => {
+		await route.fulfill({
+			status: 422,
+			contentType: 'application/json',
+			body: JSON.stringify({ detail: 'Decision decision-rejected: Thread is already running' }),
+		});
+	});
+
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Decision rejected ${Date.now()}`);
+
+	const pane = page.locator('.thread-execution-pane');
+	const answerCard = pane.locator('.thread-decision-console', { hasText: 'Backend Language' });
+	await expect(answerCard).toBeVisible({ timeout: 20_000 });
+	const answer = answerCard.getByLabel(/Your answer|Tu respuesta/i);
+	await answer.fill('Python');
+	await pane.getByRole('button', { name: /Send answers|Enviar respuestas/ }).click();
+
+	await expect(pane.getByRole('alert')).toContainText(/Thread is already running/, { timeout: 20_000 });
+	await expect(answer).toHaveValue('Python');
+});

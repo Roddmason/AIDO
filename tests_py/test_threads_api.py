@@ -2105,3 +2105,222 @@ def test_resolve_decisions_batch_is_atomic_when_one_decision_is_not_pending(tmp_
         )
     finally:
         runtime.close()
+
+
+def _similarity_decision_with_remediation(runtime, project_id: str, thread_id: str, suffix: str) -> dict:
+    """Decisión excluyente real: similitud con su remediation ``answer_question`` pendiente."""
+    decision = ThreadsRepository(runtime.connection).create_decision(
+        thread_id=thread_id,
+        title=f"Similar thread detected {suffix}",
+        prompt="Continue the existing thread, improve it, or create a new one?",
+        options=list(SIMILARITY_ACTIONS),
+        metadata={"similarityCandidateId": f"thread-{suffix}", "similarityScore": 0.9},
+    )
+    runtime.connection.execute(
+        """
+        INSERT INTO remediation_actions
+            (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+             action_type, payload_json, status, created_at, resolved_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+        """,
+        (
+            f"remediation-similarity-{suffix}",
+            project_id,
+            thread_id,
+            "thread-similarity",
+            "thread_similarity",
+            "thread_similarity_decision_required",
+            "Similar thread detected",
+            "Choose one of the offered options.",
+            "answer_question",
+            json.dumps({"threadId": thread_id, "decisionId": decision["id"]}),
+            "2026-01-01T00:00:00.000Z",
+        ),
+    )
+    return decision
+
+
+def _user_answer_messages(threads_repo: ThreadsRepository, thread_id: str) -> list[dict]:
+    return [
+        message
+        for message in threads_repo.list_messages(thread_id)
+        if message["kind"] == "user" and (message.get("metadata") or {}).get("decisionIds")
+    ]
+
+
+def test_resolve_decisions_batch_validates_every_option_before_resolving_any(tmp_path: Path) -> None:
+    """Reproduce el hallazgo de la revisión: la primera decisión válida quedaba resuelta y sin
+    mensaje cuando la segunda traía una opción no ofrecida; ahora nada se resuelve."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        first = _similarity_decision_with_remediation(runtime, project_id, thread["id"], "one")
+        second = _similarity_decision_with_remediation(runtime, project_id, thread["id"], "two")
+        threads_repo = ThreadsRepository(runtime.connection)
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [
+                    {"decisionId": first["id"], "selectedOptions": [next(iter(SIMILARITY_ACTIONS))]},
+                    {"decisionId": second["id"], "selectedOptions": ["not_a_real_option"]},
+                ],
+                "decidedBy": "user",
+            },
+        )
+
+        assert response.status_code == 422, response.text
+        assert second["id"] in response.json()["detail"]
+        assert threads_repo.get_decision(first["id"])["status"] == "pending"
+        assert threads_repo.get_decision(second["id"])["status"] == "pending"
+        assert _user_answer_messages(threads_repo, thread["id"]) == []
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_rejects_options_that_were_never_offered(tmp_path: Path) -> None:
+    """Una decisión del PO sin remediation sincronizada ya no acepta una opción inventada."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        threads_repo = ThreadsRepository(runtime.connection)
+        decision = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Backend Language",
+            prompt="Which backend language?",
+            options=["Python", "Go"],
+            metadata={"source": "product_owner_agent"},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={"answers": [{"decisionId": decision["id"], "selectedOptions": ["Rust (not offered)"]}]},
+        )
+
+        assert response.status_code == 422, response.text
+        assert threads_repo.get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_rejects_a_repeated_decision_and_several_exclusive_options(
+    tmp_path: Path,
+) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = _similarity_decision_with_remediation(runtime, project_id, thread["id"], "exclusive")
+        threads_repo = ThreadsRepository(runtime.connection)
+        option = next(iter(SIMILARITY_ACTIONS))
+
+        repeated = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [
+                    {"decisionId": decision["id"], "selectedOptions": [option]},
+                    {"decisionId": decision["id"], "selectedOptions": [option]},
+                ]
+            },
+        )
+        several = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [{"decisionId": decision["id"], "selectedOptions": list(SIMILARITY_ACTIONS)[:2]}]
+            },
+        )
+
+        assert repeated.status_code == 422, repeated.text
+        assert several.status_code == 422, several.text
+        assert "single option" in several.json()["detail"]
+        assert threads_repo.get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_never_hides_a_resolution_when_a_later_one_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si algo que la validación previa no ve falla a mitad de camino, lo ya resuelto queda en el
+    chat y la respuesta dice cuántas se aplicaron (409), en vez de un 422 que sugiere que nada pasó."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        threads_repo = ThreadsRepository(runtime.connection)
+        first = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Frontend\nFramework",
+            prompt="Which frontend framework?",
+            options=["React + TypeScript"],
+            metadata={"source": "product_owner_agent"},
+        )
+        second = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Backend Language",
+            prompt="Which backend language?",
+            options=[],
+            metadata={"source": "product_owner_agent"},
+        )
+        original = BlockerRemediationService.resolve_thread_decision
+
+        def fail_on_second(self, **kwargs):
+            if kwargs["decision_id"] == second["id"]:
+                raise ValueError("thread was resumed by the previous answer")
+            return original(self, **kwargs)
+
+        monkeypatch.setattr(BlockerRemediationService, "resolve_thread_decision", fail_on_second)
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [
+                    {"decisionId": first["id"], "selectedOptions": ["React + TypeScript"]},
+                    {"decisionId": second["id"], "freeText": "Python"},
+                ]
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        assert "Resolved 1 of 2" in response.json()["detail"]
+        assert threads_repo.get_decision(first["id"])["status"] == "resolved"
+        messages = _user_answer_messages(threads_repo, thread["id"])
+        assert [message["content"] for message in messages] == ["Frontend Framework: React + TypeScript"]
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_bounds_the_free_text(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Backend Language",
+            prompt="Which backend language?",
+            options=[],
+            metadata={"source": "product_owner_agent"},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={"answers": [{"decisionId": decision["id"], "freeText": "x" * 4001}]},
+        )
+
+        assert response.status_code == 422, response.text
+    finally:
+        runtime.close()

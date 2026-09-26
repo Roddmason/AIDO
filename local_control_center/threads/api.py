@@ -596,15 +596,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         Cada resolución individual sigue usando su propia transacción corta (mismo camino que el
         endpoint de a una, incluida su remediation real cuando existe) — anidar todo el lote en una
         única transacción SQL chocaría con otros métodos de remediations que abren la suya propia
-        sin importar si ya hay una activa. En su lugar, una validación previa (decisión pendiente y
-        del hilo correcto, respuesta no vacía) se corre para todo el lote antes de resolver ninguna,
-        para que el motivo más común de fallo a mitad de camino nunca llegue a mutar nada.
+        sin importar si ya hay una activa. En su lugar, antes de resolver la primera se valida el
+        lote entero con las mismas reglas que la resolución real (``validate_thread_decision_answer``:
+        opciones ofrecidas, exclusividad, texto libre, remediación vigente, hilo sin run activo) y
+        se rechazan decisiones repetidas. Si aun así una falla a mitad de camino, lo ya resuelto
+        queda en el chat y el 409 dice qué se aplicó: resolver es irreversible y nunca debe quedar
+        una decisión resuelta sin rastro.
         """
         require_write(request)
         if not body.answers:
             raise HTTPException(status_code=422, detail="At least one answer is required")
         threads_repo = ThreadsRepository(platform.connection)
         service = BlockerRemediationService(platform.connection, root=getattr(platform, "cwd", None))
+        seen_ids = [answer.decision_id for answer in body.answers]
+        repeated = sorted({decision_id for decision_id in seen_ids if seen_ids.count(decision_id) > 1})
+        if repeated:
+            raise HTTPException(
+                status_code=422, detail=f"Decision answered more than once: {', '.join(repeated)}"
+            )
         prepared: list[tuple[Any, str]] = []
         for answer in body.answers:
             resolution_text = _combined_answer_text(
@@ -616,23 +625,36 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     detail=f"selectedOptions or freeText is required for decision {answer.decision_id}",
                 )
             try:
-                decision = threads_repo.get_decision(answer.decision_id)
+                service.validate_thread_decision_answer(
+                    thread_id=thread_id,
+                    decision_id=answer.decision_id,
+                    selected_options=answer.selected_options,
+                    free_text=answer.free_text,
+                )
             except KeyError as error:
                 raise HTTPException(status_code=404, detail=str(error)) from error
-            if decision["threadId"] != thread_id:
-                raise HTTPException(status_code=404, detail=f"Decision not found: {answer.decision_id}")
-            if decision["status"] != "pending":
+            except ValueError as error:
                 raise HTTPException(
-                    status_code=422,
-                    detail=f"Decision {answer.decision_id} is already {decision['status']}",
-                )
+                    status_code=422, detail=f"Decision {answer.decision_id}: {error}"
+                ) from error
             prepared.append((answer, resolution_text))
 
         summary_lines: list[str] = []
         resolved_ids: list[str] = []
-        try:
-            for answer, resolution_text in prepared:
-                decision_before = threads_repo.get_decision(answer.decision_id)
+
+        def record_answers() -> None:
+            if resolved_ids:
+                threads_repo.append_message(
+                    thread_id=thread_id,
+                    kind="user",
+                    author=body.decided_by or "user",
+                    content="\n".join(summary_lines),
+                    metadata={"decisionIds": resolved_ids},
+                )
+
+        for answer, resolution_text in prepared:
+            decision_before = threads_repo.get_decision(answer.decision_id)
+            try:
                 service.resolve_thread_decision(
                     thread_id=thread_id,
                     decision_id=answer.decision_id,
@@ -643,29 +665,29 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     free_text=answer.free_text,
                     suppress_message=True,
                 )
-                if answer.selected_options or (answer.free_text or "").strip():
-                    threads_repo.update_decision_metadata(
-                        answer.decision_id,
-                        {
-                            "answer": {
-                                "selectedOptions": answer.selected_options,
-                                "freeText": answer.free_text or "",
-                            }
-                        },
-                    )
-                summary_lines.append(f"{decision_before['title']}: {resolution_text}")
-                resolved_ids.append(answer.decision_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        threads_repo.append_message(
-            thread_id=thread_id,
-            kind="user",
-            author=body.decided_by or "user",
-            content="\n".join(summary_lines),
-            metadata={"decisionIds": resolved_ids},
-        )
+            except (KeyError, ValueError) as error:
+                record_answers()
+                raise HTTPException(
+                    status_code=409 if resolved_ids else (404 if isinstance(error, KeyError) else 422),
+                    detail=(
+                        f"Resolved {len(resolved_ids)} of {len(prepared)} answers; decision "
+                        f"{answer.decision_id} failed: {error}"
+                    ),
+                ) from error
+            if answer.selected_options or (answer.free_text or "").strip():
+                threads_repo.update_decision_metadata(
+                    answer.decision_id,
+                    {
+                        "answer": {
+                            "selectedOptions": answer.selected_options,
+                            "freeText": answer.free_text or "",
+                        }
+                    },
+                )
+            title = " ".join(str(decision_before["title"]).split())
+            summary_lines.append(f"{title}: {resolution_text}")
+            resolved_ids.append(answer.decision_id)
+        record_answers()
         decisions = [threads_repo.get_decision(answer.decision_id) for answer, _ in prepared]
         return {"thread": threads_repo.get_thread(thread_id), "decisions": decisions}
 

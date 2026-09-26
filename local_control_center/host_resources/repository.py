@@ -413,13 +413,19 @@ class ResourceRepository:
         self,
         *,
         execution_id: str,
-        lease_id: str | None,
+        lease_id: str,
         violation_type: str,
         action: str,
         reason: str,
         now_iso: str | None = None,
     ) -> ResourceViolation:
-        """Registra una infracción y la mitigación solicitada."""
+        """Registra una infracción y la mitigación solicitada.
+
+        Siempre ligada a una lease: `cancellation_reason` solo ve violaciones de leases activas, así que
+        una violación sin lease quedaría invisible y nunca cancelaría nada.
+        """
+        if not lease_id:
+            raise ValueError("A resource violation must reference the lease it evicts.")
         violation = ResourceViolation(
             id=f"resource-violation-{uuid.uuid4()}",
             execution_id=execution_id,

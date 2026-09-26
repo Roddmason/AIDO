@@ -307,6 +307,8 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
     workspace git con commits reales de la iteración, y el ``accept`` del operador dispara el
     aterrizaje ``direct_push`` (merge a la base + GC de la rama) como efecto de la entrega.
     """
+    from local_control_center.jobs_approvals.repository import JobsRepository
+    from local_control_center.jobs_approvals.worker import execute_job
     from local_control_center.shared.db import open_sqlite_connection
     from local_control_center.shared.migrations import initialize_platform_schema
     from tests_py.test_product_loop_coordinator import _approval_loop_with_action
@@ -359,9 +361,9 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
 
         def land_after_commit(service, **kwargs):
             assert not service.connection.in_transaction
-            pending = coordinator.get(loop["id"])["context"]["durableRun"]["landing"]
-            assert pending["status"] == "pending"
-            assert pending["feedbackId"]
+            queued = coordinator.get(loop["id"])["context"]["durableRun"]["landing"]
+            assert queued["status"] == "queued"
+            assert queued["feedbackId"]
             return real_land(service, **kwargs)
 
         monkeypatch.setattr(ProductLoopDeliveryService, "land", land_after_commit)
@@ -372,27 +374,36 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
             actor="operator",
         )
 
+        # Aprobar no espera los git: el aterrizaje queda encolado para el worker.
         assert accepted["loop"]["state"] == "delivered"
-        landing_evidence = (accepted["loop"]["context"].get("durableRun") or {}).get("landing") or {}
-        assert landing_evidence.get("status") == "landed", landing_evidence
+        queued = accepted["loop"]["context"]["durableRun"]["landing"]
+        assert queued["status"] == "queued"
+        assert run_git(["show", "devbase:landing.py"], cwd=repo).returncode != 0
+
+        landing_job = JobsRepository(connection).get_job(queued["jobId"])
+        assert landing_job["kind"] == "product_loop.land_delivery"
+        executed = execute_job(landing_job, connection=connection, db_path=tmp_path / "platform.sqlite")
+
+        assert executed["metadata"]["landingStatus"] == "landed"
         # El trabajo de la HU quedó en la base y la rama de trabajo se recicló.
         show = run_git(["show", "devbase:landing.py"], cwd=repo)
         assert show.returncode == 0 and "x = 1" in show.stdout
         assert run_git(["rev-parse", "--verify", "codex/landing-hu"], cwd=repo).returncode != 0
-        landing_evidence = (accepted["loop"]["context"].get("durableRun") or {}).get("landing") or {}
+        landing_evidence = coordinator.get(loop["id"])["context"]["durableRun"]["landing"]
         assert landing_evidence.get("status") == "landed"
+        assert landing_evidence.get("jobId") == landing_job["id"]
 
 
-def test_a_landing_blocked_for_capacity_waits_in_a_worker_job_that_lands_it(tmp_path: Path) -> None:
-    """Aceptar corre el aterrizaje en la petición HTTP, sin lease: sus git piden su propia reserva.
+def test_a_landing_denied_for_capacity_is_not_a_missing_base_and_its_job_retries_it(tmp_path: Path) -> None:
+    """Un git que el gobernador no admite no prueba que la rama base falte.
 
-    Visto en vivo: con el modelo local cargado el gobernador negó el ``git rev-parse`` (qa_light
-    reserva 4 GiB y quedaban 1,5 de holgura), el aterrizaje se reportó como "base_branch_missing" y
-    la entrega aprobada nunca llegó a la base. Ahora el bloqueo por capacidad queda como espera y un
-    job del worker —cuyo lease cubre a sus git hijos— completa el aterrizaje.
+    Visto en vivo: con el modelo local cargado el gobernador negó el ``git rev-parse`` de la base
+    (qa_light reserva 4 GiB y quedaban 1,5 de holgura); el aterrizaje lo leyó como
+    "base_branch_missing" y cayó a la rama de origen del worktree (aquí habría mergeado en otra base).
+    Ahora queda ``landing_waiting_capacity``, el job falla con ese motivo y su reintento aterriza.
     """
     from local_control_center.jobs_approvals.repository import JobsRepository
-    from local_control_center.jobs_approvals.worker import execute_job
+    from local_control_center.jobs_approvals.worker import JobExecutionUnavailable, execute_job
     from local_control_center.shared.db import open_sqlite_connection
     from local_control_center.shared.migrations import initialize_platform_schema
     from local_control_center.workspaces_projects import git_worktrees
@@ -415,6 +426,13 @@ def test_a_landing_blocked_for_capacity_waits_in_a_worker_job_that_lands_it(tmp_
             loop["id"],
             context={**loop["context"], "durableRun": {**durable, "workspaceId": workspace["id"]}},
         )
+        accepted = coordinator.apply_feedback(
+            loop["id"], action="accept", feedback="Evidence accepted.", actor="operator"
+        )
+        assert JobsRepository(connection).get_job(approval_job["id"])["status"] == "completed"
+        landing_job = JobsRepository(connection).get_job(
+            accepted["loop"]["context"]["durableRun"]["landing"]["jobId"]
+        )
 
         real_git = git_worktrees.run_brokered_git
         denied: list[list[str]] = []
@@ -435,23 +453,20 @@ def test_a_landing_blocked_for_capacity_waits_in_a_worker_job_that_lands_it(tmp_
 
         git_worktrees.run_brokered_git = capacity_denied_once
         try:
-            accepted = coordinator.apply_feedback(
-                loop["id"], action="accept", feedback="Evidence accepted.", actor="operator"
-            )
+            with pytest.raises(JobExecutionUnavailable) as waiting:
+                execute_job(landing_job, connection=connection, db_path=tmp_path / "platform.sqlite")
         finally:
             git_worktrees.run_brokered_git = real_git
 
-        assert accepted["loop"]["state"] == "delivered"
-        landing = accepted["loop"]["context"]["durableRun"]["landing"]
+        assert waiting.value.status == "landing_waiting_capacity"
+        landing = coordinator.get(loop["id"])["context"]["durableRun"]["landing"]
         assert landing["status"] == "landing_waiting_capacity", landing
         assert landing["merge"]["status"] == "git_blocked"
-        assert JobsRepository(connection).get_job(approval_job["id"])["status"] == "completed"
-        retry_job = JobsRepository(connection).get_job(landing["retryJobId"])
-        assert retry_job["kind"] == "product_loop.land_delivery"
-        assert retry_job["status"] == "queued"
+        # No cayó a la rama de origen del worktree: nada se mergeó en ninguna base.
         assert run_git(["show", "devbase:capacity-hu.py"], cwd=repo).returncode != 0
+        assert run_git(["show", "master:capacity-hu.py"], cwd=repo).returncode != 0
 
-        executed = execute_job(retry_job, connection=connection, db_path=tmp_path / "platform.sqlite")
+        executed = execute_job(landing_job, connection=connection, db_path=tmp_path / "platform.sqlite")
 
         assert executed["metadata"]["landingStatus"] == "landed"
         assert coordinator.get(loop["id"])["context"]["durableRun"]["landing"]["status"] == "landed"

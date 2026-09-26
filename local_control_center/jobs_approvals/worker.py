@@ -496,11 +496,12 @@ def execute_job(
 
 
 def _execute_delivery_landing_job(job: dict, *, connection: Any) -> dict:
-    """Completa el aterrizaje de una entrega aprobada que el gobernador dejó esperando capacidad.
+    """Aterriza en la rama base la entrega aprobada que encoló la aprobación.
 
-    El aterrizaje corre primero en la petición de aprobación, sin lease padre: cada git pide su
-    propia reserva (``qa_light``) y con el host justo el gobernador lo negaba. Aquí el lease del
-    job cubre a los git hijos. Un aterrizaje ya resuelto no se repite.
+    Corre en el worker, no en la petición de aprobación: ahí tardaba ~23 s y, sin lease padre, cada
+    git pedía su propia reserva (``qa_light``) y el gobernador la negaba con el host justo. Aquí el
+    lease del job cubre a los git hijos. Un aterrizaje ya resuelto no se repite; uno bloqueado o
+    fallido deja el job fallido con su motivo y la evidencia en el loop.
     """
     loop_id = str(job["payload"].get("loopId") or "").strip()
     if not loop_id:
@@ -510,7 +511,7 @@ def _execute_delivery_landing_job(job: dict, *, connection: Any) -> dict:
             metadata={"kind": job["kind"]},
         )
     coordinator = ProductLoopCoordinator(connection, root=job["payload"].get("root"))
-    landing = coordinator.retry_delivery_landing(loop_id)
+    landing = coordinator.land_queued_delivery(loop_id)
     status = str(landing.get("status") or "unknown")
     metadata = {"loopId": loop_id, "landingStatus": status}
     if status in {LANDING_WAITING_CAPACITY, "landing_blocked", "landing_failed"}:

@@ -39,6 +39,8 @@ from .spec_artifacts import exclude_aido_artifacts
 PR_MODES = {"auto_pr", "manual_pr"}
 DELIVERY_LANDING_JOB_KIND = "product_loop.land_delivery"
 """Job del worker que completa un aterrizaje que el gobernador de recursos dejó esperando."""
+LANDING_QUEUED = "queued"
+"""La entrega aprobada espera su job de aterrizaje en el worker."""
 LANDING_WAITING_CAPACITY = "landing_waiting_capacity"
 """El gobernador de recursos no admitió un git del aterrizaje: se reintenta en un job del worker."""
 

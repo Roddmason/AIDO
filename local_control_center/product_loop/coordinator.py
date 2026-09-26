@@ -96,7 +96,12 @@ from local_control_center.threads.similarity import SIMILARITY_ACTIONS, ThreadMe
 # monkeypatch.setattr(coordinator, "capture_git_diff", ...) siga interceptando la captura del diff.
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff as capture_git_diff
 
-from .delivery import DELIVERY_LANDING_JOB_KIND, LANDING_WAITING_CAPACITY, ProductLoopDeliveryService
+from .delivery import (
+    DELIVERY_LANDING_JOB_KIND,
+    LANDING_QUEUED,
+    LANDING_WAITING_CAPACITY,
+    ProductLoopDeliveryService,
+)
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .phases import approval as approval_phase
 from .phases import discovery as discovery_phase
@@ -810,60 +815,68 @@ class ProductLoopCoordinator:
             loop["id"], context={**loop["context"], "durableRun": durable}
         )
 
-    def _land_delivered_work(
-        self, loop: dict[str, Any], *, queue_retry: bool = True
-    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        """Aterriza la rama de trabajo del loop recién entregado según ``project.git.integrationMode``.
+    def _landing_root(self, project_id: str) -> Path:
+        return self.root if self.root is not None else Path(self._queue_root(project_id) or ".")
 
-        Best-effort: un aterrizaje bloqueado o fallido se persiste como evidencia en el contexto
-        durable (``landing``) y como efecto, pero jamás revierte la entrega ya aprobada. Si el
-        gobernador de recursos no admitió sus git (corre en la petición, sin lease padre), encola un
-        job ``product_loop.land_delivery``: el lease del worker cubre a sus git hijos.
+    def _queue_delivery_landing(
+        self, loop: dict[str, Any], *, feedback_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Encola el aterrizaje de la entrega recién aprobada en un job ``product_loop.land_delivery``.
+
+        Aterrizar en la petición de aprobación la dejaba colgada ~23 s (cada git pasa por el broker y
+        el supervisor; visto en el spec del ciclo de vida) y, sin lease padre, cada git pedía su propia
+        reserva: con el host justo el gobernador lo negaba (visto en vivo). En el worker, el lease del
+        job cubre a sus git hijos y la admisión espera capacidad. Jamás revierte la entrega aprobada.
         """
         durable = self._durable_run_context(loop)
-        workspace_id = str(durable.get("workspaceId") or "").strip()
-        if not workspace_id:
+        if not str(durable.get("workspaceId") or "").strip():
             return loop, None
+        job = self.jobs.create_job(
+            project_id=str(loop["projectId"]),
+            kind=DELIVERY_LANDING_JOB_KIND,
+            payload={"loopId": loop["id"], "root": str(self._landing_root(str(loop["projectId"])))},
+            idempotency_key=f"product-loop-landing:{loop['id']}",
+        )["job"]
+        durable["landing"] = {"status": LANDING_QUEUED, "jobId": job["id"], "feedbackId": feedback_id}
+        durable["updatedAt"] = utc_now()
+        loop = self.repository.update_loop_context(
+            loop["id"], context={**loop["context"], "durableRun": durable}
+        )
+        return loop, {"type": "delivery_landing", "status": LANDING_QUEUED, "jobId": job["id"]}
+
+    def _land_delivered_work(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Aterriza la rama de trabajo del loop entregado según ``project.git.integrationMode``.
+
+        Best-effort: un aterrizaje bloqueado o fallido se persiste como evidencia en el contexto
+        durable (``landing``), pero jamás revierte la entrega ya aprobada.
+        """
+        durable = self._durable_run_context(loop)
         project_id = str(loop["projectId"])
-        root = self.root if self.root is not None else Path(self._queue_root(project_id) or ".")
         try:
-            landing = ProductLoopDeliveryService(self.connection, root=root).land(
+            landing = ProductLoopDeliveryService(self.connection, root=self._landing_root(project_id)).land(
                 project_id=project_id,
-                workspace_id=workspace_id,
+                workspace_id=str(durable.get("workspaceId") or "").strip(),
                 loop_id=str(loop["id"]),
                 title=str(loop.get("title") or ""),
                 loop=loop,
             )
         except Exception as error:
             landing = {"status": "landing_failed", "reason": redact_secrets(str(error))}
-        if queue_retry and landing.get("status") == LANDING_WAITING_CAPACITY:
-            landing["retryJobId"] = self.jobs.create_job(
-                project_id=project_id,
-                kind=DELIVERY_LANDING_JOB_KIND,
-                payload={"loopId": loop["id"], "root": str(root)},
-                idempotency_key=f"product-loop-landing:{loop['id']}",
-            )["job"]["id"]
-        durable["landing"] = redact_secrets(landing)
+        durable["landing"] = redact_secrets({**landing, "jobId": (durable.get("landing") or {}).get("jobId")})
         durable["updatedAt"] = utc_now()
-        loop = self.repository.update_loop_context(
-            loop["id"], context={**loop["context"], "durableRun": durable}
-        )
-        return loop, {
-            "type": "delivery_landing",
-            "status": str(landing.get("status") or "unknown"),
-            "effectiveMode": landing.get("effectiveMode"),
-            "degradedFrom": landing.get("degradedFrom"),
-            "baseBranch": landing.get("baseBranch"),
-        }
+        self.repository.update_loop_context(loop["id"], context={**loop["context"], "durableRun": durable})
+        return durable["landing"]
 
-    def retry_delivery_landing(self, loop_id: str) -> dict[str, Any]:
-        """Reintenta el aterrizaje de una entrega que esperó capacidad; si ya se resolvió, no hace nada."""
+    def land_queued_delivery(self, loop_id: str) -> dict[str, Any]:
+        """Aterriza una entrega aprobada desde su job; un aterrizaje ya resuelto no se repite."""
         loop = self.get(loop_id)
         landing = self._durable_run_context(loop).get("landing") or {}
-        if loop["state"] != DELIVERED_STATE or landing.get("status") != LANDING_WAITING_CAPACITY:
+        if loop["state"] != DELIVERED_STATE or landing.get("status") not in {
+            LANDING_QUEUED,
+            LANDING_WAITING_CAPACITY,
+        }:
             return landing
-        loop, _effect = self._land_delivered_work(loop, queue_retry=False)
-        return self._durable_run_context(loop).get("landing") or {}
+        return self._land_delivered_work(loop)
 
     def _delivery_thread_id(self, loop: dict[str, Any]) -> str:
         thread = self._durable_run_context(loop).get("thread")
@@ -5845,15 +5858,8 @@ class ProductLoopCoordinator:
                 actor=actor,
             )
             loop = self._record_delivery_approval_decision(loop, approval_effect)
-            # Persist the delivery intent with approval; Git/network effects run only after commit.
-            durable = self._durable_run_context(loop)
-            landing_effect = None
-            if durable.get("workspaceId"):
-                durable["landing"] = {"status": "pending", "feedbackId": feedback_id}
-                loop = self.repository.update_loop_context(
-                    loop["id"], context={**loop["context"], "durableRun": durable}
-                )
-                landing_effect = {"type": "delivery_landing", "status": "pending"}
+            # Queue the landing with the approval, atomically; its Git/network effects run in the worker.
+            loop, landing_effect = self._queue_delivery_landing(loop, feedback_id=feedback_id)
             thread_effect = self._sync_delivery_feedback_thread_state(
                 loop=loop,
                 decision=action,
@@ -6284,13 +6290,6 @@ class ProductLoopCoordinator:
             raise ProductLoopTransitionError(
                 f"Concurrent product loop feedback application detected for product loop {loop_id}."
             ) from error
-        if action_key == "accept" and any(effect["type"] == "delivery_landing" for effect in effects):
-            updated_loop, landing_effect = self._land_delivered_work(updated_loop)
-            if landing_effect:
-                effects = [effect for effect in effects if effect["type"] != "delivery_landing"]
-                feedback_record = self.repository.update_feedback_effects(
-                    feedback_record["id"], effects=[*effects, landing_effect], status="applied"
-                )
         return {
             "loop": updated_loop,
             "feedback": feedback_record,

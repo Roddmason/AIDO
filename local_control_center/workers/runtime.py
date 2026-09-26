@@ -304,7 +304,11 @@ class LocalWorkerRuntime:
                 self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
                 continue
             self._ensure_leadership_watcher()
-            self._refresh_runtime_health_if_due()
+            if str(control["desiredState"]) == "running":
+                # En pausa los refrescos encolados no pueden correr y quedan a la cabeza de la cola:
+                # el "run once" que el operador pide para SU operación ejecutaba un health check en
+                # su lugar. Dentro de un job la salud rancia se renueva sola (RuntimeStatusService).
+                self._refresh_runtime_health_if_due()
             self._resume_cooldown_blocked_threads_if_due()
             try:
                 from local_control_center.process_supervision.recovery import recover_managed_processes

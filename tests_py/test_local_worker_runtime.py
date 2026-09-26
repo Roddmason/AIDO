@@ -931,3 +931,34 @@ def test_run_batch_prunes_stale_http_telemetry(tmp_path: Path) -> None:
     with closing(open_sqlite_connection(db_path)) as connection, connection:
         throttled = connection.execute("SELECT id FROM events WHERE id = 'event-old-http-2'").fetchone()
     assert throttled is not None
+
+
+@pytest.mark.parametrize("desired_state", ["paused", "running"])
+def test_only_a_running_worker_enqueues_the_periodic_health_refresh(monkeypatch, tmp_path, desired_state):
+    """En pausa los refrescos encolados no pueden correr y quedan a la cabeza de la cola: el "run
+    once" que el operador pide para SU operación ejecutaba un health check en su lugar (visto en el
+    spec del ciclo de vida: `projects.discover_project` quedó en cola 10 minutos)."""
+    from local_control_center.workers.leadership import WorkerControlRepository
+
+    runtime, _client_unused = _client(tmp_path)
+    worker = LocalWorkerRuntime(db_path=runtime.db_path, cwd=tmp_path)
+    refreshes = []
+    try:
+        WorkerControlRepository(runtime.connection).request_state(desired_state, reason="test")
+        monkeypatch.setattr(worker, "_govern_resources_if_due", lambda: True)
+        monkeypatch.setattr(worker, "_ensure_leadership_watcher", lambda: None)
+        monkeypatch.setattr(worker, "_resume_cooldown_blocked_threads_if_due", lambda: None)
+        monkeypatch.setattr(worker, "_refresh_runtime_health_if_due", lambda: refreshes.append(desired_state))
+        monkeypatch.setattr(worker, "_queued_job_preflight", lambda: False)
+
+        def stop_after_one_iteration(**_kwargs):
+            worker._stop_event.set()
+            return True
+
+        monkeypatch.setattr(worker, "_renew_leadership", stop_after_one_iteration)
+        monkeypatch.setattr(worker._stop_event, "wait", lambda *_args: worker._stop_event.set())
+        worker.run_forever()
+        assert refreshes == ([desired_state] if desired_state == "running" else [])
+    finally:
+        worker.stop(reason="isolated health refresh gating test")
+        runtime.close()

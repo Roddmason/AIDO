@@ -152,6 +152,7 @@ def test_sqlite_wal_unsafe_runtime_is_rejected_before_database_creation(tmp_path
     assert not target.exists()
 
 
+@pytest.mark.real_host_resources
 def test_first_cpu_sample_never_uses_psutil_unprimed_zero(tmp_path, monkeypatch):
     from local_control_center.host_resources import probes
 

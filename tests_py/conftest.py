@@ -68,13 +68,37 @@ def tmp_path(request, tmp_path_factory):
     return Path(tempfile.mkdtemp(prefix="fixture-", dir=root))
 
 
-@pytest.fixture
-def controlled_domain_host(monkeypatch):
-    """Capacidad determinista opt-in; conserva procesos nativos y el gate externo real."""
+REAL_HOST_MARKER = "real_host_resources"
+
+
+def _control_host_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
     from local_control_center.host_resources.models import ResourceSnapshot
     from local_control_center.host_resources.probes import HostResourceProbe
 
     monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
+
+
+@pytest.fixture(autouse=True)
+def controlled_host_by_default(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La admision de recursos es determinista salvo que el test pida el host real.
+
+    Todo `git` del producto pasa por el supervisor como `qa_light` y reserva 4 GiB sobre un piso de
+    16: un `git init` de test exigia mas de 20 GiB libres, y con un modelo local cargado la suite
+    caia por `aggregate_memory_budget` o `minimum_free_memory` sin que el codigo cambiara. Solo se
+    controla la admision: los procesos nativos corren de verdad y el piso duro
+    (`hard_memory_floor`) sigue leyendo la RAM real para que ningun test ahogue el equipo. Piden el
+    host real las sondas que lo miden (`real_host_resources`) y las pruebas de aceptacion que usan
+    el margen autorizado (`low_impact_host_policy`).
+    """
+    if request.node.get_closest_marker(REAL_HOST_MARKER) or "low_impact_host_policy" in request.fixturenames:
+        return
+    _control_host_capacity(monkeypatch)
+
+
+@pytest.fixture
+def controlled_domain_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Capacidad determinista explicita; conserva procesos nativos y el gate externo real."""
+    _control_host_capacity(monkeypatch)
 
 
 @pytest.fixture(scope="session", autouse=True)

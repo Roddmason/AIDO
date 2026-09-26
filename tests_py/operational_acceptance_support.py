@@ -13,6 +13,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 import psutil
+import pytest
 
 from local_control_center.shared.serialization import publish_json_exclusive
 from local_control_center.shared.time import utc_now
@@ -45,6 +46,44 @@ def low_impact_fixture_policy(db_path: Path, *, fixture_root: Path):
                 repository.clear_value(key, "general", None)
             else:
                 repository.set_value(key, "general", None, previous)
+
+
+def require_host_capacity(db_path: Path, workload_classes: list[str]) -> None:
+    """Salta la prueba si el host real no admite, a la vez, las cargas que va a lanzar.
+
+    Estas pruebas corren a proposito sobre la capacidad real del equipo con el margen autorizado; si
+    el gobernador las rechaza, su precondicion no se cumple y un rojo solo diria cuanta RAM libre
+    habia ese dia. Le pide al gobernador la misma decision con el snapshot real y libera lo
+    reservado antes de seguir. El host puede cambiar entre esta consulta y el lanzamiento real: la
+    verificacion reduce el rojo ambiental, no lo elimina.
+    """
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.host_resources.probes import HostResourceProbe
+    from local_control_center.shared.db import open_sqlite_connection
+
+    snapshot = HostResourceProbe(relevant_paths=[db_path.parent]).sample(cpu_interval_seconds=0)
+    refusal = None
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        governor = HostResourceGovernor(connection)
+        leases = []
+        for index, workload_class in enumerate(workload_classes):
+            decision = governor.admit(
+                ResourceAdmissionRequest(
+                    execution_id=f"capacity-check-{index}",
+                    workload_class=workload_class,
+                    owner_id="capacity-check",
+                ),
+                snapshot=snapshot,
+            )
+            if decision.lease is None:
+                refusal = f"{decision.reason_code}: {decision.reason}"
+                break
+            leases.append(decision.lease)
+        for lease in leases:
+            governor.release(lease.id, reason="capacity_check")
+    if refusal:
+        pytest.skip(f"el host no tiene capacidad para esta prueba de aceptacion ({refusal})")
 
 
 def save(path: Path, value: dict) -> None:

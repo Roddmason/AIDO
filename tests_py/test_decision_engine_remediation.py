@@ -147,6 +147,10 @@ def test_confidence_below_threshold_offers_the_thread_team_action_as_primary(lan
     )
     assert {item["blockerType"] for item in actions} == {"runtime_selection_ambiguous"}
     assert not any(item["actionType"] == "revalidate_runtime" for item in actions)
+    # La reparación específica (asignar el runtime en el equipo) va primero; el retry, después.
+    assert actions[0]["actionType"] == "open_settings_section"
+    assert actions[0]["primary"] is True
+    assert actions[0]["payload"]["section"] == "team"
     assert any(
         item["actionType"] == "retry_loop" and item["payload"].get("retryTarget") == "runtime_team"
         for item in actions

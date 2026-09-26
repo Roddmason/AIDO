@@ -477,3 +477,17 @@ def test_every_request_fits_under_its_cap_and_unmeasured_classes_keep_the_cap() 
         )
     for unmeasured in ("control_plane", "qa_light", "local_model_call", "browser_test", "local_gpu_model"):
         assert WORKLOAD_PROFILES[unmeasured].memory_request_bytes is None
+
+
+def test_a_profile_cannot_reserve_more_memory_than_its_cap() -> None:
+    """Un request sobre el tope reservaría memoria que el Job Object nunca deja usar: se rechaza al construir."""
+    from pydantic import ValidationError
+
+    from local_control_center.host_resources.models import WorkloadProfile
+    from local_control_center.host_resources.profiles import WORKLOAD_PROFILES
+
+    calibrated = WORKLOAD_PROFILES["agent_cli"].model_dump()
+    with pytest.raises(ValidationError, match="memory_request_bytes"):
+        WorkloadProfile.model_validate(
+            {**calibrated, "memory_request_bytes": calibrated["memory_limit_bytes"] + 1}
+        )

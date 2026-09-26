@@ -184,7 +184,8 @@ def test_readiness_counts_current_job_reservation_once(tmp_path, kind, condition
     runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "readiness.sqlite")
     runtime.init()
     try:
-        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=25 * 1024**3)
+        # Frontera con request 4 GiB: el job cabe (4 <= 4,25) y job + remota (4,5) no.
+        sample = ResourceSnapshot.test_snapshot(available_memory_bytes=int(20.25 * 1024**3))
         lease = (
             HostResourceGovernor(runtime.connection)
             .admit(
@@ -197,7 +198,7 @@ def test_readiness_counts_current_job_reservation_once(tmp_path, kind, condition
         )
         assert lease is not None
         if condition == "memory":
-            sample = sample.model_copy(update={"available_memory_bytes": 23 * 1024**3})
+            sample = sample.model_copy(update={"available_memory_bytes": 19 * 1024**3})
         if condition == "cpu":
             sample = sample.model_copy(update={"cpu_percent_1s": 90.0})
         ResourceRepository(runtime.connection).record_sample(sample)

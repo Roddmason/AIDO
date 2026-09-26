@@ -128,10 +128,11 @@ def test_aggregate_cpu_budget_blocks_light_work_beside_full_budget_build(tmp_pat
 
 
 def test_aggregate_memory_reservations_preserve_control_plane_headroom(tmp_path: Path) -> None:
+    """Las reservas vivas no pueden comerse el margen: 23 GiB - piso 16 = 7 < agente 4 + QA 4."""
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
-        snapshot = _healthy_snapshot(available_memory_bytes=26 * GIB)
+        snapshot = _healthy_snapshot(available_memory_bytes=23 * GIB)
         assert governor.admit(_request("cli", "agent_cli"), snapshot=snapshot).status == "admitted"
         second = governor.admit(_request("qa", "qa_light"), snapshot=snapshot)
         assert (second.status, second.reason_code) == ("resource_wait", "aggregate_memory_budget")
@@ -419,3 +420,60 @@ def test_local_model_call_is_a_light_client_that_still_yields_to_unreal(tmp_path
     assert blocked.reason_code == "unreal_local_gpu_conflict"
     assert conflict is not None and conflict.reason_code == "unreal_local_gpu_conflict"
     assert remote is None
+
+
+def test_admission_counts_the_measured_request_not_the_hard_cap(tmp_path: Path) -> None:
+    """Un hilo reservaba 8 GiB aunque sus procesos midieron 170 MB (p50) y 2,99 GB (máximo).
+
+    La admisión suma lo que la clase realmente usa (``memory_request_bytes``); el tope del Job
+    Object sigue siendo ``memory_limit_bytes``, así que un proceso desbocado se corta igual.
+    """
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=23 * GIB)
+        cli = governor.admit(_request("cli", "agent_cli"), snapshot=snapshot)
+        remote = governor.admit(_request("remote", "remote_llm_light"), snapshot=snapshot)
+
+    assert cli.status == "admitted"
+    assert cli.lease.memory_request_bytes == 4 * GIB
+    assert cli.lease.memory_limit_bytes == 8 * GIB
+    assert remote.status == "admitted"
+
+
+def test_a_lease_from_before_the_split_still_counts_at_its_cap(tmp_path: Path) -> None:
+    """Las leases vivas escritas antes de la columna no tienen request: cuentan por su tope."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=23 * GIB)
+        lease = governor.admit(_request("legacy", "agent_cli"), snapshot=snapshot).lease
+        connection.execute("UPDATE resource_leases SET memory_request_bytes = NULL WHERE id = ?", (lease.id,))
+        refused = governor.admit(_request("qa", "qa_light"), snapshot=snapshot)
+
+    assert (refused.status, refused.reason_code) == ("resource_wait", "aggregate_memory_budget")
+
+
+def test_the_memory_refusal_states_the_numbers_it_compared(tmp_path: Path) -> None:
+    """Ante un incidente de sobrecompromiso tiene que poder leerse qué request se usó."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=19 * GIB)
+        refused = governor.admit(_request("qa", "qa_light"), snapshot=snapshot)
+
+    assert refused.reason_code == "aggregate_memory_budget"
+    assert "4.0 GiB requested" in refused.reason
+    assert "3.0 GiB of headroom" in refused.reason
+
+
+def test_every_request_fits_under_its_cap_and_unmeasured_classes_keep_the_cap() -> None:
+    """Sin datos (o con uso bimodal) la reserva sigue siendo el tope: la regla del diseño."""
+    from local_control_center.host_resources.profiles import WORKLOAD_PROFILES
+
+    for profile in WORKLOAD_PROFILES.values():
+        assert (
+            profile.memory_request_bytes is None or profile.memory_request_bytes <= profile.memory_limit_bytes
+        )
+    for unmeasured in ("control_plane", "qa_light", "local_model_call", "browser_test", "local_gpu_model"):
+        assert WORKLOAD_PROFILES[unmeasured].memory_request_bytes is None

@@ -330,7 +330,8 @@ def test_developer_operation_classifies_persisted_preference_not_client_resource
     )
 
 
-@pytest.mark.parametrize("available_gib,expected_status", [(20, "resource_wait"), (48, "completed")])
+# El envoltorio del CLI reserva 4 GiB (su request): con 19 GiB el margen sobre el piso es 3.
+@pytest.mark.parametrize("available_gib,expected_status", [(19, "resource_wait"), (48, "completed")])
 def test_developer_ollama_operation_reserves_only_the_cli_envelope(
     lane, monkeypatch, available_gib, expected_status
 ):

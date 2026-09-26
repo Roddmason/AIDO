@@ -210,6 +210,7 @@ def test_parent_limits_must_cover_branch_without_gpu_expansion(admitted_parent, 
 
 
 def test_busy_parent_defers_immediately_with_real_capacity_reason(admitted_parent, monkeypatch):
+    """El padre (request 4 GiB) cabe en 4,25 de margen; una segunda rama (0,5) ya no."""
     from local_control_center.host_resources import branch_admission
 
     def no_wait(_seconds):
@@ -220,7 +221,9 @@ def test_busy_parent_defers_immediately_with_real_capacity_reason(admitted_paren
     with execution_scope(parent.context):
         admission = BranchAdmission(
             parent.runtime.db_path,
-            snapshot_source=lambda: ResourceSnapshot.test_snapshot(available_memory_bytes=25 * 1024**3),
+            snapshot_source=lambda: ResourceSnapshot.test_snapshot(
+                available_memory_bytes=int(20.25 * 1024**3)
+            ),
         )
         with (
             admission.reserve("probe-one", "remote_llm_light", timeout_seconds=0),
@@ -234,7 +237,8 @@ def test_busy_parent_defers_immediately_with_real_capacity_reason(admitted_paren
 @pytest.mark.parametrize(
     "overrides,reason",
     [
-        ({"available_memory_bytes": 23 * 1024**3}, "aggregate_memory_budget"),
+        # El padre completo reserva 4 GiB (su request): con 19 GiB el margen es 3.
+        ({"available_memory_bytes": 19 * 1024**3}, "aggregate_memory_budget"),
         ({"cpu_percent_1s": 99}, "host_cpu_saturated"),
         (
             {"sampled_at": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()},
@@ -444,11 +448,14 @@ def test_local_model_call_borrows_the_cli_job_with_twenty_gib_free_and_the_defau
 
 
 def test_remote_child_still_rechecks_the_full_parent_budget(admitted_parent):
+    """A diferencia de ``local_model_call``, el hijo remoto revisa el presupuesto del padre: 4 > 3,5."""
     parent = admitted_parent
     with execution_scope(parent.context):
         admission = BranchAdmission(
             parent.runtime.db_path,
-            snapshot_source=lambda: ResourceSnapshot.test_snapshot(available_memory_bytes=20 * 1024**3),
+            snapshot_source=lambda: ResourceSnapshot.test_snapshot(
+                available_memory_bytes=int(19.5 * 1024**3)
+            ),
         )
         with (
             pytest.raises(RuntimeError, match="aggregate_memory_budget"),

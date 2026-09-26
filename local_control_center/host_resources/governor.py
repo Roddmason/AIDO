@@ -20,7 +20,13 @@ from .models import (
     ResourceSnapshot,
     ResourceViolation,
 )
-from .profiles import LOCAL_INFERENCE_CLASSES, resolve_resource_policy, workload_profile
+from .profiles import (
+    GIB,
+    LOCAL_INFERENCE_CLASSES,
+    admission_memory_bytes,
+    resolve_resource_policy,
+    workload_profile,
+)
 from .repository import ResourceRepository
 from .retention import RESOURCE_SAMPLE_RETENTION_SECONDS
 
@@ -211,14 +217,18 @@ class HostResourceGovernor:
                 "Combined workload CPU limits exceed the configured aggregate CPU budget.",
             )
         # Conservador: la muestra no atribuye consumo actual a cada reserva viva.
-        reserved_memory = sum(lease.memory_limit_bytes for lease in non_control_active)
-        if (
-            reserved_memory + profile.memory_limit_bytes
-            > snapshot.available_memory_bytes - policy.min_free_memory_bytes
-        ):
+        reserved_memory = sum(
+            lease.memory_limit_bytes if lease.memory_request_bytes is None else lease.memory_request_bytes
+            for lease in non_control_active
+        )
+        requested_memory = admission_memory_bytes(profile)
+        headroom = snapshot.available_memory_bytes - policy.min_free_memory_bytes
+        if reserved_memory + requested_memory > headroom:
             return wait(
                 "aggregate_memory_budget",
-                "Combined workload memory limits would consume the reserved free-memory headroom.",
+                "Combined workload memory requests would consume the reserved free-memory headroom: "
+                f"{requested_memory / GIB:.1f} GiB requested, {reserved_memory / GIB:.1f} GiB already "
+                f"reserved, {max(headroom, 0) / GIB:.1f} GiB of headroom.",
             )
         return None
 

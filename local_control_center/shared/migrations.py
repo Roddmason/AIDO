@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 80
+CURRENT_SCHEMA_VERSION = 81
 
 
 def _execute_atomic_statements(
@@ -141,6 +141,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase78_schema(connection)
     init_phase79_schema(connection)
     init_phase80_schema(connection)
+    init_phase81_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6925,3 +6926,17 @@ def seed_platform_catalogs(connection: sqlite3.Connection) -> None:
     from local_control_center.projects.repository import ProjectsRepository
 
     ProjectsRepository(connection).seed_providers()
+
+
+def init_phase81_schema(connection: sqlite3.Connection) -> None:
+    """Fase 81: la lease guarda la memoria reservada para admitir, separada de su tope duro.
+
+    NULL identifica leases anteriores a la separación: se cuentan por su tope, como antes.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 81").fetchone():
+        return
+    with immediate_transaction(connection):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
+        if "memory_request_bytes" not in columns:
+            connection.execute("ALTER TABLE resource_leases ADD COLUMN memory_request_bytes INTEGER")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (81, ?)", (utc_now(),))

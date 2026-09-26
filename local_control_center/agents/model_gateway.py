@@ -14,6 +14,7 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -547,6 +548,34 @@ class ModelGateway:
                 "lastError": _public_error(error),
                 "models": [],
             }
+
+    def check_provider_health(self, provider_id: str) -> dict[str, Any]:
+        """Sondea la salud del proveedor y la persiste como evidencia; un 429 abre el cooldown de cuota.
+
+        Es el cuerpo de la operación ``models.provider_health_check`` y del refresco dentro de un job
+        (``RuntimeStatusService``): una sola definición de qué se registra tras un sondeo. La llamada de
+        red va fuera de la transacción; solo las escrituras la toman.
+        """
+        from local_control_center.shared.db import immediate_transaction
+
+        from .provider_accounts import ProviderAccountStore
+        from .quota_manager import QuotaManager
+
+        connection = self.repository.connection
+        health = self.provider_health(provider_id)
+        transaction = nullcontext() if connection.in_transaction else immediate_transaction(connection)
+        with transaction:
+            if health.get("status") == "rate_limited" or "429" in str(
+                health.get("message") or health.get("lastError") or ""
+            ):
+                model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
+                QuotaManager(connection).record_rate_limit(
+                    provider_id=provider_id, model=model, retry_after_seconds=300
+                )
+            ProviderAccountStore(connection).record_health_check(
+                provider_id=provider_id, status=health["healthStatus"], payload=health
+            )
+        return health
 
     def _provider_configuration(
         self,

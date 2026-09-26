@@ -415,6 +415,7 @@ class ResourceRepository:
         violation_type: str,
         action: str,
         reason: str,
+        now_iso: str | None = None,
     ) -> ResourceViolation:
         """Registra una infracción y la mitigación solicitada."""
         violation = ResourceViolation(
@@ -424,7 +425,7 @@ class ResourceRepository:
             violation_type=violation_type,
             action=action,
             reason=reason,
-            created_at=utc_now(),
+            created_at=now_iso or utc_now(),
         )
         self.connection.execute(
             """
@@ -443,3 +444,22 @@ class ResourceRepository:
             ),
         )
         return violation
+
+    def latest_violation_created_at(self, *, violation_type: str) -> str | None:
+        """Momento de la violación más reciente de un tipo, para calibrar la gracia entre desalojos."""
+        row = self.connection.execute(
+            """
+            SELECT created_at FROM resource_violations
+            WHERE violation_type = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+            """,
+            (violation_type,),
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def executions_with_unresolved_violation(self, *, action: str) -> set[str]:
+        """Ejecuciones que ya tienen una violación pendiente de esa acción, para no repetirla."""
+        rows = self.connection.execute(
+            "SELECT DISTINCT execution_id FROM resource_violations WHERE resolved_at IS NULL AND action = ?",
+            (action,),
+        ).fetchall()
+        return {row[0] for row in rows}

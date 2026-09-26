@@ -86,3 +86,9 @@ eligió un criterio más conservador (máximo + 34-40%) mientras la muestra crec
 
 `host_resources/{models,profiles,repository,governor}.py`, `shared/migrations.py` (fase 81),
 `ResourceLease.memoryRequestBytes` en la API y el cliente OpenAPI generado.
+
+## Enmienda (2026-09-26)
+
+ADR-005 reemplaza el desalojo total señalado arriba como deuda por un desalojo graduado (una lease a
+la vez, por uso real) y, apoyado en esa red más precisa, baja la reserva de `agent_cli` de 4 a 1 GiB
+(tope sin cambio, 8 GiB). Ver ADR-005 para el detalle y la dependencia sobre el worker de un job.

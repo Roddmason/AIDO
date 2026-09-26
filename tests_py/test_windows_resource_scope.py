@@ -246,6 +246,18 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
 
         assert quality_envelope()["status"] == "PASS"
         snapshot = ResourceSnapshot.test_snapshot()
+    else:
+        # Admisión real, pero con pisos de este dominio: con los de producto (16 GiB) un equipo con
+        # 8-10 GiB libres rechaza por minimum_free_memory antes de llegar al conflicto de alcance
+        # que este test verifica. No simula contención del SO; solo configura su BD.
+        from local_control_center.settings.repository import SettingsRepository
+        from local_control_center.shared.migrations import initialize_platform_schema
+
+        with closing(open_sqlite_connection(db)) as connection:
+            initialize_platform_schema(connection)
+            settings = SettingsRepository(connection)
+            settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
+            settings.set_value("resources.minFreeMemoryGiB", "general", None, 2)
     service = ProcessSupervisorService(db_path=db, resource_snapshot=snapshot)
     parent = service.start(
         argv=[

@@ -113,6 +113,7 @@ def test_qa_agent_provisions_node_modules_in_a_worktree_and_runs_pnpm_test(
         "install",
         "--frozen-lockfile",
         "--prefer-offline",
+        "--ignore-scripts",
     ]
     test_result = next(result for result in summary["results"] if result is not install_result)
     assert test_result["status"] == "passed"

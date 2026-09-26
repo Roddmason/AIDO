@@ -210,10 +210,21 @@ def _is_corepack_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
     return True, parsed.args[1:]
 
 
-_FROZEN_PNPM_INSTALL_ARGS: tuple[str, ...] = ("install", "--frozen-lockfile", "--prefer-offline")
-_FROZEN_NPM_INSTALL_ARGS: tuple[str, ...] = ("ci", "--prefer-offline", "--no-audit", "--no-fund")
-_FROZEN_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--frozen-lockfile")
-_IMMUTABLE_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--immutable")
+_FROZEN_PNPM_INSTALL_ARGS: tuple[str, ...] = (
+    "install",
+    "--frozen-lockfile",
+    "--prefer-offline",
+    "--ignore-scripts",
+)
+_FROZEN_NPM_INSTALL_ARGS: tuple[str, ...] = (
+    "ci",
+    "--prefer-offline",
+    "--no-audit",
+    "--no-fund",
+    "--ignore-scripts",
+)
+_FROZEN_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--frozen-lockfile", "--ignore-scripts")
+_IMMUTABLE_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--immutable", "--mode=skip-build")
 
 
 def is_frozen_node_dependency_install(parsed: ParsedCommand) -> bool:
@@ -222,9 +233,23 @@ def is_frozen_node_dependency_install(parsed: ParsedCommand) -> bool:
     Invariante de seguridad: solo estos cuatro argv exactos califican. Agregar un paquete,
     instalar sin `--frozen-lockfile`/`ci`/`--immutable`, o cualquier otra variante sigue sin
     categoria de bajo riesgo (`package_manager_category` la sigue clasificando riesgo medio).
+
+    Nunca corre scripts de ciclo de vida de las dependencias (`preinstall`/`postinstall`/`prepare`):
+    el lockfile del worktree puede traer un paquete que agrego el developer (un LLM puede alucinar un
+    nombre que un atacante registro), y esta instalacion se aprueba sin humano. Por eso todos llevan
+    `--ignore-scripts` (npm https://docs.npmjs.com/cli/commands/npm-ci, pnpm
+    https://pnpm.io/cli/install, yarn classic https://classic.yarnpkg.com/en/docs/cli/install) o, en
+    Yarn Berry, `--mode=skip-build` (https://yarnpkg.com/cli/install). pnpm solo con la version fijada
+    por la toolchain.
     """
+    from local_control_center.projects.toolchain import PNPM_VERSION
+
     is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
-    if is_pnpm and pnpm_args == _FROZEN_PNPM_INSTALL_ARGS:
+    if (
+        is_pnpm
+        and parsed.args[0].lower() == f"pnpm@{PNPM_VERSION}"
+        and pnpm_args == _FROZEN_PNPM_INSTALL_ARGS
+    ):
         return True
     base = _base_executable(parsed.executable)
     if base == "npm" and parsed.args == _FROZEN_NPM_INSTALL_ARGS:

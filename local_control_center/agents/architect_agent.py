@@ -576,7 +576,15 @@ class ArchitectAgentRunner:
                     "model": model,
                     "messages": self._messages(payload=payload, diff_text=diff_text),
                     "temperature": 0.1,
-                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
+                    **local_model_call_input(
+                        self.connection,
+                        provider_id=runtime_id,
+                        model=model,
+                        response_schema={
+                            "name": ARCHITECT_AGENT_ID,
+                            "schema": architect_agent_contract()["outputSchema"],
+                        },
+                    ),
                 },
                 "networkRequired": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,

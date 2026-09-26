@@ -16,11 +16,13 @@ import pytest
 
 from local_control_center.agents import runtime_preflight
 from local_control_center.agents.ai_resource_manager import AIResourceRequest
+from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.model_execution_health import record_model_execution
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.base import ModelResponse, UsageRecord
 from local_control_center.host_resources.models import ResourceSnapshot
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.probe import VALIDATION_JSON_PROMPT
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 
@@ -691,18 +693,18 @@ def test_api_spending_exact_remaining_budget_defers_following_cli(lane, monkeypa
 
 
 @pytest.mark.parametrize(
-    "provider_type,base_url,metadata,attempts",
+    "provider_type,base_url,metadata,attempts,probes_json_schema",
     [
-        ("local", "http://127.0.0.1:1/v1", {}, 1),
-        ("local", "http://192.168.1.50:8082/v1", {}, 1),
-        ("local", "http://llama.example.com:8082/v1", {}, 0),
-        ("local", "http://127.0.0.1:1/v1", {"endpointKind": "remote"}, 0),
-        ("gateway", "http://127.0.0.1:1/v1", {}, 0),
+        ("local", "http://127.0.0.1:1/v1", {}, 1, True),
+        ("local", "http://192.168.1.50:8082/v1", {}, 1, False),
+        ("local", "http://llama.example.com:8082/v1", {}, 0, False),
+        ("local", "http://127.0.0.1:1/v1", {"endpointKind": "remote"}, 0, False),
+        ("gateway", "http://127.0.0.1:1/v1", {}, 0, False),
     ],
     ids=["loopback", "private-literal", "public-name", "marked-remote", "loopback-gateway"],
 )
 def test_self_hosted_llama_cpp_cost_exemption_follows_the_network_scope(
-    lane, provider_type, base_url, metadata, attempts
+    lane, provider_type, base_url, metadata, attempts, probes_json_schema
 ):
     store = ProviderAccountStore(lane.connection)
     provider = "preflight-llama"
@@ -726,7 +728,15 @@ def test_self_hosted_llama_cpp_cost_exemption_follows_the_network_scope(
     }
     lane.statuses[provider] = {"id": provider, "kind": provider_type, "configured": True}
     result = _run(lane, [row])
-    assert result["attempts"] == len(lane.calls) == attempts
+    # Un candidato self-hosted validado (costo cero: loopback o IP privada) dispara ademas la sonda
+    # json_schema solo cuando ademas es local runtime en sentido estricto (endpoint_locality: loopback o
+    # declarado por el servidor); una IP privada no declarada exime de costo pero no habilita el aparato
+    # de runtime local (mismo criterio que _probe_request_shape). El fake generico de esta cuenta no
+    # devuelve el JSON que la sonda espera, asi que queda sin persistir (una sonda fallida nunca rompe el
+    # preflight). Se cuenta aparte de los intentos reales de chat (temperature=None).
+    assert result["attempts"] == sum(1 for call in lane.calls if call[2] is None) == attempts
+    assert sum(1 for call in lane.calls if call[2] == 0) == (1 if probes_json_schema else 0)
+    assert LocalModelSettingsRepository(lane.connection).get(provider, "gemma-4-26b-a4b") is None
     if not attempts:
         assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"
 
@@ -788,6 +798,96 @@ def test_local_probe_sends_reasoning_budget_and_accepts_length_with_reasoning(la
     assert seen[0].max_tokens == runtime_preflight.LOCAL_OUTPUT_TOKEN_LIMIT == 64
     assert seen[0].extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
     assert seen[0].timeout_seconds == 60 + 180
+
+
+def _probe_aware_chat(*, on_probe):
+    """Doble local: responde OK a la sonda normal y delega a ``on_probe`` la llamada de validación json."""
+
+    def chat(provider_id, request):
+        if request.messages[0]["content"] == VALIDATION_JSON_PROMPT:
+            return on_probe(provider_id, request)
+        return ModelResponse(providerId=provider_id, model=request.model, content="OK", usage=UsageRecord())
+
+    return chat
+
+
+def test_preflight_probes_json_schema_for_a_never_validated_local_model(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(provider_id, request):
+        assert request.response_format is not None
+        return ModelResponse(
+            providerId=provider_id, model=request.model, content='{"ok": true}', usage=UsageRecord()
+        )
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert setting is not None
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (True, "runtime_validation")
+
+
+def test_preflight_probe_records_json_schema_false_on_a_400(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(provider_id, request):
+        if request.response_format is not None:
+            raise HTTPError("http://127.0.0.1:1/v1/chat/completions", 400, "bad", {}, None)
+        # Fallback sin response_format que probe_local_json_schema_capability reintenta tras el 400.
+        return ModelResponse(
+            providerId=provider_id, model=request.model, content='{"ok": true}', usage=UsageRecord()
+        )
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert setting is not None
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (False, "runtime_validation")
+
+
+def test_preflight_never_probes_or_overwrites_an_operator_set_flag(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    LocalModelSettingsRepository(lane.connection).upsert(
+        LOCAL_PROVIDER, "qwen3-reasoner", actor="operator", json_schema=False
+    )
+    probed = []
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=lambda *a: probed.append(a)))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert probed == []
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (False, "operator")
+
+
+def test_preflight_does_not_reprobe_an_already_validated_model(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    LocalModelSettingsRepository(lane.connection).upsert(
+        LOCAL_PROVIDER, "qwen3-reasoner", actor="runtime_validation", json_schema=True
+    )
+    probed = []
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=lambda *a: probed.append(a)))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert probed == []
+
+
+def test_preflight_survives_a_probe_that_raises(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(_provider_id, _request):
+        raise RuntimeError("boom")
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner") is None
 
 
 def _alive_local_chat(seen):

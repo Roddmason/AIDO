@@ -1142,7 +1142,15 @@ class ProductOwnerAgentRunner:
                     "model": model,
                     "messages": messages,
                     "temperature": 0.1,
-                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
+                    **local_model_call_input(
+                        self.connection,
+                        provider_id=runtime_id,
+                        model=model,
+                        response_schema={
+                            "name": PRODUCT_OWNER_AGENT_ID,
+                            "schema": product_owner_agent_contract()["outputSchema"],
+                        },
+                    ),
                 },
                 # Provider transport is broker-owned. ProductOwnerAgent receives no independent
                 # network or secret capability beyond that selected adapter invocation.

@@ -41,6 +41,7 @@ from .http_transport import (
 )
 
 PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
+_HTTP_BAD_REQUEST = 400
 USAGE_TOKEN_KEYS = (
     "prompt_tokens",
     "completion_tokens",
@@ -256,17 +257,33 @@ class OpenAICompatibleProvider(ModelProvider):
             body.setdefault(key, value)
         return body
 
+    def _post_chat(self, body: dict[str, Any], *, timeout: float) -> Any:
+        """Postea ``body`` a `/chat/completions` y devuelve el JSON decodificado, acotado a `max_response_bytes`."""
+        http_request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            headers=self._request_headers({"Content-Type": "application/json"}),
+            method="POST",
+        )
+        with urlopen_fail_closed(http_request, timeout=timeout) as response:
+            return json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
         """Postea a `/chat/completions` con timeout y lectura acotados y descarta el razonamiento.
 
         La llamada HTTP corre dentro de ``invocation_slot`` (lease de concurrencia de cuentas locales) y su
-        timeout se calcula ya dentro del slot, con lo que queda del deadline de la llamada.
+        timeout se calcula ya dentro del slot, con lo que queda del deadline de la llamada. Un ``response_format``
+        que el servidor rechaza con 400 (p. ej. una gramática json_schema no soportada) se reintenta una vez sin
+        ese campo en vez de fallar la llamada completa, con el mismo criterio que la sonda de validación de
+        ``runtime_team.probe``.
 
         Raises:
             RuntimeError: si falta la URL o una credencial declarada no resuelve.
             LocalRuntimeError: ``local_endpoint_busy`` si la lease del endpoint local no se libera o su
                 espera agotó el deadline (``insufficient_time_for_model_load`` con arranque en frío).
             ResponseTooLargeError: si el cuerpo supera ``max_response_bytes``.
+            urllib.error.HTTPError: un error HTTP que no es un 400 por ``response_format``, o el 400 persiste
+                incluso sin él.
         """
         credential = self._credential()
         if (
@@ -275,17 +292,18 @@ class OpenAICompatibleProvider(ModelProvider):
             or (self.credential_ref and not credential)
         ):
             raise RuntimeError("Provider is missing base_url or credential_ref")
-        payload = json.dumps(self._chat_body(request)).encode("utf-8")
-        http_request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            data=payload,
-            headers=self._request_headers({"Content-Type": "application/json"}),
-            method="POST",
-        )
+        body = self._chat_body(request)
         with self.invocation_slot(request.deadline_monotonic):
             timeout = request.http_timeout(DEFAULT_CHAT_TIMEOUT_SECONDS)
-            with urlopen_fail_closed(http_request, timeout=timeout) as response:
-                raw = json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+            try:
+                raw = self._post_chat(body, timeout=timeout)
+            except urllib.error.HTTPError as error:
+                if error.code != _HTTP_BAD_REQUEST or "response_format" not in body:
+                    raise
+                error.close()  # libera el socket del 400 antes del reintento, sin esperar al GC
+                raw = self._post_chat(
+                    {key: value for key, value in body.items() if key != "response_format"}, timeout=timeout
+                )
         content, finish_reason, reasoning_present = _chat_choice(raw)
         return ModelResponse(
             providerId=self.provider_id,

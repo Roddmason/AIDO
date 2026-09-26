@@ -1491,3 +1491,40 @@ def test_product_owner_parses_reasoning_and_redaction_breaking_output_from_the_t
     # La salida cruda del canal transitorio se redacta tras parsear: brief, iniciativa y respuesta van redactados.
     assert "ask for company size" not in sqlite_text_dump(store.connection)
     assert "ask for company size" not in response.text
+
+
+def test_product_owner_needs_input_with_every_question_already_asked_generates_the_backlog(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Visto en vivo con gemma: tras responder sus 2 preguntas el PO volvió a declarar
+    ``needs_input`` con esas mismas preguntas y un backlog completo. AIDO las suprime por ya
+    formuladas (0 por preguntar) y no queda decisión escalada, pero el estado del modelo dejaba el
+    loop bloqueado para siempre justo después de que el operador respondiera."""
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="po-reask")
+    first = run_with_controlled_provider(
+        client,
+        headers,
+        monkeypatch,
+        content=json.dumps(incomplete_product_owner_output()),
+        body=product_owner_request(project, workspace),
+    )
+    assert first.json()["status"] == "blocked"
+    initiative_id = first.json()["initiative"]["id"]
+
+    stale = product_owner_output(blocking=False)
+    stale["status"] = "needs_input"
+    stale["questions"] = incomplete_product_owner_output()["questions"]
+    stale["recommendedNextAction"] = "Resolve the questions about buyers and jurisdictions."
+    request = product_owner_request(project, workspace)
+    request["initiativeId"] = initiative_id
+    second = run_with_controlled_provider(
+        client, headers, monkeypatch, content=json.dumps(stale), body=request
+    )
+
+    body = second.json()
+    assert body["output"]["questionSelection"]["asked"] == 0
+    assert body["status"] == "completed", body.get("reason")
+    assert [epic["title"] for epic in BacklogRepository(store.connection).list_epics(project["id"])] == [
+        "Guided onboarding"
+    ]

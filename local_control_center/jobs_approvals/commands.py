@@ -9,6 +9,7 @@ transacción en `JobsRepository` y convierte los `ValueError` de conflicto de es
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -16,6 +17,8 @@ from fastapi import HTTPException
 from local_control_center.shared.event_bus import EventBus
 
 from .repository import JobsRepository
+
+logger = logging.getLogger(__name__)
 
 
 def required_reason(body: dict[str, Any]) -> str:
@@ -94,8 +97,9 @@ def _apply_product_loop_delivery_feedback(
         ProductLoopTransitionError,
     )
 
+    coordinator = ProductLoopCoordinator(jobs.connection)
     try:
-        ProductLoopCoordinator(jobs.connection).apply_feedback(
+        coordinator.apply_feedback(
             loop_id,
             action=action_name,
             feedback=reason,
@@ -105,6 +109,21 @@ def _apply_product_loop_delivery_feedback(
         )
     except (KeyError, ProductLoopStopConditionError, ProductLoopTransitionError, ValueError) as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    if action_name == "request_changes":
+        # Rechazar la entrega exige un motivo: es el pedido de cambios, y se trabaja de inmediato.
+        # Sin esto el loop quedaba en awaiting_feedback y el hilo "reworking" sin nada en marcha.
+        # Un loop sin hilo o sin mensaje de origen no puede continuar: queda esperando feedback.
+        try:
+            coordinator.apply_feedback(
+                loop_id,
+                action="continue",
+                feedback=reason,
+                actor="operator",
+                target_type="loop",
+                target_id=loop_id,
+            )
+        except (KeyError, ProductLoopStopConditionError, ProductLoopTransitionError, ValueError) as error:
+            logger.info("Delivery change request stays awaiting feedback: %s", error)
     return {
         "job": jobs.get_job(job_id),
         "actionRequest": jobs.get_action_request(action_id),

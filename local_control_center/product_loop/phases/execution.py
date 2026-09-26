@@ -354,7 +354,11 @@ def execute_developer_phase(
         "backlogArtifactId": backlog_artifact["id"],
         "preferredRuntime": effective_preferred_runtime,
         "qaCommands": qa_commands or [],
-        "requireApproval": True,
+        # The loop's delivery approval is the human gate for its stories. A per-story patch
+        # approval was never resolved by anyone: each story left an orphan
+        # agent.developer.approve_patch pending in Approvals (the loop already treats
+        # completed and evidence_ready alike).
+        "requireApproval": False,
         "resourceSelection": execution_resource,
         "metadata": {"loopId": loop["id"], "projectThreadId": thread.get("id")},
     }

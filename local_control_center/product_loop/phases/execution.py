@@ -478,7 +478,7 @@ def capture_review_evidence(
         _review_from_runtime,
         capture_git_diff,
     )
-    from local_control_center.product_loop.phases.qa_gate import qa_evidence_passes
+    from local_control_center.product_loop.phases.qa_gate import noop_story_qa_passes
     from local_control_center.shared.redaction import redact_secrets
     from local_control_center.workspaces_projects.git_worktrees import (
         commit_workspace_changes,
@@ -576,7 +576,7 @@ def capture_review_evidence(
             run.runtime_status = runtime_status
             run.evidence_ids = evidence_ids
             run.review = review
-            run.story_noop = run.rework_round == 0 and qa_evidence_passes(runtime_result)
+            run.story_noop = run.rework_round == 0 and noop_story_qa_passes(runtime_result)
             return None
         if runtime_status == "failed":
             return _block_unavailable_runtime(coordinator, run, runtime_result, unavailable=False)

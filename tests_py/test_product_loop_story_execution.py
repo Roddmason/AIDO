@@ -795,3 +795,20 @@ def test_a_staged_rename_into_aido_still_blocks_the_cumulative_review(
         assert result["loop"]["context"]["durableRun"]["blockedStage"] == "review"
         assert "src/story_1.py" in result["reason"]
         assert security.run_payloads == []
+
+
+def test_a_story_without_changes_is_noop_with_the_verdict_the_real_developer_reports(tmp_path: Path) -> None:
+    """El DeveloperAgent real cierra "sin cambios" con qaVerdict ``blocked`` ("DeveloperAgent produced
+    no file changes."), no ``passed`` como el doble de arriba. Visto en vivo: la historia 2 del rework
+    ya estaba hecha por la 1, su QA pasó, y la entrega quedó bloqueada en "QA verdict is blocked"."""
+    runtime = _StoryOneAttemptsRuntime([([], "blocked")])
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _workspace_project(connection, tmp_path, "per-story-noop-real-verdict")
+
+        result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime)
+
+        assert result["status"] == "awaiting_approval", result.get("reason")
+        story = BacklogRepository(connection).get_user_story(_story_order_from_result(result)[0])
+        assert story["metadata"]["outcome"] == "noop"

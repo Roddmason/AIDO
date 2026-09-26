@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
 
-__all__ = ["evaluate_qa_gate", "qa_evidence_passes"]
+__all__ = ["evaluate_qa_gate", "noop_story_qa_passes", "qa_evidence_passes"]
 
 _NON_PASSING_QA_VERDICTS = {"failed", "blocked", "not_started"}
 
@@ -29,6 +29,22 @@ def qa_evidence_passes(runtime_result: dict[str, Any]) -> bool:
     qa_results = runtime_result.get("qaResults") if isinstance(runtime_result.get("qaResults"), list) else []
     qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
     return qa_verdict not in _NON_PASSING_QA_VERDICTS and all(
+        isinstance(result, dict) and str(result.get("status") or "").strip().lower() == "passed"
+        for result in qa_results
+    )
+
+
+def noop_story_qa_passes(runtime_result: dict[str, Any]) -> bool:
+    """Si una historia SIN cambios puede cerrarse como noop: sus comandos QA pasaron y nada falló.
+
+    El DeveloperAgent cierra "sin cambios" con ``qaVerdict`` ``blocked`` ("DeveloperAgent produced no
+    file changes."): ese veredicto es la misma ausencia de cambios que define el noop, no una señal de
+    QA. Con ``qa_evidence_passes`` una historia que ya había hecho la anterior bloqueaba la entrega
+    (visto en vivo en un rework). Un ``failed`` o un comando QA que no pasó siguen sin ser noop.
+    """
+    qa_results = runtime_result.get("qaResults") if isinstance(runtime_result.get("qaResults"), list) else []
+    qa_verdict = str((runtime_result.get("evidencePackage") or {}).get("qaVerdict") or "").lower()
+    return qa_verdict != "failed" and all(
         isinstance(result, dict) and str(result.get("status") or "").strip().lower() == "passed"
         for result in qa_results
     )

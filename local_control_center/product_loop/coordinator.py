@@ -299,6 +299,26 @@ def _bounded_instruction(text: str, limit: int = INSTRUCTION_PROMPT_LIMIT_CHARS)
     return f"{text[:half]}\n[... instruction truncated ...]\n{text[-half:]}"
 
 
+CHANGE_REQUEST_HEADER = "[Operator change request after delivery review]"
+EARLIER_CHANGE_REQUEST_HEADER = (
+    "[Earlier change request - handled in a previous review round; "
+    "the latest change request takes precedence]"
+)
+
+
+def continuation_run_message(message: str, change_request: str) -> str:
+    """Mensaje del run de continuación: el pedido nuevo al final y los anteriores marcados como revisados.
+
+    Los pedidos se acumulan ronda a ronda en el mensaje del hilo. Con el mismo encabezado, el
+    developer volvía a aplicar uno ya resuelto (visto en vivo: seguía razonando sobre una línea muerta
+    que la ronda anterior ya había quitado). Sin pedido nuevo el mensaje queda igual.
+    """
+    if not change_request:
+        return message
+    earlier = message.replace(CHANGE_REQUEST_HEADER, EARLIER_CHANGE_REQUEST_HEADER)
+    return f"{earlier}\n\n{change_request}"
+
+
 class ProductLoopTransitionError(ValueError):
     """Se lanza ante un estado desconocido, una transición no permitida o un desfase de versión."""
 
@@ -869,7 +889,7 @@ class ProductLoopCoordinator:
         unique = [note for note in dict.fromkeys(notes) if note]
         if not unique:
             return ""
-        return "[Operator change request after delivery review]\n" + "\n".join(unique)
+        return f"{CHANGE_REQUEST_HEADER}\n" + "\n".join(unique)
 
     def _queue_delivery_feedback_continuation(
         self,
@@ -918,8 +938,7 @@ class ProductLoopCoordinator:
                 "The control-plane root of the continued run is required to queue its continuation."
             )
 
-        change_request = self._delivery_change_request(loop["id"], feedback)
-        run_message = f"{message}\n\n{change_request}" if change_request else message
+        run_message = continuation_run_message(message, self._delivery_change_request(loop["id"], feedback))
         queued_at = utc_now()
         plan_only = bool(request_meta.get("planOnly") or request_meta.get("plan_only"))
         approved_resource_selections = self._approved_resource_selections_from_durable(durable)

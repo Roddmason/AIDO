@@ -176,6 +176,10 @@ def test_developer_agent_prompt_includes_story_specs_only_when_provided() -> Non
     assert "Guest checkout" in with_spec
     assert "User story spec" in with_spec
     assert with_spec.startswith(base.split("Instruction:")[0][:40])
+    # Cada historia corre en su propio run: sin acotar el alcance, el modelo rehacía el pedido entero
+    # en cada historia (reescribía README y utils en la historia del desempate, visto en vivo).
+    assert "Scope of this run" not in base
+    assert "Scope of this run: implement only what the user story spec above requires." in with_spec
 
 
 def test_product_loop_story_spec_endpoint_returns_spec_and_404(

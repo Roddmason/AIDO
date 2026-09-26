@@ -428,7 +428,7 @@ def developer_agent_prompt(
 
     When ``story_specs`` is provided, the rendered user-story spec (epic, story,
     acceptance criteria, and role responsibilities) is included as the acceptance
-    source of truth; ``constitution`` (the rendered project constitution) is
+    source of truth and scopes the run to it; ``constitution`` (the rendered project constitution) is
     prepended as binding project rules. Without either, the prompt is
     byte-identical to the legacy form when the response style is normal. Runtime
     callers resolve the configured style before command construction or authorization.
@@ -439,8 +439,17 @@ def developer_agent_prompt(
         else "No QA commands were provided."
     )
     constitution_block = f"{constitution}\n\n" if constitution else ""
+    # The loop runs one developer run per story with the whole request as the instruction: without
+    # the scope line the model redid every story in each run (bigger outputs, repetition loops).
     spec_block = (
-        "User story spec (source of truth for acceptance):\n" + story_specs + "\n\n" if story_specs else ""
+        "User story spec (source of truth for acceptance):\n"
+        + story_specs
+        + "\n\nScope of this run: implement only what the user story spec above requires. The "
+        "instruction below is the whole request; any part of it outside this spec belongs to other "
+        "stories that run separately (some may already be done): keep their changes and do not "
+        "rewrite files this spec does not need.\n\n"
+        if story_specs
+        else ""
     )
     return (
         "You are DeveloperAgent executing real implementation work in the current workspace only.\n"

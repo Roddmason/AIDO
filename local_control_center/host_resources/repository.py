@@ -373,20 +373,33 @@ class ResourceRepository:
         cursor = self.connection.execute("DELETE FROM resource_usage_samples WHERE sampled_at < ?", (cutoff,))
         return cursor.rowcount
 
-    def prune_admission_decisions(self, *, retention_seconds: int, now_iso: str | None = None) -> int:
+    def prune_admission_decisions(
+        self, *, retention_seconds: int, now_iso: str | None = None, batch_size: int | None = None
+    ) -> int:
         """Elimina decisiones de admision anteriores a la ventana indicada.
 
         Cada intento de admision escribia una fila permanente con su `request_json` y su
         `snapshot_json` completos: 130.770 filas / 119,3 MB medidos en la instalacion real, el
         16% de toda la base. El mecanismo de retencion ya existia y solo estaba cableado a las
         muestras de capacidad.
+
+        Con ``batch_size`` borra como maximo ese lote, empezando por el ``rowid`` mas bajo: la tabla
+        es de insercion, asi que las filas viejas estan al principio y la subconsulta se detiene al
+        llenar el lote aunque no haya indice por fecha.
         """
         now = datetime.fromisoformat((now_iso or utc_now()).replace("Z", "+00:00"))
         cutoff = (now - timedelta(seconds=max(1, retention_seconds))).isoformat(timespec="milliseconds")
         cutoff = cutoff.replace("+00:00", "Z")
-        cursor = self.connection.execute(
-            "DELETE FROM resource_admission_decisions WHERE created_at < ?", (cutoff,)
-        )
+        if batch_size is None:
+            cursor = self.connection.execute(
+                "DELETE FROM resource_admission_decisions WHERE created_at < ?", (cutoff,)
+            )
+        else:
+            cursor = self.connection.execute(
+                "DELETE FROM resource_admission_decisions WHERE rowid IN ("
+                " SELECT rowid FROM resource_admission_decisions WHERE created_at < ? ORDER BY rowid LIMIT ?)",
+                (cutoff, max(1, batch_size)),
+            )
         return cursor.rowcount
 
     def record_violation(

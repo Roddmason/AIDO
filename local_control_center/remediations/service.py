@@ -59,6 +59,11 @@ LOCAL_WORKER_RECOVERABLE_STAGES = frozenset({"gitleaks", "research", "runtime", 
 # Blocker types de `resource_manager` que la reanudación automática por cooldown puede tocar; ver
 # `BlockerRemediationService.resume_cooldown_expired_blocks`.
 COOLDOWN_ELIGIBLE_BLOCKER_TYPES = frozenset({"resource_manager_unconfigured", "runtime_not_executable"})
+# `thread_decisions.metadata.source` de las preguntas y decisiones que levanta el ProductOwnerAgent
+# (agents/product_owner_agent.py::PRODUCT_OWNER_AGENT_ID). Solo estas admiten selección múltiple y
+# texto libre en `_answer_question`; el resto (similitud, funcionalidad existente, intake) son
+# excluyentes por semántica y siguen exigiendo una sola opción exacta.
+PRODUCT_OWNER_DECISION_SOURCE = "product_owner_agent"
 
 
 class BlockerRemediationService:
@@ -906,8 +911,18 @@ class BlockerRemediationService:
         resolution: str,
         decided_by: str | None,
         platform: Any,
+        selected_options: list[str] | None = None,
+        free_text: str | None = None,
+        suppress_message: bool = False,
     ) -> dict[str, Any]:
-        """Resolve a thread decision through its durable remediation when one exists."""
+        """Resolve a thread decision through its durable remediation when one exists.
+
+        ``selected_options``/``free_text`` carry the structured answer through to
+        ``_answer_question`` (Product Owner decisions accept several options and free text even
+        with options offered); omit them (default ``None``) for the legacy single-``resolution``
+        path. ``suppress_message`` skips the "user answered" chat message this call would otherwise
+        append — the batch endpoint uses it to append one combined message for the whole batch.
+        """
         threads = ThreadsRepository(self.connection)
         decision = threads.get_decision(decision_id)
         if decision["threadId"] != thread_id:
@@ -918,17 +933,24 @@ class BlockerRemediationService:
             if action.get("actionType") == "answer_question"
             and str((action.get("payload") or {}).get("decisionId") or "").strip() == decision_id
         ]
+        answer_payload: dict[str, Any] = {
+            "threadId": thread_id,
+            "decisionId": decision_id,
+            "resolution": resolution,
+            "decidedBy": decided_by or "user",
+        }
+        if selected_options is not None:
+            answer_payload["selectedOptions"] = selected_options
+        if free_text is not None:
+            answer_payload["freeText"] = free_text
+        if suppress_message:
+            answer_payload["suppressMessage"] = True
         pending_actions = [action for action in matching_actions if action.get("status") == "pending"]
         if pending_actions:
             outcome = self.execute(
                 pending_actions[-1]["id"],
                 platform=platform,
-                payload={
-                    "threadId": thread_id,
-                    "decisionId": decision_id,
-                    "resolution": resolution,
-                    "decidedBy": decided_by or "user",
-                },
+                payload=answer_payload,
             )
             execution = outcome["execution"]
             if execution.get("status") != "completed":
@@ -944,12 +966,7 @@ class BlockerRemediationService:
         if dismissed_actions:
             execution = self._answer_question(
                 action=dismissed_actions[-1],
-                payload={
-                    "threadId": thread_id,
-                    "decisionId": decision_id,
-                    "resolution": resolution,
-                    "decidedBy": decided_by or "user",
-                },
+                payload=answer_payload,
                 allow_dismissed=True,
             )
             if execution.get("status") != "completed":
@@ -981,6 +998,7 @@ class BlockerRemediationService:
             decision_id=decision_id,
             resolution=resolution,
             decided_by=decided_by,
+            append_message=not suppress_message,
         )
 
     def _decision_requires_product_loop_remediation(
@@ -3131,11 +3149,22 @@ class BlockerRemediationService:
         thread_id = persisted_thread_id or payload_thread_id
         decision_id = persisted_decision_id or payload_decision_id
         answer = str(payload.get("answer") or payload.get("resolution") or "").strip()
-        if not thread_id or not decision_id or not answer:
+        raw_selected_options = payload.get("selectedOptions")
+        selected_options = (
+            [str(item).strip() for item in raw_selected_options if str(item).strip()]
+            if isinstance(raw_selected_options, list)
+            else []
+        )
+        free_text = str(payload.get("freeText") or "").strip()
+        # Legacy single-answer callers (no selectedOptions/freeText key at all, e.g. a direct
+        # /remediations/{id}/execute call) keep treating `answer` as one selection.
+        if "selectedOptions" not in payload and "freeText" not in payload and answer:
+            selected_options = [answer]
+        if not thread_id or not decision_id or not (answer or selected_options or free_text):
             return {
                 "status": "blocked",
                 "action": "answer_question",
-                "reason": "threadId, decisionId and answer/resolution are required.",
+                "reason": "threadId, decisionId and answer/resolution/selectedOptions/freeText are required.",
             }
         threads = ThreadsRepository(self.connection)
         decision = threads.get_decision(decision_id)
@@ -3162,19 +3191,44 @@ class BlockerRemediationService:
                     "safely resolve this decision until the active run finishes."
                 ),
             }
+        decision_metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
+        allows_free_form = str(decision_metadata.get("source") or "").strip() == PRODUCT_OWNER_DECISION_SOURCE
         options = self._answer_options(decision=decision, action_payload=action_payload)
-        matched_answer = self._matched_option(answer, options)
-        if options and matched_answer is None:
+        resolved_options: list[str] = []
+        for raw_option in selected_options:
+            matched = self._matched_option(raw_option, options)
+            if matched is None:
+                if options:
+                    return {
+                        "status": "blocked",
+                        "action": "answer_question",
+                        "decisionId": decision_id,
+                        "answer": raw_option,
+                        "options": options,
+                        "reason": "Answer must match one of the offered decision options.",
+                    }
+                resolved_options.append(raw_option)
+            else:
+                resolved_options.append(matched)
+        if free_text and not allows_free_form and options:
             return {
                 "status": "blocked",
                 "action": "answer_question",
                 "decisionId": decision_id,
-                "answer": answer,
-                "options": options,
-                "reason": "Answer must match one of the offered decision options.",
+                "reason": "Free text is only accepted for Product Owner questions and decisions.",
             }
-        if matched_answer is not None:
-            answer = matched_answer
+        combined_answer = [*resolved_options]
+        if free_text:
+            combined_answer.append(free_text)
+        if not combined_answer:
+            return {
+                "status": "blocked",
+                "action": "answer_question",
+                "decisionId": decision_id,
+                "reason": "answer, selectedOptions or freeText is required.",
+            }
+        answer = ", ".join(combined_answer)
+        suppress_message = bool(payload.get("suppressMessage"))
         from local_control_center.threads.coordinator import ThreadCoordinator
 
         clarification_payload = {
@@ -3183,7 +3237,12 @@ class BlockerRemediationService:
             "resolution": answer,
             "decidedBy": str(payload.get("decidedBy") or "remediation"),
         }
-        with immediate_transaction(self.connection):
+        transaction = (
+            nullcontext(self.connection)
+            if self.connection.in_transaction
+            else immediate_transaction(self.connection)
+        )
+        with transaction:
             current_action = self.repository.get(action["id"])
             executable_statuses = {"pending", "dismissed"} if allow_dismissed else {"pending"}
             if current_action["status"] not in executable_statuses:
@@ -3221,6 +3280,7 @@ class BlockerRemediationService:
                 resolution=answer,
                 decided_by=str(payload.get("decidedBy") or "remediation"),
                 defer_followup=bool(remaining_decision_ids),
+                append_message=not suppress_message,
             )
             clarification = self._record_clarification_answer(
                 decision=result.get("decision") or {},

@@ -87,10 +87,10 @@ test('Threads: resolving a conversation decision refreshes the open inspector an
 	await page.route('**/api/v1/threads/*/events?*', (route) => route.fulfill({
 		json: { events: [], lastSeq: 0, running: false, threadStatus: 'waiting_decision' },
 	}));
-	await page.route('**/api/v1/threads/*/decisions/inspector-refresh-decision/resolve', async (route) => {
+	await page.route('**/api/v1/threads/*/decisions/resolve-batch', async (route) => {
 		resolved = true;
 		await route.fulfill({ json: {
-			decision: { ...decision, status: 'resolved' },
+			decisions: [{ ...decision, status: 'resolved' }],
 			thread: { ...thread, status: 'running' },
 		} });
 	});

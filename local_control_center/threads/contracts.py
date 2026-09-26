@@ -427,6 +427,28 @@ class ThreadDecisionResolveResponse(BaseModel):
     decision: ThreadDecisionRecord
 
 
+class ThreadDecisionBatchAnswer(BaseModel):
+    """Una respuesta dentro de un lote: misma forma que ``ThreadDecisionResolveRequest`` por decisión."""
+
+    decision_id: str = Field(alias="decisionId")
+    selected_options: list[str] = Field(default_factory=list, alias="selectedOptions")
+    free_text: str | None = Field(default=None, alias="freeText")
+
+
+class ThreadDecisionBatchResolveRequest(BaseModel):
+    """Cuerpo para resolver varias decisiones pendientes juntas, en un solo mensaje de chat."""
+
+    answers: list[ThreadDecisionBatchAnswer]
+    decided_by: str | None = Field(default=None, alias="decidedBy")
+
+
+class ThreadDecisionBatchResolveResponse(BaseModel):
+    """Resultado de resolver un lote: el hilo vigente y cada decisión resuelta."""
+
+    thread: ThreadRecord
+    decisions: list[ThreadDecisionRecord]
+
+
 class ThreadMemoryDecisionRecord(BaseModel):
     """Decisión ya resuelta en un hilo similar, recordada por el recall de memoria."""
 

@@ -264,17 +264,29 @@ class NodeInstallPlan:
 def _node_install_command(manager: str, workspace: Path, *, lockfile_sha256: str) -> ToolchainCommand:
     marker = {"manager": manager, "lockfileSha256": lockfile_sha256}
     if manager == "pnpm":
-        argv = ["corepack", f"pnpm@{PNPM_VERSION}", "install", "--frozen-lockfile", "--prefer-offline"]
+        argv = [
+            "corepack",
+            f"pnpm@{PNPM_VERSION}",
+            "install",
+            "--frozen-lockfile",
+            "--prefer-offline",
+            "--ignore-scripts",
+        ]
         label = "Install dependencies (pnpm install --frozen-lockfile)"
         executable = "corepack"
     elif manager == "npm":
-        argv = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund"]
+        argv = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund", "--ignore-scripts"]
         label = "Install dependencies (npm ci)"
         executable = "npm"
     else:
-        flag = "--immutable" if (workspace / ".yarnrc.yml").is_file() else "--frozen-lockfile"
-        argv = ["yarn", "install", flag]
-        label = f"Install dependencies (yarn install {flag})"
+        # Yarn Berry no tiene --ignore-scripts; --mode=skip-build omite los scripts de build.
+        flags = (
+            ["--immutable", "--mode=skip-build"]
+            if (workspace / ".yarnrc.yml").is_file()
+            else ["--frozen-lockfile", "--ignore-scripts"]
+        )
+        argv = ["yarn", "install", *flags]
+        label = f"Install dependencies (yarn install {flags[0]})"
         executable = "yarn"
     return ToolchainCommand(
         purpose="install",

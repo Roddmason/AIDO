@@ -25,10 +25,10 @@ def _category(command: str) -> str | None:
 @pytest.mark.parametrize(
     "command",
     [
-        f"corepack pnpm@{PNPM_VERSION} install --frozen-lockfile --prefer-offline",
-        "npm ci --prefer-offline --no-audit --no-fund",
-        "yarn install --frozen-lockfile",
-        "yarn install --immutable",
+        f"corepack pnpm@{PNPM_VERSION} install --frozen-lockfile --prefer-offline --ignore-scripts",
+        "npm ci --prefer-offline --no-audit --no-fund --ignore-scripts",
+        "yarn install --frozen-lockfile --ignore-scripts",
+        "yarn install --immutable --mode=skip-build",
     ],
 )
 def test_frozen_offline_install_commands_are_low_risk(command: str) -> None:
@@ -45,6 +45,13 @@ def test_frozen_offline_install_commands_are_low_risk(command: str) -> None:
         "yarn install",
         f"corepack pnpm@{PNPM_VERSION} add left-pad",
         "npm ci --prefer-offline",
+        # Sin --ignore-scripts correrian los postinstall de dependencias que el developer pudo agregar.
+        f"corepack pnpm@{PNPM_VERSION} install --frozen-lockfile --prefer-offline",
+        "npm ci --prefer-offline --no-audit --no-fund",
+        "yarn install --frozen-lockfile",
+        "yarn install --immutable",
+        # Solo la version de pnpm que fija la toolchain.
+        "corepack pnpm@9.0.0 install --frozen-lockfile --prefer-offline --ignore-scripts",
     ],
 )
 def test_install_commands_without_the_exact_frozen_argv_stay_non_low_risk(command: str) -> None:

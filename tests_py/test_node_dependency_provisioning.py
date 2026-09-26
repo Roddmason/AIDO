@@ -45,6 +45,7 @@ def test_plan_requires_install_when_node_modules_is_missing(tmp_path: Path) -> N
         "install",
         "--frozen-lockfile",
         "--prefer-offline",
+        "--ignore-scripts",
     ]
     assert plan.command.critical is True
 
@@ -119,16 +120,23 @@ def test_npm_and_yarn_install_commands_are_frozen_and_offline(tmp_path: Path) ->
     (tmp_path / "package.json").write_text(PACKAGE_JSON_WITH_DEPS, encoding="utf-8")
     (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
     npm_plan = resolve_node_install_plan(tmp_path, manager="npm")
-    assert npm_plan.command.argv == ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund"]
+    assert npm_plan.command.argv == [
+        "npm",
+        "ci",
+        "--prefer-offline",
+        "--no-audit",
+        "--no-fund",
+        "--ignore-scripts",
+    ]
 
     (tmp_path / "package-lock.json").unlink()
     (tmp_path / "yarn.lock").write_text("", encoding="utf-8")
     yarn_plan = resolve_node_install_plan(tmp_path, manager="yarn")
-    assert yarn_plan.command.argv == ["yarn", "install", "--frozen-lockfile"]
+    assert yarn_plan.command.argv == ["yarn", "install", "--frozen-lockfile", "--ignore-scripts"]
 
     (tmp_path / ".yarnrc.yml").write_text("nodeLinker: node-modules\n", encoding="utf-8")
     yarn_immutable_plan = resolve_node_install_plan(tmp_path, manager="yarn")
-    assert yarn_immutable_plan.command.argv == ["yarn", "install", "--immutable"]
+    assert yarn_immutable_plan.command.argv == ["yarn", "install", "--immutable", "--mode=skip-build"]
 
 
 def test_plan_workspace_commands_runs_install_before_test_and_build(tmp_path: Path) -> None:
@@ -154,6 +162,7 @@ def test_plan_workspace_commands_runs_install_before_test_and_build(tmp_path: Pa
         "install",
         "--frozen-lockfile",
         "--prefer-offline",
+        "--ignore-scripts",
     ]
     assert commands[0].node_install_marker == {
         "manager": "pnpm",

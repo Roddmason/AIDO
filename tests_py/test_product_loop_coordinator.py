@@ -11,6 +11,7 @@ import pytest
 
 import local_control_center.product_loop.coordinator as product_loop_coordinator
 from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.agents.product_owner_agent import ProductOwnerOutputValidationError
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
@@ -6139,6 +6140,45 @@ def test_product_owner_distinguishes_transport_failure_from_invalid_output(
         )
 
 
+def test_product_owner_output_does_not_repeat_the_prefix_when_reason_already_describes_it(
+    tmp_path: Path,
+) -> None:
+    """Regresión: la consola del hilo mostraba el motivo duplicado ('... must be a JSON object:
+    ProductOwnerAgent runtime output is not valid JSON.') porque ``reason`` ya era una oración completa
+    con el mismo sujeto que el prefijo genérico."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        with pytest.raises(ProductOwnerOutputValidationError) as excinfo:
+            coordinator._product_owner_output(
+                {"status": "invalid", "reason": "ProductOwnerAgent runtime output is not valid JSON."}
+            )
+
+        assert str(excinfo.value) == "ProductOwnerAgent runtime output is not valid JSON."
+
+
+def test_product_owner_output_keeps_the_prefix_for_a_bare_reason(tmp_path: Path) -> None:
+    """Un ``reason`` que no describe por sí solo el problema del output (p. ej. un fallo de transporte)
+    sigue recibiendo el prefijo: sin él, el mensaje pierde el contexto de qué falló."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        with pytest.raises(ProductOwnerOutputValidationError) as excinfo:
+            coordinator._product_owner_output(
+                {
+                    "status": "invalid",
+                    "reason": "NVIDIA NIM execution failed: provider_request_failed:http_status=404",
+                }
+            )
+
+        assert str(excinfo.value) == (
+            "ProductOwnerAgent output must be a JSON object: "
+            "NVIDIA NIM execution failed: provider_request_failed:http_status=404"
+        )
+
+
 def test_product_owner_local_runtime_cause_reaches_the_block_details(tmp_path: Path) -> None:
     runtime = _ControlledRuntime()
     reason = "OpenAI-compatible execution failed: model_loading"
@@ -6285,7 +6325,9 @@ def test_run_user_message_blocks_invalid_product_owner_output_with_remediation(
         assert durable["productOwner"]["status"] == "failed_validation"
         assert durable["productOwner"]["resourceLearning"]["status"] == "recorded"
         assert durable["productOwner"]["resourceLearning"]["observations"][0]["role"] == "product_owner"
-        assert "ProductOwnerAgent output" in result["reason"]
+        # El reason del mock ya describe la falla por sí solo (mismo sujeto que el prefijo genérico de
+        # _product_owner_output): no debe duplicarse en "... must be a JSON object: ProductOwnerAgent ...".
+        assert result["reason"] == "ProductOwnerAgent returned no validated output payload."
         assert runtime.run_payloads == []
         assert (
             ProductDiscoveryRepository(connection).list_product_owner_outputs(project_id=project["id"]) == []
@@ -6479,7 +6521,8 @@ def test_invalid_product_owner_output_block_survives_resource_learning_persisten
         assert durable["blockedStage"] == "product_owner"
         assert durable["productOwner"]["status"] == "failed_validation"
         assert durable["productOwner"]["resourceLearning"]["status"] == "persistence_failed"
-        assert "ProductOwnerAgent output" in result["reason"]
+        # Ver el mismo comentario en test_run_user_message_blocks_invalid_product_owner_output_with_remediation.
+        assert result["reason"] == "ProductOwnerAgent returned no validated output payload."
         assert (
             "controlled ProductOwner validation resource learning crashed"
             in durable["productOwner"]["resourceLearning"]["reason"]

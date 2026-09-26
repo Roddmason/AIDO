@@ -19,6 +19,8 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { EASE_OUT } from '../../motion/variants';
 import { describeReasonCode } from '../runtime-setup/reasonCopy';
 import { ThreadBlockerList } from './ThreadBlockerCard';
+import type { FailureGroupEntry } from './threadConsoleGrouping';
+import { groupConsoleFailures, isFailureGroup } from './threadConsoleGrouping';
 import { MESSAGE_META, safeRecord, textValue } from './threadPresentation';
 import type { ThreadRemediationsHandle } from './useThreadRemediations';
 
@@ -308,7 +310,10 @@ export function ThreadExecutionPanel({
 		onFocusDecision,
 	});
 
-	const consoleEntries = useMemo(() => mergeConsoleEntries(events, messages), [events, messages]);
+	const consoleEntries = useMemo(
+		() => groupConsoleFailures(mergeConsoleEntries(events, messages)),
+		[events, messages],
+	);
 	const resourceWaitCode = useMemo(() => latestResourceWait(events), [events]);
 	const queuedCopy = queuedBannerCopy(workerBusy, resourceWaitCode, t);
 	const workerIsRunning = workerStatus?.running === true;
@@ -446,13 +451,16 @@ export function ThreadExecutionPanel({
 
 			<div className="thread-execution-log" role="log" aria-live="polite" aria-relevant="additions">
 				{consoleEntries.length ? (
-					consoleEntries.map((entry) =>
-						entry.kind === 'event' ? (
+					consoleEntries.map((entry) => {
+						if (isFailureGroup(entry)) {
+							return <ThreadConsoleFailureGroupRow key={entry.key} group={entry} />;
+						}
+						return entry.kind === 'event' ? (
 							<ThreadConsoleRow key={entry.key} event={entry.event} />
 						) : (
 							<ThreadConsoleMessageRow key={entry.key} message={entry.message} />
-						),
-					)
+						);
+					})
 				) : (
 					<div className="thread-console-status" data-tone="muted">
 						{t('app.threads.consoleEmpty', 'No execution events yet.')}
@@ -524,12 +532,12 @@ function collectBlockers({
 	return cards;
 }
 
-type ConsoleEntry =
+export type ConsoleEntry =
 	| { kind: 'event'; key: string; createdAt: string; sequence: number; event: ThreadAgentEvent }
 	| { kind: 'message'; key: string; createdAt: string; sequence: number; message: ThreadMessage };
 
 /** Interleaves execution events and execution-side messages chronologically (createdAt, then seq). */
-function mergeConsoleEntries(
+export function mergeConsoleEntries(
 	events: ThreadAgentEvent[],
 	messages: ThreadMessage[],
 ): ConsoleEntry[] {
@@ -644,6 +652,69 @@ export function ThreadConsoleRow({ event }: { event: ThreadAgentEvent }) {
 	);
 }
 
+/**
+ * Una fila que combina varios registros de la MISMA falla (mismo loop, mismo motivo, a milisegundos
+ * de distancia — ver `groupConsoleFailures`): el motivo aparece una sola vez, los chips de todos los
+ * registros agrupados se combinan y el disclosure de detalles técnicos expone el payload de cada
+ * registro original, nunca solo el primero.
+ */
+export function ThreadConsoleFailureGroupRow({ group }: { group: FailureGroupEntry }) {
+	const { t } = useI18n();
+	const [detailsOpen, setDetailsOpen] = useState(false);
+	const firstEntry = group.entries[0];
+	const actor = (firstEntry.kind === 'event' && firstEntry.event.agentRole) || 'aido';
+	const title = t('app.threads.event.blocked', eventTitle('blocked'));
+	const groupedCount =
+		group.entries.length > 1
+			? t('app.threads.event.groupedCount', '{count} related records').replace(
+					'{count}',
+					String(group.entries.length),
+				)
+			: null;
+	return (
+		<div className="thread-console-row" data-type="failure-group">
+			<ThreadConsoleTime createdAt={group.createdAt} />
+			<span className="thread-console-seq mono">#{group.sequence}</span>
+			<span className="thread-console-actor">{actor}</span>
+			<div className="thread-console-body">
+				<div className="thread-console-line">
+					<strong>{title}</strong>
+					{group.chips.map((chip) => (
+						<span className="thread-console-chip mono" key={chip}>
+							{chip}
+						</span>
+					))}
+					{groupedCount ? (
+						<span className="thread-console-chip mono" title={groupedCount}>
+							×{group.entries.length}
+						</span>
+					) : null}
+				</div>
+				<p>{group.reason}</p>
+				<details
+					className="thread-console-payload"
+					onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+				>
+					<summary>{t('app.threads.eventDetails', 'Technical details')}</summary>
+					{detailsOpen ? (
+						<pre>{JSON.stringify(group.entries.map(rawEntryPayload), null, 2)}</pre>
+					) : null}
+				</details>
+			</div>
+		</div>
+	);
+}
+
+function rawEntryPayload(entry: ConsoleEntry): Record<string, unknown> {
+	return entry.kind === 'event'
+		? { type: entry.event.type, ...safeRecord(entry.event.payload) }
+		: {
+				kind: entry.message.kind,
+				content: entry.message.content,
+				...safeRecord(entry.message.metadata),
+			};
+}
+
 function eventTitle(type: string): string {
 	const titles: Record<string, string> = {
 		message_received: 'Message received',
@@ -688,6 +759,7 @@ function eventTitle(type: string): string {
 		agent_tasks_ready: 'Agent tasks ready',
 		reworking: 'Reworking',
 		cancelled: 'Cancelled',
+		state_changed: 'State changed',
 	};
 	return titles[type] ?? type.replace(/_/g, ' ');
 }

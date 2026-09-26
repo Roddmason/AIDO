@@ -43,6 +43,7 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
     developer_agent_readiness,
 )
+from .developer_repository_context import repository_context
 from .local_model_call_input import local_model_call_input
 from .model_output_text import json_candidate_text
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
@@ -284,10 +285,21 @@ def _developer_model_messages(
     constitution: str | None = None,
     connection: sqlite3.Connection | None = None,
     project_id: str | None = None,
+    workspace_path: str | None = None,
 ) -> list[dict[str, str]]:
+    """Mensajes del DeveloperAgent sobre un modelo: contrato JSON, tarea y contexto del repositorio.
+
+    El modelo no tiene herramientas: sin el mapa y el contenido actual del workspace inventaba la
+    estructura y reescribía archivos que no conocía (ver ``developer_repository_context``).
+    """
     schema = (
         '{"summary":"string","files":[{"path":"relative/path","content":"complete UTF-8 file content"}],'
         '"tests":["test command or blocker"],"risks":["risk or blocker"]}'
+    )
+    context = (
+        repository_context(workspace_path, focus_text=f"{instruction}\n{story_specs or ''}")
+        if workspace_path
+        else ""
     )
     return [
         {
@@ -305,7 +317,8 @@ def _developer_model_messages(
                 story_specs=story_specs,
                 constitution=constitution,
                 response_style=resolve_response_style(connection, project_id=project_id),
-            ),
+            )
+            + (f"\n{context}\n" if context else ""),
         },
     ]
 
@@ -479,6 +492,7 @@ class DeveloperAgentRunner:
                         constitution=payload.get("constitution"),
                         connection=self.connection,
                         project_id=payload["projectId"],
+                        workspace_path=str(workspace["path"]),
                     ),
                     "temperature": 0.2,
                     **local_model_call_input(

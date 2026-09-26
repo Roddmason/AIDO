@@ -12,6 +12,8 @@ from .repository import ResourceRepository
 RESOURCE_SAMPLE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 ADMISSION_DECISION_RETENTION_SECONDS = 7 * 24 * 60 * 60
 """Las decisiones de admision se conservan la misma ventana que las muestras que las motivaron."""
+RESOLVED_VIOLATION_RETENTION_SECONDS = 30 * 24 * 60 * 60
+"""Un desalojo resuelto se conserva un mes como evidencia; son pocas filas (solo bajo presión real)."""
 
 
 def prune_resource_history(repository: ResourceRepository) -> int:
@@ -37,6 +39,7 @@ def drain_resource_history(
     """
     repository = ResourceRepository(connection)
     repository.prune_samples(retention_seconds=RESOURCE_SAMPLE_RETENTION_SECONDS)
+    repository.prune_resolved_violations(retention_seconds=RESOLVED_VIOLATION_RETENTION_SECONDS)
     total = 0
     for _ in range(max_batches):
         removed = repository.prune_admission_decisions(

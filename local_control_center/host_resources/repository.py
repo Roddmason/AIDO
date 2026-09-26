@@ -380,6 +380,20 @@ class ResourceRepository:
         cursor = self.connection.execute("DELETE FROM resource_usage_samples WHERE sampled_at < ?", (cutoff,))
         return cursor.rowcount
 
+    def prune_resolved_violations(self, *, retention_seconds: int, now_iso: str | None = None) -> int:
+        """Elimina violaciones ya resueltas (su lease se liberó) anteriores a la ventana indicada.
+
+        Las no resueltas nunca se borran: pertenecen a una lease activa y `cancellation_reason` las
+        sigue leyendo para detener su ejecución.
+        """
+        now = datetime.fromisoformat((now_iso or utc_now()).replace("Z", "+00:00"))
+        cutoff = (now - timedelta(seconds=max(1, retention_seconds))).isoformat(timespec="milliseconds")
+        cursor = self.connection.execute(
+            "DELETE FROM resource_violations WHERE resolved_at IS NOT NULL AND resolved_at < ?",
+            (cutoff.replace("+00:00", "Z"),),
+        )
+        return cursor.rowcount
+
     def prune_admission_decisions(
         self, *, retention_seconds: int, now_iso: str | None = None, batch_size: int | None = None
     ) -> int:

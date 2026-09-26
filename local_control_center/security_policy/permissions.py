@@ -210,6 +210,28 @@ def _is_corepack_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
     return True, parsed.args[1:]
 
 
+_FROZEN_PNPM_INSTALL_ARGS: tuple[str, ...] = ("install", "--frozen-lockfile", "--prefer-offline")
+_FROZEN_NPM_INSTALL_ARGS: tuple[str, ...] = ("ci", "--prefer-offline", "--no-audit", "--no-fund")
+_FROZEN_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--frozen-lockfile")
+_IMMUTABLE_YARN_INSTALL_ARGS: tuple[str, ...] = ("install", "--immutable")
+
+
+def is_frozen_node_dependency_install(parsed: ParsedCommand) -> bool:
+    """Reconoce, por argv exacto, la instalacion determinista y preferentemente offline de Node.
+
+    Invariante de seguridad: solo estos cuatro argv exactos califican. Agregar un paquete,
+    instalar sin `--frozen-lockfile`/`ci`/`--immutable`, o cualquier otra variante sigue sin
+    categoria de bajo riesgo (`package_manager_category` la sigue clasificando riesgo medio).
+    """
+    is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
+    if is_pnpm and pnpm_args == _FROZEN_PNPM_INSTALL_ARGS:
+        return True
+    base = _base_executable(parsed.executable)
+    if base == "npm" and parsed.args == _FROZEN_NPM_INSTALL_ARGS:
+        return True
+    return bool(base == "yarn" and parsed.args in (_FROZEN_YARN_INSTALL_ARGS, _IMMUTABLE_YARN_INSTALL_ARGS))
+
+
 def _is_node_runner(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
     """Reconoce pnpm, npm, yarn y `corepack pnpm`, que corren scripts de `package.json`.
 
@@ -271,6 +293,9 @@ def package_manager_category(parsed: ParsedCommand) -> str | None:
         return "install"
     if _base_executable(executable) == "corepack":
         is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
+        if is_pnpm and pnpm_args == _FROZEN_PNPM_INSTALL_ARGS:
+            # Instalacion determinista y offline: la clasifica low_risk_shell_category, no esto.
+            return None
         if is_pnpm and pnpm_args and pnpm_args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
             return "install"
     if (
@@ -300,6 +325,8 @@ def low_risk_shell_category(parsed: ParsedCommand) -> str | None:
     Invariante: cualquier comando que no calce exactamente devuelve ``None`` y no se considera
     de bajo riesgo; el motor lo elevara a aprobacion.
     """
+    if is_frozen_node_dependency_install(parsed):
+        return "dependency_install_frozen"
     node_category = node_script_category(parsed)
     if node_category in {"test", "build", "lint", "typecheck", "quality", "security_scan"}:
         return node_category

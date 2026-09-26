@@ -13,15 +13,24 @@ Dos reglas de "runtime del proyecto, no del sistema":
   eligen pnpm, npm o yarn respectivamente; asumir pnpm en un repo con `package-lock.json` instala
   un árbol de dependencias distinto al que el proyecto fijó.
 
-Este módulo es de sólo lectura: arma el plan y reporta si el ejecutable está presente en el host.
-No ejecuta nada ni decide política — la allowlist de `security_policy.permissions` sigue siendo la
-autoridad sobre qué se permite correr, y cada comando de acá debe pasar por ella.
+Este módulo arma el plan y reporta si el ejecutable está presente en el host; no ejecuta ningún
+comando del proyecto ni decide política — la allowlist de `security_policy.permissions` sigue
+siendo la autoridad sobre qué se permite correr, y cada comando de acá debe pasar por ella. Su
+única escritura es un marcador propio de AIDO (`node_modules/.aido-deps.json`), no un artefacto
+del proyecto ni el resultado de ejecutar nada.
+
+Los workspaces de las historias son git worktrees: `node_modules/` está en `.gitignore` y ningún
+worktree nuevo lo trae, así que todo comando Node del QA moría con `Cannot find module`. Antes de
+esos comandos, este módulo decide si hace falta instalar dependencias (con el gestor del
+lockfile, de forma congelada y preferentemente offline) o si instalar sería no determinista
+(falta el lockfile), caso en el que bloquea en vez de instalar a ciegas.
 
 @author Rodrigo Mason
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections.abc import Callable
@@ -103,14 +112,29 @@ class ToolchainCommand:
 
     critical: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int | None = None
+    """Timeout explicito para comandos que lo necesitan mas amplio que el default del QA (p. ej.
+    instalar dependencias). ``None`` deja que el runner de QA use su propio default."""
+
+    unresolved_reason: str | None = None
+    """Si no es ``None``, este comando no tiene un argv ejecutable real: no correspondia
+    ejecutarlo de forma determinista (p. ej. instalar dependencias sin lockfile). El runner de QA
+    lo registra como ``skipped_with_reason`` con este motivo, sin pasarlo por el broker."""
+
+    node_install_marker: dict[str, str] | None = None
+    """Si esta presente (``{"manager", "lockfileSha256"}``), y el comando pasa, el runner de QA
+    escribe el marcador de dependencias Node para no reinstalar en la proxima corrida."""
 
     def is_available_on_host(self) -> bool:
         """Indica si este comando puede correr en el host tal como esta planificado.
 
         Se mira ``argv[0]``, no el nombre del ejecutable: el wrapper del repo (`mvnw.cmd`,
         `gradlew.bat`) vive dentro del proyecto y **nunca** esta en el PATH, asi que buscarlo con
-        `which` lo declaraba ausente y le pedia al operador instalar algo que ya tenia.
+        `which` lo declaraba ausente y le pedia al operador instalar algo que ya tenia. Un
+        comando ``unresolved_reason`` nunca esta "disponible": no hay nada que buscar.
         """
+        if self.unresolved_reason is not None:
+            return False
         head = self.argv[0] if self.argv else self.executable
         if "/" in head or "\\" in head:
             return Path(head).is_file()
@@ -118,11 +142,18 @@ class ToolchainCommand:
 
     def as_command_spec(self) -> dict[str, Any]:
         """Proyecta el comando al dict que consume el runner de QA."""
-        return {
+        spec: dict[str, Any] = {
             "label": self.label,
             "argv": list(self.argv),
             "critical": self.critical,
         }
+        if self.timeout_seconds is not None:
+            spec["timeoutSeconds"] = self.timeout_seconds
+        if self.unresolved_reason is not None:
+            spec["unresolvedReason"] = self.unresolved_reason
+        if self.node_install_marker is not None:
+            spec["nodeInstallMarker"] = dict(self.node_install_marker)
+        return spec
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -156,6 +187,135 @@ def node_package_manager(workspace: Path) -> str:
     return "pnpm"
 
 
+NODE_DEPENDENCY_MARKER_NAME = ".aido-deps.json"
+"""Marcador propio de AIDO dentro de `node_modules/` que registra con que gestor y lockfile se
+instalo, para no reinstalar en cada corrida de QA."""
+
+NODE_NO_LOCKFILE_REASON = "sin lockfile no hay instalación reproducible"
+"""Motivo de bloqueo cuando faltan `node_modules` y no hay lockfile del gestor detectado.
+
+Instalar sin lockfile resuelve versiones nuevas en cada corrida (no es determinista) y puede
+introducir codigo que nadie reviso; se bloquea, igual que un comando faltante, en vez de
+instalar a ciegas."""
+
+_FROZEN_NODE_INSTALL_TIMEOUT_SECONDS = 300
+"""Una instalacion en frio (store sin calentar) tarda mas que el default de QA; el maximo que el
+runner de QA acepta ya es este valor, asi que no hace falta pedir mas."""
+
+_LOCKFILE_FILENAME_BY_MANAGER: dict[str, str] = {manager: filename for filename, manager in _NODE_LOCKFILES}
+
+
+def _has_node_dependencies(workspace: Path) -> bool:
+    manifest = _read_json(workspace / "package.json")
+    return bool(manifest.get("dependencies") or manifest.get("devDependencies"))
+
+
+def _node_lockfile_path(workspace: Path, manager: str) -> Path | None:
+    filename = _LOCKFILE_FILENAME_BY_MANAGER.get(manager)
+    if filename is None:
+        return None
+    candidate = workspace / filename
+    return candidate if candidate.is_file() else None
+
+
+def node_lockfile_sha256(path: Path) -> str:
+    """Hash del lockfile: cambia si, y solo si, las dependencias resueltas cambiaron."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _node_dependency_marker_path(workspace: Path) -> Path:
+    return workspace / "node_modules" / NODE_DEPENDENCY_MARKER_NAME
+
+
+def node_dependency_marker_matches(workspace: Path, *, manager: str, lockfile_sha256: str) -> bool:
+    """Indica si el `node_modules` presente ya corresponde a este gestor y a este lockfile."""
+    marker = _node_dependency_marker_path(workspace)
+    if not marker.is_file():
+        return False
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return data.get("manager") == manager and data.get("lockfileSha256") == lockfile_sha256
+
+
+def write_node_dependency_marker(workspace: Path, *, manager: str, lockfile_sha256: str) -> None:
+    """Registra que `node_modules` ya quedo instalado para este gestor y este lockfile.
+
+    Unica escritura de este modulo: no es un artefacto del proyecto ni un comando ejecutado, es
+    metadata propia de AIDO para no reinstalar en cada corrida de QA.
+    """
+    marker = _node_dependency_marker_path(workspace)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({"manager": manager, "lockfileSha256": lockfile_sha256}), encoding="utf-8")
+
+
+@dataclass(frozen=True)
+class NodeInstallPlan:
+    """Decision sobre si (y como) instalar dependencias Node en un workspace antes del QA."""
+
+    needs_install: bool
+    command: ToolchainCommand | None = None
+    blocking_reason: str | None = None
+    """Motivo por el que no se puede instalar de forma determinista (sin lockfile). Si esta
+    presente, ``command`` es ``None``: no hay nada ejecutable que ofrecer."""
+
+
+def _node_install_command(manager: str, workspace: Path, *, lockfile_sha256: str) -> ToolchainCommand:
+    marker = {"manager": manager, "lockfileSha256": lockfile_sha256}
+    if manager == "pnpm":
+        argv = ["corepack", f"pnpm@{PNPM_VERSION}", "install", "--frozen-lockfile", "--prefer-offline"]
+        label = "Install dependencies (pnpm install --frozen-lockfile)"
+        executable = "corepack"
+    elif manager == "npm":
+        argv = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund"]
+        label = "Install dependencies (npm ci)"
+        executable = "npm"
+    else:
+        flag = "--immutable" if (workspace / ".yarnrc.yml").is_file() else "--frozen-lockfile"
+        argv = ["yarn", "install", flag]
+        label = f"Install dependencies (yarn install {flag})"
+        executable = "yarn"
+    return ToolchainCommand(
+        purpose="install",
+        label=label,
+        argv=argv,
+        policy_command=" ".join(argv),
+        toolchain="node",
+        executable=executable,
+        container_argv=list(argv),
+        critical=True,
+        timeout_seconds=_FROZEN_NODE_INSTALL_TIMEOUT_SECONDS,
+        node_install_marker=marker,
+    )
+
+
+def resolve_node_install_plan(workspace: Path, *, manager: str) -> NodeInstallPlan:
+    """Decide si hace falta instalar dependencias Node, y si es posible hacerlo de forma reproducible.
+
+    Sin `dependencies`/`devDependencies` declaradas no hay nada que instalar. Con `node_modules`
+    ya presente y un marcador vigente (mismo gestor, mismo hash de lockfile), tampoco: no se
+    reinstala en cada corrida. Sin lockfile del gestor detectado, instalar seria no determinista;
+    se bloquea salvo que `node_modules` ya exista (no se toca lo que ya esta ahi).
+    """
+    if not _has_node_dependencies(workspace):
+        return NodeInstallPlan(needs_install=False)
+    node_modules_present = (workspace / "node_modules").is_dir()
+    lockfile = _node_lockfile_path(workspace, manager)
+    if lockfile is None:
+        if node_modules_present:
+            return NodeInstallPlan(needs_install=False)
+        return NodeInstallPlan(needs_install=True, blocking_reason=NODE_NO_LOCKFILE_REASON)
+    lockfile_sha256 = node_lockfile_sha256(lockfile)
+    if node_modules_present and node_dependency_marker_matches(
+        workspace, manager=manager, lockfile_sha256=lockfile_sha256
+    ):
+        return NodeInstallPlan(needs_install=False)
+    return NodeInstallPlan(
+        needs_install=True, command=_node_install_command(manager, workspace, lockfile_sha256=lockfile_sha256)
+    )
+
+
 def _wrapper_path(workspace: Path, *names: str) -> Path | None:
     """Devuelve el wrapper versionado del repo, que manda sobre cualquier binario global."""
     for name in names:
@@ -165,12 +325,37 @@ def _wrapper_path(workspace: Path, *names: str) -> Path | None:
     return None
 
 
+def _node_unresolved_install_command(reason: str) -> ToolchainCommand:
+    """Comando sin argv ejecutable real: representa el bloqueo por falta de lockfile.
+
+    El runner de QA lo reconoce por ``unresolved_reason`` y lo registra directo como
+    ``skipped_with_reason``, sin intentar ejecutar el argv (que es solo un marcador legible).
+    """
+    return ToolchainCommand(
+        purpose="install",
+        label="Install dependencies (no lockfile)",
+        argv=["node-dependency-install-unresolved"],
+        policy_command="",
+        toolchain="node",
+        executable="",
+        critical=True,
+        unresolved_reason=reason,
+    )
+
+
 def _node_commands(workspace: Path) -> list[ToolchainCommand]:
     scripts = {str(name) for name in (_read_json(workspace / "package.json").get("scripts") or {})}
     if not scripts:
         return []
     manager = node_package_manager(workspace)
+    install_plan = resolve_node_install_plan(workspace, manager=manager)
+    if install_plan.blocking_reason:
+        # Sin lockfile no hay como instalar de forma determinista: ningun comando Node (test,
+        # build...) puede correr con confianza, asi que el plan se reduce a este unico bloqueo.
+        return [_node_unresolved_install_command(install_plan.blocking_reason)]
     commands: list[ToolchainCommand] = []
+    if install_plan.command is not None:
+        commands.append(install_plan.command)
     for purpose, candidates in NODE_SCRIPT_CANDIDATES.items():
         script = next((candidate for candidate in candidates if candidate in scripts), None)
         if script is None:

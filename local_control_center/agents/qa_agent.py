@@ -26,7 +26,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
-from local_control_center.projects.toolchain import plan_workspace_commands
+from local_control_center.projects.toolchain import plan_workspace_commands, write_node_dependency_marker
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -123,6 +123,8 @@ def _stream_hash(execution_result: dict[str, Any], stream: str) -> str:
 def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for index, command in enumerate(commands):
+        unresolved_reason: str | None = None
+        node_install_marker: dict[str, str] | None = None
         if isinstance(command, list):
             argv = command
             label = _display_command([str(item) for item in command])
@@ -135,6 +137,14 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
             label = str(command.get("label") or "").strip()
             critical = bool(command.get("critical", True))
             timeout_seconds = _bounded_timeout(command.get("timeoutSeconds"))
+            reason = command.get("unresolvedReason")
+            unresolved_reason = str(reason).strip() or None if isinstance(reason, str) else None
+            marker = command.get("nodeInstallMarker")
+            if isinstance(marker, dict) and marker.get("manager") and marker.get("lockfileSha256"):
+                node_install_marker = {
+                    "manager": str(marker["manager"]),
+                    "lockfileSha256": str(marker["lockfileSha256"]),
+                }
         else:
             raise ValueError(f"commands[{index}] must be an object or structured argv list.")
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
@@ -146,6 +156,8 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
                 "argv": resolved_argv,
                 "critical": critical,
                 "timeoutSeconds": timeout_seconds,
+                "unresolvedReason": unresolved_reason,
+                "nodeInstallMarker": node_install_marker,
             }
         )
     return normalized
@@ -407,6 +419,43 @@ class QAAgentRunner:
         result["outputRefs"] = [output_artifact["id"]]
         return result, [output_artifact["id"]]
 
+    def _unresolved_command_result(
+        self,
+        *,
+        project_id: str,
+        command: dict[str, Any],
+        index: int,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Registra un comando que si debia correr pero no de forma reproducible, sin el broker.
+
+        Usado por la provision de dependencias Node (`projects.toolchain`): sin lockfile, instalar
+        no es determinista, asi que no se intenta. A diferencia de `_not_applicable_result`, esto
+        SI es `skipped_with_reason` real y SI entra al veredicto: bloquea, igual que un comando
+        faltante generico.
+        """
+        result: dict[str, Any] = {
+            "index": index,
+            "label": command["label"],
+            "command": _display_command(command["argv"]),
+            "argv": command["argv"],
+            "critical": command["critical"],
+            "status": "skipped_with_reason",
+            "executed": False,
+            "exitCode": None,
+            "reason": command["unresolvedReason"],
+            "metadata": {
+                "operation": "qa_agent_command",
+                "decision": "unresolved_dependency_install",
+                "decisionReason": command["unresolvedReason"],
+            },
+        }
+        output_artifact = self._output_artifact(project_id=project_id, result=result)
+        result["outputArtifactId"] = output_artifact["id"]
+        result["artifactHashes"] = {"outputArtifactHash": output_artifact["hash"]}
+        result["outputRef"] = output_artifact["id"]
+        result["outputRefs"] = [output_artifact["id"]]
+        return result, [output_artifact["id"]]
+
     def run_for_context(
         self,
         *,
@@ -467,6 +516,15 @@ class QAAgentRunner:
         artifact_ids: list[str] = []
         policy_decisions: list[dict[str, Any]] = []
         for index, command in enumerate(normalized):
+            if command["unresolvedReason"]:
+                # Sin lockfile no hay como instalar de forma determinista: se registra el
+                # bloqueo directo, sin intentar ejecutar el argv marcador via el broker.
+                result, command_artifacts = self._unresolved_command_result(
+                    project_id=project_id, command=command, index=index
+                )
+                results.append(result)
+                artifact_ids.extend(command_artifacts)
+                continue
             tool_result = broker.evaluate_tool_call(
                 project_id=project_id,
                 agent_run_id=agent_run["id"],
@@ -494,6 +552,13 @@ class QAAgentRunner:
             )
             results.append(result)
             artifact_ids.extend(command_artifacts)
+            marker = command["nodeInstallMarker"]
+            if marker and result["status"] == "passed":
+                write_node_dependency_marker(
+                    Path(workspace["path"]),
+                    manager=marker["manager"],
+                    lockfile_sha256=marker["lockfileSha256"],
+                )
 
         not_applicable_commands: list[dict[str, Any]] = []
         for offset, command in enumerate(normalized_not_applicable):

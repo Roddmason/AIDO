@@ -171,6 +171,8 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
             allowed.append("allowlisted_diagnostic")
         if "read_only" in categories:
             allowed.append("allowlisted_read")
+        if "dependency_install_frozen" in categories:
+            allowed.append("allowlisted_dependency_install")
     return allowed
 
 

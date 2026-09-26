@@ -157,10 +157,16 @@ class ManagedProcessRepository:
         ).fetchone()
         if control and control[0] == "emergency_stopped":
             return str(control[1] or "emergency_stop")
+        # El JOIN exige que la lease de la violación siga activa: aunque `release` ya resuelve sus
+        # violaciones (ver ADR-005), esto blinda contra una violación huérfana que quedara sin
+        # resolver por cualquier otro camino y cancelara para siempre un reintento con el mismo id.
         violation = self.connection.execute(
             """
-            SELECT reason FROM resource_violations WHERE execution_id = ?
-                AND resolved_at IS NULL AND action = 'cancel_non_essential_workload' LIMIT 1
+            SELECT rv.reason FROM resource_violations rv
+            JOIN resource_leases rl ON rl.id = rv.lease_id
+            WHERE rv.execution_id = ? AND rv.resolved_at IS NULL
+                AND rv.action = 'cancel_non_essential_workload' AND rl.released_at IS NULL
+            LIMIT 1
         """,
             (execution_id,),
         ).fetchone()

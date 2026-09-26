@@ -203,6 +203,8 @@ class ResourceRepository:
             """,
             (now_value, reason, lease_id),
         )
+        # La lease ya no está activa: sus violaciones abiertas dejan de tener efecto (ver ADR-005).
+        self.resolve_violations_for_lease(lease_id, now_iso=now_value)
         return self.get_lease(lease_id)
 
     def finish_remote_branch(self, lease_id: str, *, owner_id: str) -> ResourceLease:
@@ -456,10 +458,30 @@ class ResourceRepository:
         ).fetchone()
         return str(row[0]) if row else None
 
-    def executions_with_unresolved_violation(self, *, action: str) -> set[str]:
-        """Ejecuciones que ya tienen una violación pendiente de esa acción, para no repetirla."""
+    def leases_with_unresolved_violation(self, *, action: str) -> set[str]:
+        """Leases que ya tienen una violación pendiente de esa acción, para no repetirla.
+
+        Por lease, no por ``execution_id``: una violación es un evento de ESA reserva. Si se
+        indexara por ejecución, una lease que nunca muere excluiría para siempre cualquier
+        ejecución futura con el mismo id (un reintento quedaría cancelado sin remedio); ver
+        ADR-005.
+        """
         rows = self.connection.execute(
-            "SELECT DISTINCT execution_id FROM resource_violations WHERE resolved_at IS NULL AND action = ?",
+            "SELECT DISTINCT lease_id FROM resource_violations WHERE resolved_at IS NULL AND action = ?",
             (action,),
         ).fetchall()
-        return {row[0] for row in rows}
+        return {row[0] for row in rows if row[0] is not None}
+
+    def resolve_violations_for_lease(self, lease_id: str, *, now_iso: str | None = None) -> int:
+        """Cierra las violaciones abiertas de una lease cuando deja de estar activa.
+
+        Se llama desde ``release`` (y por lo tanto desde la recuperación de expiradas, que libera
+        cada lease vencida) sólo cuando la liberación realmente ocurre. Sin esto, una violación
+        `hard_memory_floor` seguía marcando `cancellation_reason` para el ``execution_id`` de esa
+        lease incluso después de liberarse, cancelando cualquier reintento futuro con el mismo id.
+        """
+        cursor = self.connection.execute(
+            "UPDATE resource_violations SET resolved_at = ? WHERE lease_id = ? AND resolved_at IS NULL",
+            (now_iso or utc_now(), lease_id),
+        )
+        return cursor.rowcount

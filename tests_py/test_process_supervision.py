@@ -562,6 +562,46 @@ def test_local_backstop_stops_when_the_governor_sample_is_stale_or_missing(tmp_p
         service.complete(child, exit_code=child.process.poll())
 
 
+def test_local_backstop_escalates_after_sustained_pressure_even_with_an_active_governor(
+    tmp_path, monkeypatch
+):
+    """Si el gobernador está activo pero no logra liberar memoria, la presión sostenida escala."""
+    import time
+    from types import SimpleNamespace
+
+    from local_control_center.host_resources.repository import ResourceRepository
+    from local_control_center.process_supervision import service as module
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    gib = 1024**3
+    db_path = tmp_path / "runtime.sqlite"
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+
+    backend = FakeSupervisor()
+    service = ProcessSupervisorService(
+        db_path=db_path, backend=backend, resource_snapshot=ResourceSnapshot.test_snapshot()
+    )
+    child = service.start(
+        argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="sustained-pressure-test"
+    )
+    monkeypatch.setattr(module.psutil, "virtual_memory", lambda: SimpleNamespace(available=6 * gib))
+    clock = {"value": 1_000_000_000.0}
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["value"])
+    try:
+        time.sleep(0.3)
+        assert child.terminal_stats is None
+        # Sin sleep real: el reloj monotónico inyectado avanza más allá de la ventana de escalamiento.
+        clock["value"] += module.PRESSURE_ESCALATION_SECONDS + 1
+        deadline = time.monotonic() + 3
+        while child.terminal_stats is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child.terminal_stats and child.terminal_stats.termination_reason == "hard_memory_floor"
+    finally:
+        service.complete(child, exit_code=child.process.poll())
+
+
 def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_domain_host) -> None:
     count = 1_200_000
     result = RestrictedSubprocessSandbox().execute(

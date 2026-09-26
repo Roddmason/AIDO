@@ -53,6 +53,9 @@ _CONTROL_BUSY_WINDOW_SECONDS = 2.0
 GOVERNOR_STALE_SECONDS = 10
 """Sin una muestra del gobernador global más nueva que esto, este vigilante deja de fiarse de que
 esté corriendo y vuelve a ser la única red de contención (ver ADR-005)."""
+PRESSURE_ESCALATION_SECONDS = 30
+"""Un latido del gobernador global no prueba que esté logrando liberar memoria: si la presión dura
+más que esto (5 ventanas de gracia de desalojo), este vigilante deja de esperarlo (ver ADR-005)."""
 
 
 def _resolved_process_executable(pid: int) -> str | None:
@@ -718,6 +721,7 @@ class ProcessSupervisorService:
     def _watch_control_loop(self, managed: SupervisedProcess, connection: sqlite3.Connection) -> None:
         next_heartbeat = time.monotonic() + 5
         next_memory_check = 0.0
+        pressure_since: float | None = None
         busy_since = None
         attempt = 0
         while not managed.stop_watcher.wait(0.2):
@@ -763,15 +767,26 @@ class ProcessSupervisorService:
                             * GIB
                         )
                         available = psutil.virtual_memory().available
+                        if available < floor:
+                            if pressure_since is None:
+                                pressure_since = time.monotonic()
+                        else:
+                            pressure_since = None
+                        sustained = 0.0 if pressure_since is None else time.monotonic() - pressure_since
                         # Bajo el piso, el gobernador global ya desaloja gradualmente (una lease a la
                         # vez, la que más excede su uso real; ver HostResourceGovernor.
                         # violations_for_snapshot y ADR-005). Este vigilante local sólo actúa si es
-                        # una emergencia (mitad del piso) o si ese gobernador no está corriendo, para
-                        # no duplicar un desalojo total que ya no es necesario.
+                        # una emergencia (mitad del piso), si ese gobernador no está corriendo, o si
+                        # la presión ya dura más de PRESSURE_ESCALATION_SECONDS pese a estar activo
+                        # (late, pero no logra liberar memoria a tiempo): un latido no prueba eficacia.
                         if (
                             not workload_profile(managed.workload_class).essential
                             and available < floor
-                            and (available < floor / 2 or not self._governor_is_active(connection))
+                            and (
+                                available < floor / 2
+                                or not self._governor_is_active(connection)
+                                or sustained >= PRESSURE_ESCALATION_SECONDS
+                            )
                         ):
                             reason = "hard_memory_floor"
                         next_memory_check = time.monotonic() + 1

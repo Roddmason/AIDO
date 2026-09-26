@@ -376,14 +376,14 @@ class HostResourceGovernor:
             latest_at = self.repository.latest_violation_created_at(violation_type="hard_memory_floor")
             if latest_at is not None and _seconds_between(latest_at, timestamp) < EVICTION_GRACE_SECONDS:
                 return []
-            excluded = self.repository.executions_with_unresolved_violation(
+            excluded = self.repository.leases_with_unresolved_violation(
                 action="cancel_non_essential_workload"
             )
             candidates = [
                 lease
                 for lease in self.repository.active_leases(now_iso=timestamp)
                 if not workload_profile(lease.workload_class).essential
-                and lease.execution_id not in excluded
+                and lease.id not in excluded
                 and (not usage_known or lease.id in usage)
             ]
             if not candidates:

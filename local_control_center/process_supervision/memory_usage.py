@@ -24,7 +24,11 @@ def live_memory_by_lease(connection: sqlite3.Connection) -> dict[str, int]:
     Una identidad no verificable (PID reutilizado, proceso ya terminado, acceso denegado) nunca
     propaga: ese árbol aporta 0 al total de su lease, pero la lease sigue apareciendo en el
     resultado porque la fila en ``managed_processes`` sigue viva. Sólo una lease sin ninguna fila
-    viva queda ausente del diccionario.
+    viva (ni proceso ni contenedor) queda ausente del diccionario.
+
+    Una carga respaldada por un contenedor Docker (``managed_containers``, ``docker.py``) también
+    cuenta como viva, pero su RSS no se mide por este camino: aporta 0 (ver ADR-005). Sin esto, una
+    lease sólo respaldada por un contenedor nunca sería candidata al desalojo graduado.
     """
     usage: dict[str, int] = {}
     rows = connection.execute(
@@ -36,6 +40,10 @@ def live_memory_by_lease(connection: sqlite3.Connection) -> dict[str, int]:
     ).fetchall()
     for lease_id, root_pid, root_create_time in rows:
         usage[lease_id] = usage.get(lease_id, 0) + _tree_rss_bytes(root_pid, root_create_time)
+    for (lease_id,) in connection.execute(
+        "SELECT resource_lease_id FROM managed_containers WHERE released_at IS NULL AND resource_lease_id IS NOT NULL"
+    ).fetchall():
+        usage.setdefault(lease_id, 0)
     return usage
 
 

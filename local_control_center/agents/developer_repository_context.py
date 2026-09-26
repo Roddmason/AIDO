@@ -166,7 +166,8 @@ def render_repository_context(workspace_path: Path, paths: list[str], *, focus_t
     lines.append(
         "Rules for the files you return: put code where this layout expects it (reuse the existing "
         "packages and test folders; never create a parallel top-level package). A file you change "
-        "must come back with its COMPLETE new content, keeping everything unrelated to the task."
+        "must come back with its COMPLETE new content, keeping everything unrelated to the task. "
+        "To remove a misplaced file or finish a move, list its old path in deleteFiles."
     )
     return "\n".join(lines)
 

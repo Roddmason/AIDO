@@ -5754,6 +5754,34 @@ def test_loop_story_runs_leave_the_human_gate_to_the_delivery_approval(tmp_path:
     assert all(payload["requireApproval"] is False for payload in runtime.run_payloads)
 
 
+def test_a_completed_product_owner_backlog_is_not_parked_by_the_model_brief_label(tmp_path: Path) -> None:
+    """El agente ya aplica requireBriefApproval y scope_is_clear; si devolvió ``completed`` persistió
+    el backlog. Visto en vivo: el modelo rotuló su salida ``brief_ready`` y el coordinador, que
+    miraba esa etiqueta antes que el estado del agente, dejó el loop en brief_ready sin ninguna
+    acción posible desde el hilo."""
+    if not git_available():
+        pytest.skip("git CLI is required for git worktree review remediation")
+    result = _product_owner_result("brief_ready")
+    result["status"] = "completed"
+    runtime = _UnavailableRuntime()
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "po-brief-label")
+        outcome = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement the backlog the product owner already generated.",
+            runtime_runner=runtime,
+            git_service=_GitGate(),
+            product_owner_runner=_ProductOwnerRunner(result),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+    assert outcome["loop"]["state"] != "brief_ready"
+    assert runtime.run_payloads, "the developer phase must be reached"
+
+
 def test_run_user_message_blocks_when_review_diff_capture_crashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

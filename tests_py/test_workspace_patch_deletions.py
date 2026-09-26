@@ -62,8 +62,7 @@ def test_patch_with_only_deletions_is_accepted(workspace: Path) -> None:
     [
         ("../outside.py", "traversal"),
         (".env", "secret or credential"),
-        ("missing.py", "not an existing file"),
-        ("textkit", "not an existing file"),
+        ("textkit", "not a regular file"),
     ],
 )
 def test_patch_refuses_unsafe_or_missing_deletions_without_touching_anything(
@@ -105,3 +104,19 @@ def test_model_patch_parser_accepts_deletions_and_rejects_an_empty_patch() -> No
         _parse_model_patch('{"summary":"nothing","files":[],"tests":[],"risks":[]}')
     with pytest.raises(ValueError, match="deleteFiles"):
         _parse_model_patch('{"summary":"bad","files":[],"deleteFiles":[3],"tests":[],"risks":[]}')
+
+
+def test_deleting_a_file_that_is_already_gone_is_a_no_op(workspace: Path) -> None:
+    """Visto en vivo: la historia 1 borró el archivo suelto y la 3 volvió a pedirlo; fallar todo el
+    patch por un estado que ya se cumple bloqueó el rework. Se registra y el resto se aplica."""
+    (workspace / "textkit" / "utils.py").unlink()
+
+    result = _apply(
+        workspace,
+        {"files": [{"path": "README.md", "content": "# restored\n"}], "deleteFiles": ["textkit/utils.py"]},
+    )
+
+    assert result["executed"] is True, result
+    assert result["deletedFiles"] == []
+    assert result["alreadyAbsentFiles"] == ["textkit/utils.py"]
+    assert (workspace / "README.md").read_text(encoding="utf-8") == "# restored\n"

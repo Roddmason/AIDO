@@ -5694,6 +5694,53 @@ class _UnavailableRuntime(_ControlledRuntime):
         }
 
 
+class _FailedPatchRuntime(_UnavailableRuntime):
+    """El modelo respondió pero su patch fue rechazado: el runtime falló sin tocar el workspace."""
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = super().run(payload)
+        result.update(
+            {
+                "status": "failed",
+                "reason": "DeveloperAgent runtime execution failed.",
+                "runtime": {"id": "llama_cpp", "executable": True},
+                "runtimeResult": {
+                    "status": "failed",
+                    "reason": "deleteFiles[0] is not a regular file in the workspace.",
+                },
+            }
+        )
+        return result
+
+
+def test_run_user_message_blocks_a_failed_runtime_without_changes_with_its_real_cause(tmp_path: Path) -> None:
+    """Un runtime que falla sin cambios no "terminó sin cambios": se bloquea en ``runtime`` con la
+    causa del runtime (visto en vivo con un patch rechazado en la historia 3 del rework)."""
+    if not git_available():
+        pytest.skip("git CLI is required for git worktree review remediation")
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _seed_ai_resource(connection)
+        project = _git_workspace_project(connection, tmp_path, "failed-runtime")
+        result = ProductLoopCoordinator(connection, root=tmp_path).run_user_message(
+            project_id=project["id"],
+            message="Implement with a runtime whose patch is rejected.",
+            runtime_runner=_FailedPatchRuntime(),
+            git_service=_GitGate(),
+            product_owner_runner=_backlog_ready_po(),
+            assessment_runner=_AssessmentRunner(),
+            technical_lead_runner=_TechnicalLeadPlanner(),
+        )
+
+        thread_id = result["loop"]["context"]["durableRun"]["thread"]["projectThreadId"]
+        actions = _remediation_action_types(connection, thread_id)
+        assert result["loop"]["context"]["durableRun"]["blockedStage"] == "runtime"
+        assert "deleteFiles[0] is not a regular file" in result["reason"]
+        assert "without real changed files" not in result["reason"]
+        assert any(action == "retry_loop" for _, action in actions)
+        assert not any(blocker == "review_diff_unavailable" for blocker, _ in actions)
+
+
 def test_run_user_message_blocks_an_unavailable_runtime_with_its_real_cause(tmp_path: Path) -> None:
     """Sin runtime no hubo trabajo: el bloqueo dice por qué y ofrece arreglar el runtime.
 

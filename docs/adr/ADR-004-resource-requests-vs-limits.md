@@ -7,7 +7,8 @@
 El gobernador de recursos usaba un solo número por clase de carga para dos cosas distintas:
 decidir la admisión y fijar el tope duro del proceso (`JobMemoryLimit` del Job Object en Windows,
 `process_supervision/windows_job.py`). La admisión rechazaba si
-`Σ tope(leases vivas no control) + tope(nueva) > memoria disponible − piso (16 GiB)`.
+`Σ tope(leases vivas no control) + tope(nueva) > memoria disponible − piso`, con el piso en
+`resources.minFreeMemoryGiB` (16 GiB por defecto; 12 en la instalación medida, fijado por el operador).
 
 Medido sobre 20.747 procesos de la instalación real (`managed_processes`, 2026-09-25):
 
@@ -18,8 +19,9 @@ Medido sobre 20.747 procesos de la instalación real (`managed_processes`, 2026-
 | `remote_llm_light` | 186 | 2 GiB | 47 MB | 67 MB | 83 MB | 87 MB |
 | `qa_light` | 1.031 | 4 GiB | 42 MB | 724 MB | 4.127 MB | 4.139 MB |
 
-Cada hilo que corre (`thread.product_loop.run`) se admite como `agent_cli`: con el piso de 16 GiB
-exigía 24 GiB libres, aunque sus procesos usaran cientos de MB. En un equipo de desarrollo con un
+Cada hilo que corre (`thread.product_loop.run`) se admite como `agent_cli`: con el piso de 12 GiB
+de la instalación medida exigía 20 GiB libres (24 con el piso por defecto), aunque sus procesos
+usaran cientos de MB. En un equipo de desarrollo con un
 modelo local cargado eso deja los hilos en `resource_wait` la mayor parte del tiempo (~90.000
 rechazos por memoria registrados).
 

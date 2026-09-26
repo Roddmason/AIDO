@@ -109,6 +109,25 @@ PROVIDER_ACCOUNT_COLUMNS = """
 MAX_LOCAL_CONCURRENCY_LIMIT = 16
 LOCAL_DECLARATION_FIELDS = ("declaredBy", "declaredAt", "host")
 SERVER_ONLY_METADATA_KEYS = frozenset({"providerCatalogId"})
+PROVIDER_HEALTH_MODEL_ID_LIMIT = 20
+"""Tope de ids de modelo persistidos en un health-check; el resto solo se resume en ``modelCount``.
+
+Medido en la instalacion real: `provider_health_checks` guardaba el catalogo completo de modelos en
+cada chequeo (hasta 98 KB por fila, 148 MiB en 6.803 filas). El unico lector de la tabla
+(`ollama.api._latest_latency_for_provider`) solo necesita `latency`/`latencyMs`; la lista completa
+de modelos vigente se recalcula en caliente en cada request, nunca desde esta tabla.
+"""
+
+
+def _compact_provider_health_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Trunca la lista de modelos de un payload de salud antes de persistirlo (no muta el original)."""
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return payload
+    compact = dict(payload)
+    compact["modelCount"] = len(models)
+    compact["models"] = [str(model) for model in models[:PROVIDER_HEALTH_MODEL_ID_LIMIT]]
+    return compact
 
 
 def sanitize_client_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -722,12 +741,13 @@ class ProviderAccountStore:
         if not last_error and health_status != "healthy":
             last_error = str(payload.get("message") or payload.get("status") or "")
         last_error = str(redact_secrets(last_error))
+        compact_payload = _compact_provider_health_payload(redact_secrets(payload))
         self.connection.execute(
             """
             INSERT INTO provider_health_checks (id, provider_id, status, payload, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (check_id, provider_id, status, json_dumps(redact_secrets(payload)), now),
+            (check_id, provider_id, status, json_dumps(compact_payload), now),
         )
         self.patch_provider_account(
             provider_id,
@@ -737,6 +757,6 @@ class ProviderAccountStore:
             "id": check_id,
             "providerId": provider_id,
             "status": status,
-            "payload": redact_secrets(payload),
+            "payload": compact_payload,
             "createdAt": now,
         }

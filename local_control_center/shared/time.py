@@ -35,3 +35,15 @@ def iso_after_seconds(base_iso: str, seconds: float) -> str:
     """
     base = datetime.fromisoformat(base_iso.replace("Z", "+00:00"))
     return (base + timedelta(seconds=seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def utc_cutoff_iso(retention_seconds: int, *, now_iso: str | None = None) -> str:
+    """Devuelve el timestamp corte de una ventana de retencion: ahora menos ``retention_seconds``.
+
+    Mismo formato canonico que ``utc_now()`` para que ``created_at``/``resolved_at`` comparen
+    correctamente como texto. Usado por los podadores por lotes de disco (remediations,
+    provider_health_checks, operational_executions).
+    """
+    now = datetime.fromisoformat((now_iso or utc_now()).replace("Z", "+00:00"))
+    cutoff = (now - timedelta(seconds=max(1, retention_seconds))).isoformat(timespec="milliseconds")
+    return cutoff.replace("+00:00", "Z")

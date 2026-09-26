@@ -298,3 +298,40 @@ def test_the_worker_hourly_prune_actually_drains_the_resource_history(tmp_path: 
 
     with closing(open_sqlite_connection(db_path)) as handle:
         assert handle.execute("SELECT COUNT(*) FROM resource_admission_decisions").fetchone()[0] == 0
+
+
+def test_resolved_evictions_are_kept_a_month_and_active_ones_never_pruned(connection) -> None:
+    """Un desalojo cuya lease ya se liberó es evidencia; uno sin resolver sigue cancelando su ejecución."""
+    repository = ResourceRepository(connection)
+    now = datetime.now(UTC)
+
+    def violation(violation_id: str, *, resolved_days_ago: float | None) -> None:
+        resolved_at = (
+            None
+            if resolved_days_ago is None
+            else (now - timedelta(days=resolved_days_ago))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        connection.execute(
+            """INSERT INTO resource_violations
+               (id, execution_id, lease_id, violation_type, action, reason, created_at, resolved_at)
+               VALUES (?, ?, ?, 'hard_memory_floor', 'cancel_non_essential_workload', 'r', ?, ?)""",
+            (
+                violation_id,
+                f"execution-{violation_id}",
+                f"lease-{violation_id}",
+                resolved_at or now.isoformat(),
+                resolved_at,
+            ),
+        )
+
+    violation("old-resolved", resolved_days_ago=31)
+    violation("recent-resolved", resolved_days_ago=2)
+    violation("active", resolved_days_ago=None)
+
+    drain_resource_history(connection)
+
+    remaining = {row[0] for row in connection.execute("SELECT id FROM resource_violations")}
+    assert remaining == {"recent-resolved", "active"}
+    assert repository.prune_resolved_violations(retention_seconds=30 * 24 * 60 * 60) == 0

@@ -44,6 +44,10 @@ LLAMA_ROUTER_MODELS: tuple[dict[str, Any], ...] = tuple(
 LLAMA_ROUTER_PROPS: dict[str, Any] = {"role": "router", "max_instances": 1, "models_autoload": True}
 
 
+JSON_SCHEMA_PROBE_NAME = "aido_runtime_validation"
+"""Nombre del schema de la sonda de `runtime_team/probe.py`."""
+
+
 @dataclass
 class LlamaRouterState:
     """Estado mutable del doble: respuestas configuradas y registro de lo recibido."""
@@ -55,6 +59,7 @@ class LlamaRouterState:
     models: list[dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(list(LLAMA_ROUTER_MODELS)))
     requests: list[tuple[str, str, str | None]] = field(default_factory=list)
     chat_bodies: list[dict[str, Any]] = field(default_factory=list)
+    probe_bodies: list[dict[str, Any]] = field(default_factory=list)
     autoload_delay_s: float = 0.0
     models_body: str | None = None
     """Cuerpo crudo de `/v1/models` en vez de la lista (simula un servidor que responde basura)."""
@@ -137,11 +142,21 @@ class _LlamaRouterHandler(BaseHTTPRequestHandler):
             self._error(404, "File Not Found", "not_found_error")
             return
         body = json.loads(raw.decode("utf-8") or "{}")
-        self.state.chat_bodies.append(body)
         self._autoload(str(body.get("model") or ""))
-        content = (
-            self.state.chat_responses.pop(0) if self.state.chat_responses else self.state.default_chat_content
-        )
+        if ((body.get("response_format") or {}).get("json_schema") or {}).get(
+            "name"
+        ) == JSON_SCHEMA_PROBE_NAME:
+            # Como un llama.cpp real: la sonda de capacidad json_schema recibe {"ok": true} sin consumir
+            # las respuestas preparadas para el caso bajo prueba.
+            self.state.probe_bodies.append(body)
+            content = '{"ok": true}'
+        else:
+            self.state.chat_bodies.append(body)
+            content = (
+                self.state.chat_responses.pop(0)
+                if self.state.chat_responses
+                else self.state.default_chat_content
+            )
         self._send_json(
             200,
             {

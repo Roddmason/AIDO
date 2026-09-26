@@ -19,7 +19,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -139,20 +141,51 @@ def _dangerous_arg(argv: list[str]) -> str | None:
     return None
 
 
-def _resolved_subprocess_argv(argv: list[str]) -> list[str]:
-    """Resolve PATH shims to a CreateProcess-compatible executable without invoking a shell."""
+def _resolved_subprocess_argv(argv: list[str], *, search_path: str | None = None) -> list[str]:
+    """Resolve PATH shims to a CreateProcess-compatible executable without invoking a shell.
+
+    ``search_path`` resolves against the PATH the child will actually get (a project command's),
+    instead of the control plane's own PATH.
+    """
     resolved = list(argv)
     executable = resolved[0]
     if os.name == "nt" and not Path(executable).suffix:
         for extension in (".exe", ".cmd", ".com"):
-            candidate = shutil.which(f"{executable}{extension}")
+            candidate = shutil.which(f"{executable}{extension}", path=search_path)
             if candidate and Path(candidate).name.lower() in ALLOWED_EXECUTABLES:
                 resolved[0] = candidate
                 return resolved
-    candidate = shutil.which(executable)
+    candidate = shutil.which(executable, path=search_path)
     if candidate and (os.name != "nt" or Path(candidate).suffix):
         resolved[0] = candidate
     return resolved
+
+
+def project_command_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """Entorno de un comando del proyecto sin el virtualenv con el que corre el propio AIDO.
+
+    AIDO corre desde su ``.venv`` (``uv run``) con ``Scripts`` primero en el ``PATH``: heredarlo tal
+    cual hacía que ``python``/``pytest`` de un QA resolvieran al intérprete de AIDO y no al del
+    proyecto, y ``uv run`` avisaba que ``VIRTUAL_ENV`` no coincide (visto en vivo). Se quitan ese
+    virtualenv del ``PATH`` y de ``VIRTUAL_ENV`` y la profundidad de ``uv run`` de la cadena de AIDO;
+    un virtualenv ajeno y el resto del entorno no se tocan.
+    """
+    environment = dict(base)
+    own_prefix = Path(sys.prefix).resolve(strict=False)
+    if own_prefix == Path(sys.base_prefix).resolve(strict=False):
+        return environment
+    virtual_env = environment.get("VIRTUAL_ENV")
+    if virtual_env and _inside(Path(virtual_env), own_prefix):
+        environment.pop("VIRTUAL_ENV")
+        environment.pop("UV_RUN_RECURSION_DEPTH", None)
+    path_key = next((key for key in environment if key.upper() == "PATH"), None)
+    if path_key:
+        environment[path_key] = os.pathsep.join(
+            entry
+            for entry in environment[path_key].split(os.pathsep)
+            if entry and not _inside(Path(entry), own_prefix)
+        )
+    return environment
 
 
 def _validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str | None) -> str | None:
@@ -439,7 +472,14 @@ class RestrictedSubprocessSandbox:
                 "reason": "Working directory does not exist.",
             }
 
-        command = _resolved_subprocess_argv([str(item) for item in argv])
+        if environment is None:
+            environment = project_command_environment(os.environ)
+            path_key = next((key for key in environment if key.upper() == "PATH"), "PATH")
+            command = _resolved_subprocess_argv(
+                [str(item) for item in argv], search_path=environment.get(path_key, "")
+            )
+        else:
+            command = _resolved_subprocess_argv([str(item) for item in argv])
         workload_class = classify_workload(command)
         try:
             result = run_supervised_capture(

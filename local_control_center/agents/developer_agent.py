@@ -80,7 +80,6 @@ DEVELOPER_MODEL_PATCH_SCHEMA: dict[str, Any] = {
         "summary": {"type": "string"},
         "files": {
             "type": "array",
-            "minItems": 1,
             "items": {
                 "type": "object",
                 "required": ["path", "content"],
@@ -90,6 +89,9 @@ DEVELOPER_MODEL_PATCH_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        # Opcional: rutas existentes a borrar (un archivo mal ubicado o movido). Al menos una de las
+        # dos listas debe traer algo; `_parse_model_patch` lo exige.
+        "deleteFiles": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "tests": {"type": "array", "items": {"type": "string"}},
         "risks": {"type": "array", "items": {"type": "string"}},
     },
@@ -294,6 +296,7 @@ def _developer_model_messages(
     """
     schema = (
         '{"summary":"string","files":[{"path":"relative/path","content":"complete UTF-8 file content"}],'
+        '"deleteFiles":["relative/path of an existing file to remove (optional)"],'
         '"tests":["test command or blocker"],"risks":["risk or blocker"]}'
     )
     context = (
@@ -331,8 +334,11 @@ def _parse_model_patch(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("DeveloperAgent model output must be a JSON object.")
     files = payload.get("files")
-    if not isinstance(files, list) or not files:
-        raise ValueError("DeveloperAgent model output must include a non-empty files list.")
+    deletions = payload.get("deleteFiles", [])
+    if not isinstance(files, list) or not isinstance(deletions, list) or not (files or deletions):
+        raise ValueError("DeveloperAgent model output must include a non-empty files or deleteFiles list.")
+    if not all(isinstance(path, str) and path.strip() for path in deletions):
+        raise ValueError("DeveloperAgent deleteFiles must be a list of relative path strings.")
     for index, item in enumerate(files):
         if (
             not isinstance(item, dict)

@@ -2,7 +2,8 @@
 
 Validates every patched path against traversal, symlink, secret/credential, file-count, and
 total-byte guards before writing, and records a redacted patch manifest artifact for the
-applied files.
+applied files. ``deleteFiles`` removes existing regular files under the same path guards: a model
+without tools could only add or rewrite files, so a misplaced file or a move was unfixable.
 
 @author Rodrigo Mason
 """
@@ -72,13 +73,14 @@ class WorkspacePatchBrokerAdapter:
         workspace = Path(workspace_value).resolve(strict=False)
         patch_input = tool_call.get("input") or {}
         files = patch_input.get("files")
-        if not isinstance(files, list) or not files:
+        deletions = patch_input.get("deleteFiles") or []
+        if not isinstance(files, list) or not isinstance(deletions, list) or not (files or deletions):
             return {
                 "executed": False,
                 "blocked": True,
-                "reason": "Workspace patch requires a non-empty files list.",
+                "reason": "Workspace patch requires a non-empty files or deleteFiles list.",
             }
-        if len(files) > PATCH_FILE_LIMIT:
+        if len(files) + len(deletions) > PATCH_FILE_LIMIT:
             return {
                 "executed": False,
                 "blocked": True,
@@ -110,12 +112,36 @@ class WorkspacePatchBrokerAdapter:
                 }
             normalized.append({"path": path, "content": content})
 
+        written_paths = {Path(item["path"]).as_posix() for item in normalized}
+        removals: list[str] = []
+        for index, raw in enumerate(deletions):
+            path = raw if isinstance(raw, str) else ""
+            path_error = _workspace_patch_path_error(workspace, path)
+            if path_error:
+                return {"executed": False, "blocked": True, "reason": f"deleteFiles[{index}]: {path_error}"}
+            if Path(path).as_posix() in written_paths:
+                return {
+                    "executed": False,
+                    "blocked": True,
+                    "reason": f"deleteFiles[{index}] is also written by this patch.",
+                }
+            target = workspace / path
+            if not target.is_file():
+                return {
+                    "executed": False,
+                    "blocked": True,
+                    "reason": f"deleteFiles[{index}] is not an existing file in the workspace.",
+                }
+            removals.append(path)
+
         written: list[dict[str, Any]] = []
         for item in normalized:
             target = workspace / item["path"]
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(item["content"], encoding="utf-8", newline="\n")
             written.append({"path": item["path"], "bytes": len(item["content"].encode("utf-8"))})
+        for path in removals:
+            (workspace / path).unlink()
 
         output_artifact_id = None
         if self.artifact_root is not None:
@@ -125,6 +151,7 @@ class WorkspacePatchBrokerAdapter:
                     {
                         "summary": patch_input.get("summary"),
                         "writtenFiles": written,
+                        "deletedFiles": removals,
                         "source": "developer_agent_patch_apply",
                     }
                 ),
@@ -157,8 +184,9 @@ class WorkspacePatchBrokerAdapter:
             "executed": True,
             "blocked": False,
             "returnCode": 0,
-            "stdout": json.dumps({"writtenFiles": written}, ensure_ascii=False),
+            "stdout": json.dumps({"writtenFiles": written, "deletedFiles": removals}, ensure_ascii=False),
             "stderr": "",
             "outputArtifactId": output_artifact_id,
             "writtenFiles": written,
+            "deletedFiles": removals,
         }

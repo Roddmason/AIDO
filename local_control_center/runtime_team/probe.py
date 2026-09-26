@@ -147,6 +147,26 @@ def _local_validation_exchange(
     return str(response.content or ""), True
 
 
+def probe_local_json_schema_capability(
+    provider: Any, model: str, profile: LocalRuntimeProfile, *, was_loaded: bool
+) -> bool:
+    """Ida y vuelta reutilizable para descubrir si un modelo local soporta ``response_format`` json_schema.
+
+    Comparte el intercambio de :func:`_local_validation_exchange` (mismo prompt fijo y el mismo fallback
+    sin formato ante un 400) para que la validación manual del operador y el descubrimiento automático del
+    preflight prueben exactamente lo mismo. Solo el JSON ``{"ok": true}`` cuenta como sonda exitosa.
+
+    Raises:
+        ValueError: la respuesta no fue el JSON de validación esperado.
+        HTTPError, LocalRuntimeError, OSError: propagadas del adapter del proveedor; el llamador decide
+            si las trata como diferidas o como fallo.
+    """
+    content, json_schema = _local_validation_exchange(provider, model, profile, was_loaded=was_loaded)
+    if not _validation_json_ok(content):
+        raise ValueError('Local json_schema probe response was not the expected {"ok": true} JSON.')
+    return json_schema
+
+
 def _validation_json_ok(content: str) -> bool:
     """Indica si la respuesta es el objeto JSON ``{"ok": true}`` (tolera un fence Markdown)."""
     text = content.strip()

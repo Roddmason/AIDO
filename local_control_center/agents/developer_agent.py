@@ -67,6 +67,31 @@ from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
+# El contrato del agente (developer_agent_contract) describe el resultado final compuesto (runtimeResult,
+# diffSummary, evidencePackage), no lo que el modelo genera: aquí se formaliza como JSON Schema el patch
+# crudo que ya pedía el prompt de _developer_model_messages, para poder pasarlo como response_schema.
+DEVELOPER_MODEL_PATCH_SCHEMA_NAME = "developer_agent_patch"
+DEVELOPER_MODEL_PATCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["summary", "files", "tests", "risks"],
+    "properties": {
+        "summary": {"type": "string"},
+        "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["path", "content"],
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "content": {"type": "string"},
+                },
+            },
+        },
+        "tests": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+    },
+}
 
 
 def _runtime_mode(runtime: dict[str, Any]) -> str:
@@ -455,7 +480,15 @@ class DeveloperAgentRunner:
                         project_id=payload["projectId"],
                     ),
                     "temperature": 0.2,
-                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
+                    **local_model_call_input(
+                        self.connection,
+                        provider_id=runtime_id,
+                        model=model,
+                        response_schema={
+                            "name": DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
+                            "schema": DEVELOPER_MODEL_PATCH_SCHEMA,
+                        },
+                    ),
                 },
                 "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
                 # Provider credentials are injected by the adapter transport and never enter the prompt.

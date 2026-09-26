@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import errno
 import hashlib
+import logging
 import os
 import sqlite3
 import time
@@ -21,9 +22,11 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 
 from local_control_center.agents.endpoint_locality import (
     catalog_entry_for_account,
+    credential_transport_allowed,
     is_local_model_runtime,
     is_self_hosted_inference,
 )
@@ -37,6 +40,7 @@ from local_control_center.process_supervision.context import (
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 
 from .local_endpoint_lease import max_local_call_seconds
+from .local_model_settings import LocalModelSettingsRepository
 from .local_runtime_causes import LocalRuntimeError, local_runtime_cause_of
 from .model_execution_health import (
     model_validation_rejection,
@@ -51,6 +55,8 @@ from .providers.http_transport import DEFAULT_CHAT_TIMEOUT_SECONDS
 from .quota_manager import QuotaAdmissionDenied, QuotaManager, QuotaRequest
 from .runtime_adapters.model_call_budget import effective_model_call_timeout
 from .runtime_readiness import healthy_evidence, provider_workload_class
+
+logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 4
 TARGET_VALIDATED = 2
@@ -328,6 +334,56 @@ def _execute_probe(connection, *, account, model, request, estimate, budget):
         return {"status": "deferred", "reason": str(error), "attempted": False}
 
 
+def _probe_json_schema_capability_if_unknown(
+    connection: sqlite3.Connection, *, account: dict[str, Any], model_id: str
+) -> None:
+    """Descubre si un modelo local recién validado soporta ``response_format`` json_schema.
+
+    Solo corre para runtimes locales con perfil de catálogo cuyo ``json_schema`` nunca se fijó (ni por el
+    operador ni por una validación previa): la procedencia por campo de ``local_model_settings`` decide,
+    así que un valor con procedencia ``operator`` nunca se pisa ni se vuelve a sondear. Reutiliza la sonda
+    de ``runtime_team.probe`` que ya usa la validación manual del operador; el modelo acaba de responder
+    con éxito a la llamada de chat de este mismo preflight, así que se asume cargado (``was_loaded=True``)
+    y no se le pide el presupuesto de arranque en frío. Cualquier fallo de la sonda (red, formato,
+    servidor) queda como diagnóstico en el log: es un descubrimiento oportunista, nunca una condición del
+    preflight.
+    """
+    if not is_local_model_runtime(account):
+        return
+    provider_id = str(account["providerId"])
+    settings = LocalModelSettingsRepository(connection)
+    setting = settings.get(provider_id, model_id)
+    if setting is not None and "json_schema" in setting.provenance:
+        return
+    entry = catalog_entry_for_account(account)
+    profile = getattr(entry, "local_profile", None) if entry is not None else None
+    if profile is None or not credential_transport_allowed(account):
+        return
+    try:
+        from local_control_center.agents.model_gateway import provider_instance
+        from local_control_center.runtime_team.probe import probe_local_json_schema_capability
+
+        provider = provider_instance(provider_id, connection=connection)
+        json_schema_ok = probe_local_json_schema_capability(provider, model_id, profile, was_loaded=True)
+    except (
+        LocalRuntimeError,
+        HTTPError,
+        URLError,
+        OSError,
+        TimeoutError,
+        ValueError,
+        RuntimeError,
+        KeyError,
+        TypeError,
+        sqlite3.Error,
+    ) as error:
+        logger.warning(
+            "Runtime preflight json_schema probe failed for %s/%s: %s", provider_id, model_id, error
+        )
+        return
+    settings.upsert(provider_id, model_id, actor="runtime_validation", json_schema=json_schema_ok)
+
+
 def prevalidate_candidates(
     connection: sqlite3.Connection, *, models, runtime_statuses, request
 ) -> dict[str, Any]:
@@ -505,6 +561,7 @@ def prevalidate_candidates(
                     evidence["validated"].append(
                         {**item, "cached": False, "modelCallId": (result.get("modelCall") or {}).get("id")}
                     )
+                    _probe_json_schema_capability_if_unknown(connection, account=account, model_id=model_id)
                 else:
                     status = result.get("httpStatus")
                     evidence["rejected"].append(

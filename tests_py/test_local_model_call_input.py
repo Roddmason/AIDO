@@ -11,12 +11,26 @@ from pathlib import Path
 import pytest
 
 from local_control_center.agents import local_model_state
-from local_control_center.agents.developer_agent import DeveloperAgentRunner
+from local_control_center.agents.architect_agent import ArchitectAgentRunner
+from local_control_center.agents.architect_agent_contract import ARCHITECT_AGENT_ID, architect_agent_contract
+from local_control_center.agents.developer_agent import (
+    DEVELOPER_MODEL_PATCH_SCHEMA,
+    DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
+    DeveloperAgentRunner,
+)
 from local_control_center.agents.local_model_call_input import local_model_call_input
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
+from local_control_center.agents.product_owner_agent import ProductOwnerAgentRunner
+from local_control_center.agents.product_owner_agent_contract import (
+    PRODUCT_OWNER_AGENT_ID,
+    product_owner_agent_contract,
+)
 from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.runtime_adapters.models import RuntimeExecutionRequest
+from local_control_center.agents.runtime_adapters.provider_factory import ProviderFactoryAdapter
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from tests_py.fakes.local_llm_servers import running_llama_router
 
 SCHEMA = {
     "name": "aido_patch",
@@ -124,3 +138,112 @@ def test_the_developer_model_call_carries_the_local_keys(connection, tmp_path: P
     assert call_input["coldStartExpected"] is True
     assert "structuredOutput" not in call_input
     assert "extraBody" not in call_input
+
+
+def test_the_developer_model_call_requests_structured_output_once_validated(connection, tmp_path: Path):
+    LocalModelSettingsRepository(connection).upsert(
+        "llama_cpp", "qwen-b", actor="runtime_validation", json_schema=True
+    )
+    broker = _CapturingBroker()
+    DeveloperAgentRunner(connection, root=tmp_path)._execute_model_runtime(
+        payload={"projectId": "project-local", "model": "qwen-b", "instruction": "Add a README."},
+        runtime={"id": "llama_cpp", "kind": "local", "providerFamily": "openai_compatible"},
+        workspace={"id": "workspace-local", "path": str(tmp_path)},
+        agent_run={"id": "agent-run-local"},
+        job={"id": "job-local"},
+        profile={},
+        broker=broker,
+    )
+    call_input = broker.tool_calls[0]["input"]
+    assert call_input["structuredOutput"] == "json_schema"
+    assert call_input["responseSchema"] == {
+        "name": DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
+        "schema": DEVELOPER_MODEL_PATCH_SCHEMA,
+    }
+
+
+def test_the_product_owner_model_call_requests_structured_output_once_validated(connection, tmp_path: Path):
+    kwargs = {
+        "payload": {"projectId": "project-local", "model": "gemma-a"},
+        "runtime": {"id": "llama_cpp", "kind": "local", "providerFamily": "openai_compatible"},
+        "workspace": {"id": "workspace-local", "path": str(tmp_path)},
+        "agent_run": {"id": "agent-run-local"},
+        "job": {"id": "job-local"},
+        "profile": {},
+        "messages": [{"role": "user", "content": "hola"}],
+    }
+    before = _CapturingBroker()
+    ProductOwnerAgentRunner(connection, root=tmp_path)._execute_model_runtime(broker=before, **kwargs)
+    assert "structuredOutput" not in before.tool_calls[0]["input"]
+
+    LocalModelSettingsRepository(connection).upsert(
+        "llama_cpp", "gemma-a", actor="runtime_validation", json_schema=True
+    )
+    after = _CapturingBroker()
+    ProductOwnerAgentRunner(connection, root=tmp_path)._execute_model_runtime(broker=after, **kwargs)
+    call_input = after.tool_calls[0]["input"]
+    assert call_input["structuredOutput"] == "json_schema"
+    assert call_input["responseSchema"] == {
+        "name": PRODUCT_OWNER_AGENT_ID,
+        "schema": product_owner_agent_contract()["outputSchema"],
+    }
+
+
+def test_the_architect_model_call_requests_structured_output_once_validated(connection, tmp_path: Path):
+    kwargs = {
+        "payload": {"projectId": "project-local", "model": "gemma-a", "diffArtifactId": "artifact-1"},
+        "runtime": {"id": "llama_cpp", "kind": "local", "providerFamily": "openai_compatible"},
+        "workspace": {"id": "workspace-local", "path": str(tmp_path)},
+        "agent_run": {"id": "agent-run-local"},
+        "job": {"id": "job-local"},
+        "profile": {},
+        "diff_text": "diff --git a/f b/f\n",
+    }
+    before = _CapturingBroker()
+    ArchitectAgentRunner(connection, root=tmp_path)._execute_model_runtime(broker=before, **kwargs)
+    assert "structuredOutput" not in before.tool_calls[0]["input"]
+
+    LocalModelSettingsRepository(connection).upsert(
+        "llama_cpp", "gemma-a", actor="runtime_validation", json_schema=True
+    )
+    after = _CapturingBroker()
+    ArchitectAgentRunner(connection, root=tmp_path)._execute_model_runtime(broker=after, **kwargs)
+    call_input = after.tool_calls[0]["input"]
+    assert call_input["structuredOutput"] == "json_schema"
+    assert call_input["responseSchema"] == {
+        "name": ARCHITECT_AGENT_ID,
+        "schema": architect_agent_contract()["outputSchema"],
+    }
+
+
+def test_structured_output_reaches_the_provider_as_a_strict_json_schema_response_format(
+    connection, tmp_path: Path
+):
+    LocalModelSettingsRepository(connection).upsert(
+        "llama_cpp", "gemma-a", actor="runtime_validation", json_schema=True
+    )
+    with running_llama_router() as (root, router):
+        ProviderAccountStore(connection).patch_provider_account("llama_cpp", {"baseUrl": f"{root}/v1"})
+        result = ProviderFactoryAdapter(
+            provider_family="openai_compatible", display_name="llama.cpp", connection=connection
+        ).execute(
+            RuntimeExecutionRequest(
+                projectId="project-local",
+                workspaceId="workspace-local",
+                workspacePath=str(tmp_path),
+                capability="chat",
+                input={
+                    "providerId": "llama_cpp",
+                    "model": "gemma-a",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    **local_model_call_input(
+                        connection, provider_id="llama_cpp", model="gemma-a", response_schema=SCHEMA
+                    ),
+                },
+            )
+        )
+    assert result.status == "completed"
+    assert router.chat_bodies[-1]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": SCHEMA["name"], "schema": SCHEMA["schema"], "strict": True},
+    }

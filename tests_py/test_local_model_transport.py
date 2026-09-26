@@ -121,6 +121,55 @@ def test_openai_compatible_uses_the_request_timeout_and_defaults_to_sixty(monkey
     assert seen == [7.5, 60]
 
 
+def test_a_400_rejecting_response_format_retries_once_without_it() -> None:
+    with reasoning_llm_server(
+        [
+            ScriptedChatReply(status=400, error_body={"error": {"message": "response_format unsupported"}}),
+            ScriptedChatReply(content='{"ok": true}'),
+        ]
+    ) as server:
+        response = local_provider(server.base_url).chat_completion(
+            ModelRequest(model="qwen3-reasoner", messages=MESSAGES, responseFormat={"type": "json_object"})
+        )
+
+    assert response.content == '{"ok": true}'
+    assert len(server.requests) == 2
+    assert server.requests[0]["body"]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in server.requests[1]["body"]
+
+
+def test_a_400_without_response_format_is_never_retried() -> None:
+    with (
+        reasoning_llm_server(
+            [ScriptedChatReply(status=400, error_body={"error": {"message": "bad request"}})]
+        ) as server,
+        pytest.raises(HTTPError) as excinfo,
+    ):
+        local_provider(server.base_url).chat_completion(
+            ModelRequest(model="qwen3-reasoner", messages=MESSAGES)
+        )
+
+    excinfo.value.close()
+    assert excinfo.value.code == 400
+    assert len(server.requests) == 1
+
+
+def test_a_400_that_persists_without_response_format_is_raised() -> None:
+    with (
+        reasoning_llm_server(
+            [ScriptedChatReply(status=400, error_body={"error": {"message": "still bad"}})]
+        ) as server,
+        pytest.raises(HTTPError) as excinfo,
+    ):
+        local_provider(server.base_url).chat_completion(
+            ModelRequest(model="qwen3-reasoner", messages=MESSAGES, responseFormat={"type": "json_object"})
+        )
+
+    excinfo.value.close()
+    assert excinfo.value.code == 400
+    assert len(server.requests) == 2
+
+
 def test_the_http_timeout_is_cut_to_the_call_deadline() -> None:
     now = time.monotonic()
     assert ModelRequest(model="m", messages=MESSAGES, timeoutSeconds=30).http_timeout(60) == 30

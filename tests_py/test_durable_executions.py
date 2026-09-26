@@ -230,6 +230,53 @@ def test_git_refresh_is_control_plane_work_that_survives_memory_pressure(tmp_pat
 
 
 @pytest.mark.parametrize(
+    "path,body",
+    [
+        ("/api/v1/projects/discover", {"path": "."}),
+        ("/api/v1/projects", {"name": "control-plane-project", "createDirectory": True}),
+    ],
+)
+def test_registering_a_project_is_control_plane_work_that_survives_memory_pressure(tmp_path, path, body):
+    """Detectar y registrar un proyecto es plano de control: sin eso, un host justo sobre el piso
+    dejaba el asistente de proyecto (y `aido_create_project` de OpenClaw) esperando memoria.
+
+    Como `qa_light` reservaban 4 GiB sobre el piso: medido en vivo, con ~8 GiB libres y piso 8,
+    `projects.create_project` quedó en `resource_wait` y el plugin agotó su espera. Solo leen
+    manifiestos y escriben filas; no corren hooks ni código del proyecto.
+    """
+    from local_control_center.executions.repository import ExecutionRepository
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest, ResourceSnapshot
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    request_body = (
+        {**body, "path": str(tmp_path / "project")} if path.endswith("/projects") else {"path": str(tmp_path)}
+    )
+    with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
+        response = client.post(
+            path, json=request_body, headers={"X-Local-Control-Token": runtime.get_handshake()["token"]}
+        )
+        assert response.status_code == 202, response.text
+        workload_class = ExecutionRepository(runtime.connection).get(response.json()["executionId"])[
+            "workloadClass"
+        ]
+    runtime.close()
+
+    assert workload_class == "control_plane"
+    with closing(open_sqlite_connection(tmp_path / "pressure.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        decision = HostResourceGovernor(connection).admit(
+            ResourceAdmissionRequest(
+                execution_id="register", workload_class=workload_class, owner_id="wizard"
+            ),
+            snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=8 * 1024**3),
+        )
+    assert decision.status == "admitted"
+
+
+@pytest.mark.parametrize(
     "status,expected", [("running", "failed"), ("completed", "completed"), ("cancelled", "cancelled")]
 )
 def test_expired_execution_is_not_replayed_and_preserves_terminal_outcome(tmp_path, status, expected):

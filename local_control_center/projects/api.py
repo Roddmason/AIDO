@@ -60,13 +60,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.list_projects(repository())
 
     @router.post("/api/v1/projects/discover", response_model=ProjectDiscoveryResponse)
-    @queued_operation("projects.discover_project", workload_class="qa_light")
+    @queued_operation("projects.discover_project", workload_class="control_plane")
     async def discover_project(body: ProjectDiscoveryRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         return commands.discover_project(path=body.path)
 
     @router.post("/api/v1/projects", status_code=201, response_model=ProjectResponse)
-    @queued_operation("projects.create_project", workload_class="qa_light")
+    @queued_operation("projects.create_project", workload_class="control_plane")
     async def create_project(body: ProjectCreateRequest, request: Request) -> ProjectResponse:
         require_write(request)
         payload = commands.create_project(

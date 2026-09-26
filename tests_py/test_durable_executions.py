@@ -191,6 +191,44 @@ def test_git_gets_only_read_durable_snapshots(tmp_path, monkeypatch):
     runtime.close()
 
 
+def test_git_refresh_is_control_plane_work_that_survives_memory_pressure(tmp_path):
+    """El snapshot de git del panel es lectura del plano de control: se admite aunque falte memoria.
+
+    Encolado como `qa_light` pedia 4 GiB sobre el piso de 16, y con un modelo local cargado el panel
+    se quedaba sin refrescar. Solo corre comandos de lectura sin hooks (`status`, `branch`, `remote`,
+    `log`, `worktree list`, `diff --no-ext-diff`); las mutaciones de git siguen como `qa_light`.
+    """
+    from local_control_center.executions.repository import ExecutionRepository
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest, ResourceSnapshot
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
+        project_id = runtime.ensure_runtime_project()["id"]
+        response = client.post(
+            f"/api/v1/projects/{project_id}/git/refresh",
+            headers={"X-Local-Control-Token": runtime.get_handshake()["token"]},
+        )
+        assert response.status_code == 202
+        workload_class = ExecutionRepository(runtime.connection).get(response.json()["executionId"])[
+            "workloadClass"
+        ]
+    runtime.close()
+
+    assert workload_class == "control_plane"
+    with closing(open_sqlite_connection(tmp_path / "pressure.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        decision = HostResourceGovernor(connection).admit(
+            ResourceAdmissionRequest(
+                execution_id="git-refresh", workload_class=workload_class, owner_id="panel"
+            ),
+            snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=12 * 1024**3),
+        )
+    assert decision.status == "admitted"
+
+
 @pytest.mark.parametrize(
     "status,expected", [("running", "failed"), ("completed", "completed"), ("cancelled", "cancelled")]
 )

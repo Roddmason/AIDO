@@ -1664,11 +1664,17 @@ def _runtime_selection_ambiguous_specs(_context: BlockerPayloadContext) -> list[
     """Jev no pudo desempatar candidatos válidos: se asigna un runtime al rol y se reintenta."""
     return [
         {
+            "actionType": "open_settings_section",
+            "title": "Assign a runtime to the role",
+            "description": "Open the AI team and choose which runtime this role uses, then retry.",
+            "payload": {"section": "team"},
+        },
+        {
             "actionType": "retry_loop",
             "title": "Retry loop",
             "description": "Retry after assigning a runtime to this role in the thread's AI team.",
             "payload": {"retryTarget": "runtime_team"},
-        }
+        },
     ]
 
 

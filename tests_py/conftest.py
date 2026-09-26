@@ -77,6 +77,21 @@ def controlled_domain_host(monkeypatch):
     monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
 
 
+@pytest.fixture(scope="session", autouse=True)
+def hermetic_git_template(tmp_path_factory) -> Iterator[None]:
+    """Los repos temporales de los tests no heredan la plantilla global de git del equipo.
+
+    `init.templateDir` copia los hooks del desarrollador en cada `git init`. Con gitleaks instalado,
+    un fixture con un token de forma real deja el commit del test en rc=1 aunque el codigo este
+    bien, y el rojo depende de la maquina. Los tests que prueban el hook del repo lo instalan
+    explicito con `core.hooksPath`, que esta plantilla vacia no toca.
+    """
+    template = tmp_path_factory.mktemp("empty-git-template")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_TEMPLATE_DIR", str(template))
+        yield
+
+
 @pytest.fixture(autouse=True)
 def isolated_default_process_database(tmp_path, monkeypatch):
     """Evita que ejecuciones reales de sandbox en tests escriban la base del operador."""

@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 81
+CURRENT_SCHEMA_VERSION = 82
 
 
 def _execute_atomic_statements(
@@ -142,6 +142,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase79_schema(connection)
     init_phase80_schema(connection)
     init_phase81_schema(connection)
+    init_phase82_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6940,3 +6941,36 @@ def init_phase81_schema(connection: sqlite3.Connection) -> None:
         if "memory_request_bytes" not in columns:
             connection.execute("ALTER TABLE resource_leases ADD COLUMN memory_request_bytes INTEGER")
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (81, ?)", (utc_now(),))
+
+
+def init_phase82_schema(connection: sqlite3.Connection) -> None:
+    """Fase 82: atención por proyecto para la cola justa del worker.
+
+    ``peek_next_job`` necesita, por cada proyecto con jobs encolados, cuándo fue atendido por
+    última vez (el máximo ``job_runs.started_at`` de sus jobs) para dar prioridad al proyecto
+    menos atendido. Calcularlo por join contra ``job_runs`` en cada peek escala mal (medido:
+    ~40 ms con ~20k runs bajo cola llena, muy por sobre el presupuesto); esta tabla lo mantiene
+    al día en ``claim_next_job`` con un upsert O(1), dejando la lectura en una búsqueda indexada
+    por ``project_id``. El backfill cubre bases ya migradas antes de esta fase.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 82").fetchone():
+        return
+    with immediate_transaction(connection):
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_job_attention (
+                project_id TEXT PRIMARY KEY,
+                last_started_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO project_job_attention (project_id, last_started_at)
+            SELECT j.project_id, MAX(jr.started_at)
+            FROM job_runs jr
+            JOIN jobs j ON j.id = jr.job_id
+            GROUP BY j.project_id
+            """
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (82, ?)", (utc_now(),))

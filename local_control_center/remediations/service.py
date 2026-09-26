@@ -55,6 +55,9 @@ PRODUCT_LOOP_DEPENDENT_REMEDIATION_ACTION_TYPES = frozenset(
     {"approve_resource_decision", "continue_plan_only", "retry_loop"}
 )
 LOCAL_WORKER_RECOVERABLE_STAGES = frozenset({"gitleaks", "research", "runtime", "worker"})
+# Blocker types de `resource_manager` que la reanudación automática por cooldown puede tocar; ver
+# `BlockerRemediationService.resume_cooldown_expired_blocks`.
+COOLDOWN_ELIGIBLE_BLOCKER_TYPES = frozenset({"resource_manager_unconfigured", "runtime_not_executable"})
 
 
 class BlockerRemediationService:
@@ -1718,6 +1721,90 @@ class BlockerRemediationService:
                 continue
             if not self._stale_validation_targets(stored):
                 resumed.append(self.execute(action["id"], platform=None))
+        return resumed
+
+    @staticmethod
+    def _cooldown_rejected_provider_ids(details: dict[str, Any]) -> set[str]:
+        """ProviderIds rechazados en un bloqueo `resource_manager`, según sus `resourceBlockers`."""
+        resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else None
+        return {
+            str(rejected["providerId"])
+            for blocker in resource_blockers or []
+            if isinstance(blocker, dict) and isinstance(blocker.get("decision"), dict)
+            for rejected in blocker["decision"].get("rejected") or []
+            if isinstance(rejected, dict) and str(rejected.get("providerId") or "").strip()
+        }
+
+    def resume_cooldown_expired_blocks(self) -> list[dict[str, Any]]:
+        """Reanuda automáticamente los bloqueos de recursos cuyo cooldown de cuota ya cedió.
+
+        Barato cuando no hay candidatos: el filtro inicial por `status`/`action_type`/`stage`/
+        `blocker_type` corre antes de tocar la cuota. La primera vez que ve una acción pendiente
+        comprueba si TODOS sus proveedores rechazados están hoy en cooldown de cuota (si alguno
+        fue rechazado por otra causa —credenciales, salud, privacidad— no es de nuestra
+        incumbencia y no la vuelve a tocar); de ser así, congela ese conjunto en el payload de la
+        remediación (`cooldownSnapshot`) para poder comparar más tarde contra el cooldown vigente
+        sin depender de un registro histórico aparte. Sólo reanuda cuando ese conjunto congelado
+        deja de ser subconjunto del cooldown vigente, es decir, cuando al menos uno de esos
+        proveedores ya salió.
+
+        Reutiliza `execute()` sobre la acción `retry_loop` ya creada por `create_for_blocked_run`:
+        el mismo camino del botón "Reintentar" del operador y de `resume_after_runtime_validation`.
+        Un reintento exitoso deja la acción `resolved`, así que el siguiente tick ya no la
+        encuentra: idempotente ante reintentos fallidos, resúmenes manuales del operador y
+        reinicios del worker, porque todo el estado vive en SQLite, no en memoria del proceso.
+        """
+        placeholders = ",".join("?" for _ in COOLDOWN_ELIGIBLE_BLOCKER_TYPES)
+        rows = self.connection.execute(
+            f"""SELECT id FROM remediation_actions
+                WHERE status = 'pending' AND action_type = 'retry_loop' AND stage = 'resource_manager'
+                  AND blocker_type IN ({placeholders})
+                ORDER BY created_at ASC, rowid ASC""",
+            tuple(COOLDOWN_ELIGIBLE_BLOCKER_TYPES),
+        ).fetchall()
+        if not rows:
+            return []
+        from local_control_center.agents.quota_manager import QuotaManager
+
+        still_cooling = QuotaManager(self.connection).providers_in_cooldown_detail()
+        resumed: list[dict[str, Any]] = []
+        for row in rows:
+            action = self.repository.get(str(row["id"]))
+            if action["status"] != "pending":
+                continue
+            payload = action["payload"] if isinstance(action["payload"], dict) else {}
+            snapshot = payload.get("cooldownSnapshot")
+            if not isinstance(snapshot, dict) or not snapshot.get("providerIds"):
+                provider_ids = self._cooldown_rejected_provider_ids(payload.get("details") or {})
+                if not provider_ids or not provider_ids <= still_cooling.keys():
+                    continue  # no es (hoy) un bloqueo puro de cooldown de cuota
+                self.repository.merge_payload(
+                    action["id"],
+                    {
+                        "cooldownSnapshot": {
+                            "providerIds": sorted(provider_ids),
+                            "cooldownUntil": min(still_cooling[pid] for pid in provider_ids),
+                        }
+                    },
+                )
+                continue  # confirmado; espera a que el cooldown ceda en un tick posterior
+            provider_ids = {str(item) for item in snapshot["providerIds"]}
+            if not provider_ids or provider_ids <= still_cooling.keys():
+                continue  # todos los que bloqueaban siguen en cooldown
+            relieved = sorted(provider_ids - still_cooling.keys())
+            result = self.execute(action["id"], platform=None)
+            if (result.get("execution") or {}).get("status") == "queued":
+                ThreadsRepository(self.connection).record_event(
+                    thread_id=action["threadId"],
+                    type="auto_resumed",
+                    agent_role="worker",
+                    payload={
+                        "reason": f"Reanudado automáticamente: {relieved[0]} salió de cooldown.",
+                        "providerIds": relieved,
+                        "remediationActionId": action["id"],
+                    },
+                )
+                resumed.append(result)
         return resumed
 
     def _retry_loop(self, *, action: dict[str, Any], payload: dict[str, Any] | None = None) -> dict[str, Any]:

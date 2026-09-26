@@ -51,6 +51,7 @@ from .leadership import (
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 DEFAULT_MAX_CONCURRENT_JOBS = 1
 TELEMETRY_PRUNE_INTERVAL_SECONDS = 3600.0
+COOLDOWN_RESUME_POLL_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ class LocalWorkerRuntime:
         self.db_path = Path(db_path)
         self.cwd = Path(cwd)
         self._health_refresh_due_at = 0.0
+        self._cooldown_resume_due_at = 0.0
         self.settings = settings or WorkerSettings()
         self.worker_id = f"local-worker-{uuid.uuid4()}"
         self._stop_event = threading.Event()
@@ -249,6 +251,22 @@ class LocalWorkerRuntime:
                 outcome=f"queued:{result['enqueued']}",
             )
 
+    def _resume_cooldown_blocked_threads_if_due(self) -> None:
+        """Reanuda hilos bloqueados sólo por cooldown de cuota vencido, sin costo si no hay candidatos.
+
+        La consulta que dispara ``BlockerRemediationService.resume_cooldown_expired_blocks`` ya es
+        barata cuando no hay bloqueos de recursos pendientes (filtra por índice antes de tocar la
+        cuota); este throttle evita repetirla en cada iteración del poll. El líder es quien lo hace,
+        igual que el refresco de salud de runtimes, para no duplicar reanudaciones entre procesos.
+        """
+        now = time.monotonic()
+        if now < self._cooldown_resume_due_at:
+            return
+        self._cooldown_resume_due_at = now + COOLDOWN_RESUME_POLL_SECONDS
+        with closing(open_sqlite_connection(self.db_path)) as connection:
+            initialize_platform_schema(connection)
+            BlockerRemediationService(connection, root=self.cwd).resume_cooldown_expired_blocks()
+
     def run_forever(self) -> None:
         """Ejecuta el scheduler en primer plano como proceso worker independiente.
 
@@ -287,6 +305,7 @@ class LocalWorkerRuntime:
                 continue
             self._ensure_leadership_watcher()
             self._refresh_runtime_health_if_due()
+            self._resume_cooldown_blocked_threads_if_due()
             try:
                 from local_control_center.process_supervision.recovery import recover_managed_processes
 

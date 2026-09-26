@@ -813,7 +813,9 @@ class JobsRepository:
         Transacción propia: abre `BEGIN IMMEDIATE` para serializar el reclamo entre workers
         concurrentes y hace COMMIT (o ROLLBACK ante cualquier error) antes de leer el resultado;
         el UPDATE condicionado a `status = 'queued'` evita doble-reclamo. El evento `job.claimed`
-        se emite ya fuera de esa transacción.
+        se emite ya fuera de esa transacción. También registra en `project_job_attention` cuándo
+        se atendió por última vez al proyecto del job, para que `peek_next_job` priorice sin tener
+        que agregar `job_runs` completo en cada peek.
 
         Returns:
             Dict con el job y su run reclamados, o `None` si la cola está vacía.
@@ -872,6 +874,15 @@ class JobsRepository:
                     leader_fencing_token,
                 ),
             )
+            self.connection.execute(
+                """
+                INSERT INTO project_job_attention (project_id, last_started_at)
+                VALUES (?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET last_started_at = excluded.last_started_at
+                WHERE excluded.last_started_at > project_job_attention.last_started_at
+                """,
+                (row["project_id"], timestamp),
+            )
             self.connection.execute("COMMIT")
         except Exception:
             self.connection.execute("ROLLBACK")
@@ -887,15 +898,25 @@ class JobsRepository:
         return {"job": job, "run": run}
 
     def peek_next_job(self) -> dict[str, Any] | None:
-        """Prioriza operaciones ligeras de reparación; conserva FIFO para el resto de jobs."""
+        """Prioriza operaciones ligeras de reparación; luego, cola justa entre proyectos.
+
+        Tras el tier de reparación, gana el proyecto atendido hace más tiempo (según
+        `project_job_attention`, actualizada por `claim_next_job`); uno nunca atendido
+        (`last_started_at` NULL, que SQLite ordena antes que cualquier valor) va primero.
+        Dentro de un mismo proyecto se conserva el FIFO por `created_at, rowid`.
+        """
         row = self.connection.execute(
             """
             SELECT j.* FROM jobs j
             LEFT JOIN operational_executions e ON e.id = j.id
+            LEFT JOIN project_job_attention pa ON pa.project_id = j.project_id
             WHERE j.status = 'queued'
             ORDER BY CASE WHEN j.kind = 'operation.execute'
                 AND e.workload_class IN ('control_plane', 'qa_light', 'remote_llm_light')
-                THEN 0 ELSE 1 END, j.created_at ASC, j.rowid ASC
+                THEN 0 ELSE 1 END,
+                pa.last_started_at ASC,
+                j.created_at ASC,
+                j.rowid ASC
             LIMIT 1
             """
         ).fetchone()

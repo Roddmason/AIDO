@@ -473,6 +473,95 @@ def test_hard_memory_floor_spares_essential_control_plane_process(tmp_path, monk
         service.complete(essential, exit_code=0)
 
 
+def test_local_backstop_yields_to_an_active_governor_in_the_gray_zone(tmp_path, monkeypatch):
+    """Entre piso/2 y piso, con el gobernador global activo, el vigilante local no cancela solo."""
+    import time
+    from types import SimpleNamespace
+
+    from local_control_center.host_resources.repository import ResourceRepository
+    from local_control_center.process_supervision import service as module
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    gib = 1024**3
+    db_path = tmp_path / "runtime.sqlite"
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+
+    backend = FakeSupervisor()
+    service = ProcessSupervisorService(
+        db_path=db_path, backend=backend, resource_snapshot=ResourceSnapshot.test_snapshot()
+    )
+    child = service.start(
+        argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="governor-active-test"
+    )
+    monkeypatch.setattr(module.psutil, "virtual_memory", lambda: SimpleNamespace(available=6 * gib))
+    try:
+        time.sleep(1.5)
+        assert child.terminal_stats is None
+    finally:
+        service.complete(child, exit_code=child.process.poll())
+
+
+def test_local_backstop_still_stops_below_half_the_floor_even_with_an_active_governor(tmp_path, monkeypatch):
+    """El piso/2 es una emergencia: manda incluso con el gobernador global activo."""
+    import time
+    from types import SimpleNamespace
+
+    from local_control_center.host_resources.repository import ResourceRepository
+    from local_control_center.process_supervision import service as module
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    gib = 1024**3
+    db_path = tmp_path / "runtime.sqlite"
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        ResourceRepository(connection).record_sample(ResourceSnapshot.test_snapshot())
+
+    backend = FakeSupervisor()
+    service = ProcessSupervisorService(
+        db_path=db_path, backend=backend, resource_snapshot=ResourceSnapshot.test_snapshot()
+    )
+    child = service.start(
+        argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="emergency-floor-test"
+    )
+    monkeypatch.setattr(module.psutil, "virtual_memory", lambda: SimpleNamespace(available=1 * gib))
+    try:
+        deadline = time.monotonic() + 3
+        while child.terminal_stats is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child.terminal_stats and child.terminal_stats.termination_reason == "hard_memory_floor"
+    finally:
+        service.complete(child, exit_code=child.process.poll())
+
+
+def test_local_backstop_stops_when_the_governor_sample_is_stale_or_missing(tmp_path, monkeypatch):
+    """Sin una muestra reciente del gobernador global, el vigilante local vuelve a ser la única red."""
+    import time
+    from types import SimpleNamespace
+
+    from local_control_center.process_supervision import service as module
+
+    gib = 1024**3
+    backend = FakeSupervisor()
+    service = ProcessSupervisorService(
+        db_path=tmp_path / "runtime.sqlite",
+        backend=backend,
+        resource_snapshot=ResourceSnapshot.test_snapshot(),
+    )
+    child = service.start(
+        argv=[sys.executable, "--version"], cwd=tmp_path, execution_id="stale-governor-test"
+    )
+    monkeypatch.setattr(module.psutil, "virtual_memory", lambda: SimpleNamespace(available=6 * gib))
+    try:
+        deadline = time.monotonic() + 3
+        while child.terminal_stats is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child.terminal_stats and child.terminal_stats.termination_reason == "hard_memory_floor"
+    finally:
+        service.complete(child, exit_code=child.process.poll())
+
+
 def test_complete_large_output_is_spilled_and_hashed(tmp_path: Path, controlled_domain_host) -> None:
     count = 1_200_000
     result = RestrictedSubprocessSandbox().execute(

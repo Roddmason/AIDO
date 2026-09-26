@@ -20,6 +20,7 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.settings.registry import descriptor_for, validate_value
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import iso_after_seconds
 from local_control_center.threads.repository import ThreadsRepository
 
 GIB = 1024**3
@@ -128,11 +129,11 @@ def test_aggregate_cpu_budget_blocks_light_work_beside_full_budget_build(tmp_pat
 
 
 def test_aggregate_memory_reservations_preserve_control_plane_headroom(tmp_path: Path) -> None:
-    """Las reservas vivas no pueden comerse el margen: 23 GiB - piso 16 = 7 < agente 4 + QA 4."""
+    """Las reservas vivas no pueden comerse el margen: 20,5 GiB - piso 16 = 4,5 < agente 1 + QA 4."""
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         governor = HostResourceGovernor(connection)
-        snapshot = _healthy_snapshot(available_memory_bytes=23 * GIB)
+        snapshot = _healthy_snapshot(available_memory_bytes=int(20.5 * GIB))
         assert governor.admit(_request("cli", "agent_cli"), snapshot=snapshot).status == "admitted"
         second = governor.admit(_request("qa", "qa_light"), snapshot=snapshot)
         assert (second.status, second.reason_code) == ("resource_wait", "aggregate_memory_budget")
@@ -356,6 +357,166 @@ def test_hard_floor_records_cancellation_request_for_nonessential_workload(tmp_p
     assert violations[0].execution_id == "remote-one"
 
 
+def test_hard_floor_above_the_floor_never_calls_usage_source(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        governor.admit(_request("remote", "remote_llm_light"), snapshot=_healthy_snapshot())
+
+        def boom():
+            raise AssertionError("usage_source must not run above the hard floor")
+
+        violations = governor.violations_for_snapshot(_healthy_snapshot(), usage_source=boom)
+
+    assert violations == []
+
+
+def test_hard_floor_never_evicts_essential_leases(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        governor.admit(_request("control", "control_plane"), snapshot=_healthy_snapshot())
+        violations = governor.violations_for_snapshot(_healthy_snapshot(available_memory_bytes=4 * GIB))
+
+    assert violations == []
+
+
+def test_hard_floor_evicts_the_lease_that_exceeds_its_reserve_first(tmp_path: Path) -> None:
+    """Con dos candidatas, la primera violación cae sobre la que más excede su reserva medida."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        under = governor.admit(
+            _request("under-reserve", "remote_llm_light"), snapshot=_healthy_snapshot()
+        ).lease
+        over = governor.admit(_request("over-reserve", "agent_cli"), snapshot=_healthy_snapshot()).lease
+        # remote_llm_light reserva 0,5 GiB (uso 1 la excede en 0,5); agent_cli reserva 1 (uso 2 la excede en 1).
+        usage = {under.id: 1 * GIB, over.id: 2 * GIB}
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB), usage_source=lambda: usage
+        )
+
+    assert len(violations) == 1
+    assert violations[0].execution_id == "over-reserve"
+    assert violations[0].lease_id == over.id
+    assert "2.0 GiB used" in violations[0].reason
+    assert "1.0 GiB reserved" in violations[0].reason
+
+
+def test_hard_floor_with_usage_source_skips_leases_without_live_processes(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        governor.admit(_request("idle-lease", "remote_llm_light"), snapshot=_healthy_snapshot())
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB), usage_source=lambda: {}
+        )
+
+    assert violations == []
+
+
+def test_hard_floor_without_usage_source_evicts_the_most_recent_lease(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        governor.admit(
+            _request("older", "remote_llm_light"),
+            snapshot=_healthy_snapshot(),
+            now_iso="2026-01-01T00:00:00.000Z",
+        )
+        newer = governor.admit(
+            _request("newer", "remote_llm_light"),
+            snapshot=_healthy_snapshot(),
+            now_iso="2026-01-01T00:00:01.000Z",
+        ).lease
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB), now_iso="2026-01-01T00:00:02.000Z"
+        )
+
+    assert len(violations) == 1
+    assert violations[0].execution_id == "newer"
+    assert violations[0].lease_id == newer.id
+
+
+def test_hard_floor_usage_source_error_falls_back_to_the_most_recent_lease(tmp_path: Path) -> None:
+    """Sin medición no se prioriza por exceso, pero se sigue desalojando: nunca se deja de contener."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        governor.admit(
+            _request("older", "remote_llm_light"),
+            snapshot=_healthy_snapshot(),
+            now_iso="2026-01-01T00:00:00.000Z",
+        )
+        governor.admit(
+            _request("newer", "remote_llm_light"),
+            snapshot=_healthy_snapshot(),
+            now_iso="2026-01-01T00:00:01.000Z",
+        )
+
+        def boom():
+            raise RuntimeError("psutil exploded")
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB),
+            usage_source=boom,
+            now_iso="2026-01-01T00:00:02.000Z",
+        )
+
+    assert [violation.execution_id for violation in violations] == ["newer"]
+
+
+def test_hard_floor_ranks_by_the_reserve_recorded_in_each_lease(tmp_path: Path) -> None:
+    """Una lease previa a la fase 81 (reserva NULL) cuenta por su tope, igual que en la admisión."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        legacy = governor.admit(_request("legacy", "agent_cli"), snapshot=_healthy_snapshot()).lease
+        current = governor.admit(_request("current", "remote_llm_light"), snapshot=_healthy_snapshot()).lease
+        connection.execute(
+            "UPDATE resource_leases SET memory_request_bytes = NULL WHERE id = ?", (legacy.id,)
+        )
+        # La vieja (sin reserva registrada) cuenta por su tope de 8: sus 3 GiB no lo exceden. Con la
+        # reserva del perfil actual (1 GiB) excedería por 2 y ganaría; la actual excede su 0,5 por 1.
+        usage = {legacy.id: 3 * GIB, current.id: int(1.5 * GIB)}
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB), usage_source=lambda: usage
+        )
+
+    assert [violation.execution_id for violation in violations] == ["current"]
+
+
+def test_hard_floor_grace_period_defers_the_next_eviction(tmp_path: Path) -> None:
+    """Repetir dentro de la gracia no agrega una segunda víctima; pasada la gracia, sigue con la otra."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        first = governor.admit(_request("first", "remote_llm_light"), snapshot=_healthy_snapshot()).lease
+        second = governor.admit(_request("second", "agent_cli"), snapshot=_healthy_snapshot()).lease
+        # Ambas exceden su reserva; second (agent_cli) excede por más (1 GiB vs 0,5) y va primero.
+        usage = {first.id: 1 * GIB, second.id: 2 * GIB}
+        low_snapshot = _healthy_snapshot(available_memory_bytes=4 * GIB)
+        base_time = "2026-01-01T00:00:00.000Z"
+
+        first_round = governor.violations_for_snapshot(
+            low_snapshot, usage_source=lambda: usage, now_iso=base_time
+        )
+        still_in_grace = governor.violations_for_snapshot(
+            low_snapshot, usage_source=lambda: usage, now_iso=iso_after_seconds(base_time, 5)
+        )
+        after_grace = governor.violations_for_snapshot(
+            low_snapshot, usage_source=lambda: usage, now_iso=iso_after_seconds(base_time, 6.5)
+        )
+
+    assert [violation.execution_id for violation in first_round] == ["second"]
+    assert still_in_grace == []
+    assert [violation.execution_id for violation in after_grace] == ["first"]
+
+
 def test_resource_wait_is_written_once_per_reason_and_reaches_the_thread(tmp_path: Path) -> None:
     """El governor reevalúa cada ~2 s: sólo un cambio de motivo es noticia para el job y el hilo."""
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
@@ -436,7 +597,7 @@ def test_admission_counts_the_measured_request_not_the_hard_cap(tmp_path: Path) 
         remote = governor.admit(_request("remote", "remote_llm_light"), snapshot=snapshot)
 
     assert cli.status == "admitted"
-    assert cli.lease.memory_request_bytes == 4 * GIB
+    assert cli.lease.memory_request_bytes == 1 * GIB
     assert cli.lease.memory_limit_bytes == 8 * GIB
     assert remote.status == "admitted"
 

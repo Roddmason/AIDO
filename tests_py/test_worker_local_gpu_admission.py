@@ -330,8 +330,8 @@ def test_developer_operation_classifies_persisted_preference_not_client_resource
     )
 
 
-# El envoltorio del CLI reserva 4 GiB (su request): con 19 GiB el margen sobre el piso es 3.
-@pytest.mark.parametrize("available_gib,expected_status", [(19, "resource_wait"), (48, "completed")])
+# El envoltorio del CLI reserva 1 GiB (su request): con 16,5 GiB el margen sobre el piso es 0,5.
+@pytest.mark.parametrize("available_gib,expected_status", [(16.5, "resource_wait"), (48, "completed")])
 def test_developer_ollama_operation_reserves_only_the_cli_envelope(
     lane, monkeypatch, available_gib, expected_status
 ):
@@ -369,7 +369,7 @@ def test_developer_ollama_operation_reserves_only_the_cli_envelope(
     monkeypatch.setattr("local_control_center.jobs_approvals.worker.execute_job", capture)
     ConcurrentWorker(
         db_path=database,
-        resource_snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=available_gib * GIB),
+        resource_snapshot=ResourceSnapshot.test_snapshot(available_memory_bytes=int(available_gib * GIB)),
     ).run_once(worker_id="worker")
 
     assert JobsRepository(connection).get_job(queued["jobId"])["status"] == expected_status

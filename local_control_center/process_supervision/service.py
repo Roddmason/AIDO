@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import closing, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,9 @@ _ACTIVE: dict[str, tuple[ProcessSupervisorService, SupervisedProcess]] = {}
 _PROCESS_IDS: dict[int, str] = {}
 _LOGGER = logging.getLogger(__name__)
 _CONTROL_BUSY_WINDOW_SECONDS = 2.0
+GOVERNOR_STALE_SECONDS = 10
+"""Sin una muestra del gobernador global más nueva que esto, este vigilante deja de fiarse de que
+esté corriendo y vuelve a ser la única red de contención (ver ADR-005)."""
 
 
 def _resolved_process_executable(pid: int) -> str | None:
@@ -758,9 +762,16 @@ class ProcessSupervisorService:
                             float(_setting(SettingsRepository(connection), "resources.hardFreeMemoryGiB"))
                             * GIB
                         )
+                        available = psutil.virtual_memory().available
+                        # Bajo el piso, el gobernador global ya desaloja gradualmente (una lease a la
+                        # vez, la que más excede su uso real; ver HostResourceGovernor.
+                        # violations_for_snapshot y ADR-005). Este vigilante local sólo actúa si es
+                        # una emergencia (mitad del piso) o si ese gobernador no está corriendo, para
+                        # no duplicar un desalojo total que ya no es necesario.
                         if (
                             not workload_profile(managed.workload_class).essential
-                            and psutil.virtual_memory().available < floor
+                            and available < floor
+                            and (available < floor / 2 or not self._governor_is_active(connection))
                         ):
                             reason = "hard_memory_floor"
                         next_memory_check = time.monotonic() + 1
@@ -817,6 +828,20 @@ class ProcessSupervisorService:
                     managed, "control_watch_deadline_exceeded" if recoverable else "control_watch_failed"
                 )
                 return
+
+    def _governor_is_active(self, connection: sqlite3.Connection) -> bool:
+        """El gobernador global cuenta como activo si sampleó hace menos de ``GOVERNOR_STALE_SECONDS``.
+
+        Sin una muestra reciente (worker detenido, en pausa o fallando) este vigilante vuelve a ser
+        la única red de contención, igual que antes de ADR-005.
+        """
+        sample = ResourceRepository(connection).latest_sample()
+        if sample is None:
+            return False
+        age = (
+            datetime.now(UTC) - datetime.fromisoformat(sample.sampled_at.replace("Z", "+00:00"))
+        ).total_seconds()
+        return 0 <= age < GOVERNOR_STALE_SECONDS
 
     def _stop_for_control(self, managed: SupervisedProcess, reason: str) -> None:
         with managed.lock:

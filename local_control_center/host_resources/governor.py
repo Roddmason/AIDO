@@ -6,10 +6,13 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any
 
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.diagnostics import diagnostic_event
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
 
@@ -31,6 +34,10 @@ from .repository import ResourceRepository
 from .retention import RESOURCE_SAMPLE_RETENTION_SECONDS
 
 UNREAL_LOCAL_INFERENCE_REASON = "Local GPU inference is blocked while UnrealEditor is active."
+
+EVICTION_GRACE_SECONDS = 6
+"""3x el intervalo de muestreo por defecto (2 s): tiempo para que el SO libere la memoria de la
+lease recién desalojada antes de evaluar una siguiente víctima con la misma fotografía de presión."""
 
 
 def _blocks_local_inference(workload_class: str, snapshot: ResourceSnapshot, policy: Any) -> bool:
@@ -335,29 +342,101 @@ class HostResourceGovernor:
     def violations_for_snapshot(
         self,
         snapshot: ResourceSnapshot,
+        *,
+        usage_source: Callable[[], Mapping[str, int]] | None = None,
+        now_iso: str | None = None,
     ) -> list[ResourceViolation]:
-        """Registra solicitudes de cancelación para cargas no esenciales bajo el hard floor."""
+        """Desaloja lease por lease bajo el piso duro, como el node-pressure eviction de Kubernetes.
+
+        Kubernetes desaloja un pod a la vez, no todo el nodo
+        (https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/). Ver ADR-005.
+        Prioriza la lease cuyo uso real (RSS, ``usage_source``) más excede su reserva; sin esa
+        fuente (compatibilidad hacia atrás) todas las leases no esenciales son candidatas con uso
+        0 y se desempata por la más reciente. Una gracia de ``EVICTION_GRACE_SECONDS`` tras la
+        última violación evita apilar desalojos antes de que el sistema operativo libere la
+        memoria de la lease recién terminada.
+        """
         policy = resolve_resource_policy(self.connection, snapshot=snapshot)
         if snapshot.available_memory_bytes >= policy.hard_free_memory_bytes:
             return []
-        violations: list[ResourceViolation] = []
-        with immediate_transaction(self.connection):
-            for lease in self.repository.active_leases():
-                if workload_profile(lease.workload_class).essential:
-                    continue
-                violations.append(
-                    self.repository.record_violation(
-                        execution_id=lease.execution_id,
-                        lease_id=lease.id,
-                        violation_type="hard_memory_floor",
-                        action="cancel_non_essential_workload",
-                        reason="Available memory fell below the control-plane hard floor.",
-                    )
+        timestamp = now_iso or utc_now()
+        usage: Mapping[str, int] = {}
+        usage_known = usage_source is not None
+        if usage_source is not None:
+            try:
+                usage = usage_source()
+            except Exception as error:
+                # Sin medición no se puede priorizar por exceso: se vuelve al criterio sin uso (todas
+                # las no esenciales candidatas, la más reciente primero), nunca a dejar de desalojar.
+                diagnostic_event(
+                    "resources.eviction_usage_unavailable", component="governor", level="WARNING", error=error
                 )
-        return violations
+                usage, usage_known = {}, False
+        with immediate_transaction(self.connection):
+            latest_at = self.repository.latest_violation_created_at(violation_type="hard_memory_floor")
+            if latest_at is not None and _seconds_between(latest_at, timestamp) < EVICTION_GRACE_SECONDS:
+                return []
+            excluded = self.repository.executions_with_unresolved_violation(
+                action="cancel_non_essential_workload"
+            )
+            candidates = [
+                lease
+                for lease in self.repository.active_leases(now_iso=timestamp)
+                if not workload_profile(lease.workload_class).essential
+                and lease.execution_id not in excluded
+                and (not usage_known or lease.id in usage)
+            ]
+            if not candidates:
+                return []
+            victim = _rank_eviction_candidates(candidates, usage)[0]
+            used = usage.get(victim.id, 0)
+            reserved = _reserved_bytes(victim)
+            reason = (
+                "Available memory fell below the control-plane hard floor: "
+                f"{used / GIB:.1f} GiB used, {reserved / GIB:.1f} GiB reserved, "
+                f"{snapshot.available_memory_bytes / GIB:.1f} GiB available, "
+                f"{policy.hard_free_memory_bytes / GIB:.1f} GiB floor."
+            )
+            return [
+                self.repository.record_violation(
+                    execution_id=victim.execution_id,
+                    lease_id=victim.id,
+                    violation_type="hard_memory_floor",
+                    action="cancel_non_essential_workload",
+                    reason=reason,
+                    now_iso=timestamp,
+                )
+            ]
 
 
 def _last_reason_code(payload: dict[str, Any]) -> str | None:
     """Motivo de admisión que el governor ya dejó escrito en ``payload.result`` del job."""
     result = payload.get("result") if isinstance(payload, dict) else None
     return str(result.get("reasonCode")) if isinstance(result, dict) and result.get("reasonCode") else None
+
+
+def _seconds_between(earlier_iso: str, later_iso: str) -> float:
+    """Diferencia en segundos entre dos timestamps ISO-8601 UTC (acepta sufijo ``Z``)."""
+    earlier = datetime.fromisoformat(earlier_iso.replace("Z", "+00:00"))
+    later = datetime.fromisoformat(later_iso.replace("Z", "+00:00"))
+    return (later - earlier).total_seconds()
+
+
+def _reserved_bytes(lease: ResourceLease) -> int:
+    """Reserva registrada en la lease, como la cuenta la admisión; una lease previa a la fase 81 usa su tope."""
+    return lease.memory_limit_bytes if lease.memory_request_bytes is None else lease.memory_request_bytes
+
+
+def _rank_eviction_candidates(
+    candidates: list[ResourceLease], usage: Mapping[str, int]
+) -> list[ResourceLease]:
+    """Ordena por: excede su reserva primero, luego mayor exceso, luego más reciente, luego id.
+
+    Python ordena en forma estable: aplicar los criterios de menos a más significativo produce el
+    orden multicriterio final sin necesitar una única clave compuesta con signos mixtos.
+    """
+    ranked = sorted(candidates, key=lambda lease: lease.id)
+    ranked.sort(key=lambda lease: lease.acquired_at, reverse=True)
+    ranked.sort(key=lambda lease: usage.get(lease.id, 0) - _reserved_bytes(lease), reverse=True)
+    ranked.sort(key=lambda lease: usage.get(lease.id, 0) > _reserved_bytes(lease), reverse=True)
+    return ranked

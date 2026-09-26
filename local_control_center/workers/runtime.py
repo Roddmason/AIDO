@@ -26,6 +26,7 @@ from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.host_resources.retention import drain_resource_history
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.process_supervision.memory_usage import live_memory_by_lease
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.settings.repository import UNSET, SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
@@ -662,7 +663,7 @@ class LocalWorkerRuntime:
                 governor.record_sample(snapshot)
                 governor.recover_expired()
                 governor.reevaluate_waiting(snapshot=snapshot)
-                governor.violations_for_snapshot(snapshot)
+                governor.violations_for_snapshot(snapshot, usage_source=self._live_memory_by_lease)
             self._latest_resource_snapshot = snapshot
             self._last_resource_sample_monotonic = time.monotonic()
             return True
@@ -678,6 +679,16 @@ class LocalWorkerRuntime:
         with closing(open_sqlite_connection(self.db_path)) as connection:
             initialize_platform_schema(connection)
             return [lease.workload_class for lease in ResourceRepository(connection).active_leases()]
+
+    def _live_memory_by_lease(self) -> dict[str, int]:
+        """Uso real (RSS) por lease desde una conexión corta y propia de la sonda.
+
+        El desalojo graduado (``HostResourceGovernor.violations_for_snapshot``) ya blinda cualquier
+        error de este helper: nunca propaga ni pone al worker en ``resource_wait``.
+        """
+        with closing(open_sqlite_connection(self.db_path)) as connection:
+            initialize_platform_schema(connection)
+            return live_memory_by_lease(connection)
 
     def _prune_telemetry_if_due(self) -> None:
         """Prune expired ``telemetry.http.request`` events at most once per interval.

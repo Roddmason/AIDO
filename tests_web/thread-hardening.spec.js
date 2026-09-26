@@ -75,10 +75,12 @@ test('Threads: decision options show readable labels while sending the raw code'
 			options: ['continue_existing', 'improve_existing', 'performance_pass', 'create_new_anyway'],
 		}],
 	});
-	const decision = page.locator('.thread-decision-console').first();
-	await expect(decision.getByRole('button', { name: 'Continue the existing work', exact: true })).toBeVisible();
-	await expect(decision.getByRole('button', { name: 'Create a new one anyway', exact: true })).toBeVisible();
-	await expect(decision.getByRole('button', { name: 'continue_existing', exact: true })).toHaveCount(0);
+	// Options answer as a radio group (single choice) in the execution panel now, not as one-click
+	// chat buttons; the description rides along in the radio's accessible name.
+	const decision = page.locator('.thread-execution-pane').locator('.thread-decision-console').first();
+	await expect(decision.getByRole('radio', { name: /^Continue the existing work/ })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: /^Create a new one anyway/ })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: 'continue_existing', exact: true })).toHaveCount(0);
 	await expect(decision.getByText('Ignore the match and start separate work.')).toBeVisible();
 });
 
@@ -93,10 +95,10 @@ test('Threads: intake questions render from their i18n key with readable options
 			metadata: { questions: [question], questionKeys: ['app.threads.intake.question.outcome'] },
 		}],
 	});
-	const decision = page.locator('.thread-decision-console').first();
+	const decision = page.locator('.thread-execution-pane').locator('.thread-decision-console').first();
 	await expect(decision.getByText(question)).toBeVisible();
-	await expect(decision.getByRole('button', { name: 'Diagnose', exact: true })).toBeVisible();
-	await expect(decision.getByRole('button', { name: 'Implement', exact: true })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: /^Diagnose/ })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: /^Implement\b/ })).toBeVisible();
 
 	// Switch to Spanish: the prompt itself keeps the English string sent by the backend, so
 	// only a real key-driven translation makes the Spanish text appear here.
@@ -104,8 +106,8 @@ test('Threads: intake questions render from their i18n key with readable options
 	await expect(page.locator('html')).toHaveAttribute('lang', 'es');
 	await expect(decision.getByText(questionEs)).toBeVisible();
 	await expect(decision.getByText(question)).toHaveCount(0);
-	await expect(decision.getByRole('button', { name: 'Diagnosticar', exact: true })).toBeVisible();
-	await expect(decision.getByRole('button', { name: 'Implementar', exact: true })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: /^Diagnosticar/ })).toBeVisible();
+	await expect(decision.getByRole('radio', { name: /^Implementar/ })).toBeVisible();
 });
 
 test('Threads: an intake research blocked by the search provider explains the real cause', async ({ page }) => {

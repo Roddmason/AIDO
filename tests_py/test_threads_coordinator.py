@@ -554,6 +554,85 @@ def test_resolve_decision_queues_original_message_for_execution(tmp_path: Path) 
         assert job["payload"]["runMetadata"]["userMode"] == "implementation"
 
 
+def test_resolve_decision_appends_a_user_message_with_the_answer(tmp_path: Path) -> None:
+    """El chat ya no pinta la tarjeta de decision: en su lugar, resolver agrega un mensaje del
+    usuario con lo que respondio ('{title}: {resolution}'), para que el timeline lo muestre solo
+    una vez y con el formato que puede leer un humano."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+
+        blocked = coordinator.post_message(
+            thread_id=thread["id"], content="help", project_assessment=RUNTIME_AVAILABLE
+        )
+        decision_id = blocked["decision"]["id"]
+
+        coordinator.resolve_decision(
+            thread_id=thread["id"], decision_id=decision_id, resolution="implementation", decided_by="user"
+        )
+
+        messages = ThreadsRepository(connection).list_messages(thread["id"])
+        answer_message = messages[-1]
+        assert answer_message["kind"] == "user"
+        assert answer_message["content"] == f"{blocked['decision']['title']}: implementation"
+        assert answer_message["metadata"]["decisionId"] == decision_id
+
+
+def test_resolve_decision_answer_message_is_not_adopted_as_a_later_decisions_source(
+    tmp_path: Path,
+) -> None:
+    """Regresion: el mensaje sintetico que resolve_decision agrega al chat (kind=user) no debe
+    poder ser adoptado como el 'mensaje original' de una decision posterior sin sourceMessageId
+    explicito, o el rerun tomaria como prompt la respuesta de otra decision en vez del pedido real."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        thread = _thread(connection, tmp_path)
+        threads = ThreadsRepository(connection)
+        coordinator = ThreadCoordinator(connection, root=tmp_path)
+
+        real_request = threads.append_message(
+            thread_id=thread["id"], kind="user", author="user", content="Real user request"
+        )
+        first_decision = threads.create_decision(
+            thread_id=thread["id"],
+            message_id=real_request["id"],
+            title="First",
+            prompt="Pick one",
+            options=["a", "b"],
+        )
+        threads.set_status(thread["id"], "waiting_decision")
+        coordinator.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=first_decision["id"],
+            resolution="a",
+            decided_by="user",
+            defer_followup=True,
+        )
+
+        # Deliberately no sourceMessageId anywhere: forces the fallback that scans prior kind="user"
+        # messages, which is exactly the path the synthetic answer message must not pollute.
+        request_message = threads.append_message(
+            thread_id=thread["id"], kind="decision_request", author="aido_lead", content="Pick another"
+        )
+        second_decision = threads.create_decision(
+            thread_id=thread["id"],
+            message_id=request_message["id"],
+            title="Second",
+            prompt="Pick another",
+            options=["x", "y"],
+        )
+
+        coordinator.resolve_decision(
+            thread_id=thread["id"], decision_id=second_decision["id"], resolution="x", decided_by="user"
+        )
+
+        jobs = JobsRepository(connection).list_jobs(thread["projectId"])
+        queued = [job for job in jobs if job["kind"] == "thread.product_loop.run"]
+        assert queued, "expected the second decision to queue a run"
+        assert queued[-1]["payload"]["message"] == "Real user request"
+
+
 def test_resolving_intake_decision_with_research_queues_research_run(tmp_path: Path) -> None:
     """Responder 'Research' a la decisión de intake debe encolar el ResearchAgent como el intake,
     no un product loop de implementación con el modo guardado como dato inerte."""

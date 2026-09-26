@@ -224,7 +224,9 @@ test('Threads: an existing blocked thread can send another message and refresh c
 
 	const secondMessage = `Add an execution audit row ${Date.now()}`;
 	await page.getByLabel('Message AIDO').fill(secondMessage);
-	await page.getByRole('button', { name: 'Send' }).click();
+	// Scoped to the composer: the execution panel's own "Send answers" button (for the pending
+	// decision) also matches an unscoped, non-exact getByRole('button', { name: 'Send' }).
+	await page.locator('.thread-composer-dock').getByRole('button', { name: 'Send', exact: true }).click();
 
 	await expect(page.getByText(secondMessage).first()).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({ timeout: 20_000 });

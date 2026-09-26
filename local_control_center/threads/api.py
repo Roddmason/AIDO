@@ -65,6 +65,21 @@ THREAD_DETAIL_EVENT_TAIL = 500
 THREAD_DETAIL_ARTIFACT_TAIL = 300
 
 
+def _combined_resolution_text(body: ThreadDecisionResolveRequest) -> str:
+    """Resumen de texto compatible con los lectores existentes.
+
+    Usa el ``resolution`` explícito si vino, o las opciones elegidas seguidas del texto libre.
+    """
+    explicit = (body.resolution or "").strip()
+    if explicit:
+        return explicit
+    parts = [option.strip() for option in body.selected_options if option.strip()]
+    free_text = (body.free_text or "").strip()
+    if free_text:
+        parts.append(free_text)
+    return ", ".join(parts)
+
+
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de threads: lecturas libres y mutaciones protegidas por token."""
     router = APIRouter()
@@ -510,16 +525,24 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         body: ThreadDecisionResolveRequest,
         request: Request,
     ) -> dict[str, Any]:
-        """Resuelve una decisión y reanuda solo cuando el batch pendiente queda completo."""
+        """Resuelve una decisión y reanuda solo cuando el batch pendiente queda completo.
+
+        Acepta selección múltiple y/o texto libre: el resumen de texto (compatible con los lectores
+        existentes, incluido el ProductOwnerAgent) viaja como ``resolution``; la selección
+        estructurada queda además en ``decision.metadata.answer`` para quien la necesite completa.
+        """
         require_write(request)
+        resolution_text = _combined_resolution_text(body)
+        if not resolution_text:
+            raise HTTPException(status_code=422, detail="resolution, selectedOptions or freeText is required")
         try:
-            return BlockerRemediationService(
+            result = BlockerRemediationService(
                 platform.connection,
                 root=getattr(platform, "cwd", None),
             ).resolve_thread_decision(
                 thread_id=thread_id,
                 decision_id=decision_id,
-                resolution=body.resolution,
+                resolution=resolution_text,
                 decided_by=body.decided_by,
                 platform=platform,
             )
@@ -527,5 +550,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        if body.selected_options or (body.free_text or "").strip():
+            updated_decision = ThreadsRepository(platform.connection).update_decision_metadata(
+                decision_id,
+                {"answer": {"selectedOptions": body.selected_options, "freeText": body.free_text or ""}},
+            )
+            result = {**result, "decision": updated_decision}
+        return result
 
     return router

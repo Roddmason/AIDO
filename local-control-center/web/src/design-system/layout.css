@@ -1773,6 +1773,13 @@
 		color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
 }
 
+/* The only surface that answers a pending thread decision (execution panel and inspector alike):
+   stacks one card per decision plus the single "Send answers" button below them. */
+.thread-decision-answers {
+	display: grid;
+	gap: var(--space-3);
+}
+
 /* The execution panel: its own scrollable surface next to the transcript. Mono by default (it is
    a console); the human-facing blocks inside (banner, blockers, stepper) opt back into sans. */
 .thread-execution-pane {
@@ -2264,18 +2271,8 @@
 }
 
 .thread-decision-options {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-}
-
-.thread-decision-option-help {
 	display: grid;
-	gap: var(--space-1);
-	margin: 0;
-	padding-left: var(--space-4);
-	color: var(--color-text-secondary);
-	font-size: var(--font-size-xs);
+	gap: var(--space-2);
 }
 
 .thread-research-card {

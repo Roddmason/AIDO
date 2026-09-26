@@ -407,9 +407,16 @@ class ThreadMessageResultResponse(BaseModel):
 
 
 class ThreadDecisionResolveRequest(BaseModel):
-    """Cuerpo para resolver una solicitud de decisión pendiente del hilo."""
+    """Cuerpo para resolver una solicitud de decisión pendiente del hilo.
 
-    resolution: str
+    Acepta un ``resolution`` de texto ya armado (compatibilidad con clientes existentes), o bien
+    ``selectedOptions``/``freeText`` para que el endpoint arme el resumen: al menos uno de los tres
+    debe traer contenido.
+    """
+
+    resolution: str | None = None
+    selected_options: list[str] = Field(default_factory=list, alias="selectedOptions")
+    free_text: str | None = Field(default=None, alias="freeText")
     decided_by: str | None = Field(default=None, alias="decidedBy")
 
 

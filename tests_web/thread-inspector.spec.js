@@ -104,9 +104,14 @@ test('Threads: resolving a conversation decision refreshes the open inspector an
 		await expect(vitals.getByText('waiting decision', { exact: true })).toBeVisible();
 		await expect(vitals.getByText('1 decision pending', { exact: true })).toBeVisible();
 		await expect(vitals.getByText('discovering', { exact: true })).toBeVisible();
-		await page.locator('.thread-decision-console').getByRole('button', {
-			name: 'Continue with this scope', exact: true,
-		}).click();
+		// The decision answers from the execution panel now (radio + a separate "Send answers"),
+		// not as a one-click button inside a chat card.
+		const answerCard = page.locator('.thread-execution-pane').locator('.thread-decision-console');
+		await answerCard.getByRole('radio', { name: 'Continue with this scope' }).check();
+		await page
+			.locator('.thread-execution-pane')
+			.getByRole('button', { name: /Send answers|Enviar respuestas/ })
+			.click();
 		await expect(page.locator('.thread-decision-console')).toHaveCount(0);
 		await expect(vitals.getByText('1 decision pending', { exact: true })).toHaveCount(0);
 		await expect(vitals.getByText('running', { exact: true })).toBeVisible();

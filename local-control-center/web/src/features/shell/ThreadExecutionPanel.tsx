@@ -19,6 +19,8 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { EASE_OUT } from '../../motion/variants';
 import { describeReasonCode } from '../runtime-setup/reasonCopy';
 import { ThreadBlockerList } from './ThreadBlockerCard';
+import type { DecisionAnswer } from './ThreadDecisionAnswers';
+import { DECISION_REMEDIATION_BLOCKER_TYPES, ThreadDecisionAnswers } from './ThreadDecisionAnswers';
 import type { FailureGroupEntry } from './threadConsoleGrouping';
 import { groupConsoleFailures, isFailureGroup } from './threadConsoleGrouping';
 import { MESSAGE_META, safeRecord, textValue } from './threadPresentation';
@@ -31,7 +33,9 @@ export type ThreadExecutionPanelProps = {
 	events: ThreadAgentEvent[];
 	/** Execution-side messages only (agent_summary, system_event, error). */
 	messages: ThreadMessage[];
-	pendingDecision: ThreadDecision | null;
+	/** Every pending decision of the thread; answered from {@link ThreadDecisionAnswers} only. */
+	pendingDecisions: ThreadDecision[];
+	onSubmitDecisions: (answers: DecisionAnswer[]) => Promise<void>;
 	workerStatus: WorkerStatusResponse | null;
 	workerBusy: boolean;
 	syncing: boolean;
@@ -42,7 +46,6 @@ export type ThreadExecutionPanelProps = {
 	remediations: ThreadRemediationsHandle;
 	onRunQueuedNow: () => void;
 	onOpenApprovals: () => void;
-	onFocusDecision: () => void;
 	/** Opens a Settings section — the recovery path for settings-kind remediation actions. */
 	onOpenSettings: (section?: string) => void;
 	/** `strip` compacts the panel into a horizontal band above the story board (development mode). */
@@ -221,6 +224,12 @@ type BlockerCard = {
 
 /** The queued banner already offers "Run now", so the worker remediation is hidden in this host. */
 const REMEDIATION_EXCLUDE_IN_PANEL = ['worker_not_running'] as const;
+// Decision blocker types stay counted for the pipeline stage (REMEDIATION_EXCLUDE_IN_PANEL above),
+// but are excluded from the generic card list below: ThreadDecisionAnswers is their one answer surface.
+const BLOCKER_CARDS_EXCLUDE_IN_PANEL = [
+	...REMEDIATION_EXCLUDE_IN_PANEL,
+	...DECISION_REMEDIATION_BLOCKER_TYPES,
+] as const;
 
 /** Reason code of the newest `resource_wait` the governor reported after the last hand-off to a worker. */
 function latestResourceWait(events: ThreadAgentEvent[]): string {
@@ -273,7 +282,8 @@ export function ThreadExecutionPanel({
 	threadStatus,
 	events,
 	messages,
-	pendingDecision,
+	pendingDecisions,
+	onSubmitDecisions,
 	workerStatus,
 	workerBusy,
 	syncing,
@@ -283,11 +293,11 @@ export function ThreadExecutionPanel({
 	remediations,
 	onRunQueuedNow,
 	onOpenApprovals,
-	onFocusDecision,
 	onOpenSettings,
 	presentation = 'column',
 }: ThreadExecutionPanelProps) {
 	const { t } = useI18n();
+	const [decisionsBusy, setDecisionsBusy] = useState(false);
 
 	const pipeline = useMemo(() => {
 		const stages = new Set(
@@ -300,15 +310,18 @@ export function ThreadExecutionPanel({
 		return derivePipeline(events, threadStatus, remediationStage);
 	}, [events, threadStatus, remediations.cards]);
 
-	// Thread-state blockers that are NOT persisted remediations: a pending decision and an awaiting
-	// approval. The stage/runtime/git/worker blockers now come from the remediations endpoint below.
-	const blockers = collectBlockers({
-		t,
-		threadStatus,
-		pendingDecision,
-		onOpenApprovals,
-		onFocusDecision,
-	});
+	const handleSubmitDecisions = async (answers: DecisionAnswer[]) => {
+		setDecisionsBusy(true);
+		try {
+			await onSubmitDecisions(answers);
+		} finally {
+			setDecisionsBusy(false);
+		}
+	};
+
+	// The only other thread-state blocker that is not a persisted remediation: an awaiting approval.
+	// Pending decisions render through ThreadDecisionAnswers below, not as a generic blocker card.
+	const blockers = collectBlockers({ t, threadStatus, onOpenApprovals });
 
 	const consoleEntries = useMemo(
 		() => groupConsoleFailures(mergeConsoleEntries(events, messages)),
@@ -417,12 +430,23 @@ export function ThreadExecutionPanel({
 				</section>
 			) : null}
 
+			{/* Pending decisions render first and above the generic repair list: they block the loop
+			    the same way, but the operator answers them directly here instead of being routed to
+			    a repair action, and a stable position avoids fighting the remediation list below for
+			    layout space while its cards load/refresh. */}
+			<ThreadDecisionAnswers
+				decisions={pendingDecisions}
+				busy={decisionsBusy}
+				onSubmit={handleSubmitDecisions}
+			/>
+
 			{/* Persisted, executable repair actions for runtime/git/gitleaks/QA/provider blockers. The
-			    queued banner above owns the worker-not-running "Run now", so it is excluded here. */}
+			    queued banner above owns the worker-not-running "Run now", and pending-decision blocker
+			    types are excluded too: ThreadDecisionAnswers above is their one answer surface. */}
 			<ThreadBlockerList
 				handle={remediations}
 				onOpenSettings={onOpenSettings}
-				excludeBlockerTypes={REMEDIATION_EXCLUDE_IN_PANEL}
+				excludeBlockerTypes={BLOCKER_CARDS_EXCLUDE_IN_PANEL}
 				fallback={remediationFallback}
 			/>
 
@@ -487,33 +511,20 @@ function workerLabel(status: WorkerStatusResponse, t: Translate) {
 type CollectBlockersInput = {
 	t: Translate;
 	threadStatus: string;
-	pendingDecision: ThreadDecision | null;
 	onOpenApprovals: () => void;
-	onFocusDecision: () => void;
 };
 
 /**
- * Builds the two thread-state blocker cards that are not persisted remediations: a pending decision
- * and an awaiting approval. Runtime/git/gitleaks/worker blockers come from the remediations endpoint
- * ({@link ThreadBlockerList}), so they are intentionally not derived from the event log here.
+ * Builds the one thread-state blocker card that is not a persisted remediation: an awaiting
+ * approval. Runtime/git/gitleaks/worker blockers come from the remediations endpoint
+ * ({@link ThreadBlockerList}); pending decisions render through {@link ThreadDecisionAnswers}.
  */
 function collectBlockers({
 	t,
 	threadStatus,
-	pendingDecision,
 	onOpenApprovals,
-	onFocusDecision,
 }: CollectBlockersInput): BlockerCard[] {
 	const cards: BlockerCard[] = [];
-	if (pendingDecision) {
-		cards.push({
-			id: `decision-${pendingDecision.id}`,
-			title: t('app.threads.blocker.decisionTitle', 'Decision pending'),
-			detail: pendingDecision.prompt,
-			actionLabel: t('app.threads.blocker.answerDecision', 'Answer decision'),
-			onAction: onFocusDecision,
-		});
-	}
 	if (threadStatus === 'awaiting_approval') {
 		cards.push({
 			id: 'approval',

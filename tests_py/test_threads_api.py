@@ -14,12 +14,14 @@ import pytest
 
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.threads.repository import ThreadsRepository
+from local_control_center.threads.similarity import SIMILARITY_ACTIONS
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 from tests_py.execution_client import CompletedExecutionClient as TestClient
 
@@ -1703,5 +1705,193 @@ def test_research_run_for_remapped_thread_targets_project_root_workspace(tmp_pat
             (project_id,),
         ).fetchone()
         assert json.loads(row["payload"])["workspaceId"] == "workspace-root"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decision_without_options_accepts_free_text(tmp_path: Path) -> None:
+    """Bug en vivo: una decision sin opciones (PO needs input) no ofrecia ninguna via de respuesta
+    porque solo se pintaban botones por ``options``. El endpoint acepta ``freeText`` sin exigir
+    ``resolution`` y lo persiste como el resumen de texto compatible con los lectores existentes."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework should the team use?",
+            options=[],
+            metadata={"source": "product_owner_agent"},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"freeText": "React + TypeScript", "decidedBy": "user"},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()["decision"]
+        assert body["status"] == "resolved"
+        assert body["resolution"] == "React + TypeScript"
+        assert body["metadata"]["answer"] == {"selectedOptions": [], "freeText": "React + TypeScript"}
+        # El merge de metadata no debe pisar lo que ya traia la decision.
+        assert body["metadata"]["source"] == "product_owner_agent"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decision_requires_an_answer(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"], title="Empty", prompt="Continue?", options=[]
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"decidedBy": "user"},
+        )
+
+        assert response.status_code == 422, response.text
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decision_with_selected_options_combines_summary_and_settles_product_decision(
+    tmp_path: Path,
+) -> None:
+    """Sin remediation asociada (fallback directo del coordinator): varias opciones elegidas se
+    combinan en un resumen de texto que llega integro a la ``product_decision`` enlazada, tal como
+    la relee el ProductOwnerAgent en ``settledDecisions`` (FIX 382d1ac1)."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        discovery = ProductDiscoveryRepository(runtime.connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project_id, "title": "Frontend stack", "summary": "Pick the stack"}
+        )
+        product_decision = discovery.create_product_decision(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative["id"],
+                "title": "Frontend Framework",
+                "status": "proposed",
+                "metadata": {"blocking": True},
+            }
+        )
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework(s) should the team evaluate?",
+            options=["React + TypeScript", "Vue + TypeScript", "Svelte"],
+            metadata={"productDecisionId": product_decision["id"], "source": "product_owner_agent"},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"selectedOptions": ["React + TypeScript", "Svelte"], "decidedBy": "user"},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()["decision"]
+        assert body["resolution"] == "React + TypeScript, Svelte"
+        assert body["metadata"]["answer"]["selectedOptions"] == ["React + TypeScript", "Svelte"]
+        settled = discovery.get_product_decision(product_decision["id"])
+        assert settled["status"] == "resolved"
+        assert settled["decision"] == "React + TypeScript, Svelte"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decision_rejects_multiple_options_when_remediation_enforces_single_choice(
+    tmp_path: Path,
+) -> None:
+    """Limitacion conocida y documentada: cuando la decision tiene una remediation
+    ``answer_question`` pendiente (el camino real de las preguntas del PO en vivo), el matching de
+    ``remediations/service.py::_answer_question`` sigue exigiendo una sola opcion exacta. Ese
+    archivo esta fuera de alcance de este cambio (edicion paralela); este test documenta el bloqueo
+    para que quede como regresion cuando se habilite selección múltiple ahi."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework should the team use?",
+            options=["React + TypeScript", "Vue + TypeScript"],
+            metadata={"source": "product_owner_agent"},
+        )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-multi-answer-test",
+                project_id,
+                thread["id"],
+                "product-loop-question-options",
+                "product_owner",
+                "po_needs_input",
+                "Answer ProductOwnerAgent question",
+                "Choose one of the offered options.",
+                "answer_question",
+                json.dumps({"threadId": thread["id"], "decisionId": decision["id"]}),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"selectedOptions": ["React + TypeScript", "Vue + TypeScript"], "decidedBy": "user"},
+        )
+
+        assert response.status_code == 422, response.text
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_resolve_similarity_decision_rejects_combined_multiple_actions(tmp_path: Path) -> None:
+    """Las decisiones de similitud son excluyentes por semantica (una sola accion valida): combinar
+    dos acciones en un resumen no forma una accion conocida y el coordinator la rechaza, incluso sin
+    pasar por una remediation."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Similar thread detected",
+            prompt="Continue the existing thread, improve it, or create a new one?",
+            options=list(SIMILARITY_ACTIONS),
+            metadata={"similarityCandidateId": "thread-does-not-matter", "similarityScore": 0.9},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"selectedOptions": list(SIMILARITY_ACTIONS)[:2], "decidedBy": "user"},
+        )
+
+        assert response.status_code == 422, response.text
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
     finally:
         runtime.close()

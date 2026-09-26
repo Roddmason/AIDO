@@ -862,21 +862,73 @@ class ProductLoopCoordinator:
             )
         except Exception as error:
             landing = {"status": "landing_failed", "reason": redact_secrets(str(error))}
-        durable["landing"] = redact_secrets({**landing, "jobId": (durable.get("landing") or {}).get("jobId")})
+        queued = durable.get("landing") or {}
+        durable["landing"] = redact_secrets(
+            {**landing, "jobId": queued.get("jobId"), "feedbackId": queued.get("feedbackId")}
+        )
         durable["updatedAt"] = utc_now()
         self.repository.update_loop_context(loop["id"], context={**loop["context"], "durableRun": durable})
         return durable["landing"]
 
     def land_queued_delivery(self, loop_id: str) -> dict[str, Any]:
-        """Aterriza una entrega aprobada desde su job; un aterrizaje ya resuelto no se repite."""
+        """Aterriza una entrega aprobada desde su job; un aterrizaje ya resuelto no se repite.
+
+        Reintentar el job fallido (p. ej. tras resolver un conflicto o limpiar la base) vuelve a
+        intentar un aterrizaje bloqueado o fallido: nunca uno que ya aterrizó o espera un PR.
+        """
         loop = self.get(loop_id)
         landing = self._durable_run_context(loop).get("landing") or {}
         if loop["state"] != DELIVERED_STATE or landing.get("status") not in {
             LANDING_QUEUED,
             LANDING_WAITING_CAPACITY,
+            "landing_blocked",
+            "landing_failed",
         }:
             return landing
-        return self._land_delivered_work(loop)
+        landing = self._land_delivered_work(loop)
+        self._report_delivery_landing(loop, landing)
+        return landing
+
+    def _report_delivery_landing(self, loop: dict[str, Any], landing: dict[str, Any]) -> None:
+        """Deja el resultado del aterrizaje donde mira el operador: el hilo y el feedback de la aprobación.
+
+        El aterrizaje corre en un job cuando el hilo ya figura entregado: sin esto un aterrizaje fallido
+        no dejaba ninguna señal (hallazgo de la revisión independiente) y el efecto del feedback quedaba
+        en "queued" para siempre.
+        """
+        status = str(landing.get("status") or "unknown")
+        step = landing.get("merge") or landing.get("push") or {}
+        reason = str(step.get("reason") or landing.get("reason") or step.get("status") or "")
+        if status == "landed":
+            event_type = "delivery_landed"
+        elif status in {LANDING_WAITING_CAPACITY, "landing_blocked", "landing_failed"}:
+            event_type = "delivery_landing_failed"
+        else:
+            event_type = "delivery_landing"
+        self._record_thread_event(
+            thread_id=self._delivery_thread_id(loop),
+            event_type=event_type,
+            payload=redact_secrets(
+                {
+                    "loopId": loop["id"],
+                    "status": status,
+                    "reason": reason,
+                    "jobId": landing.get("jobId"),
+                    "baseBranch": landing.get("baseBranch"),
+                }
+            ),
+            agent_role="aido_lead",
+        )
+        feedback_id = str(landing.get("feedbackId") or "").strip()
+        if not feedback_id:
+            return
+        with suppress(KeyError):
+            feedback = self.repository.get_feedback(feedback_id)
+            effects = [
+                {**effect, "status": status} if effect.get("type") == "delivery_landing" else effect
+                for effect in feedback.get("effects") or []
+            ]
+            self.repository.update_feedback_effects(feedback_id, effects=effects, status=feedback["status"])
 
     def _delivery_thread_id(self, loop: dict[str, Any]) -> str:
         thread = self._durable_run_context(loop).get("thread")
@@ -1084,7 +1136,13 @@ class ProductLoopCoordinator:
         if decision == "accept":
             status = "resolved"
             event_type = "completed"
-            dismissed = self._dismiss_open_product_owner_decisions(thread_id)
+            thread_ref = self._durable_run_context(loop).get("thread")
+            dismissed = self._dismiss_open_product_owner_decisions(
+                thread_id,
+                source_message_id=str((thread_ref or {}).get("messageId") or "")
+                if isinstance(thread_ref, dict)
+                else "",
+            )
         elif decision == "request_changes":
             status = "open"
             event_type = "reworking"
@@ -1114,18 +1172,26 @@ class ProductLoopCoordinator:
             **({"dismissedDecisionIds": dismissed} if dismissed else {}),
         }
 
-    def _dismiss_open_product_owner_decisions(self, thread_id: str) -> list[str]:
-        """Descarta las preguntas del PO que siguen pendientes en un hilo cuya entrega se aceptó.
+    def _dismiss_open_product_owner_decisions(self, thread_id: str, *, source_message_id: str) -> list[str]:
+        """Descarta las preguntas del PO que siguen pendientes del pedido cuya entrega se aceptó.
 
         Visto en vivo: una pregunta de un run anterior seguía en la barra de ejecución del hilo ya
-        entregado; responderla habría reabierto trabajo sobre una entrega aceptada. También cierra la
-        pregunta o decisión de producto enlazada, para que el PO no la vuelva a pedir.
+        entregado; responderla habría reabierto trabajo sobre una entrega aceptada. Solo las del mismo
+        mensaje de origen (reintentos y continuaciones lo conservan): la pregunta vigente de otro
+        pedido del hilo no se toca. También cierra la pregunta o decisión de producto enlazada, para
+        que el PO no la vuelva a pedir.
         """
+        if not source_message_id:
+            return []
         threads = ThreadsRepository(self.connection)
         dismissed: list[str] = []
         for item in threads.list_decisions(thread_id):
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-            if item["status"] != "pending" or metadata.get("source") != PRODUCT_OWNER_AGENT_ID:
+            if (
+                item["status"] != "pending"
+                or metadata.get("source") != PRODUCT_OWNER_AGENT_ID
+                or str(metadata.get("sourceMessageId") or "") != source_message_id
+            ):
                 continue
             threads.resolve_decision(
                 thread_id=thread_id,

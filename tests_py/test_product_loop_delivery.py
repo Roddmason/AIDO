@@ -406,6 +406,7 @@ def test_a_landing_denied_for_capacity_is_not_a_missing_base_and_its_job_retries
     from local_control_center.jobs_approvals.worker import JobExecutionUnavailable, execute_job
     from local_control_center.shared.db import open_sqlite_connection
     from local_control_center.shared.migrations import initialize_platform_schema
+    from local_control_center.threads.repository import ThreadsRepository
     from local_control_center.workspaces_projects import git_worktrees
     from tests_py.test_product_loop_coordinator import _approval_loop_with_action
 
@@ -413,6 +414,10 @@ def test_a_landing_denied_for_capacity_is_not_a_missing_base_and_its_job_retries
         initialize_platform_schema(connection)
         project, coordinator, loop, approval_job, _action = _approval_loop_with_action(
             connection, tmp_path, "landing-capacity"
+        )
+        threads = ThreadsRepository(connection)
+        thread = threads.create_thread(
+            project_id=project["id"], owner_type="workspace", owner_id=project["id"], title="Capacity"
         )
         repo = Path(project["path"])
         create_git_repo(repo)
@@ -424,7 +429,14 @@ def test_a_landing_denied_for_capacity_is_not_a_missing_base_and_its_job_retries
         durable = dict(loop["context"].get("durableRun") or {})
         loop = coordinator.repository.update_loop_context(
             loop["id"],
-            context={**loop["context"], "durableRun": {**durable, "workspaceId": workspace["id"]}},
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **durable,
+                    "workspaceId": workspace["id"],
+                    "thread": {"projectThreadId": thread["id"]},
+                },
+            },
         )
         accepted = coordinator.apply_feedback(
             loop["id"], action="accept", feedback="Evidence accepted.", actor="operator"
@@ -465,9 +477,50 @@ def test_a_landing_denied_for_capacity_is_not_a_missing_base_and_its_job_retries
         # No cayó a la rama de origen del worktree: nada se mergeó en ninguna base.
         assert run_git(["show", "devbase:capacity-hu.py"], cwd=repo).returncode != 0
         assert run_git(["show", "master:capacity-hu.py"], cwd=repo).returncode != 0
+        # El hilo ya figura entregado: el fallo del aterrizaje tiene que verse donde mira el operador.
+        failed = [
+            event for event in threads.list_events(thread["id"]) if event["type"] == "delivery_landing_failed"
+        ]
+        assert failed and failed[-1]["payload"]["jobId"] == landing_job["id"]
+        assert "resource_wait" in failed[-1]["payload"]["reason"]
 
         executed = execute_job(landing_job, connection=connection, db_path=tmp_path / "platform.sqlite")
 
         assert executed["metadata"]["landingStatus"] == "landed"
         assert coordinator.get(loop["id"])["context"]["durableRun"]["landing"]["status"] == "landed"
         assert run_git(["show", "devbase:capacity-hu.py"], cwd=repo).returncode == 0
+        assert any(event["type"] == "delivery_landed" for event in threads.list_events(thread["id"]))
+        # El efecto del feedback de la aprobación refleja el resultado real, no el "queued" inicial.
+        effects = coordinator.repository.get_feedback(accepted["feedback"]["id"])["effects"]
+        assert (
+            next(effect for effect in effects if effect["type"] == "delivery_landing")["status"] == "landed"
+        )
+
+
+def test_retrying_the_landing_job_retries_a_blocked_landing_but_never_a_resolved_one(tmp_path: Path) -> None:
+    """El reintento del job (tras resolver un conflicto o limpiar la base) vuelve a aterrizar."""
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+    from tests_py.test_product_loop_coordinator import _approval_loop_with_action
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        _project, coordinator, loop, _job, _action = _approval_loop_with_action(
+            connection, tmp_path, "landing-retry"
+        )
+        loop = coordinator.transition(loop["id"], to_state="delivered")
+        landed: list[str] = []
+        coordinator._land_delivered_work = lambda current: (
+            landed.append(current["id"]) or {"status": "landed"}
+        )
+        coordinator._report_delivery_landing = lambda _loop, _landing: None
+
+        for status in ("landing_blocked", "landing_failed", "landed", "pending_manual_pr"):
+            current = coordinator.get(loop["id"])
+            durable = {**current["context"]["durableRun"], "landing": {"status": status}}
+            coordinator.repository.update_loop_context(
+                loop["id"], context={**current["context"], "durableRun": durable}
+            )
+            coordinator.land_queued_delivery(loop["id"])
+
+        assert landed == [loop["id"], loop["id"]]

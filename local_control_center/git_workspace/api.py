@@ -100,7 +100,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         }
 
     @router.post("/api/v1/projects/{project_id}/git/refresh")
-    @queued_operation("git.refresh", workload_class="qa_light")
+    @queued_operation("git.refresh", workload_class="control_plane")
     async def refresh_git(project_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         try:

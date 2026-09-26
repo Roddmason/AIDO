@@ -648,6 +648,7 @@ def push_branch_to_remote(
     )
     return {
         "status": status,
+        "reason": str(execution_result.get("reason") or payload.get("decisionReason") or ""),
         "remote": remote,
         "branch": branch,
         "stderr": str(execution_result.get("stderr") or "").strip()[:1000],
@@ -699,6 +700,16 @@ def merge_work_branch_into_base(
         return result
 
     base_tip = _repo_git(["rev-parse", base_branch], task="landing_base_tip")
+    if base_tip["status"] == "blocked":
+        # El broker no ejecutó el rev-parse (política o capacidad): eso no prueba que la base falte,
+        # y tratarlo como faltante hacía aterrizar en la rama de origen del worktree, no en la base.
+        return {
+            "status": "git_blocked",
+            "reason": base_tip["reason"],
+            "baseBranch": base_branch,
+            "toolCalls": traces,
+            "policyDecisionIds": _policy_ids(traces),
+        }
     if base_tip["returnCode"] != 0:
         return {
             "status": "base_branch_missing",

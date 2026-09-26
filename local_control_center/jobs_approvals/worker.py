@@ -30,6 +30,7 @@ from local_control_center.memory_retrieval.models import MEMORY_FORGET_JOB_KIND
 from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
 from local_control_center.process_supervision.repository import ManagedProcessRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+from local_control_center.product_loop.delivery import DELIVERY_LANDING_JOB_KIND, LANDING_WAITING_CAPACITY
 from local_control_center.product_loop.metadata import strip_untrusted_resource_cost_policy_metadata
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.shared.db import open_sqlite_connection
@@ -462,6 +463,18 @@ def execute_job(
             return _execute_memory_forget_job(job, connection=local_connection, db_path=db_path)
         finally:
             local_connection.close()
+    if kind == DELIVERY_LANDING_JOB_KIND:
+        if connection is not None:
+            return _execute_delivery_landing_job(job, connection=connection)
+        if db_path is None:
+            raise JobExecutionUnavailable(
+                status="configuration_required",
+                summary="Delivery landing jobs require a SQLite connection or db_path.",
+                metadata={"kind": kind},
+            )
+        with closing(open_sqlite_connection(db_path)) as local_connection:
+            initialize_platform_schema(local_connection)
+            return _execute_delivery_landing_job(job, connection=local_connection)
     if kind in {
         "prompt.optimize",
         "chat.route",
@@ -480,6 +493,36 @@ def execute_job(
         summary=f"Unsupported job kind: {kind}.",
         metadata={"kind": kind},
     )
+
+
+def _execute_delivery_landing_job(job: dict, *, connection: Any) -> dict:
+    """Completa el aterrizaje de una entrega aprobada que el gobernador dejó esperando capacidad.
+
+    El aterrizaje corre primero en la petición de aprobación, sin lease padre: cada git pide su
+    propia reserva (``qa_light``) y con el host justo el gobernador lo negaba. Aquí el lease del
+    job cubre a los git hijos. Un aterrizaje ya resuelto no se repite.
+    """
+    loop_id = str(job["payload"].get("loopId") or "").strip()
+    if not loop_id:
+        raise JobExecutionUnavailable(
+            status="configuration_required",
+            summary="Delivery landing jobs require a loopId.",
+            metadata={"kind": job["kind"]},
+        )
+    coordinator = ProductLoopCoordinator(connection, root=job["payload"].get("root"))
+    landing = coordinator.retry_delivery_landing(loop_id)
+    status = str(landing.get("status") or "unknown")
+    metadata = {"loopId": loop_id, "landingStatus": status}
+    if status in {LANDING_WAITING_CAPACITY, "landing_blocked", "landing_failed"}:
+        reason = str(
+            (landing.get("merge") or landing.get("push") or {}).get("reason") or landing.get("reason") or ""
+        )
+        raise JobExecutionUnavailable(
+            status=status,
+            summary=f"Delivery landing {status}: {redact_secrets(reason) or 'see the loop landing evidence'}.",
+            metadata=metadata,
+        )
+    return {"summary": f"Delivery landing {status}.", "metadata": metadata}
 
 
 def _execute_memory_forget_job(job: dict, *, connection: Any, db_path: str | Path | None) -> dict:

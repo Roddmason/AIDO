@@ -381,3 +381,78 @@ def test_accept_feedback_lands_direct_push_work_on_the_base_branch(
         assert run_git(["rev-parse", "--verify", "codex/landing-hu"], cwd=repo).returncode != 0
         landing_evidence = (accepted["loop"]["context"].get("durableRun") or {}).get("landing") or {}
         assert landing_evidence.get("status") == "landed"
+
+
+def test_a_landing_blocked_for_capacity_waits_in_a_worker_job_that_lands_it(tmp_path: Path) -> None:
+    """Aceptar corre el aterrizaje en la petición HTTP, sin lease: sus git piden su propia reserva.
+
+    Visto en vivo: con el modelo local cargado el gobernador negó el ``git rev-parse`` (qa_light
+    reserva 4 GiB y quedaban 1,5 de holgura), el aterrizaje se reportó como "base_branch_missing" y
+    la entrega aprobada nunca llegó a la base. Ahora el bloqueo por capacidad queda como espera y un
+    job del worker —cuyo lease cubre a sus git hijos— completa el aterrizaje.
+    """
+    from local_control_center.jobs_approvals.repository import JobsRepository
+    from local_control_center.jobs_approvals.worker import execute_job
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+    from local_control_center.workspaces_projects import git_worktrees
+    from tests_py.test_product_loop_coordinator import _approval_loop_with_action
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, coordinator, loop, approval_job, _action = _approval_loop_with_action(
+            connection, tmp_path, "landing-capacity"
+        )
+        repo = Path(project["path"])
+        create_git_repo(repo)
+        assert run_git(["branch", "devbase"], cwd=repo).returncode == 0
+        _configure_git(connection, project["id"], integrationMode="direct_push", baseBranch="devbase")
+        workspace = _landed_workspace(
+            type("Store", (), {"connection": connection})(), tmp_path, repo, project, task="capacity-hu"
+        )
+        durable = dict(loop["context"].get("durableRun") or {})
+        loop = coordinator.repository.update_loop_context(
+            loop["id"],
+            context={**loop["context"], "durableRun": {**durable, "workspaceId": workspace["id"]}},
+        )
+
+        real_git = git_worktrees.run_brokered_git
+        denied: list[list[str]] = []
+
+        def capacity_denied_once(**kwargs):
+            if not denied and kwargs["args"] == ["rev-parse", "devbase"]:
+                denied.append(kwargs["args"])
+                return {
+                    "returnCode": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "status": "blocked",
+                    "reason": "resource_wait: aggregate_memory_budget: 4.0 GiB requested, 1.5 GiB of headroom.",
+                    "trace": {},
+                    "agentRunId": "",
+                }
+            return real_git(**kwargs)
+
+        git_worktrees.run_brokered_git = capacity_denied_once
+        try:
+            accepted = coordinator.apply_feedback(
+                loop["id"], action="accept", feedback="Evidence accepted.", actor="operator"
+            )
+        finally:
+            git_worktrees.run_brokered_git = real_git
+
+        assert accepted["loop"]["state"] == "delivered"
+        landing = accepted["loop"]["context"]["durableRun"]["landing"]
+        assert landing["status"] == "landing_waiting_capacity", landing
+        assert landing["merge"]["status"] == "git_blocked"
+        assert JobsRepository(connection).get_job(approval_job["id"])["status"] == "completed"
+        retry_job = JobsRepository(connection).get_job(landing["retryJobId"])
+        assert retry_job["kind"] == "product_loop.land_delivery"
+        assert retry_job["status"] == "queued"
+        assert run_git(["show", "devbase:capacity-hu.py"], cwd=repo).returncode != 0
+
+        executed = execute_job(retry_job, connection=connection, db_path=tmp_path / "platform.sqlite")
+
+        assert executed["metadata"]["landingStatus"] == "landed"
+        assert coordinator.get(loop["id"])["context"]["durableRun"]["landing"]["status"] == "landed"
+        assert run_git(["show", "devbase:capacity-hu.py"], cwd=repo).returncode == 0

@@ -26,6 +26,17 @@ CAPTURE_SESSION_PARTS = {
     "collector": {"memoryBytes": 4 * GIB, "cpuPercent": 13},
 }
 
+TEST_RUNNER_PROCESS_LIMIT = 64
+"""Tope de procesos activos (``ActiveProcessLimit`` del Job Object) de las clases que corren QA.
+
+Es una protección contra fork bombs, no una reserva: la memoria y la CPU siguen acotadas por su
+propio tope. 8/16/24 cortaban runners reales. vitest reparte por defecto casi un proceso por CPU
+lógica (19 en un host de 20). Un QA de Node (`node … pnpm run test`) se clasifica `agent_cli`,
+pytest `qa_light` y Playwright abre varios procesos por navegador. Las tres clases comparten el tope
+para que una lease `agent_cli` padre siga cubriendo a sus hijos de QA (`BranchAdmission._parent_covers`
+exige que el padre iguale o supere el tope del hijo).
+"""
+
 WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
     "capture_session": WorkloadProfile(
         workload_class="capture_session",
@@ -65,7 +76,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=25,
         memory_limit_bytes=4 * GIB,
-        process_limit=8,
+        process_limit=TEST_RUNNER_PROCESS_LIMIT,
         gpu_required=False,
     ),
     "agent_cli": WorkloadProfile(
@@ -76,7 +87,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         cpu_limit_percent=40,
         memory_limit_bytes=8 * GIB,
         memory_request_bytes=1 * GIB,
-        process_limit=16,
+        process_limit=TEST_RUNNER_PROCESS_LIMIT,
         gpu_required=False,
     ),
     "browser_test": WorkloadProfile(
@@ -86,7 +97,7 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=40,
         memory_limit_bytes=8 * GIB,
-        process_limit=24,
+        process_limit=TEST_RUNNER_PROCESS_LIMIT,
         gpu_required=False,
     ),
     "build_heavy": WorkloadProfile(

@@ -24,7 +24,15 @@ def capture_resource_scope(database: Path):
 
     def profile(name, memory):
         current = WORKLOAD_PROFILES[name]
-        return type(current).model_validate({**current.model_dump(), "memory_limit_bytes": memory})
+        request = current.memory_request_bytes
+        # El presupuesto sintético es el tope: la reserva de admisión no puede quedar sobre él.
+        return type(current).model_validate(
+            {
+                **current.model_dump(),
+                "memory_limit_bytes": memory,
+                "memory_request_bytes": None if request is None else min(request, memory),
+            }
+        )
 
     start_control = launcher_session.LauncherCaptureSession.start_control
     supervised = launcher_session.run_supervised_capture

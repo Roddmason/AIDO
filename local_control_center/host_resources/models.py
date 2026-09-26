@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from local_control_center.shared.time import utc_now
 
@@ -111,6 +111,13 @@ class WorkloadProfile(_AliasedModel):
     memory_request_bytes: int | None = Field(default=None, alias="memoryRequestBytes", ge=0)
     process_limit: int = Field(alias="processLimit", ge=1)
     gpu_required: bool = Field(alias="gpuRequired")
+
+    @model_validator(mode="after")
+    def _request_fits_under_cap(self) -> WorkloadProfile:
+        # Como en Kubernetes: reservar sobre el tope aparta memoria que el Job Object nunca deja usar.
+        if self.memory_request_bytes is not None and self.memory_request_bytes > self.memory_limit_bytes:
+            raise ValueError("memory_request_bytes cannot exceed memory_limit_bytes")
+        return self
 
 
 class ResourceAdmissionRequest(_AliasedModel):

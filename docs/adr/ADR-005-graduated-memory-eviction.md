@@ -63,6 +63,30 @@ máximo 2,99 GB.
   contable puede acercarse más al p90 medido (622 MB) sin perder esa protección: 1 GiB deja margen
   cómodo sobre el p90 y delega el caso p99/máximo al desalojo graduado, no a una reserva conservadora
   que sólo servía para inflar el cálculo de admisión.
+- **La exclusión y la resolución de violaciones son por lease, no por `execution_id`**
+  (`ResourceRepository.leases_with_unresolved_violation`/`resolve_violations_for_lease`). Una
+  violación es un evento de esa reserva puntual: indexarla por ejecución tenía dos fallas. Primero,
+  una víctima que no muere (su lease sigue activa) excluía la ejecución completa para siempre, y si
+  era la única candidata el gobernador dejaba de actuar en cualquier lease futura de esa misma
+  ejecución. Segundo —un bug latente, nunca observado en producción porque `resource_violations`
+  nunca tuvo filas—, un reintento con el mismo `execution_id` habría heredado la cancelación de una
+  lease vieja para siempre, porque nada marcaba `resolved_at`. `release` ahora resuelve las
+  violaciones de la lease que libera (y por lo tanto también al recuperar expiradas, que liberan
+  cada lease vencida); `ManagedProcessRepository.cancellation_reason` además exige con un JOIN que la
+  lease de la violación siga activa, como blindaje si algún otro camino futuro dejara de resolver.
+- **Una carga respaldada por un contenedor Docker también es candidata.** `live_memory_by_lease`
+  sumaba sólo `managed_processes`; una lease sostenida por un contenedor (`process_supervision/
+  docker.py`, por defecto `build_heavy`) nunca aparecía en el uso medido y por lo tanto nunca era
+  candidata (con `usage_source` sólo se desaloja lo que aparece en el dict). Ahora también recorre
+  `managed_containers` con `released_at IS NULL` y las agrega con uso 0: **el RSS de un contenedor no
+  se mide por este camino** (requeriría la API de stats de Docker, fuera de alcance); la lease sigue
+  siendo candidata y se desempata por recencia como cualquier otra sin medición.
+- **El vigilante local escala tras presión sostenida.** Que el gobernador global esté "activo" (una
+  muestra reciente) no prueba que esté logrando liberar memoria: si el desalojo graduado no alcanza a
+  bajar la presión, el vigilante quedaba mudo en `[piso/2, piso)` indefinidamente. Cada vigilante
+  recuerda (`time.monotonic()`, se reinicia al subir sobre el piso) desde cuándo ve
+  `available < piso`; si la presión dura más de `PRESSURE_ESCALATION_SECONDS = 30` (5 ventanas de
+  gracia de desalojo), actúa aunque el gobernador siga activo.
 
 ## Consecuencias positivas
 
@@ -80,8 +104,13 @@ máximo 2,99 GB.
   alcanza a liberar lo suficiente; el vigilante local de emergencia (`piso / 2`) sigue siendo la
   malla de seguridad final para ese caso.
 - El vigilante local de respaldo, cuando actúa, sigue sin ser graduado (cancela ese proceso puntual,
-  no coordina con otras leases); sólo se activa cuando el gobernador global no está disponible o hay
-  emergencia real, así que su alcance quedó acotado pero no eliminado.
+  no coordina con otras leases); sólo se activa cuando el gobernador global no está disponible, hay
+  emergencia real, o la presión ya duró `PRESSURE_ESCALATION_SECONDS`, así que su alcance quedó
+  acotado pero no eliminado. Con presión sostenida y varios vigilantes en `[piso/2, piso)` a la vez,
+  cada uno decide por su cuenta sin coordinarse entre sí, igual que ya ocurría en la emergencia.
+- El uso de un contenedor Docker nunca se mide (aporta 0): dos leases respaldadas por contenedor con
+  huellas reales distintas se desempatan igual, por recencia, hasta que se instrumente `docker stats`
+  u otra fuente de RSS para contenedores.
 - Bajar `agent_cli` a 1 GiB amplía el margen de sobrecompromiso contable por árbol individual (de 4 a
   7 GiB bajo el mismo tope de 8 GiB) hasta que el desalojo graduado actúe; es un cambio consciente
   que traslada la protección de "reserva conservadora" a "uso real vigilado".
@@ -103,11 +132,16 @@ máximo 2,99 GB.
 - **Extender el desalojo graduado a CPU**: fuera de alcance de este cambio; el piso duro que dispara
   esta ruta es sólo de memoria, y `resources.maxCpuPercent` ya tiene su propio control en la
   admisión (`aggregate_cpu_budget`).
+- **Medir el consumo de un contenedor Docker con `docker stats`**: se descartó para esta iteración;
+  añade una llamada de red/CLI al camino de muestreo y el propio motor de contención de Docker
+  (`--memory`) ya acota su tope, a diferencia de un proceso nativo sin ese límite adicional.
+- **Mantener la exclusión por `execution_id`**: se descartó porque no distingue una lease muerta de
+  una viva, y expone el bug latente de cancelar un reintento con el mismo id para siempre.
 
 ## Impacto
 
-`host_resources/{governor,repository,profiles}.py`,
-`process_supervision/{memory_usage.py (nuevo),service.py}`, `workers/runtime.py`. Tests:
-`tests_py/test_host_resource_governor.py`, `tests_py/test_process_supervision.py`,
-`tests_py/test_process_memory_usage.py` (nuevo), y recalibración de fronteras de admisión en
+`host_resources/{governor,repository,profiles}.py`, `process_supervision/{memory_usage.py (nuevo),
+repository.py,service.py}`, `workers/runtime.py`. Tests: `tests_py/test_host_resource_governor.py`,
+`tests_py/test_process_supervision.py`, `tests_py/test_process_memory_usage.py` (nuevo), y
+recalibración de fronteras de admisión en
 `tests_py/{test_branch_resource_admission,test_effective_runtime_readiness,test_worker_local_gpu_admission}.py`.

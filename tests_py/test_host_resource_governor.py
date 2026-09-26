@@ -16,11 +16,12 @@ from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.jobs_approvals.worker import ConcurrentWorker
+from local_control_center.process_supervision.repository import ManagedProcessRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.settings.registry import descriptor_for, validate_value
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
-from local_control_center.shared.time import iso_after_seconds
+from local_control_center.shared.time import iso_after_seconds, utc_now
 from local_control_center.threads.repository import ThreadsRepository
 
 GIB = 1024**3
@@ -511,10 +512,77 @@ def test_hard_floor_grace_period_defers_the_next_eviction(tmp_path: Path) -> Non
         after_grace = governor.violations_for_snapshot(
             low_snapshot, usage_source=lambda: usage, now_iso=iso_after_seconds(base_time, 6.5)
         )
+        # Ninguna de las dos murió (sus leases siguen activas): pasada otra gracia, ninguna es
+        # candidata de nuevo. Una víctima que no muere no bloquea a la otra, pero tampoco se repite.
+        no_more_candidates = governor.violations_for_snapshot(
+            low_snapshot, usage_source=lambda: usage, now_iso=iso_after_seconds(base_time, 13)
+        )
+        governor.release(second.id, reason="test_process_finally_exited")
+        resolved_at_values = [
+            row[0]
+            for row in connection.execute(
+                "SELECT resolved_at FROM resource_violations WHERE lease_id = ?", (second.id,)
+            ).fetchall()
+        ]
 
     assert [violation.execution_id for violation in first_round] == ["second"]
     assert still_in_grace == []
     assert [violation.execution_id for violation in after_grace] == ["first"]
+    assert no_more_candidates == []
+    assert resolved_at_values and all(value is not None for value in resolved_at_values)
+
+
+def test_releasing_a_lease_resolves_its_violations_so_a_retry_is_not_cancelled_forever(
+    tmp_path: Path,
+) -> None:
+    """Antes: la exclusión y `cancellation_reason` eran por ``execution_id`` y nunca se resolvían;
+    un reintento con el mismo ``execution_id`` habría quedado cancelado para siempre."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        managed = ManagedProcessRepository(connection)
+        lease = governor.admit(_request("retry-exec", "remote_llm_light"), snapshot=_healthy_snapshot()).lease
+
+        governor.violations_for_snapshot(_healthy_snapshot(available_memory_bytes=4 * GIB))
+        cancelled_while_active = managed.cancellation_reason("retry-exec")
+
+        governor.release(lease.id, reason="test_process_finally_exited")
+        cancelled_after_release = managed.cancellation_reason("retry-exec")
+
+        retry = governor.admit(_request("retry-exec", "remote_llm_light"), snapshot=_healthy_snapshot())
+        cancelled_for_the_retry = managed.cancellation_reason("retry-exec")
+
+    assert cancelled_while_active is not None
+    assert cancelled_after_release is None
+    assert retry.status == "admitted"
+    assert cancelled_for_the_retry is None
+
+
+def test_hard_floor_treats_a_container_backed_lease_as_a_candidate(tmp_path: Path) -> None:
+    """``live_memory_by_lease`` no mide contenedores (ver ADR-005): aparecen con uso 0, no ausentes."""
+    from local_control_center.process_supervision.memory_usage import live_memory_by_lease
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        lease = governor.admit(_request("container-exec", "build_heavy"), snapshot=_healthy_snapshot()).lease
+        connection.execute(
+            """
+            INSERT INTO managed_containers
+                (name, execution_id, executable, owner_pid, owner_create_time, resource_lease_id,
+                 owns_lease, created_at, released_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            ("aido-container-test", "container-exec", "docker", 1, 1.0, lease.id, 1, utc_now()),
+        )
+
+        violations = governor.violations_for_snapshot(
+            _healthy_snapshot(available_memory_bytes=4 * GIB),
+            usage_source=lambda: live_memory_by_lease(connection),
+        )
+
+    assert len(violations) == 1
+    assert violations[0].lease_id == lease.id
 
 
 def test_resource_wait_is_written_once_per_reason_and_reaches_the_thread(tmp_path: Path) -> None:

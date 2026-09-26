@@ -1660,6 +1660,18 @@ def _runtime_team_validation_expired_specs(context: BlockerPayloadContext) -> li
     return specs
 
 
+def _runtime_selection_ambiguous_specs(_context: BlockerPayloadContext) -> list[dict[str, Any]]:
+    """Jev no pudo desempatar candidatos válidos: se asigna un runtime al rol y se reintenta."""
+    return [
+        {
+            "actionType": "retry_loop",
+            "title": "Retry loop",
+            "description": "Retry after assigning a runtime to this role in the thread's AI team.",
+            "payload": {"retryTarget": "runtime_team"},
+        }
+    ]
+
+
 Builder = Callable[[BlockerPayloadContext], list[dict[str, Any]]]
 
 PAYLOAD_BUILDERS: dict[str, Builder] = {
@@ -1699,4 +1711,5 @@ PAYLOAD_BUILDERS: dict[str, Builder] = {
     "thread_similarity_decision_required": _thread_similarity_decision_required_specs,
     "thread_intake_decision_required": _thread_intake_decision_required_specs,
     "runtime_team_validation_expired": _runtime_team_validation_expired_specs,
+    "runtime_selection_ambiguous": _runtime_selection_ambiguous_specs,
 }

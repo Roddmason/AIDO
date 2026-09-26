@@ -98,8 +98,8 @@ def test_jev_failure_precedes_unrelated_rejected_runtimes_and_keeps_validated_ev
         ("model_validation_failed", "runtime_not_executable:unavailable", "runtime_not_executable"),
         # Jev sin confianza para desempatar candidatos ya validados no es un problema de
         # validación ni de política de rol: la acción útil es asignar un runtime al rol.
-        ("confidence_below_threshold", "policy_rejected", "runtime_team_validation_expired"),
-        ("margin_below_threshold", "policy_rejected", "runtime_team_validation_expired"),
+        ("confidence_below_threshold", "policy_rejected", "runtime_selection_ambiguous"),
+        ("margin_below_threshold", "policy_rejected", "runtime_selection_ambiguous"),
     ],
 )
 def test_jev_transport_classification_does_not_hide_candidate_or_policy_rejections(
@@ -129,12 +129,12 @@ def test_confidence_below_threshold_outranks_unrelated_runtime_not_executable_te
                 rejected_reason="runtime_not_executable: unrelated model offline",
             ),
         )
-        == "runtime_team_validation_expired"
+        == "runtime_selection_ambiguous"
     )
 
 
 def test_confidence_below_threshold_offers_the_thread_team_action_as_primary(lane):
-    """No inventa UI nueva: reutiliza el blocker/acción existente que abre el equipo del hilo."""
+    """Tipo propio con copy exacto (no "necesita una prueba reciente") y el retry del equipo del hilo."""
     _, project, thread, loop, service = lane
     actions = service.create_for_blocked_run(
         project_id=project["id"],
@@ -145,7 +145,8 @@ def test_confidence_below_threshold_offers_the_thread_team_action_as_primary(lan
         "Jev runtime selection blocked: confidence_below_threshold.",
         details=_details("confidence_below_threshold"),
     )
-    assert {item["blockerType"] for item in actions} == {"runtime_team_validation_expired"}
+    assert {item["blockerType"] for item in actions} == {"runtime_selection_ambiguous"}
+    assert not any(item["actionType"] == "revalidate_runtime" for item in actions)
     assert any(
         item["actionType"] == "retry_loop" and item["payload"].get("retryTarget") == "runtime_team"
         for item in actions

@@ -46,6 +46,7 @@ BLOCKER_TYPES = (
     "thread_similarity_decision_required",
     "thread_intake_decision_required",
     "runtime_team_validation_expired",
+    "runtime_selection_ambiguous",
 )
 BlockerType = Literal[
     "runtime_risk_review_required",
@@ -84,6 +85,7 @@ BlockerType = Literal[
     "thread_similarity_decision_required",
     "thread_intake_decision_required",
     "runtime_team_validation_expired",
+    "runtime_selection_ambiguous",
 ]
 
 REMEDIATION_ACTION_TYPES = (

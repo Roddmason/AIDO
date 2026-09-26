@@ -531,6 +531,16 @@ export const BLOCKER_COPY: Record<BlockerType, BlockerCopy> = {
 		impactFallback:
 			'AIDO will not switch to another runtime on its own; the run stays blocked until you re-test it.',
 	},
+	runtime_selection_ambiguous: {
+		titleKey: 'app.threads.remediation.blocker.runtime_selection_ambiguous.title',
+		titleFallback: 'AIDO could not choose a runtime',
+		explanationKey: 'app.threads.remediation.blocker.runtime_selection_ambiguous.explanation',
+		explanationFallback:
+			'Several validated runtimes fit this role and none was clearly better, so AIDO did not pick one at random.',
+		impactKey: 'app.threads.remediation.blocker.runtime_selection_ambiguous.impact',
+		impactFallback:
+			"The run stays blocked until you assign a runtime to this role in the thread's AI team and retry.",
+	},
 };
 
 /** Button label + execution kind for every backend action type. */

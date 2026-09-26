@@ -880,6 +880,7 @@ def resume_runtime_risk_planning(coordinator, run):
         agent_tasks=tasks,
         runtime_risk_review_id=review["id"],
         product_owner_selected_resource=product_owner_selected_resource,
+        thread_id=run.thread_id,
     )
     with _transaction(coordinator.connection):
         # Keep the current context even on rejection, so the caller cannot overwrite an operator edit.

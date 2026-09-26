@@ -9,6 +9,7 @@ nunca trae `node_modules` (esta en `.gitignore`), que es exactamente el bug repo
 
 from __future__ import annotations
 
+import os
 import shutil
 from contextlib import ExitStack, closing
 from pathlib import Path
@@ -21,12 +22,17 @@ from local_control_center.projects.toolchain import NODE_NO_LOCKFILE_REASON, nod
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
+_SANDBOX = Path(os.environ.get("AIDO_E2E_NODE_SANDBOX", r"H:\Proyectos\Personales\aido-e2e-sandbox"))
+"""Proyecto pnpm real (vitest) con el store caliente; es integración local, no parte de la suite portátil."""
+
 pytestmark = [
     pytest.mark.usefixtures("controlled_domain_host"),
     pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
+    pytest.mark.skipif(
+        not (_SANDBOX / "pnpm-lock.yaml").is_file(),
+        reason="Sandbox pnpm local no disponible (fija AIDO_E2E_NODE_SANDBOX)",
+    ),
 ]
-
-_SANDBOX = Path(r"H:\Proyectos\Personales\aido-e2e-sandbox")
 _SANDBOX_ENTRIES = ("package.json", "pnpm-lock.yaml", "src", "tests", "js")
 
 pytestmark.append(
@@ -52,10 +58,9 @@ def create_store():
 def _sandbox_copy_project(store: ControlPlaneFixture, tmp_path: Path, name: str) -> dict[str, Any]:
     """Copia (sin `.git` ni `node_modules`) el sandbox pnpm y lo commitea como proyecto AIDO.
 
-    Nunca escribe dentro de `_SANDBOX`: solo lee de ahi. El script `test` se ajusta a
-    `--pool=threads`: el `ActiveProcessLimit` del Job Object de `qa_light` (ver
-    `process_supervision/windows_job.py`) rechaza el pool `forks` por defecto de vitest, que abre
-    procesos hijo adicionales; es un limite de recursos del sandbox de QA, no de esta feature.
+    Nunca escribe dentro de `_SANDBOX`: solo lee de ahi. vitest corre con su pool `forks` por
+    defecto (casi un proceso por CPU): cubre el `ActiveProcessLimit` real de las clases de QA
+    (`host_resources.profiles.TEST_RUNNER_PROCESS_LIMIT`), que antes lo cortaba.
     """
     project_path = tmp_path / name.lower().replace(" ", "-")
     project_path.mkdir(parents=True, exist_ok=True)
@@ -65,13 +70,6 @@ def _sandbox_copy_project(store: ControlPlaneFixture, tmp_path: Path, name: str)
             shutil.copytree(source, project_path / entry)
         elif source.is_file():
             shutil.copy2(source, project_path / entry)
-    manifest_path = project_path / "package.json"
-    manifest_path.write_text(
-        manifest_path.read_text(encoding="utf-8").replace(
-            '"test": "vitest run"', '"test": "vitest run --pool=threads"'
-        ),
-        encoding="utf-8",
-    )
     assert run_git(["init"], cwd=project_path).returncode == 0
     assert run_git(["add", "-A"], cwd=project_path).returncode == 0
     commit = run_git(

@@ -720,3 +720,15 @@ def test_a_profile_cannot_reserve_more_memory_than_its_cap() -> None:
         WorkloadProfile.model_validate(
             {**calibrated, "memory_request_bytes": calibrated["memory_limit_bytes"] + 1}
         )
+
+
+def test_a_developer_job_lease_covers_its_test_runner_children() -> None:
+    """El job del developer (`agent_cli`) corre su QA como hijos bajo su lease: pytest es `qa_light`,
+    un QA de Node se clasifica `agent_cli` y Playwright `browser_test`. Si un hijo pidiera más procesos
+    que el padre, `BranchAdmission._parent_covers` lo mandaría a una admisión propia."""
+    from local_control_center.host_resources.profiles import TEST_RUNNER_PROCESS_LIMIT, WORKLOAD_PROFILES
+
+    parent = WORKLOAD_PROFILES["agent_cli"]
+    for child in ("qa_light", "agent_cli", "browser_test"):
+        assert WORKLOAD_PROFILES[child].process_limit == TEST_RUNNER_PROCESS_LIMIT
+        assert WORKLOAD_PROFILES[child].process_limit <= parent.process_limit

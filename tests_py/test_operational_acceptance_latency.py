@@ -17,13 +17,20 @@ import pytest
 
 from local_control_center.host_resources.probes import HostResourceProbe
 from local_control_center.process_supervision.service import ProcessSupervisorService
-from tests_py.operational_acceptance_support import evidence, identities_gone, native_readback, wait_until
+from tests_py.operational_acceptance_support import (
+    evidence,
+    identities_gone,
+    native_readback,
+    require_host_capacity,
+    wait_until,
+)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native load acceptance")
 def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path, low_impact_host_policy):
     db = tmp_path / "platform.sqlite"
     policy = low_impact_host_policy(db)
+    require_host_capacity(db, ["qa_light", "qa_light"])
     host = HostResourceProbe(relevant_paths=[tmp_path, Path.cwd()]).sample()
     assert not host.unreal_editor_running and not host.ollama_running
     with socket.socket() as reservation:

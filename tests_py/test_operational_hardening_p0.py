@@ -19,6 +19,7 @@ from local_control_center.settings.repository import SettingsRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workers.runtime import LocalWorkerRuntime, WorkerPreflight, WorkerSettings
+from tests_py.operational_acceptance_support import require_host_capacity
 
 
 def _runtime(tmp_path: Path) -> ControlCenterRuntime:
@@ -215,6 +216,7 @@ def test_productive_sandbox_execution_returns_managed_process_evidence(
     tmp_path: Path, low_impact_host_policy
 ) -> None:
     low_impact_host_policy(tmp_path / "default-runtime.sqlite")
+    require_host_capacity(tmp_path / "default-runtime.sqlite", ["agent_cli"])
     result = RestrictedSubprocessSandbox().execute(
         argv=[sys.executable, "-c", "print('managed')"],
         cwd=str(tmp_path),

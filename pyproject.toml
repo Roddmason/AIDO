@@ -34,6 +34,9 @@ test = ["pytest>=9.0.0", "httpx>=0.28.0"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests_py"]
+markers = [
+    "real_host_resources: la admision usa la capacidad real del equipo en vez del host controlado.",
+]
 filterwarnings = ["error"]
 # La suite se quedaba sin disco sola: pytest retenia el scratch de TODOS los tests, no solo de
 # los que fallan. Medido: 13 directorios acumulados con 5,35 GiB (uno de 3,51 GiB) y 14,2 GiB

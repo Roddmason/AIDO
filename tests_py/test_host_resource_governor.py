@@ -292,6 +292,7 @@ def test_resource_settings_api_exposes_bounds_and_rejects_inconsistent_memory_fl
     assert "cannot exceed" in rejected.json()["detail"]
 
 
+@pytest.mark.real_host_resources
 def test_psutil_probe_collects_required_host_fields(tmp_path: Path) -> None:
     snapshot = HostResourceProbe(relevant_paths=[tmp_path]).sample(cpu_interval_seconds=0)
 

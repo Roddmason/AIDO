@@ -282,6 +282,7 @@ def test_resource_rejection_explains_effective_state_without_hiding_prior_blocke
         runtime.close()
 
 
+@pytest.mark.real_host_resources
 def test_disk_probe_accepts_a_database_file_on_windows(tmp_path):
     from local_control_center.host_resources.probes import HostResourceProbe
 

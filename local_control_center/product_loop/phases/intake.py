@@ -59,6 +59,9 @@ def ensure_thread_and_similarity(
     )
     thread_id = thread["projectThreadId"]
     coordinator._supersede_interrupted_loops(project_id=project_id, thread_id=thread_id, actor=actor)
+    coordinator._supersede_continued_loop(
+        project_id=project_id, thread_id=thread_id, request_meta=request_meta, actor=actor
+    )
     loop = coordinator.start(
         project_id=project_id,
         title=resolved_title,

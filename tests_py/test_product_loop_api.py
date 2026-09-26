@@ -596,6 +596,9 @@ def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -
         assert aggregate["feedback"][0]["action"] == "accept"
         assert aggregate["feedback"][0]["targetId"] == loop["id"]
         assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "resolved"
+        # El job solo contiene la decisión: si quedaba "queued", el worker lo fallaba con
+        # "Unsupported job kind" justo después de una entrega aprobada (visto en vivo).
+        assert JobsRepository(connection).get_job(job["id"])["status"] == "completed"
     finally:
         runtime.close()
 

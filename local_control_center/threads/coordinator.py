@@ -501,11 +501,16 @@ class ThreadCoordinator:
             self._settle_linked_product_decision(
                 pending_decision, resolution=resolution, decided_by=decided_by
             )
+            # kind="user": the chat shows what the operator answered, not a tarjeta de decisión
+            # anymore (that card only lives in the execution panel now). metadata.decisionId marks
+            # this as a synthetic answer, not a fresh request — _source_message_for_decision's
+            # fallback below must skip it or a later undecorated decision could adopt this text as
+            # its "original ask" and requeue work from it instead of from what the user actually said.
             self.repository.append_message(
                 thread_id=thread_id,
-                kind="system_event",
+                kind="user",
                 author=decided_by or "user",
-                content=f"Decision resolved: {resolution}",
+                content=f"{pending_decision['title']}: {resolution}",
                 metadata={"decisionId": decision_id},
             )
             self.repository.record_event(
@@ -1038,7 +1043,11 @@ class ThreadCoordinator:
             previous_user_messages = [
                 message
                 for message in self.repository.list_messages(decision["threadId"])
-                if message["kind"] == "user" and int(message["sequence"]) < request_sequence
+                if message["kind"] == "user"
+                and int(message["sequence"]) < request_sequence
+                # Skip the synthetic "answer" messages resolve_decision appends (metadata.decisionId):
+                # they are not a fresh ask and must never be adopted as one by a later decision.
+                and not _metadata_text(message.get("metadata") or {}, "decisionId", "")
             ]
             return previous_user_messages[-1] if previous_user_messages else None
         return None

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getThread, postThreadMessage, resolveThreadDecision } from '../../api/client';
 import type { ThreadDetail } from '../../api/types';
 import type { Mutate } from '../../app/routes';
+import type { DecisionAnswer } from './ThreadDecisionAnswers';
 import { useThreadRefresh } from './useThreadRefresh';
 
 type UseThreadConversation = {
@@ -20,7 +21,9 @@ type UseThreadConversation = {
 	busy: boolean;
 	reload: () => void;
 	send: (content: string) => Promise<void>;
-	resolve: (decisionId: string, resolution: string) => Promise<void>;
+	/** Resolves every answered decision in sequence (one write each, same as the API contract),
+	 * then reloads once so the chat and the execution panel settle together. */
+	resolveDecisions: (answers: DecisionAnswer[]) => Promise<void>;
 };
 
 /** Loads and drives one thread by id; a null/sentinel id yields an idle, empty state. */
@@ -84,15 +87,23 @@ export function useThreadConversation(
 		[threadId, mutate, reload],
 	);
 
-	const resolve = useCallback(
-		async (decisionId: string, resolution: string) => {
-			if (!threadId) return;
+	const resolveDecisions = useCallback(
+		async (answers: DecisionAnswer[]) => {
+			if (!threadId || answers.length === 0) return;
 			setBusy(true);
 			try {
-				await mutate(
-					(token) => resolveThreadDecision(token, threadId, decisionId, { resolution }),
-					{ awaitRefresh: false },
-				);
+				// Sequential: each resolve can mutate shared loop state (e.g. defers the rest of a
+				// Product Owner batch), so two in flight at once would race on that state.
+				for (const answer of answers) {
+					await mutate(
+						(token) =>
+							resolveThreadDecision(token, threadId, answer.decisionId, {
+								selectedOptions: answer.selectedOptions,
+								freeText: answer.freeText || undefined,
+							}),
+						{ awaitRefresh: false },
+					);
+				}
 				reload();
 			} finally {
 				setBusy(false);
@@ -101,5 +112,5 @@ export function useThreadConversation(
 		[threadId, mutate, reload],
 	);
 
-	return { detail, loading, error, busy, reload, send, resolve };
+	return { detail, loading, error, busy, reload, send, resolveDecisions };
 }

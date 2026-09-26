@@ -819,6 +819,18 @@
       "en": "Decision needed",
       "es": "Decisión requerida"
     },
+    "app.threads.decision.freeTextLabel": {
+      "en": "Your answer",
+      "es": "Tu respuesta"
+    },
+    "app.threads.decision.freeTextHelp": {
+      "en": "No preset options for this one: type the answer AIDO should work from.",
+      "es": "Esta decisión no trae opciones: escribe la respuesta con la que AIDO debe seguir."
+    },
+    "app.threads.decision.submitAnswers": {
+      "en": "Send answers",
+      "es": "Enviar respuestas"
+    },
     "app.threads.decision.option.continueExisting.label": {
       "en": "Continue the existing work",
       "es": "Continuar el trabajo existente"
@@ -882,10 +894,6 @@
     "app.threads.decision.option.planOnly.description": {
       "en": "Produce a plan without executing anything.",
       "es": "Produce un plan sin ejecutar nada."
-    },
-    "app.threads.decisionProgress": {
-      "en": "{current} of {total}",
-      "es": "{current} de {total}"
     },
     "app.threads.decisionResolved": {
       "en": "Resolved",
@@ -1070,14 +1078,6 @@
     "app.threads.blockersTitle": {
       "en": "Blockers",
       "es": "Bloqueos"
-    },
-    "app.threads.blocker.decisionTitle": {
-      "en": "Decision pending",
-      "es": "Decisión pendiente"
-    },
-    "app.threads.blocker.answerDecision": {
-      "en": "Answer decision",
-      "es": "Responder decisión"
     },
     "app.threads.blocker.approvalTitle": {
       "en": "Approval required",

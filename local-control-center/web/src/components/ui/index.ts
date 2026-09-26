@@ -27,6 +27,8 @@ export { Field } from './Field';
 export type { IconButtonProps } from './IconButton';
 export { IconButton } from './IconButton';
 export { PageHeader } from './PageHeader';
+export type { RadioProps } from './Radio';
+export { Radio } from './Radio';
 export type { SegmentedControlProps, SegmentedOption } from './SegmentedControl';
 export { SegmentedControl } from './SegmentedControl';
 export type { SelectFieldProps } from './SelectField';

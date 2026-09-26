@@ -435,6 +435,10 @@ test('Remediations: research network blocker offers Check network access', async
 });
 
 test('Remediations: answer_question requires selecting one Product Loop option', async ({ page }) => {
+	// Decisions with no options (the dead end fixed by ThreadDecisionAnswers) render their
+	// free-text/single-choice form in the execution panel only (tests_web/thread-decision-answers.spec.js).
+	// This blocker type does carry options, and the inspector still answers it through the generic
+	// remediation card exactly as before.
 	let executePayload = null;
 	let remediations = [
 		remediation({

@@ -95,13 +95,9 @@ import {
 } from '../runtime-team/runtimeTeamModel';
 import { useSettings } from '../settings/useSettings';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
-import {
-	decisionOptionDescription,
-	decisionOptionLabel,
-	decisionPromptText,
-} from './decisionOptionCopy';
 import { GitBranchBar } from './GitBranchBar';
 import { ThreadBoard } from './ThreadBoard';
+import type { DecisionAnswer } from './ThreadDecisionAnswers';
 import { ThreadExecutionPanel } from './ThreadExecutionPanel';
 import { type BoardMode, latestBoardRefreshSequence } from './threadBoardModel';
 import { ownerIdForProject } from './threadOwner';
@@ -205,7 +201,7 @@ export function ThreadConversation({
 	const { t } = useI18n();
 	const isNew = !selectedThreadId || selectedThreadId === NEW_SESSION_ID;
 	const activeThreadId = isNew ? null : selectedThreadId;
-	const { detail, loading, error, busy, reload, send, resolve } = useThreadConversation(
+	const { detail, loading, error, busy, reload, send, resolveDecisions } = useThreadConversation(
 		activeThreadId,
 		mutate,
 	);
@@ -250,7 +246,6 @@ export function ThreadConversation({
 		inspectorFoldedForRef.current = activeThreadId;
 		shellInspector?.collapseInspector();
 	}, [activeThreadId, boardMode, manualBoardMode, shellInspector]);
-	const decisionRef = useRef<HTMLElement | null>(null);
 	const composerDockRef = useRef<HTMLDivElement | null>(null);
 
 	// Git mutations inside the composer re-pull the overview (fire-and-forget) so the shell stays in sync.
@@ -312,18 +307,13 @@ export function ThreadConversation({
 		}
 	}, [loadWorkerStatus, mutate, reload]);
 
-	const resolveDecision = useCallback(
-		async (decisionId: string, resolution: string) => {
-			await resolve(decisionId, resolution);
+	const submitDecisionAnswers = useCallback(
+		async (answers: DecisionAnswer[]) => {
+			await resolveDecisions(answers);
 			setStreamRefreshKey((value) => value + 1);
 		},
-		[resolve],
+		[resolveDecisions],
 	);
-
-	const focusDecision = useCallback(() => {
-		decisionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-		decisionRef.current?.focus();
-	}, []);
 
 	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
 	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
@@ -615,55 +605,9 @@ export function ThreadConversation({
 								)}
 							</div>
 
-							{pendingDecisions.map((decision, index) => (
-								<m.section
-									key={decision.id}
-									ref={index === 0 ? decisionRef : undefined}
-									tabIndex={index === 0 ? -1 : undefined}
-									className="thread-decision-console"
-									aria-label={t('app.threads.decisionTitle', 'Decision needed')}
-									variants={panelTransition}
-									initial="initial"
-									animate="animate"
-								>
-									<div className="thread-decision-head">
-										<AlertTriangle aria-hidden="true" size={15} />
-										<strong>{t('app.threads.decisionTitle', 'Decision needed')}</strong>
-										{pendingDecisions.length > 1 ? (
-											<span className="thread-decision-progress">
-												{t('app.threads.decisionProgress', '{current} of {total}')
-													.replace('{current}', String(index + 1))
-													.replace('{total}', String(pendingDecisions.length))}
-											</span>
-										) : null}
-									</div>
-									<p>{decisionPromptText(decision, t)}</p>
-									<div className="thread-decision-options">
-										{decision.options.map((option) => (
-											<Button
-												key={option}
-												variant="secondary"
-												disabled={busy}
-												onClick={() => resolveDecision(decision.id, option)}
-											>
-												{decisionOptionLabel(option, t)}
-											</Button>
-										))}
-									</div>
-									{decision.options.some((option) => decisionOptionDescription(option, t)) ? (
-										<ul className="thread-decision-option-help">
-											{decision.options.map((option) => {
-												const description = decisionOptionDescription(option, t);
-												return description ? (
-													<li key={option}>
-														<strong>{decisionOptionLabel(option, t)}</strong> {description}
-													</li>
-												) : null;
-											})}
-										</ul>
-									) : null}
-								</m.section>
-							))}
+							{/* Pending decisions are answered from the execution panel only (ThreadDecisionAnswers) —
+							    rendering them here too used to leave a duplicate, non-interactive card in the
+							    chat with no way to answer a decision that had no options. */}
 
 							{researchArtifacts.map((artifact) => (
 								<ThreadResearchCard
@@ -710,7 +654,8 @@ export function ThreadConversation({
 						threadStatus={threadStatus}
 						events={consoleEvents}
 						messages={executionMessages}
-						pendingDecision={pendingDecisions[0] ?? null}
+						pendingDecisions={pendingDecisions}
+						onSubmitDecisions={submitDecisionAnswers}
 						workerStatus={workerStatus}
 						workerBusy={workerBusy}
 						syncing={eventStream.loading}
@@ -720,7 +665,6 @@ export function ThreadConversation({
 						remediations={remediations}
 						onRunQueuedNow={runQueuedJobsNow}
 						onOpenApprovals={onOpenApprovals}
-						onFocusDecision={focusDecision}
 						onOpenSettings={onOpenSettings}
 						presentation={boardMode === 'board' ? 'strip' : 'column'}
 					/>

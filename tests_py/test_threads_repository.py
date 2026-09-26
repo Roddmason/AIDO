@@ -370,6 +370,39 @@ def test_decision_lifecycle(tmp_path: Path) -> None:
         assert repo.list_decisions(thread["id"])[0]["status"] == "resolved"
 
 
+def test_update_decision_metadata_merges_without_dropping_existing_keys(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project_id = _project(connection, tmp_path)
+        repo = ThreadsRepository(connection)
+        thread = repo.create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread",
+        )
+        decision = repo.create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework should the team use?",
+            options=[],
+            metadata={"source": "product_owner_agent", "productDecisionId": "product-decision-1"},
+        )
+
+        updated = repo.update_decision_metadata(
+            decision["id"],
+            {"answer": {"selectedOptions": [], "freeText": "React + TypeScript"}},
+        )
+
+        assert updated["metadata"]["answer"] == {"selectedOptions": [], "freeText": "React + TypeScript"}
+        # El merge no debe pisar las claves que ya traia la decision.
+        assert updated["metadata"]["source"] == "product_owner_agent"
+        assert updated["metadata"]["productDecisionId"] == "product-decision-1"
+
+        with pytest.raises(KeyError):
+            repo.update_decision_metadata("thread-decision-does-not-exist", {"answer": {}})
+
+
 def test_set_status_updates_header(tmp_path: Path) -> None:
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)

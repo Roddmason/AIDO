@@ -720,6 +720,24 @@ class ThreadsRepository:
         self._index_thread(thread_id)
         return self.get_decision(decision_id)
 
+    def update_decision_metadata(self, decision_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """Fusiona ``patch`` (shallow) sobre la metadata existente de una decisión, sin tocar el resto.
+
+        Usado para adjuntar el detalle estructurado de la respuesta (opciones elegidas, texto libre)
+        una vez resuelta, conservando ``resolution`` como el resumen de texto que ya leen los
+        consumidores existentes.
+        """
+        decision = self.get_decision(decision_id)
+        merged_metadata = {**decision["metadata"], **patch}
+        timestamp = utc_now()
+        updated = self.connection.execute(
+            "UPDATE thread_decisions SET metadata = ?, updated_at = ? WHERE id = ?",
+            (json_dumps(redact_secrets(merged_metadata)), timestamp, decision_id),
+        )
+        if updated.rowcount == 0:
+            raise KeyError(f"Decision not found: {decision_id}")
+        return self.get_decision(decision_id)
+
     def list_decisions(self, thread_id: str) -> list[dict[str, Any]]:
         """Lista las decisiones del hilo, más recientes primero."""
         rows = self.connection.execute(

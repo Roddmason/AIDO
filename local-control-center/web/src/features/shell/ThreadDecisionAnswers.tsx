@@ -1,8 +1,10 @@
 /**
- * How a thread's pending decisions get answered: one form per decision (a radio group when it
- * offers options, a free-text field otherwise — so a decision never reaches a dead end with
- * nothing to select) plus a single "Send answers" button that resolves every decision the
- * operator answered together.
+ * How a thread's pending decisions get answered: one form per decision — checkboxes (several
+ * choices) for Product Owner questions/decisions, a single radio for the mutually-exclusive ones
+ * (similarity, existing functionality, intake), and a free-text field that is always available for
+ * Product Owner decisions (the only field at all when they carry no options, so a decision never
+ * reaches a dead end) — plus a single "Send answers" button that resolves every decision the
+ * operator answered together, in one chat message.
  *
  * Pure presentation: the host ({@link ThreadConversation}, which renders it inside the execution
  * panel) owns the actual HTTP call (`onSubmit`) and the busy/reload cycle. This is the only place
@@ -20,7 +22,7 @@ import { m } from 'motion/react';
 import { useMemo, useState } from 'react';
 
 import type { ThreadDecision } from '../../api/types';
-import { Button, Radio, TextArea } from '../../components/ui';
+import { Button, Checkbox, Radio, TextArea } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { panelTransition } from '../../motion/variants';
 import {
@@ -38,13 +40,22 @@ export const DECISION_REMEDIATION_BLOCKER_TYPES = [
 	'thread_intake_decision_required',
 ] as const;
 
+/** `thread_decisions.metadata.source` for a question/decision the ProductOwnerAgent raised
+ * (agents/product_owner_agent.py::PRODUCT_OWNER_AGENT_ID). Only these accept several selected
+ * options and free text alongside options; the rest are mutually exclusive by nature. */
+const PRODUCT_OWNER_DECISION_SOURCE = 'product_owner_agent';
+
+function isProductOwnerDecision(decision: ThreadDecision): boolean {
+	return decision.metadata?.source === PRODUCT_OWNER_DECISION_SOURCE;
+}
+
 export type DecisionAnswer = {
 	decisionId: string;
 	selectedOptions: string[];
 	freeText: string;
 };
 
-type Draft = { selectedOption: string; freeText: string };
+type Draft = { selectedOptions: string[]; freeText: string };
 type DraftState = Record<string, Draft>;
 
 type ThreadDecisionAnswersProps = {
@@ -53,11 +64,9 @@ type ThreadDecisionAnswersProps = {
 	onSubmit: (answers: DecisionAnswer[]) => Promise<void> | void;
 };
 
-function hasAnswer(decision: ThreadDecision, draft: Draft | undefined): boolean {
+function hasAnswer(draft: Draft | undefined): boolean {
 	if (!draft) return false;
-	return decision.options.length > 0
-		? draft.selectedOption.trim().length > 0
-		: draft.freeText.trim().length > 0;
+	return draft.selectedOptions.length > 0 || draft.freeText.trim().length > 0;
 }
 
 /** Every pending decision rendered as an answerable form, with a single button that resolves
@@ -72,14 +81,13 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 	);
 
 	const readyAnswers: DecisionAnswer[] = answerable
-		.filter((decision) => hasAnswer(decision, drafts[decision.id]))
+		.filter((decision) => hasAnswer(drafts[decision.id]))
 		.map((decision) => {
 			const draft = drafts[decision.id];
-			const hasOptions = decision.options.length > 0;
 			return {
 				decisionId: decision.id,
-				selectedOptions: hasOptions && draft ? [draft.selectedOption] : [],
-				freeText: !hasOptions && draft ? draft.freeText.trim() : '',
+				selectedOptions: draft?.selectedOptions ?? [],
+				freeText: (draft?.freeText ?? '').trim(),
 			};
 		});
 
@@ -91,14 +99,29 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 		setDrafts({});
 	};
 
+	const setDraft = (decisionId: string, patch: Partial<Draft>) => {
+		setDrafts((current) => ({
+			...current,
+			[decisionId]: {
+				selectedOptions: current[decisionId]?.selectedOptions ?? [],
+				freeText: current[decisionId]?.freeText ?? '',
+				...patch,
+			},
+		}));
+	};
+
 	return (
 		<section
 			className="thread-decision-answers"
 			aria-label={t('app.threads.decisionTitle', 'Decision needed')}
 		>
 			{answerable.map((decision) => {
-				const draft = drafts[decision.id] ?? { selectedOption: '', freeText: '' };
+				const draft = drafts[decision.id] ?? { selectedOptions: [], freeText: '' };
 				const hasOptions = decision.options.length > 0;
+				const isPoDecision = isProductOwnerDecision(decision);
+				// Mutually exclusive types (similarity, existing functionality, intake) keep a single
+				// choice; only Product Owner questions/decisions accept several plus free text.
+				const allowsMultiple = isPoDecision;
 				return (
 					<m.article
 						key={decision.id}
@@ -112,7 +135,27 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 							<strong>{decision.title}</strong>
 						</div>
 						<p>{decisionPromptText(decision, t)}</p>
-						{hasOptions ? (
+						{hasOptions && allowsMultiple ? (
+							<fieldset className="thread-decision-options">
+								<legend className="sr-only">{decision.title}</legend>
+								{decision.options.map((option) => (
+									<Checkbox
+										key={option}
+										label={decisionOptionLabel(option, t)}
+										help={decisionOptionDescription(option, t) || undefined}
+										disabled={busy}
+										checked={draft.selectedOptions.includes(option)}
+										onChange={(event) => {
+											const next = event.target.checked
+												? [...draft.selectedOptions, option]
+												: draft.selectedOptions.filter((item) => item !== option);
+											setDraft(decision.id, { selectedOptions: next });
+										}}
+									/>
+								))}
+							</fieldset>
+						) : null}
+						{hasOptions && !allowsMultiple ? (
 							<div
 								className="thread-decision-options"
 								role="radiogroup"
@@ -126,17 +169,26 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 										help={decisionOptionDescription(option, t) || undefined}
 										value={option}
 										disabled={busy}
-										checked={draft.selectedOption === option}
-										onChange={() =>
-											setDrafts((current) => ({
-												...current,
-												[decision.id]: { selectedOption: option, freeText: '' },
-											}))
-										}
+										checked={draft.selectedOptions[0] === option}
+										onChange={() => setDraft(decision.id, { selectedOptions: [option] })}
 									/>
 								))}
 							</div>
-						) : (
+						) : null}
+						{hasOptions && isPoDecision ? (
+							<TextArea
+								label={t('app.threads.decision.otherAnswerLabel', 'Other answer')}
+								help={t(
+									'app.threads.decision.otherAnswerHelp',
+									"If none of the options fit, describe what you want instead — it's used along with anything you checked above.",
+								)}
+								rows={2}
+								disabled={busy}
+								value={draft.freeText}
+								onChange={(event) => setDraft(decision.id, { freeText: event.target.value })}
+							/>
+						) : null}
+						{!hasOptions ? (
 							<TextArea
 								label={t('app.threads.decision.freeTextLabel', 'Your answer')}
 								help={t(
@@ -146,14 +198,9 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 								rows={3}
 								disabled={busy}
 								value={draft.freeText}
-								onChange={(event) =>
-									setDrafts((current) => ({
-										...current,
-										[decision.id]: { selectedOption: '', freeText: event.target.value },
-									}))
-								}
+								onChange={(event) => setDraft(decision.id, { freeText: event.target.value })}
 							/>
-						)}
+						) : null}
 					</m.article>
 				);
 			})}

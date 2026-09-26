@@ -8,7 +8,7 @@
  * @author Rodrigo Mason
  */
 import { useCallback, useEffect, useState } from 'react';
-import { getThread, postThreadMessage, resolveThreadDecision } from '../../api/client';
+import { getThread, postThreadMessage, resolveThreadDecisionsBatch } from '../../api/client';
 import type { ThreadDetail } from '../../api/types';
 import type { Mutate } from '../../app/routes';
 import type { DecisionAnswer } from './ThreadDecisionAnswers';
@@ -21,8 +21,8 @@ type UseThreadConversation = {
 	busy: boolean;
 	reload: () => void;
 	send: (content: string) => Promise<void>;
-	/** Resolves every answered decision in sequence (one write each, same as the API contract),
-	 * then reloads once so the chat and the execution panel settle together. */
+	/** Resolves every answered decision in one request, so the chat gets a single combined message
+	 * ("Title: answer" per decision) instead of one per decision. */
 	resolveDecisions: (answers: DecisionAnswer[]) => Promise<void>;
 };
 
@@ -92,18 +92,17 @@ export function useThreadConversation(
 			if (!threadId || answers.length === 0) return;
 			setBusy(true);
 			try {
-				// Sequential: each resolve can mutate shared loop state (e.g. defers the rest of a
-				// Product Owner batch), so two in flight at once would race on that state.
-				for (const answer of answers) {
-					await mutate(
-						(token) =>
-							resolveThreadDecision(token, threadId, answer.decisionId, {
+				await mutate(
+					(token) =>
+						resolveThreadDecisionsBatch(token, threadId, {
+							answers: answers.map((answer) => ({
+								decisionId: answer.decisionId,
 								selectedOptions: answer.selectedOptions,
 								freeText: answer.freeText || undefined,
-							}),
-						{ awaitRefresh: false },
-					);
-				}
+							})),
+						}),
+					{ awaitRefresh: false },
+				);
 				reload();
 			} finally {
 				setBusy(false);

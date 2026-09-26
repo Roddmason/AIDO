@@ -520,6 +520,9 @@ export type ThreadCostPerformanceResponse = { "costPerformance": ThreadCostPerfo
 export type ThreadCostPolicyRecord = { "approvalRequired": boolean; "forceLocal": boolean; "mode": "economy" | "balanced" | "critical" | "maximum"; "premiumApproval"?: ThreadPremiumApprovalRecord | null; "premiumApprovalOverUsd"?: null | number };
 export type ThreadCostSummaryRecord = { "actualCostUsd"?: null | number; "estimatedCostUsd"?: null | number };
 export type ThreadCreateRequest = { "ownerId": string; "ownerType": "workspace" | "loop" | "story" | "agent_task" | "review"; "projectId": string; "title": string };
+export type ThreadDecisionBatchAnswer = { "decisionId": string; "freeText"?: null | string; "selectedOptions"?: Array<string> };
+export type ThreadDecisionBatchResolveRequest = { "answers": Array<ThreadDecisionBatchAnswer>; "decidedBy"?: null | string };
+export type ThreadDecisionBatchResolveResponse = { "decisions": Array<ThreadDecisionRecord>; "thread": ThreadRecord };
 export type ThreadDecisionRecord = { "createdAt": string; "decidedAt"?: null | string; "decidedBy"?: null | string; "id": string; "messageId"?: null | string; "metadata": JsonObject; "options": Array<string>; "projectId": string; "prompt": string; "resolution"?: null | string; "status": "pending" | "resolved" | "dismissed"; "threadId": string; "title": string; "updatedAt": string };
 export type ThreadDecisionResolveRequest = { "decidedBy"?: null | string; "freeText"?: null | string; "resolution"?: null | string; "selectedOptions"?: Array<string> };
 export type ThreadDecisionResolveResponse = { "decision": ThreadDecisionRecord; "thread": ThreadRecord };
@@ -844,6 +847,7 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "get_thread_board_api_v1_threads__thread_id__board_get", "path": "/api/v1/threads/{thread_id}/board", "summary": "Get Thread Board"},
 	{"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	{"method": "GET", "operationId": "thread_cost_performance_api_v1_threads__thread_id__cost_performance_get", "path": "/api/v1/threads/{thread_id}/cost-performance", "summary": "Thread Cost Performance"},
+	{"method": "POST", "operationId": "resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post", "path": "/api/v1/threads/{thread_id}/decisions/resolve-batch", "summary": "Resolve Decisions Batch"},
 	{"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
 	{"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	{"method": "GET", "operationId": "thread_memory_api_v1_threads__thread_id__memory_get", "path": "/api/v1/threads/{thread_id}/memory", "summary": "Thread Memory"},
@@ -1104,6 +1108,7 @@ export type OperationRequestBodies = {
 	"report_api_v1_decision_engine_report_get": never,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveRequest,
+	"resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post": ThreadDecisionBatchResolveRequest,
 	"resource_status_api_v1_operations_resources_get": never,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowStatusChangeRequest,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest,
@@ -1386,6 +1391,7 @@ export type OperationResponseBodies = {
 	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
+	"resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post": ThreadDecisionBatchResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": ExecutionAccepted,
@@ -1672,6 +1678,7 @@ export type OperationResultBodies = {
 	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
+	"resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post": ThreadDecisionBatchResolveResponse,
 	"resource_status_api_v1_operations_resources_get": ResourceStatusResponse,
 	"resume_workflow_api_v1_workflows__workflow_id__resume_post": WorkflowResponse,
 	"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexResponse,
@@ -1986,6 +1993,7 @@ export const OPERATIONS_BY_ID = {
 	"get_thread_board_api_v1_threads__thread_id__board_get": {"method": "GET", "operationId": "get_thread_board_api_v1_threads__thread_id__board_get", "path": "/api/v1/threads/{thread_id}/board", "summary": "Get Thread Board"},
 	"cancel_execution_api_v1_threads__thread_id__cancel_post": {"method": "POST", "operationId": "cancel_execution_api_v1_threads__thread_id__cancel_post", "path": "/api/v1/threads/{thread_id}/cancel", "summary": "Cancel Execution"},
 	"thread_cost_performance_api_v1_threads__thread_id__cost_performance_get": {"method": "GET", "operationId": "thread_cost_performance_api_v1_threads__thread_id__cost_performance_get", "path": "/api/v1/threads/{thread_id}/cost-performance", "summary": "Thread Cost Performance"},
+	"resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post": {"method": "POST", "operationId": "resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post", "path": "/api/v1/threads/{thread_id}/decisions/resolve-batch", "summary": "Resolve Decisions Batch"},
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": {"method": "POST", "operationId": "resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post", "path": "/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve", "summary": "Resolve Decision"},
 	"thread_events_api_v1_threads__thread_id__events_get": {"method": "GET", "operationId": "thread_events_api_v1_threads__thread_id__events_get", "path": "/api/v1/threads/{thread_id}/events", "summary": "Thread Events"},
 	"thread_memory_api_v1_threads__thread_id__memory_get": {"method": "GET", "operationId": "thread_memory_api_v1_threads__thread_id__memory_get", "path": "/api/v1/threads/{thread_id}/memory", "summary": "Thread Memory"},

@@ -475,8 +475,13 @@ class ThreadCoordinator:
         resolution: str,
         decided_by: str | None = None,
         defer_followup: bool = False,
+        append_message: bool = True,
     ) -> dict[str, Any]:
-        """Resuelve una decisión pendiente y continúa la ejecución del mensaje bloqueado."""
+        """Resuelve una decisión pendiente y continúa la ejecución del mensaje bloqueado.
+
+        ``append_message=False`` omite el mensaje individual "{título}: {resolución}": lo usa el
+        endpoint de lote, que agrega un único mensaje combinado tras resolver todo el batch.
+        """
         if not resolution.strip():
             raise ValueError("Decision resolution is required")
         queued_job: dict[str, Any] | None = None
@@ -501,18 +506,19 @@ class ThreadCoordinator:
             self._settle_linked_product_decision(
                 pending_decision, resolution=resolution, decided_by=decided_by
             )
-            # kind="user": the chat shows what the operator answered, not a tarjeta de decisión
-            # anymore (that card only lives in the execution panel now). metadata.decisionId marks
-            # this as a synthetic answer, not a fresh request — _source_message_for_decision's
-            # fallback below must skip it or a later undecorated decision could adopt this text as
-            # its "original ask" and requeue work from it instead of from what the user actually said.
-            self.repository.append_message(
-                thread_id=thread_id,
-                kind="user",
-                author=decided_by or "user",
-                content=f"{pending_decision['title']}: {resolution}",
-                metadata={"decisionId": decision_id},
-            )
+            if append_message:
+                # kind="user": the chat shows what the operator answered, not a tarjeta de decisión
+                # anymore (that card only lives in the execution panel now). metadata.decisionId marks
+                # this as a synthetic answer, not a fresh request — _source_message_for_decision's
+                # fallback below must skip it or a later undecorated decision could adopt this text as
+                # its "original ask" and requeue work from it instead of from what the user actually said.
+                self.repository.append_message(
+                    thread_id=thread_id,
+                    kind="user",
+                    author=decided_by or "user",
+                    content=f"{pending_decision['title']}: {resolution}",
+                    metadata={"decisionId": decision_id},
+                )
             self.repository.record_event(
                 thread_id=thread_id,
                 type="decision_resolved",
@@ -642,6 +648,7 @@ class ThreadCoordinator:
         resolution: str,
         decided_by: str | None = None,
         defer_followup: bool = False,
+        append_message: bool = True,
     ) -> dict[str, Any]:
         """Resolve and queue a decision inside the caller's active write transaction."""
         if not self.connection.in_transaction:
@@ -652,6 +659,7 @@ class ThreadCoordinator:
             resolution=resolution,
             decided_by=decided_by,
             defer_followup=defer_followup,
+            append_message=append_message,
         )
 
     def add_operator_note(

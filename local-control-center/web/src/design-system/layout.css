@@ -2273,6 +2273,12 @@
 .thread-decision-options {
 	display: grid;
 	gap: var(--space-2);
+	/* Resets the native <fieldset> chrome (border/margin/padding) used for the checkbox group so it
+	   matches the plain <div role="radiogroup"> layout used for the single-choice one. */
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
 }
 
 .thread-research-card {

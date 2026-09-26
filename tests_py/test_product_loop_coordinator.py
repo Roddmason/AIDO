@@ -9081,3 +9081,83 @@ def test_failover_replacement_uses_the_callers_role_policy(tmp_path: Path, monke
     assert captured[0].agent_id == "qa_engineer"
     assert captured[0].task_type == "qa_engineer.implement"
     assert captured[0].preferred_resources == expected_preferred
+
+
+def test_persist_product_decisions_offers_recommendation_as_option_when_none_given(
+    tmp_path: Path,
+) -> None:
+    """Una product_decision sin opciones nunca queda sin nada preseleccionable: su recomendacion se
+    ofrece como la unica opcion, ademas del texto libre que la barra de ejecucion siempre ofrece."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "po-recommendation-option")
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="PO recommendation",
+        )
+        discovery = ProductDiscoveryRepository(connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project["id"], "title": "Frontend stack", "summary": "Pick the stack"}
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator._persist_product_decisions(
+            project_id=project["id"],
+            initiative_id=initiative["id"],
+            brief_id="brief-fixture",
+            output={
+                "decisions": [
+                    {
+                        "title": "Frontend Framework",
+                        "blocking": True,
+                        "recommendation": "React + TypeScript",
+                    }
+                ]
+            },
+            thread_id=thread["id"],
+        )
+
+        decisions = ThreadsRepository(connection).list_decisions(thread["id"])
+        assert len(decisions) == 1
+        assert decisions[0]["options"] == ["React + TypeScript"]
+
+
+def test_persist_clarification_questions_offers_recommendation_as_option_when_none_given(
+    tmp_path: Path,
+) -> None:
+    """Igual que las product_decisions: una clarification question sin opciones ofrece su
+    recomendacion como unica opcion."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project = _workspace_project(connection, tmp_path, "po-question-recommendation-option")
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="PO question recommendation",
+        )
+        discovery = ProductDiscoveryRepository(connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project["id"], "title": "Backend stack", "summary": "Pick the language"}
+        )
+        coordinator = ProductLoopCoordinator(connection, root=tmp_path)
+
+        coordinator._persist_clarification_questions(
+            project_id=project["id"],
+            initiative_id=initiative["id"],
+            output={
+                "questions": [
+                    {
+                        "question": "Which backend language should the team use?",
+                        "recommendation": "Python",
+                    }
+                ]
+            },
+            thread_id=thread["id"],
+        )
+
+        decisions = ThreadsRepository(connection).list_decisions(thread["id"])
+        assert len(decisions) == 1
+        assert decisions[0]["options"] == ["Python"]

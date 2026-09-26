@@ -2053,6 +2053,28 @@ class ProductLoopCoordinator:
         except KeyError:
             return None
 
+    def _decision_options_with_recommendation_fallback(
+        self, record: dict[str, Any], item: dict[str, Any]
+    ) -> list[str]:
+        """Opciones para la decisión de hilo del PO: las ofrecidas, o la recomendación como única.
+
+        Una decisión sin opciones nunca debe quedar sin nada preseleccionable: si el PO no ofreció
+        opciones pero sí una recomendación (o un valor por defecto), esa recomendación se ofrece como
+        la única opción; el texto libre de la barra de ejecución sigue disponible de todos modos.
+        """
+        options = self._question_options(record) or self._question_options(item)
+        if options:
+            return options
+        record_metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        recommendation = str(
+            record.get("decision")
+            or record_metadata.get("recommendation")
+            or item.get("recommendation")
+            or item.get("defaultDecision")
+            or ""
+        ).strip()
+        return [recommendation] if recommendation else []
+
     def _ensure_product_owner_thread_decision(
         self,
         threads: Any,
@@ -2138,7 +2160,7 @@ class ProductLoopCoordinator:
                     meta_key="clarificationQuestionId",
                     title=question_text[:120],
                     prompt=question_text,
-                    options=self._question_options(record) or self._question_options(item),
+                    options=self._decision_options_with_recommendation_fallback(record, item),
                     source_message_id=source_message_id,
                 )
         return records
@@ -2209,7 +2231,7 @@ class ProductLoopCoordinator:
                     meta_key="productDecisionId",
                     title=title[:120],
                     prompt=str(record.get("context") or item.get("question") or title),
-                    options=self._question_options(record) or self._question_options(item),
+                    options=self._decision_options_with_recommendation_fallback(record, item),
                     source_message_id=source_message_id,
                 )
         return records

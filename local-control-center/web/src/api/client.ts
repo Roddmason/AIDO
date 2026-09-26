@@ -133,6 +133,10 @@ export type ThreadDecisionResolveRequest =
 	MutationBody<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
 export type ThreadDecisionResolveResponse =
 	OperationResponse<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
+export type ThreadDecisionBatchResolveRequest =
+	MutationBody<'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post'>;
+export type ThreadDecisionBatchResolveResponse =
+	OperationResponse<'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post'>;
 export type ThreadSimilarityResponse =
 	OperationResponse<'find_similar_threads_api_v1_threads_similar_get'>;
 export type ThreadSimilarityMarkRequest =
@@ -1475,6 +1479,24 @@ export function resolveThreadDecision(
 	>('resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post', {
 		token,
 		pathParams: { thread_id: threadId, decision_id: decisionId },
+		body,
+		signal,
+	});
+}
+
+/** Resolves several pending decisions together, in one chat message; requires the write token. */
+export function resolveThreadDecisionsBatch(
+	token: string,
+	threadId: string,
+	body: ThreadDecisionBatchResolveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post',
+		ThreadDecisionBatchResolveResponse
+	>('resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post', {
+		token,
+		pathParams: { thread_id: threadId },
 		body,
 		signal,
 	});

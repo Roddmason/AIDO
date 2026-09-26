@@ -31,6 +31,8 @@ from .contracts import (
     ThreadCancelResponse,
     ThreadCostPerformanceResponse,
     ThreadCreateRequest,
+    ThreadDecisionBatchResolveRequest,
+    ThreadDecisionBatchResolveResponse,
     ThreadDecisionResolveRequest,
     ThreadDecisionResolveResponse,
     ThreadDeleteRequest,
@@ -65,19 +67,31 @@ THREAD_DETAIL_EVENT_TAIL = 500
 THREAD_DETAIL_ARTIFACT_TAIL = 300
 
 
+def _combined_answer_text(
+    *, resolution: str | None, selected_options: list[str], free_text: str | None
+) -> str:
+    """Resumen de texto compatible con los lectores existentes.
+
+    Usa ``resolution`` si vino explícito, o las opciones elegidas seguidas del texto libre.
+    """
+    explicit = (resolution or "").strip()
+    if explicit:
+        return explicit
+    parts = [option.strip() for option in selected_options if option.strip()]
+    clean_free_text = (free_text or "").strip()
+    if clean_free_text:
+        parts.append(clean_free_text)
+    return ", ".join(parts)
+
+
 def _combined_resolution_text(body: ThreadDecisionResolveRequest) -> str:
     """Resumen de texto compatible con los lectores existentes.
 
     Usa el ``resolution`` explícito si vino, o las opciones elegidas seguidas del texto libre.
     """
-    explicit = (body.resolution or "").strip()
-    if explicit:
-        return explicit
-    parts = [option.strip() for option in body.selected_options if option.strip()]
-    free_text = (body.free_text or "").strip()
-    if free_text:
-        parts.append(free_text)
-    return ", ".join(parts)
+    return _combined_answer_text(
+        resolution=body.resolution, selected_options=body.selected_options, free_text=body.free_text
+    )
 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
@@ -535,6 +549,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         resolution_text = _combined_resolution_text(body)
         if not resolution_text:
             raise HTTPException(status_code=422, detail="resolution, selectedOptions or freeText is required")
+        # Only forward the structured answer when the caller actually used it: an explicit-only
+        # `resolution` (legacy clients, other callers of resolve_thread_decision) must keep matching
+        # as one combined string, not an empty selectedOptions=[] that would look "structured but
+        # empty" to _answer_question and reject a perfectly valid plain answer.
+        has_structured_answer = bool(body.selected_options) or bool((body.free_text or "").strip())
         try:
             result = BlockerRemediationService(
                 platform.connection,
@@ -545,6 +564,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 resolution=resolution_text,
                 decided_by=body.decided_by,
                 platform=platform,
+                # Structured, not just the joined-text fallback above: lets _answer_question validate
+                # each selected option individually and accept free text for Product Owner decisions
+                # even when options are offered, instead of matching the combined string as a whole.
+                selected_options=body.selected_options if has_structured_answer else None,
+                free_text=body.free_text if has_structured_answer else None,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -557,5 +581,92 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             )
             result = {**result, "decision": updated_decision}
         return result
+
+    @router.post(
+        "/api/v1/threads/{thread_id}/decisions/resolve-batch",
+        response_model=ThreadDecisionBatchResolveResponse,
+    )
+    async def resolve_decisions_batch(
+        thread_id: str,
+        body: ThreadDecisionBatchResolveRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Resuelve varias decisiones juntas y deja un único mensaje de usuario en el chat.
+
+        Cada resolución individual sigue usando su propia transacción corta (mismo camino que el
+        endpoint de a una, incluida su remediation real cuando existe) — anidar todo el lote en una
+        única transacción SQL chocaría con otros métodos de remediations que abren la suya propia
+        sin importar si ya hay una activa. En su lugar, una validación previa (decisión pendiente y
+        del hilo correcto, respuesta no vacía) se corre para todo el lote antes de resolver ninguna,
+        para que el motivo más común de fallo a mitad de camino nunca llegue a mutar nada.
+        """
+        require_write(request)
+        if not body.answers:
+            raise HTTPException(status_code=422, detail="At least one answer is required")
+        threads_repo = ThreadsRepository(platform.connection)
+        service = BlockerRemediationService(platform.connection, root=getattr(platform, "cwd", None))
+        prepared: list[tuple[Any, str]] = []
+        for answer in body.answers:
+            resolution_text = _combined_answer_text(
+                resolution=None, selected_options=answer.selected_options, free_text=answer.free_text
+            )
+            if not resolution_text:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"selectedOptions or freeText is required for decision {answer.decision_id}",
+                )
+            try:
+                decision = threads_repo.get_decision(answer.decision_id)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            if decision["threadId"] != thread_id:
+                raise HTTPException(status_code=404, detail=f"Decision not found: {answer.decision_id}")
+            if decision["status"] != "pending":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Decision {answer.decision_id} is already {decision['status']}",
+                )
+            prepared.append((answer, resolution_text))
+
+        summary_lines: list[str] = []
+        resolved_ids: list[str] = []
+        try:
+            for answer, resolution_text in prepared:
+                decision_before = threads_repo.get_decision(answer.decision_id)
+                service.resolve_thread_decision(
+                    thread_id=thread_id,
+                    decision_id=answer.decision_id,
+                    resolution=resolution_text,
+                    decided_by=body.decided_by,
+                    platform=platform,
+                    selected_options=answer.selected_options,
+                    free_text=answer.free_text,
+                    suppress_message=True,
+                )
+                if answer.selected_options or (answer.free_text or "").strip():
+                    threads_repo.update_decision_metadata(
+                        answer.decision_id,
+                        {
+                            "answer": {
+                                "selectedOptions": answer.selected_options,
+                                "freeText": answer.free_text or "",
+                            }
+                        },
+                    )
+                summary_lines.append(f"{decision_before['title']}: {resolution_text}")
+                resolved_ids.append(answer.decision_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        threads_repo.append_message(
+            thread_id=thread_id,
+            kind="user",
+            author=body.decided_by or "user",
+            content="\n".join(summary_lines),
+            metadata={"decisionIds": resolved_ids},
+        )
+        decisions = [threads_repo.get_decision(answer.decision_id) for answer, _ in prepared]
+        return {"thread": threads_repo.get_thread(thread_id), "decisions": decisions}
 
     return router

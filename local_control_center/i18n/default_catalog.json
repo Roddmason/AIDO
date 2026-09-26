@@ -827,6 +827,14 @@
       "en": "No preset options for this one: type the answer AIDO should work from.",
       "es": "Esta decisión no trae opciones: escribe la respuesta con la que AIDO debe seguir."
     },
+    "app.threads.decision.otherAnswerLabel": {
+      "en": "Other answer",
+      "es": "Otra respuesta"
+    },
+    "app.threads.decision.otherAnswerHelp": {
+      "en": "If none of the options fit, describe what you want instead — it's used along with anything you checked above.",
+      "es": "Si ninguna opción te sirve, describe lo que buscas: se suma a lo que hayas marcado arriba."
+    },
     "app.threads.decision.submitAnswers": {
       "en": "Send answers",
       "es": "Enviar respuestas"

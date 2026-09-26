@@ -1814,14 +1814,100 @@ def test_resolve_decision_with_selected_options_combines_summary_and_settles_pro
         runtime.close()
 
 
-def test_resolve_decision_rejects_multiple_options_when_remediation_enforces_single_choice(
+def _seed_po_decision_with_remediation(
+    runtime, *, thread_id: str, project_id: str, decision_id: str, remediation_id: str
+) -> None:
+    """Inserta la remediation ``answer_question`` real que el Product Loop crea para una decisión
+    del PO — el camino que de verdad ejercitan las preguntas del PO en vivo, no un atajo de test.
+
+    ``loopId`` vacío (no un loop real): esto ejercita el matching/resolución de la decisión sin
+    depender de un Product Loop completo; ``_remaining_product_owner_decision_ids`` ya trata un
+    ``loopId`` vacío como "sin batch que diferir" sin tocar ``ProductLoopCoordinator``.
+    """
+    runtime.connection.execute(
+        """
+        INSERT INTO remediation_actions
+            (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+             action_type, payload_json, status, created_at, resolved_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+        """,
+        (
+            remediation_id,
+            project_id,
+            thread_id,
+            "",
+            "product_owner",
+            "po_needs_input",
+            "Answer ProductOwnerAgent question",
+            "Choose one of the offered options.",
+            "answer_question",
+            json.dumps({"threadId": thread_id, "decisionId": decision_id}),
+            "2026-01-01T00:00:00.000Z",
+        ),
+    )
+
+
+def test_resolve_decision_accepts_multiple_selected_options_for_a_product_owner_decision_with_remediation(
     tmp_path: Path,
 ) -> None:
-    """Limitacion conocida y documentada: cuando la decision tiene una remediation
-    ``answer_question`` pendiente (el camino real de las preguntas del PO en vivo), el matching de
-    ``remediations/service.py::_answer_question`` sigue exigiendo una sola opcion exacta. Ese
-    archivo esta fuera de alcance de este cambio (edicion paralela); este test documenta el bloqueo
-    para que quede como regresion cuando se habilite selección múltiple ahi."""
+    """Las preguntas y decisiones del PO admiten selección múltiple incluso por su remediation real
+    (el camino que ejercitan las preguntas del PO en vivo): cada opción se valida contra las
+    ofrecidas y todas llegan a la product_decision enlazada, tal como las relee el PO."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        discovery = ProductDiscoveryRepository(runtime.connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project_id, "title": "Frontend stack", "summary": "Pick the stack"}
+        )
+        product_decision = discovery.create_product_decision(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative["id"],
+                "title": "Frontend Framework",
+                "status": "proposed",
+                "metadata": {"blocking": True},
+            }
+        )
+        decision = ThreadsRepository(runtime.connection).create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework(s) should the team evaluate?",
+            options=["React + TypeScript", "Vue + TypeScript", "Svelte"],
+            metadata={"productDecisionId": product_decision["id"], "source": "product_owner_agent"},
+        )
+        _seed_po_decision_with_remediation(
+            runtime,
+            thread_id=thread["id"],
+            project_id=project_id,
+            decision_id=decision["id"],
+            remediation_id="remediation-multi-answer-test",
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"selectedOptions": ["React + TypeScript", "Svelte"], "decidedBy": "user"},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()["decision"]
+        assert body["status"] == "resolved"
+        assert body["resolution"] == "React + TypeScript, Svelte"
+        settled = discovery.get_product_decision(product_decision["id"])
+        assert settled["status"] == "resolved"
+        assert settled["decision"] == "React + TypeScript, Svelte"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decision_accepts_free_text_for_a_product_owner_decision_that_has_options(
+    tmp_path: Path,
+) -> None:
+    """'Un campo de texto... si no me parecen las opciones que ofrece': una decisión del PO con
+    opciones también acepta texto libre por su remediation real, sin exigir que calce con ninguna."""
     runtime, client = _client(tmp_path)
     try:
         headers = _token(runtime)
@@ -1834,44 +1920,34 @@ def test_resolve_decision_rejects_multiple_options_when_remediation_enforces_sin
             options=["React + TypeScript", "Vue + TypeScript"],
             metadata={"source": "product_owner_agent"},
         )
-        runtime.connection.execute(
-            """
-            INSERT INTO remediation_actions
-                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
-                 action_type, payload_json, status, created_at, resolved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
-            """,
-            (
-                "remediation-multi-answer-test",
-                project_id,
-                thread["id"],
-                "product-loop-question-options",
-                "product_owner",
-                "po_needs_input",
-                "Answer ProductOwnerAgent question",
-                "Choose one of the offered options.",
-                "answer_question",
-                json.dumps({"threadId": thread["id"], "decisionId": decision["id"]}),
-                "2026-01-01T00:00:00.000Z",
-            ),
+        _seed_po_decision_with_remediation(
+            runtime,
+            thread_id=thread["id"],
+            project_id=project_id,
+            decision_id=decision["id"],
+            remediation_id="remediation-freetext-test",
         )
 
         response = client.post(
             f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
             headers=headers,
-            json={"selectedOptions": ["React + TypeScript", "Vue + TypeScript"], "decidedBy": "user"},
+            json={"freeText": "Actually, use Svelte instead", "decidedBy": "user"},
         )
 
-        assert response.status_code == 422, response.text
-        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+        assert response.status_code == 200, response.text
+        body = response.json()["decision"]
+        assert body["status"] == "resolved"
+        assert body["resolution"] == "Actually, use Svelte instead"
     finally:
         runtime.close()
 
 
-def test_resolve_similarity_decision_rejects_combined_multiple_actions(tmp_path: Path) -> None:
-    """Las decisiones de similitud son excluyentes por semantica (una sola accion valida): combinar
-    dos acciones en un resumen no forma una accion conocida y el coordinator la rechaza, incluso sin
-    pasar por una remediation."""
+def test_resolve_similarity_decision_with_remediation_still_rejects_multiple_options_and_free_text(
+    tmp_path: Path,
+) -> None:
+    """Las decisiones excluyentes (similitud, funcionalidad existente, intake) siguen exigiendo una
+    sola opción exacta por su remediation real: selección múltiple y texto libre son exclusivos de
+    las preguntas y decisiones del PO."""
     runtime, client = _client(tmp_path)
     try:
         headers = _token(runtime)
@@ -1884,14 +1960,148 @@ def test_resolve_similarity_decision_rejects_combined_multiple_actions(tmp_path:
             options=list(SIMILARITY_ACTIONS),
             metadata={"similarityCandidateId": "thread-does-not-matter", "similarityScore": 0.9},
         )
+        runtime.connection.execute(
+            """
+            INSERT INTO remediation_actions
+                (id, project_id, thread_id, loop_id, stage, blocker_type, title, description,
+                 action_type, payload_json, status, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+            """,
+            (
+                "remediation-similarity-test",
+                project_id,
+                thread["id"],
+                "thread-similarity",
+                "thread_similarity",
+                "thread_similarity_decision_required",
+                "Similar thread detected",
+                "Choose one of the offered options.",
+                "answer_question",
+                json.dumps({"threadId": thread["id"], "decisionId": decision["id"]}),
+                "2026-01-01T00:00:00.000Z",
+            ),
+        )
 
-        response = client.post(
+        multi = client.post(
             f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
             headers=headers,
             json={"selectedOptions": list(SIMILARITY_ACTIONS)[:2], "decidedBy": "user"},
         )
+        assert multi.status_code == 422, multi.text
+
+        free_text = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/{decision['id']}/resolve",
+            headers=headers,
+            json={"freeText": "something else entirely", "decidedBy": "user"},
+        )
+        assert free_text.status_code == 422, free_text.text
+        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_creates_a_single_chat_message(tmp_path: Path) -> None:
+    """Responder varias decisiones juntas deja UN solo mensaje del usuario en el chat, con una línea
+    por decisión ('Título: respuesta'), no un mensaje suelto por cada una."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        threads_repo = ThreadsRepository(runtime.connection)
+        first = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework?",
+            options=["React + TypeScript", "Vue + TypeScript"],
+            metadata={"source": "product_owner_agent"},
+        )
+        second = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Backend Language",
+            prompt="Which backend language?",
+            options=[],
+            metadata={"source": "product_owner_agent"},
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [
+                    {"decisionId": first["id"], "selectedOptions": ["React + TypeScript"]},
+                    {"decisionId": second["id"], "freeText": "Python"},
+                ],
+                "decidedBy": "user",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        statuses = {item["id"]: item["status"] for item in response.json()["decisions"]}
+        assert statuses[first["id"]] == "resolved"
+        assert statuses[second["id"]] == "resolved"
+
+        messages = threads_repo.list_messages(thread["id"])
+        answer_messages = [
+            message
+            for message in messages
+            if message["kind"] == "user" and "Frontend Framework" in message["content"]
+        ]
+        assert len(answer_messages) == 1, [message["content"] for message in messages]
+        assert answer_messages[0]["content"] == (
+            "Frontend Framework: React + TypeScript\nBackend Language: Python"
+        )
+    finally:
+        runtime.close()
+
+
+def test_resolve_decisions_batch_is_atomic_when_one_decision_is_not_pending(tmp_path: Path) -> None:
+    """Si una decisión del lote ya no está pendiente, ninguna se resuelve ni se agrega mensaje: el
+    lote es todo o nada."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers = _token(runtime)
+        project_id = _project(runtime, tmp_path)
+        thread = _create_thread(client, headers, project_id)
+        threads_repo = ThreadsRepository(runtime.connection)
+        first = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Frontend Framework",
+            prompt="Which frontend framework?",
+            options=["React + TypeScript"],
+            metadata={"source": "product_owner_agent"},
+        )
+        already_resolved = threads_repo.create_decision(
+            thread_id=thread["id"],
+            title="Backend Language",
+            prompt="Which backend language?",
+            options=[],
+            metadata={"source": "product_owner_agent"},
+        )
+        threads_repo.resolve_decision(
+            thread_id=thread["id"],
+            decision_id=already_resolved["id"],
+            resolution="Python",
+            decided_by="user",
+        )
+
+        response = client.post(
+            f"/api/v1/threads/{thread['id']}/decisions/resolve-batch",
+            headers=headers,
+            json={
+                "answers": [
+                    {"decisionId": first["id"], "selectedOptions": ["React + TypeScript"]},
+                    {"decisionId": already_resolved["id"], "freeText": "Go"},
+                ],
+                "decidedBy": "user",
+            },
+        )
 
         assert response.status_code == 422, response.text
-        assert ThreadsRepository(runtime.connection).get_decision(decision["id"])["status"] == "pending"
+        assert threads_repo.get_decision(first["id"])["status"] == "pending"
+        messages = threads_repo.list_messages(thread["id"])
+        assert not any(
+            message["kind"] == "user" and "Frontend Framework" in message["content"] for message in messages
+        )
     finally:
         runtime.close()

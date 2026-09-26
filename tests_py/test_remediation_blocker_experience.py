@@ -725,7 +725,7 @@ def test_interrupted_execution_diff_uses_only_persisted_workspace(tmp_path, monk
             assert not service._should_resolve(action_type="view_diff", execution=result)
 
 
-def test_execution_deadline_offers_partial_review_without_retry(tmp_path):
+def test_execution_deadline_offers_partial_review_first_and_an_explicit_resume(tmp_path):
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
         initialize_platform_schema(connection)
         project, thread = _project_and_thread(connection, tmp_path, "deadline-review")
@@ -738,10 +738,12 @@ def test_execution_deadline_offers_partial_review_without_retry(tmp_path):
             reason="execution_deadline_exhausted",
             details={"interruptedExecutionId": "deadline-job", "workspaceId": "preserved-workspace"},
         )
-        assert [action["actionType"] for action in actions] == ["view_diff"]
-        assert actions[0]["blockerType"] == "runtime_execution_failed"
+        assert [action["actionType"] for action in actions] == ["view_diff", "retry_loop"]
+        assert [action["primary"] for action in actions] == [True, False]
+        assert {action["blockerType"] for action in actions} == {"runtime_execution_failed"}
         assert actions[0]["payload"]["interruptedExecutionId"] == "deadline-job"
         assert actions[0]["payload"]["workspaceId"] == "preserved-workspace"
+        assert actions[1]["payload"]["interruptedExecutionId"] == "deadline-job"
 
 
 @pytest.mark.parametrize(("thread_status", "running"), [("queued", True), ("open", False)])

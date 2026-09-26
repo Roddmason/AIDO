@@ -162,14 +162,42 @@ def test_timeout_reconciles_atomically_preserving_workspace_and_consumed_review(
     events = ThreadsRepository(case.connection).list_events(case.thread["id"])
     assert [item["type"] for item in events] == ["worker_failed"]
     assert events[0]["payload"]["workspaceId"] == case.workspace["id"]
-    assert (
-        case.connection.execute(
-            "SELECT action_type FROM remediation_actions WHERE status='pending'"
-        ).fetchall()[0][0]
-        == "view_diff"
-    )
+    pending = case.connection.execute(
+        "SELECT action_type, is_primary, stage FROM remediation_actions WHERE status='pending' ORDER BY rowid"
+    ).fetchall()
+    # Revisar lo parcial sigue siendo la acción principal; reanudar es explícito, nunca automático.
+    assert [(row[0], bool(row[1]), row[2]) for row in pending] == [
+        ("view_diff", True, "worker"),
+        ("retry_loop", False, "worker"),
+    ]
     assert _reconcile(case)["status"] == "already_reconciled"
     assert len(ThreadsRepository(case.connection).list_events(case.thread["id"])) == 1
+
+
+def test_resuming_a_timed_out_loop_queues_a_retry_of_that_loop(timed_out_loop):
+    """Sin esta acción el operador quedaba sin salida: solo podía mirar el diff parcial (visto en vivo)."""
+    from local_control_center.remediations.service import BlockerRemediationService
+
+    case = timed_out_loop
+    ThreadsRepository(case.connection).append_message(
+        thread_id=case.thread["id"], kind="user", author="operator", content="Migrate the settings page."
+    )
+    _reconcile(case)
+    service = BlockerRemediationService(case.connection, root=case.root)
+    resume = next(
+        action
+        for action in service.repository.list_for_thread(case.thread["id"])
+        if action["actionType"] == "retry_loop" and action["status"] == "pending"
+    )
+
+    result = service._retry_loop(action=resume)
+
+    assert result["status"] == "queued"
+    assert result["job"]["kind"] == "thread.product_loop.run"
+    run_metadata = result["job"]["payload"]["runMetadata"]
+    assert run_metadata["retryOfLoopId"] == case.loop["id"]
+    assert run_metadata["remediationActionId"] == resume["id"]
+    assert run_metadata["retryStage"] == "worker"
 
 
 @pytest.mark.parametrize(

@@ -530,6 +530,8 @@ class DeveloperAgentRunner:
                         "model": model,
                         "messages": messages,
                         "temperature": 0.2,
+                        # Un runtime local corta el patch apenas entra en bucle, no al tope de tokens.
+                        "streamOutput": True,
                         **local_model_call_input(
                             self.connection,
                             provider_id=runtime_id,

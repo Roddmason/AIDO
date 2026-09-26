@@ -704,8 +704,30 @@ def test_every_request_fits_under_its_cap_and_unmeasured_classes_keep_the_cap() 
         assert (
             profile.memory_request_bytes is None or profile.memory_request_bytes <= profile.memory_limit_bytes
         )
-    for unmeasured in ("control_plane", "qa_light", "local_model_call", "browser_test", "local_gpu_model"):
+    for unmeasured in ("control_plane", "qa_light", "browser_test", "local_gpu_model"):
         assert WORKLOAD_PROFILES[unmeasured].memory_request_bytes is None
+
+
+def test_a_resident_model_client_reserves_its_client_not_the_cap(tmp_path: Path) -> None:
+    """``local_model_call`` es el cliente HTTP de un servidor residente (llama.cpp, Ollama): la
+    llamada corre dentro del proceso del job (1 proceso de esa clase en toda la historia de la
+    instalación, contra 186 de ``remote_llm_light``) y la memoria del modelo ya figura como usada.
+    Reservar su tope de 2 GiB dejó en vivo el planning en ``aggregate_memory_budget`` con 8 GiB
+    libres y piso 6: reserva lo mismo que el otro cliente HTTP, ``remote_llm_light``."""
+    from local_control_center.host_resources.profiles import WORKLOAD_PROFILES
+
+    local = WORKLOAD_PROFILES["local_model_call"]
+    assert local.memory_request_bytes == WORKLOAD_PROFILES["remote_llm_light"].memory_request_bytes
+    assert local.memory_limit_bytes == 2 * GIB
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        # Piso por defecto 16 GiB: 17 libres dejan 1 GiB de margen, menos que el tope de 2 GiB.
+        admitted = HostResourceGovernor(connection).admit(
+            _request("local-client", "local_model_call"),
+            snapshot=_healthy_snapshot(available_memory_bytes=17 * GIB),
+        )
+
+    assert admitted.status == "admitted", admitted.reason
 
 
 def test_a_profile_cannot_reserve_more_memory_than_its_cap() -> None:

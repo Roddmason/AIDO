@@ -92,3 +92,13 @@ eligió un criterio más conservador (máximo + 34-40%) mientras la muestra crec
 ADR-005 reemplaza el desalojo total señalado arriba como deuda por un desalojo graduado (una lease a
 la vez, por uso real) y, apoyado en esa red más precisa, baja la reserva de `agent_cli` de 4 a 1 GiB
 (tope sin cambio, 8 GiB). Ver ADR-005 para el detalle y la dependencia sobre el worker de un job.
+
+## Enmienda 2026-09-26 — `local_model_call` reserva su cliente
+
+`local_model_call` figuraba entre las clases sin muestra suficiente, así que reservaba su tope
+(2 GiB). La falta de muestra es la evidencia: en la instalación hay 1 proceso de esa clase contra
+186 de `remote_llm_light`, porque la llamada a un servidor residente (llama.cpp, Ollama) es un
+cliente HTTP que corre dentro del proceso del job, y la memoria del modelo ya figura como usada en
+el host. Con el tope, la vista previa de admisión dejó en vivo el planning del loop en
+`aggregate_memory_budget` con 8 GiB libres y piso 6 (margen 2 GiB, pedido 2 GiB). Ahora reserva
+512 MiB, igual que el otro cliente HTTP (`remote_llm_light`); el tope del Job Object no cambia.

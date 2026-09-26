@@ -729,7 +729,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			expect(mockCalls.unknown).toBe(0);
 
 			const loopResponse = await page.request.get(
-				`${baseUrl}/api/v1/projects/${project.id}/product-loop`,
+				`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
 			);
 			const loopBody = await loopResponse.json();
 			const loops = loopBody.loops ?? loopBody.productLoops ?? [];
@@ -762,7 +762,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			).toBeVisible();
 
 			const loopResponse = await page.request.get(
-				`${baseUrl}/api/v1/projects/${project.id}/product-loop`,
+				`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
 			);
 			const loopBody = await loopResponse.json();
 			const loops = loopBody.loops ?? loopBody.productLoops ?? [];
@@ -820,7 +820,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			let deliveredLoop = null;
 			while (Date.now() < deadline) {
 				const response = await page.request.get(
-					`${baseUrl}/api/v1/projects/${project.id}/product-loop`,
+					`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
 				);
 				const body = await response.json();
 				const loops = body.loops ?? body.productLoops ?? [];

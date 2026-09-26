@@ -64,11 +64,15 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def backlog_repository() -> BacklogRepository:
         return BacklogRepository(platform.connection)
 
-    def product_loop_state(project_id: str) -> dict[str, Any]:
+    def product_loop_state(project_id: str, *, include_context: bool) -> dict[str, Any]:
         loops_repo = ProductLoopRepository(platform.connection)
         discovery = discovery_repository()
         backlog = backlog_repository()
-        loops = loops_repo.list_loops(project_id)
+        loops = (
+            loops_repo.list_loops(project_id)
+            if include_context
+            else loops_repo.list_loop_summaries(project_id)
+        )
         briefs = discovery.list_product_briefs(project_id=project_id)
         tasks = sorted(
             backlog.list_agent_tasks(project_id=project_id),
@@ -79,6 +83,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             key=lambda item: str(item.get("createdAt") or ""),
         )
         acceptance_criteria = backlog.list_acceptance_criteria(project_id=project_id)
+        # ``metadata.resourceDecision.rejected`` acumula el historial completo de candidatos de runtime
+        # descartados en cada asignación (medido: ~554 KB por asignación, 3000+ entradas en una sola);
+        # nadie en `web/src` lee `assignment.metadata` desde este agregado, así que el resumen la omite
+        # igual que el `context` del loop, y sin decodificarla siquiera (``list_agent_assignment_summaries``
+        # no la selecciona).
+        assignments = (
+            backlog.list_agent_assignments(project_id=project_id)
+            if include_context
+            else backlog.list_agent_assignment_summaries(project_id=project_id)
+        )
         return {
             "loops": loops,
             "transitions": loops_repo.list_transitions(loops[0]["id"]) if loops else [],
@@ -93,7 +107,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             "storyDependencies": backlog.list_story_dependencies(project_id=project_id),
             "tasks": tasks,
             "taskDependencies": backlog.list_task_dependencies(project_id=project_id),
-            "assignments": backlog.list_agent_assignments(project_id=project_id),
+            "assignments": assignments,
             "assignmentHandoffs": backlog.list_assignment_handoffs(project_id=project_id),
             "assignmentReviews": backlog.list_assignment_reviews(project_id=project_id),
             "assignmentConflicts": backlog.list_assignment_conflicts(project_id=project_id),
@@ -121,8 +135,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/product-loop",
         response_model=ProductLoopStateResponse,
     )
-    def get_product_loop_state(project_id: str) -> dict[str, Any]:
-        return product_loop_state(project_id)
+    def get_product_loop_state(project_id: str, includeContext: bool = False) -> dict[str, Any]:
+        """Estado agregado del proyecto.
+
+        Por defecto sin ``context`` de los loops (puede pesar cientos de MB acumulados);
+        ``?includeContext=true`` restaura el payload completo.
+        """
+        return product_loop_state(project_id, include_context=includeContext)
 
     @router.get(
         "/api/v1/projects/{project_id}/product-loop/stories/{story_id}/spec",
@@ -274,7 +293,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                         },
                     }
                 )
-        return product_loop_state(project_id)
+        return product_loop_state(project_id, include_context=True)
 
     @router.post(
         "/api/v1/projects/{project_id}/product-loop/brief/{brief_id}/approve",
@@ -362,7 +381,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             except (ProductLoopTransitionError, ProductLoopStopConditionError):
                 continue
             break
-        return product_loop_state(project_id)
+        return product_loop_state(project_id, include_context=True)
 
     @router.post(
         "/api/v1/projects/{project_id}/product-loop/{loop_id}/backlog/approve",
@@ -417,7 +436,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                     trigger="backlog_approved",
                     expected_version=loop["version"],
                 )
-        return product_loop_state(project_id)
+        return product_loop_state(project_id, include_context=True)
 
     @router.post(
         "/api/v1/projects/{project_id}/product-loop/{loop_id}/feedback",

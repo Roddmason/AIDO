@@ -278,6 +278,119 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         runtime.close()
 
 
+def _seed_loop_with_context(runtime, project_id: str) -> dict:
+    from local_control_center.product_loop.repository import ProductLoopRepository
+
+    return ProductLoopRepository(runtime.connection).create_loop(
+        {
+            "projectId": project_id,
+            "title": "Context payload loop",
+            "state": "executing",
+            "status": "running",
+            "context": {"durableRun": {"message": "Reduce checkout friction"}},
+        }
+    )
+
+
+def test_list_loop_summaries_matches_list_loops_minus_context(tmp_path: Path) -> None:
+    """``list_loop_summaries`` es ``list_loops`` sin ``context``: mismo orden, mismas demás columnas."""
+    from local_control_center.product_loop.repository import ProductLoopRepository
+
+    runtime, _client_unused = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Summary repo", path=tmp_path / "summary-repo", template_id="other"
+        )
+        repo = ProductLoopRepository(runtime.connection)
+        older = repo.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Older",
+                "state": "delivered",
+                "status": "delivered",
+                "context": {"durableRun": {"message": "first"}},
+            }
+        )
+        newer = repo.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Newer",
+                "state": "executing",
+                "status": "running",
+                "context": {"durableRun": {"message": "second"}},
+            }
+        )
+
+        full = repo.list_loops(project["id"])
+        summaries = repo.list_loop_summaries(project["id"])
+
+        # Mismo orden que list_loops (no se afirma cuál de los dos va primero: ambos loops pueden
+        # compartir updated_at al milisegundo en un test rápido); lo que importa es que summaries y
+        # full lo resuelven idéntico.
+        assert {item["id"] for item in summaries} == {older["id"], newer["id"]}
+        assert [item["id"] for item in summaries] == [item["id"] for item in full]
+        for summary, complete in zip(summaries, full, strict=True):
+            assert "context" not in summary
+            for key in (
+                "id",
+                "projectId",
+                "initiativeId",
+                "title",
+                "state",
+                "previousState",
+                "status",
+                "version",
+                "createdAt",
+                "updatedAt",
+            ):
+                assert summary[key] == complete[key]
+    finally:
+        runtime.close()
+
+
+def test_product_loop_endpoint_omits_context_by_default(tmp_path: Path) -> None:
+    """El listado agregado no trae ``context`` salvo que se pida explícitamente (regresión medida:
+    hasta ~136 MB acumulados por proyecto bajo el lock global del API)."""
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Loop summary", path=tmp_path / "loop-summary", template_id="other"
+        )
+        loop = _seed_loop_with_context(runtime, project["id"])
+
+        response = client.get(f"/api/v1/projects/{project['id']}/product-loop")
+
+        assert response.status_code == 200
+        summary = response.json()["loops"][0]
+        assert summary["id"] == loop["id"]
+        assert summary["state"] == "executing"
+        assert summary["version"] == loop["version"]
+        assert summary["updatedAt"] == loop["updatedAt"]
+        assert summary.get("context") is None
+    finally:
+        runtime.close()
+
+
+def test_product_loop_endpoint_includes_context_when_requested(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Loop full", path=tmp_path / "loop-full", template_id="other"
+        )
+        loop = _seed_loop_with_context(runtime, project["id"])
+
+        response = client.get(
+            f"/api/v1/projects/{project['id']}/product-loop", params={"includeContext": True}
+        )
+
+        assert response.status_code == 200
+        summary = response.json()["loops"][0]
+        assert summary["id"] == loop["id"]
+        assert summary["context"] == {"durableRun": {"message": "Reduce checkout friction"}}
+    finally:
+        runtime.close()
+
+
 def test_start_and_transition_product_loop_mutations(tmp_path: Path) -> None:
     runtime, client = _client(tmp_path)
     try:

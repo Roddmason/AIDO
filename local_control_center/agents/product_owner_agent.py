@@ -1159,6 +1159,8 @@ class ProductOwnerAgentRunner:
                     "model": model,
                     "messages": messages,
                     "temperature": 0.1,
+                    # Un runtime local corta la salida apenas entra en bucle, no al tope de tokens.
+                    "streamOutput": True,
                     **local_model_call_input(
                         self.connection,
                         provider_id=runtime_id,

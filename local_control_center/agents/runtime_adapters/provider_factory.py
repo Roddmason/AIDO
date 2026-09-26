@@ -298,6 +298,8 @@ class ProviderFactoryAdapter:
                     timeoutSeconds=timeout_seconds,
                     deadlineMonotonic=time.monotonic() + timeout_seconds,
                     coldStartExpected=bool(cold_start),
+                    # Solo un runtime local transmite por stream: así se corta un bucle de repetición.
+                    stream=local_runtime and bool(request.input.get("streamOutput")),
                 )
             )
         except NvidiaNimCapabilityError as error:

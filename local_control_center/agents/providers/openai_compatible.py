@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -36,11 +37,15 @@ from .base import (
 from .http_transport import (
     DEFAULT_CHAT_TIMEOUT_SECONDS,
     MAX_PROVIDER_RESPONSE_BYTES,
+    ResponseTooLargeError,
     read_bounded,
     urlopen_fail_closed,
 )
+from .repetition_guard import RepetitionGuard
 
 PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
+REPETITION_LOOP_FINISH_REASON = "repetition_loop"
+"""``finish_reason`` de una salida cortada por ``RepetitionGuard``; el servidor nunca lo emite."""
 _HTTP_BAD_REQUEST = 400
 USAGE_TOKEN_KEYS = (
     "prompt_tokens",
@@ -89,6 +94,57 @@ def _without_reasoning(raw: Any, content: str) -> Any:
     }
     message["content"] = content
     return {**raw, "choices": [{**first, "message": message}, *choices[1:]]}
+
+
+def _read_chat_stream(response: Any, *, limit: int, deadline: float) -> dict[str, Any]:
+    """Lee un stream SSE de `/chat/completions` y arma la forma de una respuesta sin stream.
+
+    Corta apenas ``RepetitionGuard`` detecta un bucle: la salida ya es inservible y cerrar la conexión
+    detiene la generación en el servidor. Acota bytes y tiempo total igual que la lectura sin stream.
+
+    Raises:
+        ResponseTooLargeError: si el stream supera ``limit`` bytes.
+        TimeoutError: si el stream sigue abierto pasado el deadline de la llamada.
+        json.JSONDecodeError: si un evento ``data:`` no es JSON.
+    """
+    guard = RepetitionGuard()
+    reasoning: list[str] = []
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
+    received = 0
+    for raw_line in response:
+        received += len(raw_line)
+        if received > limit:
+            raise ResponseTooLargeError(f"provider_response_too_large: stream over {limit} bytes")
+        if time.monotonic() > deadline:
+            raise TimeoutError("provider_stream_deadline_exceeded: the stream outlived the call deadline")
+        line = raw_line.strip()
+        if not line.startswith(b"data:"):
+            continue
+        data = line[len(b"data:") :].strip()
+        if data == b"[DONE]":
+            break
+        chunk = json.loads(data.decode("utf-8"))
+        if not isinstance(chunk, dict):
+            continue
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+        choices = chunk.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+        reasoning.append(str(delta.get("reasoning_content") or delta.get("reasoning") or ""))
+        if choice.get("finish_reason"):
+            finish_reason = str(choice["finish_reason"])
+        if guard.feed(str(delta.get("content") or "")):
+            finish_reason = REPETITION_LOOP_FINISH_REASON
+            break
+    message: dict[str, Any] = {"role": "assistant", "content": guard.text}
+    if "".join(reasoning):
+        message["reasoning_content"] = "".join(reasoning)
+    raw: dict[str, Any] = {"choices": [{"index": 0, "message": message, "finish_reason": finish_reason}]}
+    if usage is not None:
+        raw["usage"] = usage
+    return raw
 
 
 class OpenAICompatibleProvider(ModelProvider):
@@ -268,6 +324,28 @@ class OpenAICompatibleProvider(ModelProvider):
         with urlopen_fail_closed(http_request, timeout=timeout) as response:
             return json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
 
+    def _post_chat_stream(self, body: dict[str, Any], *, timeout: float) -> Any:
+        """Como ``_post_chat`` pero con ``stream``: corta la generación si el modelo entra en bucle.
+
+        Solo cuentas locales que lo piden (``ModelRequest.stream``). Un servidor que ignora ``stream``
+        y responde el JSON completo se lee como la ruta normal.
+        """
+        http_request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps({**body, "stream": True, "stream_options": {"include_usage": True}}).encode(
+                "utf-8"
+            ),
+            headers=self._request_headers({"Content-Type": "application/json"}),
+            method="POST",
+        )
+        deadline = time.monotonic() + timeout
+        with urlopen_fail_closed(http_request, timeout=timeout) as response:
+            headers = getattr(response, "headers", None)
+            content_type = str(headers.get("Content-Type") or "") if headers is not None else ""
+            if "text/event-stream" not in content_type:
+                return json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+            return _read_chat_stream(response, limit=self.max_response_bytes, deadline=deadline)
+
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
         """Postea a `/chat/completions` con timeout y lectura acotados y descarta el razonamiento.
 
@@ -293,15 +371,16 @@ class OpenAICompatibleProvider(ModelProvider):
         ):
             raise RuntimeError("Provider is missing base_url or credential_ref")
         body = self._chat_body(request)
+        post = self._post_chat_stream if request.stream and self.send_output_limit else self._post_chat
         with self.invocation_slot(request.deadline_monotonic):
             timeout = request.http_timeout(DEFAULT_CHAT_TIMEOUT_SECONDS)
             try:
-                raw = self._post_chat(body, timeout=timeout)
+                raw = post(body, timeout=timeout)
             except urllib.error.HTTPError as error:
                 if error.code != _HTTP_BAD_REQUEST or "response_format" not in body:
                     raise
                 error.close()  # libera el socket del 400 antes del reintento, sin esperar al GC
-                raw = self._post_chat(
+                raw = post(
                     {key: value for key, value in body.items() if key != "response_format"}, timeout=timeout
                 )
         content, finish_reason, reasoning_present = _chat_choice(raw)

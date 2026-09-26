@@ -32,12 +32,13 @@ from .developer_agent_contract import developer_agent_readiness
 from .endpoint_locality import endpoint_locality, is_local_model_runtime, is_self_hosted_inference
 from .local_runtime_causes import local_runtime_cause_of
 from .model_execution_health import provider_configuration_fingerprint
-from .model_gateway import cached_ollama_status
+from .model_gateway import ModelGateway, cached_ollama_status
 from .product_owner_agent_contract import PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
 from .provider_accounts import ProviderAccountStore
 from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .providers.factory import provider_account_requires_credential
 from .quota_manager import QuotaManager
+from .runtime_health_refresh import needs_refresh
 from .runtime_provider_config import (
     DEFAULT_OLLAMA_BASE_URL,
     KNOWN_PROVIDER_DEFAULT_BASE_URLS,
@@ -856,6 +857,27 @@ class RuntimeStatusService:
                 return
             accounts[runtime_id] = repo.update_runtime_account(str(account["id"]), patch)
 
+    def _should_renew_api_health(self, account: dict[str, Any], status: dict[str, Any]) -> bool:
+        """Indica si hay que sondear ya la salud rancia de un proveedor API/local configurado.
+
+        El worker ejecuta un job a la vez, así que mientras dura un loop largo la operación periódica
+        de salud (``runtime_health_refresh``) no puede correr y la evidencia (TTL 300 s) vence a mitad
+        del loop: el siguiente paso quedaba en ``health_check_required`` con el proveedor sano (visto
+        en vivo con llama.cpp a los 300,4 s, en el rework del DeveloperAgent). Igual que los CLI
+        (``_validate_cli_native_auth``) y Ollama, dentro de un job se sondea en el momento, con los
+        mismos filtros que el refresco periódico (habilitado, configurado, rancio). Nunca con una
+        transacción abierta: la llamada de red no puede retener el lock de escritura.
+        """
+        provider_id = str(account["providerId"])
+        return bool(
+            self.allow_probes
+            and (self.probe_runtime_ids is None or provider_id in self.probe_runtime_ids)
+            and account.get("enabled")
+            and status.get("configured")
+            and not self.connection.in_transaction
+            and needs_refresh(status)
+        )
+
     def list_provider_statuses(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
         """Compute a status payload for every catalogued provider, dispatching by kind.
 
@@ -1004,16 +1026,25 @@ class RuntimeStatusService:
                     )
                 )
             elif provider_type == "local" or provider_type in API_RUNTIME_KINDS:
-                statuses.append(
-                    _api_provider_status(
+                api_status = _api_provider_status(
+                    self.connection,
+                    account,
+                    runtime_installations.get(provider_id) or runtime_installations.get(provider_family),
+                    provider_capabilities,
+                    policy_decision,
+                    configurations.get(provider_id),
+                )
+                if self._should_renew_api_health(account, api_status):
+                    ModelGateway(self.connection).check_provider_health(provider_id)
+                    api_status = _api_provider_status(
                         self.connection,
-                        account,
+                        self.accounts.get_provider_account(provider_id),
                         runtime_installations.get(provider_id) or runtime_installations.get(provider_family),
                         provider_capabilities,
                         policy_decision,
                         configurations.get(provider_id),
                     )
-                )
+                statuses.append(api_status)
             else:
                 statuses.append(
                     _status_payload(

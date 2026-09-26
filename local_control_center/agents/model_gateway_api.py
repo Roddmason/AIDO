@@ -623,17 +623,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        health = ModelGateway(platform.connection).provider_health(provider_id)
-        if health.get("status") == "rate_limited" or "429" in str(
-            health.get("message") or health.get("lastError") or ""
-        ):
-            model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
-            QuotaManager(platform.connection).record_rate_limit(
-                provider_id=provider_id, model=model, retry_after_seconds=300
-            )
-        providers().record_health_check(
-            provider_id=provider_id, status=health["healthStatus"], payload=health
-        )
+        health = ModelGateway(platform.connection).check_provider_health(provider_id)
         audit("model_gateway.provider.health_checked", provider_id, health)
         return {"health": health}
 

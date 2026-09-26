@@ -46,6 +46,8 @@ from .repetition_guard import RepetitionGuard
 PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
 REPETITION_LOOP_FINISH_REASON = "repetition_loop"
 """``finish_reason`` de una salida cortada por ``RepetitionGuard``; el servidor nunca lo emite."""
+MAX_STREAM_LINE_BYTES = 1024 * 1024
+"""Tope de una línea SSE: un evento de chat mide pocos KB y el servidor local no es de confianza."""
 _HTTP_BAD_REQUEST = 400
 USAGE_TOKEN_KEYS = (
     "prompt_tokens",
@@ -112,9 +114,9 @@ def _read_chat_stream(response: Any, *, limit: int, deadline: float) -> dict[str
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
     received = 0
-    for raw_line in response:
+    while raw_line := response.readline(MAX_STREAM_LINE_BYTES + 1):
         received += len(raw_line)
-        if received > limit:
+        if len(raw_line) > MAX_STREAM_LINE_BYTES or received > limit:
             raise ResponseTooLargeError(f"provider_response_too_large: stream over {limit} bytes")
         if time.monotonic() > deadline:
             raise TimeoutError("provider_stream_deadline_exceeded: the stream outlived the call deadline")

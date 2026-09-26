@@ -5099,6 +5099,47 @@ class ProductLoopCoordinator:
         except Exception:
             return loop
 
+    def _supersede_continued_loop(
+        self, *, project_id: str, thread_id: str, request_meta: dict[str, Any], actor: str
+    ) -> None:
+        """Cierra el loop que este run de continuación reemplaza: quedaba ``reworking`` para siempre.
+
+        Rechazar una entrega deja el loop en ``reworking`` y encola una continuación que corre en un
+        loop nuevo; nada cerraba el original y el hilo acumulaba loops "en rework" sin nada en marcha
+        (visto en vivo: tres en el hilo del sandbox). Solo el loop de ``continueOfLoopId`` con la
+        procedencia de su feedback ``continue``, del mismo proyecto e hilo, todavía en ``reworking`` y
+        sin run activo. Best-effort, igual que el supersede de runs interrumpidos.
+        """
+        source_id = str(request_meta.get("continueOfLoopId") or "").strip()
+        if not source_id:
+            return
+        try:
+            source = self.repository.get_loop(source_id)
+        except KeyError:
+            return
+        durable = self._durable_run_context(source)
+        thread = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
+        if (
+            source["projectId"] != project_id
+            or str(thread.get("projectThreadId") or "") != str(thread_id)
+            or source["state"] != REWORK_STATE
+            or durable.get("runActive")
+            or not self._trusted_feedback_resource_approval_marker(
+                request_meta=request_meta, source_loop=source
+            )
+        ):
+            return
+        try:
+            self.transition(
+                source_id,
+                to_state=CANCELLED_STATE,
+                reason="Superseded by the continuation run of its delivery feedback.",
+                trigger="superseded_by_continuation",
+                actor=actor,
+            )
+        except (ProductLoopTransitionError, ProductLoopStopConditionError):
+            return
+
     def _supersede_interrupted_loops(self, *, project_id: str, thread_id: str, actor: str) -> None:
         """Cancela los loops del hilo que quedaron a mitad de ejecucion (re-entry durable).
 

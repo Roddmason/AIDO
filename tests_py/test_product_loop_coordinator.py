@@ -8736,6 +8736,19 @@ def test_continue_feedback_queues_real_product_loop_continuation(tmp_path: Path)
             for event in events
         )
 
+        # Al arrancar, el run de continuación cierra el loop que reemplaza: quedaba "reworking" para
+        # siempre (visto en vivo: tres en un mismo hilo). Sin la procedencia del feedback, no lo toca.
+        run_metadata = continuation_job["payload"]["runMetadata"]
+        untrusted = {key: value for key, value in run_metadata.items() if key != "feedbackId"}
+        coordinator._supersede_continued_loop(
+            project_id=project["id"], thread_id=thread["id"], request_meta=untrusted, actor="worker"
+        )
+        assert coordinator.get(reworked["loop"]["id"])["state"] == "reworking"
+        coordinator._supersede_continued_loop(
+            project_id=project["id"], thread_id=thread["id"], request_meta=run_metadata, actor="worker"
+        )
+        assert coordinator.get(reworked["loop"]["id"])["state"] == "cancelled"
+
 
 def _functionality_blocked_run(connection, tmp_path: Path, monkeypatch, name: str) -> dict[str, Any]:
     project = _workspace_project(connection, tmp_path, name)

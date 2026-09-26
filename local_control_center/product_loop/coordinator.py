@@ -753,6 +753,7 @@ class ProductLoopCoordinator:
             )
         if action["status"] == "pending" and decision == "accept":
             action = self.jobs.approve_action(job_id, action_id, reason=reason, actor=actor)["actionRequest"]
+            self._close_accepted_delivery_approval_job(job_id)
         elif action["status"] == "pending" and decision == "request_changes":
             action = self.jobs.deny_action(job_id, action_id, reason=reason, actor=actor)["actionRequest"]
         return {
@@ -764,6 +765,27 @@ class ProductLoopCoordinator:
             "decidedBy": action.get("decidedBy"),
             "decidedAt": action.get("decidedAt"),
         }
+
+    def _close_accepted_delivery_approval_job(self, job_id: str) -> None:
+        """Cierra el job de aprobación de entrega aceptada: solo contenía la decisión.
+
+        ``approve_action`` deja ``queued`` el job de su última acción para que se ejecute, pero el
+        loop ya aplicó la entrega y el worker no tiene nada que correr: lo fallaba con "Unsupported
+        job kind" justo después de una aprobación válida (visto en vivo). Corre en la transacción de
+        ``apply_feedback``, así el worker nunca ve el estado intermedio.
+        """
+        job = self.jobs.get_job(job_id)
+        if job["kind"] != "product_loop_delivery_approval" or job["status"] != "queued":
+            return
+        self.jobs.update_job_status(
+            job_id,
+            status="completed",
+            metadata={
+                "status": "completed",
+                "decision": "accept",
+                "summary": "Delivery accepted; the Product Loop applies it, nothing else runs for this job.",
+            },
+        )
 
     def _record_delivery_approval_decision(
         self, loop: dict[str, Any], effect: dict[str, Any] | None

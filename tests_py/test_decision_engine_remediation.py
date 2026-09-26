@@ -96,7 +96,10 @@ def test_jev_failure_precedes_unrelated_rejected_runtimes_and_keeps_validated_ev
         ("no_eligible_candidates", "runtime_not_executable:unavailable", "runtime_not_executable"),
         ("privacy_blocked", "privacy_blocks_remote", "resource_manager_privacy_blocked"),
         ("model_validation_failed", "runtime_not_executable:unavailable", "runtime_not_executable"),
-        ("confidence_below_threshold", "policy_rejected", "resource_manager_unconfigured"),
+        # Jev sin confianza para desempatar candidatos ya validados no es un problema de
+        # validación ni de política de rol: la acción útil es asignar un runtime al rol.
+        ("confidence_below_threshold", "policy_rejected", "runtime_team_validation_expired"),
+        ("margin_below_threshold", "policy_rejected", "runtime_team_validation_expired"),
     ],
 )
 def test_jev_transport_classification_does_not_hide_candidate_or_policy_rejections(
@@ -110,6 +113,42 @@ def test_jev_transport_classification_does_not_hide_candidate_or_policy_rejectio
             details=_details(code, rejected_reason=rejected),
         )
         == expected
+    )
+
+
+def test_confidence_below_threshold_outranks_unrelated_runtime_not_executable_text(lane):
+    """La confianza baja de Jev no debe leerse como 'runtime no ejecutable' aunque OTRO candidato
+    rechazado en el mismo turno sí lo esté (visto en vivo: modelos sin relación con la ambigüedad)."""
+    service = lane[-1]
+    assert (
+        service._blocker_type(
+            stage="resource_manager",
+            reason="Jev runtime selection blocked: confidence_below_threshold.",
+            details=_details(
+                "confidence_below_threshold",
+                rejected_reason="runtime_not_executable: unrelated model offline",
+            ),
+        )
+        == "runtime_team_validation_expired"
+    )
+
+
+def test_confidence_below_threshold_offers_the_thread_team_action_as_primary(lane):
+    """No inventa UI nueva: reutiliza el blocker/acción existente que abre el equipo del hilo."""
+    _, project, thread, loop, service = lane
+    actions = service.create_for_blocked_run(
+        project_id=project["id"],
+        thread_id=thread["id"],
+        loop_id=loop["id"],
+        stage="resource_manager",
+        reason="AIResourceManager could not select an approved AI resource for role aido_lead: "
+        "Jev runtime selection blocked: confidence_below_threshold.",
+        details=_details("confidence_below_threshold"),
+    )
+    assert {item["blockerType"] for item in actions} == {"runtime_team_validation_expired"}
+    assert any(
+        item["actionType"] == "retry_loop" and item["payload"].get("retryTarget") == "runtime_team"
+        for item in actions
     )
 
 

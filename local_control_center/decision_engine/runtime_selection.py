@@ -139,4 +139,6 @@ def rank_runtime_candidates(
         "decisionId": receipt["decisionId"],
         "reasonCode": receipt["reasonCode"],
         "effectiveRisk": receipt["effectiveRisk"],
+        "confidence": receipt.get("confidence"),
+        "margin": receipt.get("margin"),
     }

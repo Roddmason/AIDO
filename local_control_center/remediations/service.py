@@ -33,6 +33,7 @@ from local_control_center.remediations.payloads import (
     blocker_runtime_id,
     build_blocker_payload_context,
     decision_engine_failure,
+    jev_confidence_below_threshold_failure,
     resource_policy_summary,
     resource_selection_constraint_failure,
     runtime_risk_review_failure,
@@ -3611,6 +3612,12 @@ class BlockerRemediationService:
         if stage == "resource_manager":
             if runtime_risk_review_failure(details) is not None or details.get("runtimeRiskReviewInvalid"):
                 return "runtime_risk_review_required"
+            if jev_confidence_below_threshold_failure(details) is not None:
+                # Jev no tuvo confianza para desempatar candidatos ya validados; no es un runtime
+                # inejecutable ni una constraint de política. Reutiliza el blocker existente que
+                # abre el equipo de runtimes del hilo (la asignación del operador resuelve la
+                # ambigüedad, ver runtime_team.configuration.role_allowlist).
+                return "runtime_team_validation_expired"
             if decision_engine_failure(details) is not None:
                 return "decision_engine_unavailable"
             if resource_selection_constraint_failure(details) is not None:

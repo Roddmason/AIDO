@@ -239,6 +239,20 @@ def _effective_metadata(coordinator, loop):
     return metadata
 
 
+def _durable_product_owner_selected_resource(durable: dict) -> dict:
+    """Selección de recurso del PO persistida en ``durableRun.productOwner``, o vacío si no hay.
+
+    Misma fuente para ``_checkpoint`` y ``resume_runtime_risk_planning``: sin equipo de runtimes en
+    el hilo, ambos deben reconstruir el ``AIResourceRequest`` de cada rol con el mismo proveedor
+    heredado del PO que usó la corrida original, o el ``requestHash`` no calzaría con el consentimiento
+    de riesgo ya aprobado (``approved_runtime_candidate``).
+    """
+    product_owner = durable.get("productOwner")
+    resource_decision = product_owner.get("resourceDecision") if isinstance(product_owner, dict) else None
+    selected = resource_decision.get("selected") if isinstance(resource_decision, dict) else None
+    return selected if isinstance(selected, dict) else {}
+
+
 def _checkpoint(coordinator, loop):
     """Compute scope from DB only; caller payloads never supply approval authority."""
     connection = coordinator.connection
@@ -293,6 +307,12 @@ def _checkpoint(coordinator, loop):
     config = resolve_config(connection, loop["projectId"])
     if not config.selects_runtime:
         raise ValueError("Jev runtime selection is no longer enabled.")
+    # Misma herencia que la corrida original (coordinator._team_schedule_with_resource_decisions):
+    # sin equipo de runtimes en el hilo, el request reconstruido debe restringirse al mismo proveedor
+    # del PO para que su fingerprint calce con el de la decisión ya persistida.
+    product_owner_provider_id = (
+        str(_durable_product_owner_selected_resource(durable).get("providerId") or "").strip() or None
+    )
     scopes, proposals, expiries = [], [], []
     for role in roles:
         public = role.get("resourceDecision") or {}
@@ -311,6 +331,7 @@ def _checkpoint(coordinator, loop):
             team_schedule=schedule,
             role_plan=role,
             agent_tasks=tasks,
+            product_owner_provider_id=product_owner_provider_id,
         )
         profile = effective_resource_profile(connection, request.agent_profile_id, request.project_id)
         request = apply_profile_limits(request, profile)
@@ -850,6 +871,7 @@ def resume_runtime_risk_planning(coordinator, run):
         expected_context, expected_version = json_dumps(loop["context"]), loop["version"]
         durable = loop["context"]["durableRun"]
         tasks, schedule = durable["agentTasks"], durable["teamSchedule"]
+        product_owner_selected_resource = _durable_product_owner_selected_resource(durable)
     selected_schedule, blockers = coordinator._team_schedule_with_resource_decisions(
         project_id=run.project_id,
         loop_id=loop["id"],
@@ -857,6 +879,7 @@ def resume_runtime_risk_planning(coordinator, run):
         team_schedule=schedule,
         agent_tasks=tasks,
         runtime_risk_review_id=review["id"],
+        product_owner_selected_resource=product_owner_selected_resource,
     )
     with _transaction(coordinator.connection):
         # Keep the current context even on rejection, so the caller cannot overwrite an operator edit.

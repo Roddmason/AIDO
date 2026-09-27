@@ -232,7 +232,7 @@ export function LocalEndpointsPanel({
 					</span>
 				</section>
 			) : (
-				<div className="masonry-grid">
+				<div className="masonry-grid provider-grid">
 					{cards.map((card) => (
 						<LocalEndpointCard
 							key={card.id}
@@ -307,7 +307,7 @@ function LocalEndpointCard({
 	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
 	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
-		<article className="card card--static" data-tone={card.healthTone}>
+		<article className="card card--static provider-card" data-tone={card.healthTone}>
 			<div className="card-header">
 				<div className="inline">
 					<Server aria-hidden="true" size={18} />
@@ -368,7 +368,7 @@ function LocalEndpointCard({
 				</p>
 			) : null}
 
-			<div className="inline">
+			<div className="provider-card-actions">
 				<Button
 					variant="primary"
 					loading={busyAction === `${card.id}:probe`}

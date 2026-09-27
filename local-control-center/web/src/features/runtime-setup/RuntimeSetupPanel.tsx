@@ -9,6 +9,7 @@
 
 import {
 	CheckCircle2,
+	ChevronDown,
 	CircleDashed,
 	CircleDollarSign,
 	Plus,
@@ -427,7 +428,7 @@ export function RuntimeSetupPanel({
 
 	return (
 		<>
-			<div hidden={wizardOpen || localDraft !== null}>
+			<div className="runtime-setup-body" hidden={wizardOpen || localDraft !== null}>
 				<p className="muted">
 					{t(
 						'app.runtime.summary',
@@ -442,8 +443,8 @@ export function RuntimeSetupPanel({
 						)}
 					</p>
 				) : null}
-				<div className="surface-toolbar">
-					<div className="inline">
+				<div className="surface-toolbar runtime-setup-toolbar">
+					<div className="inline runtime-setup-ready">
 						<span className="muted">{t('app.runtime.readyLabel', 'Runtimes ready')}</span>
 						<strong className="tnum">{executableCount}</strong>
 						<span className="muted">
@@ -451,13 +452,17 @@ export function RuntimeSetupPanel({
 							{t('app.runtime.executable', 'executable')}
 						</span>
 					</div>
-					<div className="inline">
-						<button className="button primary" type="button" onClick={() => openWizard(null)}>
+					<div className="inline runtime-setup-actions">
+						<button
+							className="button primary runtime-setup-action"
+							type="button"
+							onClick={() => openWizard(null)}
+						>
 							<Plus aria-hidden="true" size={15} />
 							{t('app.providers.addProvider', 'Add provider')}
 						</button>
 						<button
-							className="button"
+							className="button runtime-setup-action"
 							type="button"
 							disabled={refreshing}
 							aria-busy={refreshing}
@@ -486,7 +491,7 @@ export function RuntimeSetupPanel({
 					/>
 				</DeferredLocalRuntime>
 				{executableCount === 0 ? (
-					<section className="empty-state" aria-live="polite">
+					<section className="empty-state runtime-setup-empty" aria-live="polite">
 						<strong>{t('app.runtime.setup.noneExecutable', 'No executable runtimes')}</strong>
 						<div className="inline">
 							<button
@@ -522,7 +527,7 @@ export function RuntimeSetupPanel({
 						</div>
 					</section>
 				) : null}
-				<div className="masonry-grid">
+				<div className="masonry-grid provider-grid">
 					{providers.map((provider) => {
 						const entry = catalogEntry(provider.id);
 						const setup = entry
@@ -678,6 +683,9 @@ function ProviderCard({
 				? t('app.runtime.action.use', 'Use in a thread')
 				: t('app.runtime.action.validate', 'Validate');
 
+	const detailsLabel = open
+		? t('app.runtime.card.hideDetails', 'Hide details')
+		: t('app.runtime.card.details', 'Configuration details');
 	const busy = busyAction === provider.id;
 	const testBusy = busyAction === `${provider.id}:test`;
 	const syncBusy = busyAction === `${provider.id}:sync`;
@@ -694,7 +702,7 @@ function ProviderCard({
 	};
 
 	return (
-		<article className="card card--static" data-tone={meta.tone}>
+		<article className="card card--static provider-card" data-tone={meta.tone}>
 			<div className="card-header">
 				<div className="inline">
 					{ProviderGlyph ? <ProviderGlyph aria-hidden="true" size={18} /> : null}
@@ -828,7 +836,7 @@ function ProviderCard({
 				</span>
 			)}
 
-			<div className="inline">
+			<div className="provider-card-actions">
 				{isManual ? null : action === 'use' ? (
 					<a className="button primary" href="#home">
 						{actionLabel}
@@ -875,15 +883,18 @@ function ProviderCard({
 					</button>
 				) : null}
 				<button
-					className="button"
+					className="button provider-card-disclosure"
 					type="button"
 					aria-expanded={open}
 					aria-controls={detailsId}
+					// Icon-only toggle: with a visible label, three actions plus "Configuration details" never
+					// fit the row of a 23rem card and the toggle wrapped alone onto a second line. The name
+					// stays on aria-label (and the tooltip), so tests and screen readers keep it.
+					aria-label={detailsLabel}
+					title={detailsLabel}
 					onClick={() => setOpen((value) => !value)}
 				>
-					{open
-						? t('app.runtime.card.hideDetails', 'Hide details')
-						: t('app.runtime.card.details', 'Configuration details')}
+					<ChevronDown aria-hidden="true" size={16} className="provider-card-disclosure-icon" />
 				</button>
 			</div>
 

@@ -4188,6 +4188,22 @@
 	padding-top: var(--space-2);
 }
 
+/* Fields in the value column size to their content instead of the shared `width: 100%`: a full
+ * width number field pushed its Save button onto a second line and made a two-row slab of every
+ * numeric setting. Numbers get a short fixed field; text and selects a bounded flexible one, so the
+ * field and its Save share one line and the value column stays aligned. */
+.setting-control > input.input,
+.setting-control > .select {
+	width: auto;
+	flex: 1 1 12rem;
+	min-width: 0;
+	max-width: 20rem;
+}
+
+.setting-control[data-type="number"] > input.input {
+	flex: 0 0 8rem;
+}
+
 .setting-control--readonly {
 	color: var(--color-text-secondary);
 }

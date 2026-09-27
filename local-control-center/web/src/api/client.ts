@@ -64,6 +64,7 @@ export type ModelGatewayTestPromptResponse =
 export type RuntimeTeamCandidatesResponse =
 	OperationResponse<'list_runtime_team_candidates_api_v1_runtime_team_candidates_get'>;
 export type RuntimeTeamCandidate = RuntimeTeamCandidatesResponse['candidates'][number];
+export type RuntimeTeamResponse = OperationResponse<'get_runtime_team_api_v1_runtime_team_get'>;
 export type RuntimeValidationResponse =
 	OperationResponse<'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post'>;
 export type ThreadRunConfigurationRequest =
@@ -2219,6 +2220,14 @@ export function getRuntimeTeamCandidates(
 		query: { projectId, selected: selected === null ? undefined : selected.join(',') },
 		signal,
 	});
+}
+
+/** Effective global AI team (project > general > automatic) with the active, eligible candidates per role. */
+export function getRuntimeTeam(projectId: string | null, signal?: AbortSignal) {
+	return requestGeneratedOperation<'get_runtime_team_api_v1_runtime_team_get', RuntimeTeamResponse>(
+		'get_runtime_team_api_v1_runtime_team_get',
+		{ query: projectId ? { projectId } : {}, signal },
+	);
 }
 
 /**

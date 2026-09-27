@@ -161,6 +161,7 @@ export type GitRemoteTestRequest = { "allowNetwork"?: boolean };
 export type GitRemoteTestResponse = { "outputPreview"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "remoteName": string; "status": "completed" | "blocked" | "configuration_required" | "failed"; "tested": boolean; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId": string };
 export type GitStatusResponse = { "changedFiles"?: Array<string>; "currentBranch"?: string; "dirty"?: boolean; "lastCommit"?: GitCommitRecord | null; "policyDecisionIds"?: Array<string>; "porcelain"?: Array<string>; "projectId": string; "reason": string; "refreshRequired"?: boolean; "remotes"?: Array<GitRemoteRecord>; "root": string; "snapshotAt"?: null | string; "stagedFiles"?: Array<string>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "untrackedFiles"?: Array<string>; "workspaceId": string; "worktrees"?: Array<GitWorktreeRecord> };
 export type GitWorktreeRecord = { "bare"?: boolean; "branch"?: string; "detached"?: boolean; "head"?: string; "path": string };
+export type GlobalTeamRoleRecord = { "assigned"?: null | string; "candidates"?: Array<string>; "configured"?: Array<string>; "effective"?: Array<string>; "invalid"?: Array<string>; "required": boolean; "role": "product_owner" | "developer" | "architect" | "security" | "technical_lead" | "researcher"; "source": "project" | "general" | "automatic" | "inherited" };
 export type GovernanceResponse = { "architectureDecisions": Array<ArchitectureDecisionRecord>; "nextSteps": Array<NextStepRecord>; "risks": Array<RiskRecord> };
 export type HTTPValidationError = { "detail"?: Array<ValidationError> };
 export type HandshakeResponse = { "loopbackOnly": boolean; "token": string };
@@ -443,10 +444,11 @@ export type RuntimeProviderConfigurationRecord = { "configured": boolean; "displ
 export type RuntimeProviderConfigurationResponse = { "providers": Array<RuntimeProviderConfigurationRecord> };
 export type RuntimeProviderConfigurationVariable = { "configured": boolean; "fingerprint"?: null | string; "key": string; "name": string; "required": boolean; "secret": boolean };
 export type RuntimeProviderSafety = { "network"?: "blocked_by_default" | "runtime_policy_gated" | "remote_calls_disabled_by_default" | "local_only"; "shell"?: boolean; "structuredArgv"?: boolean; "workspaceBound"?: boolean };
-export type RuntimeProviderStatus = { "authenticated"?: boolean; "available": boolean; "blockerType"?: null | string; "blockingReasons"?: Array<string>; "canEditWorkspace"?: boolean; "canRunPrompt"?: boolean; "canRunVersionCheck"?: boolean; "capabilities"?: Array<string>; "compatibility"?: JsonObject | null; "configurationWarnings"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "effectiveStatus"?: string; "executable": boolean; "globallyEnabled"?: boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "healthy"?: boolean; "id": string; "installed"?: boolean; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastCheckedAt"?: null | string; "lastError"?: string; "loginCommand"?: string; "policyAllowed"?: boolean; "productOwnerExecutable"?: boolean; "projectEnabled"?: boolean; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "resourceAdmissible"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string; "versionVerified"?: boolean };
+export type RuntimeProviderStatus = { "authenticated"?: boolean; "available": boolean; "blockerType"?: null | string; "blockingReasons"?: Array<string>; "canEditWorkspace"?: boolean; "canRunPrompt"?: boolean; "canRunVersionCheck"?: boolean; "capabilities"?: Array<string>; "compatibility"?: JsonObject | null; "configurationWarnings"?: Array<string>; "configured": boolean; "detected"?: boolean; "detectedCommand"?: null | string; "displayName": string; "effectiveStatus"?: string; "enabled"?: boolean; "executable": boolean; "globallyEnabled"?: boolean; "healthCheckedAt"?: null | string; "healthStatus"?: string; "healthy"?: boolean; "id": string; "installed"?: boolean; "kind": "api" | "gateway" | "local" | "cli" | "manual"; "lastCheckedAt"?: null | string; "lastError"?: string; "loginCommand"?: string; "policyAllowed"?: boolean; "productOwnerExecutable"?: boolean; "projectEnabled"?: boolean; "reason": string; "requiredConfiguration"?: Array<string>; "requiresApproval"?: boolean; "resourceAdmissible"?: boolean; "safety"?: RuntimeProviderSafety; "version"?: null | string; "versionVerified"?: boolean };
 export type RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; "cli": CliRuntimeProviderStatus; "configurationWarnings"?: Array<string>; "developerAgent": DeveloperAgentStatus; "local"?: Array<LocalEndpointView>; "ollama": OllamaRuntimeProviderStatus; "providers": Array<RuntimeProviderStatus>; "runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual" | "local"> };
 export type RuntimeTeamCandidateRecord = { "eligibleRoles": Array<"product_owner" | "developer" | "architect" | "security">; "kind": "cli" | "api" | "gateway" | "local"; "label": string; "loadedModels"?: Array<string>; "providerId": string; "validation": RuntimeTeamValidationRecord };
 export type RuntimeTeamCandidatesResponse = { "candidates": Array<RuntimeTeamCandidateRecord>; "freshnessSeconds": number; "suggestedRoleModels"?: Record<string, string>; "suggestedRoleRuntimes": RoleRuntimesRecord };
+export type RuntimeTeamResponse = { "activeProviders": number; "allowedRuntimes": Array<string>; "candidates": Array<RuntimeTeamCandidateRecord>; "roles": Array<GlobalTeamRoleRecord> };
 export type RuntimeTeamValidationRecord = { "checkedAt"?: null | string; "latencyMs"?: null | number; "model"?: null | string; "reason"?: null | string; "status": "validated" | "stale" | "failed" | "never" | "policy_denied" };
 export type RuntimeValidationRequest = { "model"?: null | string; "projectId"?: null | string };
 export type RuntimeValidationResponse = { "validation": RuntimeValidationResultRecord };
@@ -819,6 +821,7 @@ export const API_ENDPOINTS = [
 	{"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
 	{"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	{"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
+	{"method": "GET", "operationId": "get_runtime_team_api_v1_runtime_team_get", "path": "/api/v1/runtime/team", "summary": "Get Runtime Team"},
 	{"method": "GET", "operationId": "list_runtime_team_candidates_api_v1_runtime_team_candidates_get", "path": "/api/v1/runtime/team-candidates", "summary": "List Runtime Team Candidates"},
 	{"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	{"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},
@@ -999,6 +1002,7 @@ export type OperationRequestBodies = {
 	"get_project_constitution_api_v1_projects__project_id__constitution_get": never,
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": never,
+	"get_runtime_team_api_v1_runtime_team_get": never,
 	"get_self_improvement_state_api_v1_self_improvement_get": never,
 	"get_settings_api_v1_settings_get": never,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": never,
@@ -1282,6 +1286,7 @@ export type OperationResponseBodies = {
 	"get_project_constitution_api_v1_projects__project_id__constitution_get": ProjectConstitutionResponse,
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
+	"get_runtime_team_api_v1_runtime_team_get": RuntimeTeamResponse,
 	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
 	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
@@ -1569,6 +1574,7 @@ export type OperationResultBodies = {
 	"get_project_constitution_api_v1_projects__project_id__constitution_get": ProjectConstitutionResponse,
 	"get_project_generated_image_api_v1_projects__project_id__artifacts__artifact_id__get": never,
 	"get_provider_api_v1_model_gateway_providers__provider_id__get": ProviderAccountResponse,
+	"get_runtime_team_api_v1_runtime_team_get": RuntimeTeamResponse,
 	"get_self_improvement_state_api_v1_self_improvement_get": SelfImprovementStateResponse,
 	"get_settings_api_v1_settings_get": SettingsResponse,
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
@@ -1965,6 +1971,7 @@ export const OPERATIONS_BY_ID = {
 	"update_risk_api_v1_risks__risk_id__patch": {"method": "PATCH", "operationId": "update_risk_api_v1_risks__risk_id__patch", "path": "/api/v1/risks/{risk_id}", "summary": "Update Risk"},
 	"list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get": {"method": "GET", "operationId": "list_runtime_provider_configuration_api_v1_runtime_provider_configuration_get", "path": "/api/v1/runtime/provider-configuration", "summary": "List Runtime Provider Configuration"},
 	"list_runtime_providers_api_v1_runtime_providers_get": {"method": "GET", "operationId": "list_runtime_providers_api_v1_runtime_providers_get", "path": "/api/v1/runtime/providers", "summary": "List Runtime Providers"},
+	"get_runtime_team_api_v1_runtime_team_get": {"method": "GET", "operationId": "get_runtime_team_api_v1_runtime_team_get", "path": "/api/v1/runtime/team", "summary": "Get Runtime Team"},
 	"list_runtime_team_candidates_api_v1_runtime_team_candidates_get": {"method": "GET", "operationId": "list_runtime_team_candidates_api_v1_runtime_team_candidates_get", "path": "/api/v1/runtime/team-candidates", "summary": "List Runtime Team Candidates"},
 	"update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch": {"method": "PATCH", "operationId": "update_sandbox_profile_api_v1_sandbox_profiles__profile_id__patch", "path": "/api/v1/sandbox/profiles/{profile_id}", "summary": "Update Sandbox Profile"},
 	"revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post": {"method": "POST", "operationId": "revoke_sandbox_profile_api_v1_sandbox_profiles__profile_id__revoke_post", "path": "/api/v1/sandbox/profiles/{profile_id}/revoke", "summary": "Revoke Sandbox Profile"},

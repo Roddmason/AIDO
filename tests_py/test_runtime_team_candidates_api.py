@@ -93,3 +93,47 @@ def test_a_runtime_denied_by_the_project_policy_is_flagged_and_never_suggested(t
         assert set(body["suggestedRoleRuntimes"].values()) == {None}
     finally:
         runtime.close()
+
+
+def test_runtime_team_reports_the_global_assignment_sources_and_active_providers(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _prepare(runtime, tmp_path)
+        SettingsRepository(runtime.connection).set_value(
+            "team.role.developer", "project", project_id, ["codex_cli", "ghost"]
+        )
+        response = client.get("/api/v1/runtime/team", params={"projectId": project_id})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        roles = {item["role"]: item for item in body["roles"]}
+        assert roles["developer"]["source"] == "project"
+        assert roles["developer"]["effective"] == ["codex_cli"]
+        assert roles["developer"]["assigned"] == "codex_cli"
+        assert roles["developer"]["invalid"] == ["ghost"]
+        assert roles["developer"]["required"] is True
+        assert roles["product_owner"]["source"] == "automatic"
+        assert roles["technical_lead"]["source"] == "inherited"
+        assert roles["architect"]["required"] is False
+        assert body["activeProviders"] >= 2
+        assert {item["providerId"] for item in body["candidates"]} >= {"codex_cli", "ollama"}
+        general = client.get("/api/v1/runtime/team")
+        assert general.status_code == 200, general.text
+        assert {item["role"]: item for item in general.json()["roles"]}["developer"]["source"] == "automatic"
+    finally:
+        runtime.close()
+
+
+def test_runtime_providers_report_the_operator_switch(tmp_path: Path) -> None:
+    """Un solo GET por runtime: el estado de proveedores puede cachearse entre llamadas."""
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _prepare(runtime, tmp_path)
+        ProviderAccountStore(runtime.connection).patch_provider_account("ollama", {"enabled": False})
+        providers = client.get("/api/v1/runtime/providers", params={"projectId": project_id}).json()[
+            "providers"
+        ]
+        by_id = {item["id"]: item for item in providers}
+        assert by_id["codex_cli"]["enabled"] is True
+        assert by_id["ollama"]["enabled"] is False
+    finally:
+        runtime.close()

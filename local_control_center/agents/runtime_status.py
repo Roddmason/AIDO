@@ -1147,9 +1147,13 @@ class RuntimeStatusService:
         runtime_repo = RuntimeConfigRepository(self.connection)
         policy = runtime_repo.runtime_execution_policy(project_id=project_id)
         providers = self.list_provider_statuses(project_id=project_id)
+        accounts = self.accounts.list_provider_accounts()
+        enabled_accounts = {str(account["providerId"]): bool(account.get("enabled")) for account in accounts}
+        for provider in providers:
+            provider["enabled"] = enabled_accounts.get(str(provider["id"]), False)
         ollama_provider_ids = {
             str(account["providerId"])
-            for account in self.accounts.list_provider_accounts()
+            for account in accounts
             if account["providerId"] == "ollama" or str(account.get("apiFormat") or "") == "ollama"
         }
         ollama_providers = [

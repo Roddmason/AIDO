@@ -25,11 +25,11 @@
 }
 
 .card--static[data-tone="warn"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
 }
 
 .card--static[data-tone="warn"]:hover {
-	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
 }
 
 .card--static[data-tone="danger"] {
@@ -288,15 +288,21 @@
 		flex: 1 1 0;
 	}
 
-	/* Two short columns instead of one long one: the 12rem nav strip showed ~3 of its 24 sections
-	 * (the active one often cut in half at the edge); two columns show about twice as many. */
+	/* Horizontal section strip (see .settings-nav in layout.css): each group is one unwrapped row of
+	 * chips that never breaks a label ("Providers & CLI" stays on one line). */
 	.settings-nav-list {
-		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+		display: flex;
+		flex: 0 0 auto;
+		flex-wrap: nowrap;
+		gap: var(--space-1);
 	}
 
-	/* Half-width cells: a step less inline padding keeps "Providers & CLI" on one line. */
 	.settings-nav-item {
-		padding-inline: var(--space-2);
+		width: auto;
+		min-height: var(--control-height-sm);
+		padding-inline: var(--space-3);
+		border-radius: var(--radius-pill);
+		white-space: nowrap;
 	}
 }
 
@@ -590,22 +596,28 @@
 }
 
 .wizard-attempt[data-tone="ok"] > .wizard-attempt-icon,
-.wizard-attempt[data-tone="ok"] > .wizard-attempt-status {
+.wizard-attempt[data-tone="ok"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="ok"] > .wizard-validation-icon {
 	color: color-mix(in oklab, var(--color-status-success) 82%, var(--color-text-primary));
 }
 
 .wizard-attempt[data-tone="danger"] > .wizard-attempt-icon,
-.wizard-attempt[data-tone="danger"] > .wizard-attempt-status {
+.wizard-attempt[data-tone="danger"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="danger"] > .wizard-validation-icon {
 	color: var(--color-status-danger);
 }
 
-.wizard-attempt[data-tone="warn"] > .wizard-attempt-icon,
-.wizard-attempt[data-tone="warn"] > .wizard-attempt-status {
-	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+/* Deferred: the check did not run yet (no authorization, quota or model to try). Neutral pending
+ * tone, the same mix the pending badge uses (>= 6.3:1 light, >= 6.2:1 dark), never warning amber. */
+.wizard-attempt[data-tone="pending"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="pending"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="pending"] > .wizard-validation-icon {
+	color: color-mix(in oklch, var(--color-status-pending) 80%, var(--color-text-primary));
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.provider-usage-fill {
+	.provider-usage-fill,
+	.provider-card-disclosure-icon {
 		transition: none;
 	}
 }

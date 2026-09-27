@@ -1754,7 +1754,7 @@
 .thread-console-row[data-type="awaiting_approval"],
 .thread-console-row[data-type="approval_required"],
 .thread-console-row[data-type="decision_required"] {
-	background: color-mix(in oklch, var(--color-status-warning) 7%, transparent);
+	background: color-mix(in oklab, var(--color-status-warning) 7%, transparent);
 }
 
 .thread-row-content,
@@ -1770,9 +1770,9 @@
 	gap: var(--space-2);
 	padding: var(--space-2) 0 var(--space-3);
 	border-top: 1px solid
-		color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
+		color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
 	border-bottom: 1px solid
-		color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
+		color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
 }
 
 /* The only surface that answers a pending thread decision (execution panel and inspector alike):
@@ -1831,7 +1831,7 @@
 	justify-items: start;
 	padding: var(--space-3);
 	font-family: var(--font-sans);
-	border: 1px solid color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border: 1px solid color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
 	border-radius: var(--radius-md);
 	background: var(--color-surface-panel);
 }
@@ -2249,7 +2249,7 @@
 }
 
 .thread-chat-row[data-kind="decision_request"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
 }
 
 .thread-chat-row[data-kind="error"] {
@@ -2343,8 +2343,8 @@
 }
 
 .thread-research-state[data-status="research_required"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 42%, var(--color-border-subtle));
-	background: color-mix(in oklch, var(--color-status-warning) 8%, var(--color-surface-card));
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
+	background: color-mix(in oklab, var(--color-status-warning) 8%, var(--color-surface-card));
 }
 
 .thread-research-state-head {
@@ -2659,7 +2659,7 @@
 /* Warn text mixes toward primary text (same recipe as the badge/icon-button warn tones) so the
  * label keeps ≥4.5:1 contrast on light surfaces where the raw warning token falls short. */
 .composer-runtimes[data-tone="warn"] {
-	color: color-mix(in oklch, var(--color-status-warning) 78%, var(--color-text-primary));
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 .runtime-team-chip:disabled {
@@ -3908,9 +3908,9 @@
 .settings-team-card-blocked {
 	margin: 0;
 	padding: var(--space-2);
-	border: 1px solid color-mix(in oklch, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border: 1px solid color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
 	border-radius: var(--radius-sm);
-	background: color-mix(in oklch, var(--color-status-warning) 7%, var(--color-surface-inset));
+	background: color-mix(in oklab, var(--color-status-warning) 7%, var(--color-surface-inset));
 	color: var(--color-text-secondary);
 	font-size: var(--font-size-xs);
 }
@@ -4278,11 +4278,33 @@
 		grid-template-rows: auto minmax(0, 1fr);
 	}
 
+	/* Phones: the section nav collapses into one compact horizontal strip (search, then every
+	 * section as a chip, group labels inline) instead of a 12rem block. That block sat as a fixed
+	 * band over the top of the scrolling content and left less than half the dialog for it; the strip
+	 * is ~5.5rem and scrolls sideways. Items stay real buttons in DOM order, so Tab walks them and the
+	 * active one is scrolled into view by SettingsModalBody on every section change. */
 	.settings-nav {
+		flex-direction: row;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		overflow-x: auto;
+		overflow-y: hidden;
 		border-right: 0;
 		border-bottom: 1px solid var(--color-border-subtle);
-		max-height: 12rem;
-		overflow-y: auto;
+		scroll-padding-inline: var(--space-3);
+		scrollbar-width: thin;
+	}
+
+	.settings-nav-search {
+		flex: 0 0 9rem;
+		margin-bottom: 0;
+	}
+
+	.settings-nav-group-label {
+		flex: 0 0 auto;
+		margin: 0;
+		padding: 0 var(--space-1);
 	}
 
 	.setting-row {

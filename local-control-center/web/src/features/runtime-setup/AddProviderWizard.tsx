@@ -142,7 +142,7 @@ function defaultCredentialMode(
 /** Per-attempt presentation: the icon and tone repeat the word so a long list scans by shape. */
 const ATTEMPT_STATUS_COPY: Record<
 	RuntimeValidation['status'],
-	{ key: string; fallback: string; tone: 'ok' | 'danger' | 'warn'; Icon: typeof CheckCircle2 }
+	{ key: string; fallback: string; tone: 'ok' | 'danger' | 'pending'; Icon: typeof CheckCircle2 }
 > = {
 	validated: {
 		key: 'app.providers.wizard.attemptPassed',
@@ -159,7 +159,8 @@ const ATTEMPT_STATUS_COPY: Record<
 	deferred: {
 		key: 'app.providers.wizard.attemptDeferred',
 		fallback: 'deferred',
-		tone: 'warn',
+		// Deferred is "not decided yet", not a problem: neutral pending tone, never the failure cross.
+		tone: 'pending',
 		Icon: CirclePause,
 	},
 };
@@ -179,6 +180,8 @@ function RuntimeValidationSummary({ validation }: { validation: RuntimeValidatio
 					latencyMs: validation.latencyMs,
 				},
 			];
+	const headlineCopy = ATTEMPT_STATUS_COPY[validation.status];
+	const HeadlineIcon = headlineCopy.Icon;
 	const headline = passed
 		? t('app.providers.wizard.realValidateOk', 'Validated with {model}').replace(
 				'{model}',
@@ -189,15 +192,11 @@ function RuntimeValidationSummary({ validation }: { validation: RuntimeValidatio
 			: t('app.providers.wizard.realValidateFailed', 'No selected model passed');
 	return (
 		<div className="stack compact" role="status" data-testid="wizard-runtime-validation">
-			<div className="inline">
-				{passed ? (
-					<CheckCircle2 aria-hidden="true" size={15} />
-				) : (
-					<XCircle aria-hidden="true" size={15} />
-				)}
-				<Badge tone={passed ? 'ok' : validation.status === 'deferred' ? 'warn' : 'danger'}>
-					{headline}
-				</Badge>
+			{/* The headline repeats the per-attempt icon and tone, so a deferred result reads as
+			    pending (pause glyph, neutral tone) instead of borrowing the failure cross. */}
+			<div className="inline wizard-validation-headline" data-tone={headlineCopy.tone}>
+				<HeadlineIcon aria-hidden="true" size={15} className="wizard-validation-icon" />
+				<Badge tone={headlineCopy.tone}>{headline}</Badge>
 			</div>
 			{/* One row per model: status icon + tone, the model id in mono and the status word; the reason
 			    sits under it, clamped to two lines with the full text in its tooltip. */}

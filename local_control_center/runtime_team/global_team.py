@@ -114,10 +114,16 @@ def _runtime_order(connection: sqlite3.Connection) -> list[str]:
 
 
 def _active_facts(
-    connection: sqlite3.Connection, *, project_id: str | None, facts: Mapping[str, RuntimeFacts] | None
+    connection: sqlite3.Connection,
+    *,
+    project_id: str | None,
+    facts: Mapping[str, RuntimeFacts] | None,
+    offline: bool = False,
 ) -> dict[str, RuntimeFacts]:
     """Proveedores habilitados, no vetados por la política y dentro de `project.runtime.allowedProviders`."""
-    source = facts if facts is not None else load_runtime_facts(connection, project_id=project_id)
+    source = (
+        facts if facts is not None else load_runtime_facts(connection, project_id=project_id, offline=offline)
+    )
     active = {provider_id: item for provider_id, item in source.items() if not item.policy_denied_reason}
     if project_id:
         allowed = set(
@@ -137,9 +143,10 @@ def _resolve(
     *,
     project_id: str | None,
     facts: Mapping[str, RuntimeFacts] | None,
+    offline: bool = False,
 ) -> tuple[GlobalTeam, list[RuntimeFacts]]:
     """Resuelve el equipo y devuelve también el ranking de activos (lo reusa ``describe_global_team``)."""
-    active = _active_facts(connection, project_id=project_id, facts=facts)
+    active = _active_facts(connection, project_id=project_id, facts=facts, offline=offline)
     runtime_order = _runtime_order(connection)
     ranked = _ranked(list(active.values()), runtime_order)
     automatic = auto_assign_roles(ranked, runtime_order)
@@ -175,9 +182,14 @@ def resolve_global_team(
     *,
     project_id: str | None,
     facts: Mapping[str, RuntimeFacts] | None = None,
+    offline: bool = False,
 ) -> GlobalTeam:
-    """Resuelve el equipo global: por rol, configurado (project > general) o automático, filtrado a activos."""
-    team, _ranked_active = _resolve(connection, project_id=project_id, facts=facts)
+    """Resuelve el equipo global: por rol, configurado (project > general) o automático, filtrado a activos.
+
+    ``offline`` usa solo el estado persistido/cacheado de los runtimes (sin sondas de red): el sellado
+    corre dentro de la transacción del envío, donde el I/O externo está vetado.
+    """
+    team, _ranked_active = _resolve(connection, project_id=project_id, facts=facts, offline=offline)
     return team
 
 

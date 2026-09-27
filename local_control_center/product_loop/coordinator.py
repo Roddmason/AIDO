@@ -5672,6 +5672,26 @@ class ProductLoopCoordinator:
             }
         return next_payload
 
+    def _raise_if_usage_suspended(self, payload: dict[str, Any]) -> None:
+        """Corta el intento si su proveedor quedó sobre el umbral de uso del operador.
+
+        La suspensión por cuota (``agents/provider_usage.py``) puede llegar a mitad de un loop: el
+        siguiente intento no debe gastar más en ese proveedor. Se lanza como falla de cuota, así el
+        failover existente lo excluye y elige el siguiente candidato del orden del rol.
+        """
+        provider_id = str(payload.get("preferredRuntime") or "").strip()
+        if not provider_id:
+            return
+        from local_control_center.agents.provider_usage import ProviderUsageStore
+
+        suspension = ProviderUsageStore(self.connection).suspensions().get(provider_id)
+        if suspension is not None:
+            raise RuntimeError(
+                f"usage_threshold_reached: {provider_id} is at {suspension['usedPercent']}% of its "
+                f"{suspension['window']} quota (threshold {suspension['thresholdPercent']}%), "
+                f"suspended until {suspension['until']}"
+            )
+
     def _run_with_failover(
         self,
         *,
@@ -5706,6 +5726,7 @@ class ProductLoopCoordinator:
                 run.product_owner_resource_decision = decision
                 run.product_owner_selected_resource = decision.get("selected") or {}
             try:
+                self._raise_if_usage_suspended(current_payload)
                 result = runtime.run(current_payload)
                 # Product Owner has a read-only executor. Never replay partial developer output.
                 if role == "product_owner" and isinstance(result, dict) and result.get("output") is None:

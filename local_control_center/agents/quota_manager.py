@@ -902,11 +902,14 @@ class QuotaManager:
         except sqlite3.Error:
             return set()
         now = self._now()
-        return {
+        cooling = {
             str(row["provider_id"])
             for row in rows
             if (cooldown := _parse_utc(row["cooldown_until"])) is not None and cooldown > now
         }
+        # Un proveedor sobre su umbral de uso (``provider_usage``) cuenta como agotado igual que un
+        # cooldown: el estado de runtime, el preflight y la reanudación automática ya lo respetan.
+        return cooling | set(self._usage_suspensions(now))
 
     def providers_in_cooldown_detail(self) -> dict[str, str]:
         """Como :meth:`providers_in_cooldown`, pero con el ``cooldownUntil`` vigente de cada uno.
@@ -934,7 +937,22 @@ class QuotaManager:
             current = detail.get(provider_id)
             if current is None or str(row["cooldown_until"]) < current:
                 detail[provider_id] = str(row["cooldown_until"])
+        for provider_id, until in self._usage_suspensions(now).items():
+            current = detail.get(provider_id)
+            detail[provider_id] = until if current is None else max(current, until)
         return detail
+
+    def _usage_suspensions(self, now: datetime) -> dict[str, str]:
+        """Proveedores suspendidos por umbral de uso y hasta cuándo; vacío ante cualquier error."""
+        from .provider_usage import ProviderUsageStore
+
+        try:
+            return {
+                provider_id: item["until"]
+                for provider_id, item in ProviderUsageStore(self.connection).suspensions(now=now).items()
+            }
+        except sqlite3.Error:
+            return {}
 
     def record_rate_limit(
         self,

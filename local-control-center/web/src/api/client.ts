@@ -65,6 +65,9 @@ export type RuntimeTeamCandidatesResponse =
 	OperationResponse<'list_runtime_team_candidates_api_v1_runtime_team_candidates_get'>;
 export type RuntimeTeamCandidate = RuntimeTeamCandidatesResponse['candidates'][number];
 export type RuntimeTeamResponse = OperationResponse<'get_runtime_team_api_v1_runtime_team_get'>;
+export type ProviderUsage =
+	OperationResponse<'get_provider_usage_api_v1_runtime_provider_usage_get'>;
+export type ProviderUsageEntry = ProviderUsage['providers'][number];
 export type ThreadSealedRuntimeTeam =
 	OperationResponse<'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get'>;
 export type RuntimeValidationResponse =
@@ -2232,6 +2235,49 @@ export function getThreadSealedRuntimeTeam(threadId: string, signal?: AbortSigna
 	>('get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get', {
 		pathParams: { thread_id: threadId },
 		signal,
+	});
+}
+
+/** Quota usage per provider, effective threshold and automatic suspension (no network call). */
+export function getProviderUsage(signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_provider_usage_api_v1_runtime_provider_usage_get',
+		ProviderUsage
+	>('get_provider_usage_api_v1_runtime_provider_usage_get', { signal });
+}
+
+/** Refreshes Claude/Codex usage and AIDO's own accounting now; requires the write token. */
+export function refreshProviderUsage(token: string) {
+	return requestGeneratedOperation<
+		'refresh_provider_usage_now_api_v1_runtime_provider_usage_refresh_post',
+		ProviderUsage
+	>('refresh_provider_usage_now_api_v1_runtime_provider_usage_refresh_post', { token });
+}
+
+/** Sets a provider's own suspension threshold, or `null` to inherit the general one. */
+export function putProviderUsagePolicy(
+	token: string,
+	providerId: string,
+	thresholdPercent: number | null,
+) {
+	return requestGeneratedOperation<
+		'put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put',
+		ProviderUsage
+	>('put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put', {
+		token,
+		pathParams: { provider_id: providerId },
+		body: { thresholdPercent },
+	});
+}
+
+/** Resumes a quota-suspended provider until the reset of the window that suspended it. */
+export function resumeProviderUsage(token: string, providerId: string) {
+	return requestGeneratedOperation<
+		'resume_provider_usage_api_v1_runtime_provider_usage__provider_id__resume_post',
+		ProviderUsage
+	>('resume_provider_usage_api_v1_runtime_provider_usage__provider_id__resume_post', {
+		token,
+		pathParams: { provider_id: providerId },
 	});
 }
 

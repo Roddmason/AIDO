@@ -114,6 +114,16 @@ REGISTRY: list[SettingDescriptor] = [
         maximum=3600,
     ),
     SettingDescriptor(
+        key="runtime.quota.suspendThresholdPercent",
+        section="runtime",
+        project_section=None,
+        type="number",
+        default=80,
+        label_key="app.settings.runtime.quota.suspendThresholdPercent",
+        minimum=1,
+        maximum=100,
+    ),
+    SettingDescriptor(
         key="runtime.nvidia.enabled",
         section="runtime",
         project_section=None,

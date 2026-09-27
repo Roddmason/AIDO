@@ -38,7 +38,7 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 from .facts import load_runtime_facts
-from .roles import TEAM_ROLES, RuntimeFacts, missing_required_roles
+from .roles import OPTIONAL_TEAM_ROLES, TEAM_ROLES, RuntimeFacts, missing_required_roles
 from .validation import RUNTIME_TEAM_FRESHNESS_SECONDS, runtime_validation_state
 
 THREAD_RUN_CONFIGURATION_KEY = "runConfiguration"
@@ -494,7 +494,9 @@ def role_allowlist(
     team = runtime_team_of(request_meta)
     if team is None:
         if global_team_of(request_meta) is not None:
-            return global_role_order(request_meta, team_role) or None
+            # Vacío se queda vacío (falla cerrado, como un equipo por hilo estrechado a nada): ``None``
+            # significaría "sin restricción" y el run usaría un proveedor que el operador no eligió.
+            return global_role_order(request_meta, team_role)
         return [product_owner_provider_id] if product_owner_provider_id else None
     role_runtimes = team[ROLE_RUNTIMES_KEY]
     assigned = (role_runtimes.get(team_role) if team_role else None) or role_runtimes.get("product_owner")
@@ -540,9 +542,11 @@ def global_team_of(request_meta: Mapping[str, Any] | None) -> dict[str, Any] | N
 def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | None) -> list[str]:
     """Orden de proveedores del rol en el equipo global: asignado primero, luego fallbacks.
 
-    Un rol sin asignación propia (``None``: aido_lead, qa_engineer…) sigue el orden del PO. Un rol
-    del equipo sin candidatos (opcional vacío) puede usar cualquier runtime del equipo, como en el
-    equipo por hilo. Vacío sin snapshot global.
+    Un rol sin asignación propia (``None``: aido_lead, qa_engineer…) sigue el orden del PO. Solo un rol
+    opcional (arquitecto, seguridad) en automático y sin candidatos puede usar cualquier runtime del
+    equipo, como en el equipo por hilo. Un rol obligatorio o con orden explícito del operador sin
+    candidatos devuelve vacío: bloquea en vez de tomar prestados los proveedores de otros roles. Vacío
+    sin snapshot global.
     """
     team = global_team_of(request_meta)
     if team is None:
@@ -552,8 +556,9 @@ def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | N
     if order:
         return list(order)
     if team_role and team_role in orders:
-        return list(team["allowedRuntimes"])
-    return list(orders.get("product_owner") or team["allowedRuntimes"])
+        optional_automatic = team_role in OPTIONAL_TEAM_ROLES and team["source"].get(team_role) == "automatic"
+        return list(team["allowedRuntimes"]) if optional_automatic else []
+    return list(orders.get("product_owner") or [])
 
 
 def global_role_order_is_explicit(request_meta: Mapping[str, Any] | None, team_role: str | None) -> bool:

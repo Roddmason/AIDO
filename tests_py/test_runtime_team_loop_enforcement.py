@@ -695,3 +695,51 @@ def test_in_shadow_mode_the_automatic_order_is_one_request_ranked_by_order(coord
         jev_selects=False,
     )
     assert calls == [("nvidia_nim", "codex_cli")]
+
+
+@pytest.mark.parametrize(
+    ("jev_selects", "expected"), [(True, [("codex_cli",)]), (False, [("nvidia_nim", "codex_cli")])]
+)
+def test_failover_walks_an_automatic_order_one_provider_at_a_time_when_jev_selects(
+    coordinator, monkeypatch, jev_selects, expected
+):
+    """Con Jev, un allowlist con todo el orden automático reabriría la ambigüedad también en el failover."""
+    recorded: list = []
+    _calls, fake = _fake_select_resource(
+        {
+            ("nvidia_nim",): {"selected": None, "candidates": []},
+            ("codex_cli",): {"selected": {"providerId": "codex_cli", "model": "m"}, "candidates": [{}]},
+            ("nvidia_nim", "codex_cli"): {
+                "selected": {"providerId": "codex_cli", "model": "m"},
+                "candidates": [{}],
+            },
+        }
+    )
+
+    def select(self, request, *, record=True, **kwargs):
+        if record:
+            recorded.append(tuple(request.allowed_provider_ids or []))
+        return fake(self, request, record=record, **kwargs)
+
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    monkeypatch.setattr(
+        coordinator_module,
+        "resolve_config",
+        lambda connection, project_id: SimpleNamespace(selects_runtime=jev_selects),
+    )
+    run = SimpleNamespace(
+        project_id="project-team",
+        loop={"id": "loop-1"},
+        task_id="task-1",
+        team_schedule=SCHEDULE,
+        request_meta=_with_developer_source("automatic"),
+    )
+    coordinator._failover_replacement(
+        run=run,
+        payload={},
+        attempts=[{"failureClass": "quota", "providerId": "nvidia_nim", "model": "n"}],
+        provider_id="nvidia_nim",
+        failed_model="n",
+        role="developer",
+    )
+    assert recorded == expected

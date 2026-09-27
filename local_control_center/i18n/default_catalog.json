@@ -11211,6 +11211,10 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.providers.wizard.errorCredentialUnresolved": {
+      "en": "AIDO cannot read {ref} ({status}). If it is an environment variable you just created, restart AIDO from a new terminal; or switch to \"API key\" and paste the key.",
+      "es": "AIDO no puede leer {ref} ({status}). Si es una variable de entorno que acabas de crear, reinicia AIDO desde una terminal nueva; o cambia a \"API key\" y pega la key."
+    },
     "app.runtime.health.reason.cli_not_detected": {
       "en": "AIDO has not found this CLI on this machine yet. Run Detect & check; if it is not installed, install it and make sure it is on PATH.",
       "es": "AIDO aún no encuentra esta CLI en este equipo. Ejecuta Detectar y verificar; si no está instalada, instálala y asegúrate de que esté en el PATH."

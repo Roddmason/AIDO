@@ -645,6 +645,21 @@ test('Configure provider: an unresolved seeded placeholder asks for the API key 
 	await expect(wizard.getByLabel('API key')).toBeVisible();
 });
 
+test('Configure provider: a reference AIDO cannot read stops at the credential step with the fix', async ({
+	page,
+}) => {
+	// Windows: a variable created with setx after AIDO started is invisible to its process. The wizard
+	// used to accept the reference and fail two steps later at "Sync models"; it now stops here.
+	const wizard = await openConfigureWizard(page, 'NVIDIA NIM');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await wizard.getByRole('radio', { name: 'Reference' }).check();
+	await wizard.getByLabel('Credential reference').fill('env:AIDO_E2E_NOT_SET_ANYWHERE');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard.getByText(/AIDO cannot read env:AIDO_E2E_NOT_SET_ANYWHERE \(missing\)/)).toBeVisible();
+	await expect(wizard.getByText(/restart AIDO from a new terminal/)).toBeVisible();
+	await expect(wizard.getByLabel('Credential reference')).toBeVisible();
+});
+
 test('Providers & CLI: an active gateway without enabled models asks to sync and select them', async ({
 	page,
 }) => {

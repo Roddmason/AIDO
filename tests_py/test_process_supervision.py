@@ -400,7 +400,9 @@ def test_durable_cancel_is_seen_by_running_process_and_blocks_next_stage(tmp_pat
         managed.process.stderr.read()
         record = service.complete(managed, exit_code=managed.process.returncode)
         assert record.cancelled
-        assert not psutil.pid_exists(child_pid)
+        # Un nieto terminado queda como zombie si el PID 1 del entorno no recoge huérfanos (contenedores
+        # sin init): ya no ejecuta nada, así que cuenta como terminado.
+        assert not psutil.pid_exists(child_pid) or psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE
         assert record.termination_reason == "operator stop"
         assert record.stdout_artifact_id and record.stderr_artifact_id
         with pytest.raises(ExecutionCancelled, match="operator stop"):

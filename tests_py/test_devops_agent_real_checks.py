@@ -184,7 +184,7 @@ def test_devops_agent_without_docker_does_not_fail_startup(
     real_which = shutil.which
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.shutil.which",
-        lambda name: None if name == "docker" else real_which(name),
+        lambda name, *args, **kwargs: None if name == "docker" else real_which(name, *args, **kwargs),
     )
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-no-docker")
@@ -198,7 +198,7 @@ def test_devops_agent_without_docker_does_not_fail_startup(
 
     assert status_response.status_code == 200
     assert status_response.json()["devopsAgent"]["executable"] is True
-    assert run_response.status_code == 202
+    assert run_response.status_code == 202, run_response.text
     body = run_response.json()
     assert body["docker"]["available"] is False
     assert body["docker"]["healthcheck"]["status"] == "skipped_with_reason"

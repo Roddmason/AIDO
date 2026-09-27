@@ -114,6 +114,14 @@ def hermetic_git_template(tmp_path_factory) -> Iterator[None]:
     template = tmp_path_factory.mktemp("empty-git-template")
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("GIT_TEMPLATE_DIR", str(template))
+        # Config inyectada por el entorno (`GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`): un sandbox o CI que
+        # reescribe `git@github.com:` a https con `url.*.insteadOf` cambia el remoto que leen los tests.
+        for name in [
+            key
+            for key in os.environ
+            if key == "GIT_CONFIG_COUNT" or key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+        ]:
+            patch.delenv(name)
         yield
 
 

@@ -60,6 +60,9 @@ export function StatusBar({
 	const status = deriveShellStatus(overview, runtimeProviders, connected, selectedProject);
 	const runtimeAlerts = deriveRuntimeAlerts(runtimeProviders);
 	const projectName = status.projectName ?? t('app.global.noProject', 'no project');
+	const apiLabel = status.connected
+		? t('app.statusBar.apiConnected', 'API connected')
+		: t('app.statusBar.polling', 'polling');
 	const { theme, toggleTheme } = useTheme();
 	const { density, toggleDensity } = useDensity();
 	const languageOptions = languages.length
@@ -75,18 +78,23 @@ export function StatusBar({
 			role="contentinfo"
 			aria-label={t('app.global.globalStatus', 'Global status')}
 		>
-			<span className="status-bar-item">
+			{/* Compact labels keep the bar on one line at 1280px: the short word is what is seen, the full
+			    phrase is the tooltip and the screen-reader text (sr-only), so nothing is lost. */}
+			<span className="status-bar-item" title={apiLabel}>
 				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
-				{status.connected
-					? t('app.statusBar.apiConnected', 'API connected')
-					: t('app.statusBar.polling', 'polling')}
+				<span aria-hidden="true">
+					{/* Acronym, identical in every language (like the AIDO Studio wordmark). */}
+					{status.connected ? 'API' : apiLabel}
+				</span>
+				<span className="sr-only">{apiLabel}</span>
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
-				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
-				<strong>{projectName}</strong>
+				{/* The name alone identifies the project (the sidebar says it is one); the word stays for SR. */}
+				<span className="sr-only">{t('app.statusBar.project', 'Project')}</span>
+				<strong className="status-bar-project">{projectName}</strong>
 			</span>
 			<a
-				className="status-bar-item settings-console-link"
+				className="status-bar-item status-bar-item--minor status-bar-item--wide settings-console-link"
 				href="#settings"
 				title={execution ? `${execution.executionId} · ${execution.reason}` : undefined}
 			>
@@ -94,19 +102,40 @@ export function StatusBar({
 				{execution ? ` · ${execution.status}` : ''}
 			</a>
 			<WorkerStatusItem token={token} t={t} />
-			<span className="status-bar-item">
+			<span
+				className="status-bar-item"
+				title={`${status.executableRuntimes} ${t('app.statusBar.executableRuntimes', 'executable runtimes')}`}
+			>
 				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
-				<span className="tnum">{status.executableRuntimes}</span>{' '}
-				{t('app.statusBar.executableRuntimes', 'executable runtimes')}
+				{!runtimeAlerts.length && status.executableRuntimes === 0 ? (
+					/* Nothing can run: the count itself is the way to set runtimes up (it used to be followed
+					   by a separate "Set up runtimes" link, a second slot for the same action). */
+					<a
+						className="settings-console-link"
+						href="#settings-runtime"
+						title={t('app.statusBar.configureRuntimes', 'Set up runtimes')}
+					>
+						<span className="tnum">{status.executableRuntimes}</span>{' '}
+						<span aria-hidden="true">{t('app.statusBar.runtimes', 'runtimes')}</span>
+						<span className="sr-only">
+							{t('app.statusBar.executableRuntimes', 'executable runtimes')}:{' '}
+							{t('app.statusBar.configureRuntimes', 'Set up runtimes')}
+						</span>
+					</a>
+				) : (
+					<>
+						<span className="tnum">{status.executableRuntimes}</span>{' '}
+						<span aria-hidden="true">{t('app.statusBar.runtimes', 'runtimes')}</span>
+						<span className="sr-only">
+							{t('app.statusBar.executableRuntimes', 'executable runtimes')}
+						</span>
+					</>
+				)}
 				{runtimeAlerts.length ? (
 					<Button className="settings-console-link" onClick={onOpenRuntimeHealth}>
 						{`${runtimeAlerts.length} `}
 						{t('app.runtime.health.needAttention', 'need attention')}
 					</Button>
-				) : status.executableRuntimes === 0 ? (
-					<a className="settings-console-link" href="#settings-runtime">
-						{t('app.statusBar.configureRuntimes', 'Set up runtimes')}
-					</a>
 				) : null}
 			</span>
 			<span className="status-bar-item">
@@ -119,20 +148,29 @@ export function StatusBar({
 				<span className="tnum">{status.pendingApprovals}</span>{' '}
 				{t('app.statusBar.approvals', 'approvals')}
 			</span>
-			<span className="status-bar-item">
+			<span className="status-bar-item status-bar-item--minor">
 				<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
 				QA{' '}
 				<span className="tnum">
 					{status.qaPassed}/{status.qaTotal}
 				</span>
 			</span>
-			<span className="status-bar-item">
+			<span
+				className="status-bar-item status-bar-item--minor"
+				title={
+					status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : undefined
+				}
+			>
 				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
-				<strong>
-					{status.recordedCost === null
-						? t('app.statusBar.unavailable', 'unavailable')
-						: `$${status.recordedCost.toFixed(2)}`}
-				</strong>
+				{status.recordedCost === null ? (
+					<>
+						{/* An unknown cost reads as an em dash; the word stays in the tooltip and for SR. */}
+						<strong aria-hidden="true">—</strong>
+						<span className="sr-only">{t('app.statusBar.unavailable', 'unavailable')}</span>
+					</>
+				) : (
+					<strong>{`$${status.recordedCost.toFixed(2)}`}</strong>
+				)}
 			</span>
 			<div className="status-bar-controls">
 				{/* biome-ignore lint/a11y/useSemanticElements: swapping to <fieldset> regresses layout — fieldset's UA margin-inline:2px and min-inline-size:min-content are not reset by .language-switch (a class shared only by this element) and inline-flex relies on content sizing; role="group"+aria-label keeps the labeled grouping semantics intact */}

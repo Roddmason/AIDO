@@ -26,6 +26,7 @@ import {
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
 	healthCheckModelGatewayProvider,
+	patchModelGatewayProvider,
 	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
@@ -278,6 +279,32 @@ export function RuntimeSetupPanel({
 		}
 	};
 
+	/** Operator switch (`provider_accounts.enabled`): an inactive provider is used by no thread. */
+	const toggleProvider = async (providerId: string, enabled: boolean) => {
+		if (busyAction) return;
+		if (!requireToken()) return;
+		setBusyAction(`${providerId}:toggle`);
+		try {
+			await patchModelGatewayProvider(token, providerId, { enabled });
+			await Promise.all([onRefresh(), loadGateway()]);
+			notify({
+				title: enabled
+					? t('app.providers.action.enabled', 'Provider enabled for threads')
+					: t('app.providers.action.disabled', 'Provider disabled for threads'),
+				tone: 'ok',
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			notify({
+				title: t('app.providers.action.toggleFailed', 'Could not update the provider'),
+				body: redactVisibleSecret(message, 'provider update failed'),
+				tone: 'danger',
+			});
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
 	/** One-click first step: probe every CLI runtime in parallel, then reload the snapshot. */
 	const detectClis = async () => {
 		if (busyAction) return;
@@ -437,6 +464,7 @@ export function RuntimeSetupPanel({
 								onSetupAction={() => runSetupAction(provider.id)}
 								onTest={(model) => runProviderTask(provider.id, 'test', model)}
 								onSync={() => runProviderTask(provider.id, 'sync')}
+								onToggleEnabled={(enabled) => void toggleProvider(provider.id, enabled)}
 								onConfigure={() => openWizard(provider.id)}
 							/>
 						);
@@ -492,6 +520,7 @@ function ProviderCard({
 	onSetupAction,
 	onTest,
 	onSync,
+	onToggleEnabled,
 	onConfigure,
 }: {
 	provider: MergedProvider;
@@ -501,6 +530,7 @@ function ProviderCard({
 	onSetupAction: () => Promise<boolean>;
 	onTest: (model?: string) => void;
 	onSync: () => void;
+	onToggleEnabled: (enabled: boolean) => void;
 	onConfigure: () => void;
 }) {
 	const { t } = useI18n();
@@ -554,10 +584,37 @@ function ProviderCard({
 					{ProviderGlyph ? <ProviderGlyph aria-hidden="true" size={18} /> : null}
 					<h4 className="card-title">{provider.displayName}</h4>
 				</div>
-				<Badge tone={meta.tone}>
-					<StateIcon aria-hidden="true" size={13} />
-					<span>{stateLabel}</span>
-				</Badge>
+				<div className="inline">
+					<Badge tone={meta.tone}>
+						<StateIcon aria-hidden="true" size={13} />
+						<span>{stateLabel}</span>
+					</Badge>
+					{setup ? (
+						<label
+							className="setting-switch provider-switch"
+							data-disabled={busyAction !== null ? 'true' : undefined}
+						>
+							<input
+								type="checkbox"
+								checked={setup.enabled}
+								disabled={busyAction !== null}
+								aria-label={t('app.providers.switch.label', 'Use {provider} in threads').replace(
+									'{provider}',
+									provider.displayName,
+								)}
+								onChange={(event) => onToggleEnabled(event.target.checked)}
+							/>
+							<span className="setting-switch-track" aria-hidden="true">
+								<span className="setting-switch-thumb" />
+							</span>
+							<span className="setting-switch-state" aria-hidden="true">
+								{setup.enabled
+									? t('app.providers.switch.on', 'Active')
+									: t('app.providers.switch.off', 'Inactive')}
+							</span>
+						</label>
+					) : null}
+				</div>
 			</div>
 			<div className="card-meta">
 				<Badge tone="info">

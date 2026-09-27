@@ -15,6 +15,8 @@ const BLOCKING_QA_VERDICTS = ['failed', 'blocked', 'security_blocked', 'devops_b
 export type ShellStatus = {
 	connected: boolean;
 	executableRuntimes: number;
+	/** Providers the operator switched on (`enabled`) that the project policy allows. */
+	activeProviders: number;
 	pendingApprovals: number;
 	qaPassed: number;
 	qaTotal: number;
@@ -37,6 +39,10 @@ export function deriveShellStatus(
 		connected,
 		executableRuntimes:
 			runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0,
+		activeProviders:
+			runtimeProviders?.providers.filter(
+				(provider) => provider.enabled && provider.policyAllowed !== false,
+			).length ?? 0,
 		pendingApprovals: overview.actionRequests.filter((item) => item.status === 'pending').length,
 		qaPassed: evidence.filter((item) => String(item.qaVerdict ?? '') === 'passed').length,
 		qaTotal: evidence.length,

@@ -19,6 +19,7 @@
 import {
 	CheckCircle2,
 	CircleDollarSign,
+	CirclePause,
 	KeyRound,
 	Link2,
 	RefreshCw,
@@ -138,12 +139,30 @@ function defaultCredentialMode(
 	return entry?.authKind === 'optional_api_key' ? 'none' : 'key';
 }
 
-const ATTEMPT_STATUS_COPY: Record<RuntimeValidation['status'], { key: string; fallback: string }> =
-	{
-		validated: { key: 'app.providers.wizard.attemptPassed', fallback: 'passed' },
-		failed: { key: 'app.providers.wizard.attemptFailed', fallback: 'failed' },
-		deferred: { key: 'app.providers.wizard.attemptDeferred', fallback: 'deferred' },
-	};
+/** Per-attempt presentation: the icon and tone repeat the word so a long list scans by shape. */
+const ATTEMPT_STATUS_COPY: Record<
+	RuntimeValidation['status'],
+	{ key: string; fallback: string; tone: 'ok' | 'danger' | 'warn'; Icon: typeof CheckCircle2 }
+> = {
+	validated: {
+		key: 'app.providers.wizard.attemptPassed',
+		fallback: 'passed',
+		tone: 'ok',
+		Icon: CheckCircle2,
+	},
+	failed: {
+		key: 'app.providers.wizard.attemptFailed',
+		fallback: 'failed',
+		tone: 'danger',
+		Icon: XCircle,
+	},
+	deferred: {
+		key: 'app.providers.wizard.attemptDeferred',
+		fallback: 'deferred',
+		tone: 'warn',
+		Icon: CirclePause,
+	},
+};
 
 /** Outcome of the real validation: the model that answered (or not) and every model tried, with its reason. */
 function RuntimeValidationSummary({ validation }: { validation: RuntimeValidation }) {
@@ -180,16 +199,23 @@ function RuntimeValidationSummary({ validation }: { validation: RuntimeValidatio
 					{headline}
 				</Badge>
 			</div>
-			<ul className="stack compact">
+			{/* One row per model: status icon + tone, the model id in mono and the status word; the reason
+			    sits under it, clamped to two lines with the full text in its tooltip. */}
+			<ul className="wizard-attempts">
 				{attempts.map((attempt) => {
 					const copy = ATTEMPT_STATUS_COPY[attempt.status];
+					const AttemptIcon = copy.Icon;
+					const detail = [attempt.reason, attempt.evidence].filter(Boolean).join(' — ');
 					return (
-						<li key={attempt.model ?? 'none'} className="field-help">
-							<span className="mono">{attempt.model ?? '—'}</span>
-							{': '}
-							{t(copy.key, copy.fallback)}
-							{attempt.reason ? ` (${attempt.reason})` : ''}
-							{attempt.evidence ? ` — ${attempt.evidence}` : ''}
+						<li key={attempt.model ?? 'none'} className="wizard-attempt" data-tone={copy.tone}>
+							<AttemptIcon aria-hidden="true" size={15} className="wizard-attempt-icon" />
+							<span className="mono wizard-attempt-model">{attempt.model ?? '—'}</span>
+							<span className="wizard-attempt-status">{t(copy.key, copy.fallback)}</span>
+							{detail ? (
+								<span className="field-help wizard-attempt-detail" title={detail}>
+									{detail}
+								</span>
+							) : null}
 						</li>
 					);
 				})}

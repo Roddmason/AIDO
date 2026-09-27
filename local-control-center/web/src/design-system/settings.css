@@ -187,10 +187,10 @@
 	opacity: 0.55;
 }
 
-/* Provider card header: glyph + title on the left, state badge + "Use in threads" switch on the
- * right. In the narrow grid columns (and on phones) both groups cannot share one line; instead of
- * squeezing the title into a stacked glyph/two-word column, the header wraps as whole groups: the
- * title keeps its line and the badge + switch drop together to the next one. */
+/* Provider card header, shared by every provider, Ollama endpoint and local endpoint card: glyph +
+ * title on the left, the "Use in threads" switch alone on the right, so the switch sits in the same
+ * spot on every card (the state badge leads the meta row instead). If a long title leaves no room,
+ * the header wraps as whole groups: the title keeps its line and the switch drops below it. */
 .card--static > .card-header {
 	flex-wrap: wrap;
 	align-items: center;
@@ -226,7 +226,8 @@
 	font-weight: var(--weight-medium);
 }
 
-/* Reserve the longer "Inactive" word so toggling the provider never nudges the badge beside it. */
+/* Reserve the longest state word ("Inactive"/"Inactivo") so every card's switch has the same width
+ * and toggling never shifts the header. */
 .provider-switch .setting-switch-state {
 	min-inline-size: 8ch;
 }
@@ -343,8 +344,12 @@
 	margin: 0;
 }
 
+/* Warning text: 78% warning toward the primary text (>= 5.2:1 in both themes), because raw
+ * --color-status-warning is only ~3.9:1 on the light inset surface, under the 4.5:1 text minimum.
+ * Mixed in oklab, not oklch: the oklch hue path from amber to the blue-grey text runs through green
+ * and turned the warning olive. Every status mix below uses the same space for the same reason. */
 .provider-usage-note[data-tone="warn"] {
-	color: var(--color-status-warning);
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 .provider-usage-windows {
@@ -390,14 +395,18 @@
 	transition: inline-size 240ms ease;
 }
 
+/* Same mix as the warning text: the raw light-theme warning fill is 2.9:1 against the track, the
+ * mix clears the 3:1 non-text minimum in both themes. */
 .provider-usage-meter[data-tone="warn"] .provider-usage-fill {
-	background: var(--color-status-warning);
+	background: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 .provider-usage-meter[data-tone="danger"] .provider-usage-fill {
 	background: var(--color-status-danger);
 }
 
+/* The tick overhangs the track so its ends always sit on the inset surface (>= 10:1); over a danger
+ * fill the primary colour alone is ~2.9:1, so a 1px ring in the surface colour separates it there. */
 .provider-usage-threshold {
 	position: absolute;
 	inset-block: -0.1875rem;
@@ -405,13 +414,38 @@
 	margin-inline-start: -1px;
 	border-radius: 1px;
 	background: var(--color-text-primary);
+	box-shadow: 0 0 0 1px var(--color-surface-inset);
 }
 
+/* Threshold row: the field and its own Save share one line; the secondary actions live in the
+ * footer below, so the three buttons no longer wrap one per line in a 23rem card. */
 .provider-usage-controls {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: flex-end;
 	gap: var(--space-2);
+}
+
+.provider-usage-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding-block-start: var(--space-2);
+	border-block-start: 1px solid var(--color-border-subtle);
+}
+
+/* Secondary usage actions: one step smaller than a primary control (still >= 32px, over the 24px
+ * target minimum) so "Resume until reset" and "Read usage" fit one row. */
+.button.provider-usage-action {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-sm);
+}
+
+/* The read time trails the actions; when they wrap it keeps to the end of its own line. */
+.provider-usage-last-read {
+	margin-inline-start: auto;
 }
 
 .provider-usage-threshold-field {
@@ -435,9 +469,139 @@
 	inline-size: 5.5rem;
 }
 
+/* Same accessible warning mix as the usage notes: raw warning text is ~4.1:1 on the light panel. */
 .provider-usage-summary {
 	margin: 0 0 var(--space-3);
-	color: var(--color-status-warning);
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* ---- Provider card density ---- */
+
+/* `.stack` sets display:grid, which beat the UA `[hidden]` rule: "Configuration details" was always
+ * expanded, doubling every card. The dedicated class restores the collapsed state. */
+.provider-card-details[hidden] {
+	display: none;
+}
+
+/* The raw backend reason (with its machine code) behind the plain card copy. */
+.provider-card-raw-reason {
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+/* Capability ids and synced model names: a lighter, denser chip list like "Use for roles". */
+.provider-chip-list {
+	gap: var(--space-1);
+}
+
+.badge.provider-chip {
+	min-height: 1.5rem;
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+}
+
+/* Readiness checklist (installed, authenticated…): icon + word in the tone of the answer, without
+ * pill borders, so four facts take one or two short lines instead of two rows of badges. */
+.provider-readiness {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--font-size-sm);
+}
+
+.provider-readiness > li {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+}
+
+.provider-readiness > li[data-tone="ok"] {
+	color: color-mix(in oklab, var(--color-status-success) 82%, var(--color-text-primary));
+}
+
+.provider-readiness > li[data-tone="warn"] {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* Delete on endpoint cards: a quiet, trailing action. The destructive tone only appears on hover or
+ * focus, so Validate/Probe stay the most prominent action; the confirm dialog is the real guard. */
+.button.provider-card-delete {
+	margin-inline-start: auto;
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.button.provider-card-delete:hover:not(:disabled),
+.button.provider-card-delete:focus-visible {
+	border-color: color-mix(in oklch, var(--color-status-danger) 60%, var(--color-border-default));
+	background: transparent;
+	color: var(--color-status-danger);
+}
+
+/* ---- Add-provider wizard: real-request validation result ---- */
+
+/* One row per model tried: icon | model id | status word, with the reason clamped under the id. */
+.wizard-attempts {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.wizard-attempt {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	font-size: var(--font-size-sm);
+}
+
+.wizard-attempt-model {
+	min-inline-size: 0;
+	overflow: hidden;
+	color: var(--color-text-primary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wizard-attempt-status {
+	font-weight: var(--weight-semibold);
+}
+
+.wizard-attempt-detail {
+	grid-column: 2 / -1;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
+.wizard-attempt[data-tone="ok"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="ok"] > .wizard-attempt-status {
+	color: color-mix(in oklab, var(--color-status-success) 82%, var(--color-text-primary));
+}
+
+.wizard-attempt[data-tone="danger"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="danger"] > .wizard-attempt-status {
+	color: var(--color-status-danger);
+}
+
+.wizard-attempt[data-tone="warn"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="warn"] > .wizard-attempt-status {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 @media (prefers-reduced-motion: reduce) {

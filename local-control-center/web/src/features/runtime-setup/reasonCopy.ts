@@ -18,6 +18,14 @@ export const REASON_COPY = new Map<string, { key: string; fallback: string }>([
 		},
 	],
 	[
+		'usage_threshold_reached',
+		{
+			key: 'app.runtime.health.reason.usage_threshold_reached',
+			fallback:
+				'This provider reached the usage threshold of its quota; AIDO skips it and fails over until the quota window resets.',
+		},
+	],
+	[
 		'health_check_required',
 		{
 			key: 'app.runtime.health.reason.health_check_required',
@@ -185,4 +193,38 @@ export function describeReason(reason: string, t: Translate): string {
 	const leading = LEADING_CODE_RE.exec(reason.trim());
 	if (!leading || !REASON_COPY.has(leading[1])) return reason;
 	return `${describeReasonCode(leading[1], t)} (${leading[2].trim()})`;
+}
+
+/**
+ * Short, card-sized copy for the codes a provider card shows most: the long health-modal text explains
+ * the mechanism, the card only has two lines to say what state the provider is in and what to do.
+ */
+const CARD_REASON_COPY = new Map<string, { key: string; fallback: string }>([
+	[
+		'provider_disabled',
+		{
+			key: 'app.providers.card.reason.provider_disabled',
+			fallback: 'Switched off for AIDO. Turn it on to use it in threads.',
+		},
+	],
+	[
+		'usage_threshold_reached',
+		{
+			key: 'app.providers.card.reason.usage_threshold_reached',
+			fallback: 'Paused by its usage quota. AIDO uses the next runtime until the window resets.',
+		},
+	],
+]);
+
+/**
+ * Reason text for a provider or endpoint card. A reason led by a code with card copy
+ * (`provider_disabled: …`) becomes that copy alone, without the machine detail; any other reason goes
+ * through {@link describeReason}. Callers keep the raw reason available (tooltip, details) because the
+ * card copy drops the detail on purpose.
+ */
+export function describeCardReason(reason: string, t: Translate): string {
+	const trimmed = reason.trim();
+	const code = LEADING_CODE_RE.exec(trimmed)?.[1] ?? trimmed;
+	const copy = CARD_REASON_COPY.get(code);
+	return copy ? t(copy.key, copy.fallback) : describeReason(trimmed, t);
 }

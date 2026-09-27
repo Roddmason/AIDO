@@ -602,6 +602,33 @@ test('Providers & CLI: a provider used by a running thread keeps its switch lock
 	}
 });
 
+test('Providers & CLI: a machine reason code reads as plain copy and keeps the raw reason in details', async ({
+	page,
+}) => {
+	const raw =
+		'provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); no thread, agent or failover uses it until it is switched back on.';
+	await page.route('**/api/v1/runtime/providers*', async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		body.providers = body.providers.map((item) => (item.id === 'gemini' ? { ...item, reason: raw } : item));
+		await route.fulfill({ response, json: body });
+	});
+	try {
+		const settings = await openSettings(page);
+		const card = settings.locator('.card').filter({ hasText: 'Google Gemini' }).first();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		const reason = card.locator('.card-reason');
+		await expect(reason).toHaveText('Switched off for AIDO. Turn it on to use it in threads.');
+		await expect(reason).toHaveAttribute('title', raw);
+		// Details stay collapsed until asked for, and then show the reason as the backend reported it.
+		await expect(card.getByText(raw, { exact: true })).toBeHidden();
+		await card.getByRole('button', { name: 'Configuration details' }).click();
+		await expect(card.getByText(raw, { exact: true })).toBeVisible();
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
 test('Configure provider: an unresolved seeded placeholder asks for the API key instead of keeping it', async ({
 	page,
 }) => {
@@ -747,9 +774,14 @@ test('Add provider: the validate step saves the selection and shows which gatewa
 		await wizard.getByRole('button', { name: 'Validate with a real request', exact: true }).click();
 		const summary = wizard.getByTestId('wizard-runtime-validation');
 		await expect(summary).toContainText('Validated with oc/big-pickle');
-		await expect(summary).toContainText('cc/claude-x: failed (runtime_validation_failed)');
-		await expect(summary).toContainText('No active credentials for provider: cc');
-		await expect(summary).toContainText('oc/big-pickle: passed');
+		// One row per model tried: the id, its status word and the reason with the backend evidence.
+		const failedRow = summary.getByRole('listitem').filter({ hasText: 'cc/claude-x' });
+		await expect(failedRow).toContainText('failed');
+		await expect(failedRow).toContainText('runtime_validation_failed');
+		await expect(failedRow).toContainText('No active credentials for provider: cc');
+		await expect(summary.getByRole('listitem').filter({ hasText: 'oc/big-pickle' })).toContainText(
+			'passed',
+		);
 		expect(events).toEqual([
 			'patch:omniroute:cc/claude-x:true',
 			'patch:omniroute:oc/deepseek-v4-flash-free:false',

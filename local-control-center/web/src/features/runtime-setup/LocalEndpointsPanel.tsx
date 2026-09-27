@@ -39,6 +39,7 @@ import {
 } from './localEndpoints';
 import { isAbsoluteHttpUrl, normalizeBaseUrl } from './ollamaEndpoints';
 import { ProviderSwitch } from './ProviderSwitch';
+import { healthStatusLabel } from './providerCardModel';
 import { describeReason } from './reasonCopy';
 
 type LocalEndpointsPanelProps = {
@@ -46,11 +47,18 @@ type LocalEndpointsPanelProps = {
 	/** Bumped by the parent after another surface (the setup wizard) wrote an endpoint. */
 	revision?: number;
 	onRefresh?: () => Promise<unknown> | undefined;
+	/** Provider ids a running call holds; their switch shows "In use" and stays on. */
+	inUseProviderIds?: ReadonlySet<string>;
 };
 
 type EndpointTask = 'probe' | 'sync';
 
-export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEndpointsPanelProps) {
+export function LocalEndpointsPanel({
+	token,
+	revision = 0,
+	onRefresh,
+	inUseProviderIds,
+}: LocalEndpointsPanelProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
 	const [endpoints, setEndpoints] = useState<LocalEndpointView[]>([]);
@@ -230,6 +238,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 							key={card.id}
 							card={card}
 							busyAction={busyAction}
+							inUse={inUseProviderIds?.has(card.id) ?? false}
 							onToggleEnabled={(enabled) => void toggleEndpoint(card.id, enabled)}
 							onProbe={() => void runTask(card.id, 'probe')}
 							onSync={() => void runTask(card.id, 'sync')}
@@ -274,6 +283,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 function LocalEndpointCard({
 	card,
 	busyAction,
+	inUse,
 	onToggleEnabled,
 	onProbe,
 	onSync,
@@ -282,6 +292,7 @@ function LocalEndpointCard({
 }: {
 	card: LocalEndpointCardModel;
 	busyAction: string | null;
+	inUse: boolean;
 	onToggleEnabled: (enabled: boolean) => void;
 	onProbe: () => void;
 	onSync: () => void;
@@ -291,7 +302,10 @@ function LocalEndpointCard({
 	const { t } = useI18n();
 	const locality = LOCALITY_META[card.locality] ?? LOCALITY_META.remote;
 	const anyBusy = busyAction !== null;
+	const rawFailure = card.failureReason ? redactVisibleSecret(card.failureReason) : '';
 
+	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
+	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
 		<article className="card card--static" data-tone={card.healthTone}>
 			<div className="card-header">
@@ -300,24 +314,20 @@ function LocalEndpointCard({
 					<h4 className="card-title">{card.displayName}</h4>
 				</div>
 				<div className="inline">
-					<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
 					<ProviderSwitch
 						providerName={card.displayName}
 						checked={card.enabled}
 						busy={anyBusy}
+						inUse={inUse}
 						onChange={onToggleEnabled}
 					/>
 				</div>
 			</div>
 
 			<div className="card-meta">
+				<Badge tone={card.healthTone}>{healthStatusLabel(card.healthStatus, t)}</Badge>
 				<Badge tone="info">{card.serverLabel}</Badge>
 				<Badge tone={locality.tone}>{t(locality.labelKey, locality.fallback)}</Badge>
-				<Badge tone={card.enabled ? 'ok' : 'warn'}>
-					{card.enabled
-						? t('app.localRuntime.panel.enabled', 'enabled')
-						: t('app.localRuntime.panel.disabled', 'disabled')}
-				</Badge>
 				{card.hasCredential ? (
 					<Badge tone="ok">
 						<ShieldCheck aria-hidden="true" size={12} />
@@ -351,10 +361,10 @@ function LocalEndpointCard({
 				</div>
 			</dl>
 
-			{card.failureReason ? (
-				<p className="card-body">
+			{rawFailure ? (
+				<p className="card-body card-reason" title={rawFailure}>
 					<span className="field-label">{t('app.localRuntime.panel.lastError', 'Last error')}</span>{' '}
-					{describeReason(redactVisibleSecret(card.failureReason), t)}
+					{describeReason(rawFailure, t)}
 				</p>
 			) : null}
 
@@ -379,7 +389,12 @@ function LocalEndpointCard({
 				<Button disabled={anyBusy} icon={<Pencil size={14} />} onClick={onEdit}>
 					{t('app.localRuntime.panel.edit', 'Edit')}
 				</Button>
-				<Button variant="danger" disabled={anyBusy} icon={<Trash2 size={14} />} onClick={onDelete}>
+				<Button
+					className="provider-card-delete"
+					disabled={anyBusy}
+					icon={<Trash2 size={14} />}
+					onClick={onDelete}
+				>
 					{t('app.localRuntime.panel.delete', 'Delete')}
 				</Button>
 			</div>

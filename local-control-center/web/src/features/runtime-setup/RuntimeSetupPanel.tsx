@@ -60,7 +60,13 @@ import {
 } from './localEndpoints';
 import { ProviderSwitch } from './ProviderSwitch';
 import { hasUsageToShow, ProviderUsageSection } from './ProviderUsageSection';
-import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
+import {
+	COST_META,
+	deriveProviderSetup,
+	healthStatusLabel,
+	type ProviderSetupInfo,
+} from './providerCardModel';
+import { describeCardReason } from './reasonCopy';
 import {
 	apiProviderIdsNeedingProbe,
 	catalogEntry,
@@ -644,15 +650,19 @@ function ProviderCard({
 			catalogEntry(provider.id)?.providerType === 'gateway' &&
 			setup.enabledModelCount === 0,
 	);
+	// The backend reason leads with a machine code (`provider_disabled: …`); the card shows its plain
+	// copy and keeps the raw text in the tooltip and under Configuration details.
+	const rawReason = redactVisibleSecret(
+		status?.reason ?? provider.config?.reason,
+		t('app.runtime.card.noReason', 'No status reported yet.'),
+	);
 	const reason = needsModelSelection
 		? t(
 				'app.providers.card.noEnabledModels',
 				'No model is enabled for this gateway. Sync models, then select the ones to use in Configure.',
 			)
-		: redactVisibleSecret(
-				status?.reason ?? provider.config?.reason,
-				t('app.runtime.card.noReason', 'No status reported yet.'),
-			);
+		: describeCardReason(rawReason, t);
+	const reasonTranslated = reason !== rawReason;
 	const variables = provider.config?.variables ?? [];
 	// The manual operator is a switch, not a runtime: there is nothing to probe or configure.
 	const isManual = provider.kind === 'manual';
@@ -691,10 +701,6 @@ function ProviderCard({
 					<h4 className="card-title">{provider.displayName}</h4>
 				</div>
 				<div className="inline">
-					<Badge tone={meta.tone}>
-						<StateIcon aria-hidden="true" size={13} />
-						<span>{stateLabel}</span>
-					</Badge>
 					<ProviderSwitch
 						providerName={provider.displayName}
 						checked={Boolean(account?.enabled)}
@@ -713,6 +719,10 @@ function ProviderCard({
 				</div>
 			</div>
 			<div className="card-meta">
+				<Badge tone={meta.tone}>
+					<StateIcon aria-hidden="true" size={13} />
+					<span>{stateLabel}</span>
+				</Badge>
 				<Badge tone="info">
 					{kindLabel ? t(kindLabel.labelKey, kindLabel.fallback) : provider.kind}
 				</Badge>
@@ -723,9 +733,10 @@ function ProviderCard({
 							: t('app.providers.credential.missing', 'no credential')}
 					</Badge>
 				) : null}
-				{setup ? (
+				{/* "Not checked" adds nothing next to the state badge; the Health check detail still says so. */}
+				{setup && setup.healthStatus !== 'unknown' ? (
 					<Badge tone={setup.healthStatus === 'healthy' ? 'ok' : 'warn'}>
-						{redactVisibleSecret(setup.healthStatus, t('app.runtime.card.unknown', 'unknown'))}
+						{healthStatusLabel(redactVisibleSecret(setup.healthStatus), t)}
 					</Badge>
 				) : null}
 				{cost ? (
@@ -735,15 +746,15 @@ function ProviderCard({
 					</Badge>
 				) : null}
 			</div>
-			<p className="card-body card-reason" title={reason}>
+			<p className="card-body card-reason" title={reasonTranslated ? rawReason : reason}>
 				{reason}
 			</p>
 			{usage}
 
 			{capabilities.length ? (
-				<div className="inline">
+				<div className="inline provider-chip-list">
 					{capabilities.map((capability) => (
-						<Badge tone="info" key={capability}>
+						<Badge tone="info" className="provider-chip" key={capability}>
 							{capability}
 						</Badge>
 					))}
@@ -781,21 +792,33 @@ function ProviderCard({
 			) : null}
 
 			{status ? (
-				<div className="inline">
+				/* Readiness reads as a checklist, not as four more status pills: the icon and tone carry
+				   yes/no, and the hidden suffix gives screen readers the same answer. */
+				<ul
+					className="provider-readiness"
+					aria-label={t('app.providers.card.readiness', 'Readiness')}
+				>
 					{facts.map((fact) => {
 						const FactIcon =
 							fact.value === true ? CheckCircle2 : fact.value === false ? XCircle : CircleDashed;
 						return (
-							<Badge
+							<li
 								key={fact.id}
-								tone={fact.value === true ? 'ok' : fact.value === false ? 'warn' : 'info'}
+								data-tone={fact.value === true ? 'ok' : fact.value === false ? 'warn' : 'info'}
 							>
-								<FactIcon aria-hidden="true" size={12} />
+								<FactIcon aria-hidden="true" size={13} />
 								<span>{t(fact.labelKey, fact.fallback)}</span>
-							</Badge>
+								<span className="sr-only">
+									{fact.value === true
+										? t('app.providers.card.factYes', ': yes')
+										: fact.value === false
+											? t('app.providers.card.factNo', ': no')
+											: t('app.providers.card.factUnknown', ': not checked')}
+								</span>
+							</li>
 						);
 					})}
-				</div>
+				</ul>
 			) : (
 				<span className="field-help">
 					{t(
@@ -864,7 +887,21 @@ function ProviderCard({
 				</button>
 			</div>
 
-			<div id={detailsId} ref={detailsRef} tabIndex={-1} className="stack" hidden={!open}>
+			<div
+				id={detailsId}
+				ref={detailsRef}
+				tabIndex={-1}
+				className="stack provider-card-details"
+				hidden={!open}
+			>
+				{reasonTranslated ? (
+					<section className="stack compact">
+						<h5 className="field-label">
+							{t('app.providers.card.reportedReason', 'Reported reason')}
+						</h5>
+						<span className="mono provider-card-raw-reason">{rawReason}</span>
+					</section>
+				) : null}
 				<section className="stack compact">
 					<h5 className="field-label">
 						{t('app.runtime.card.envVars', 'Required environment variables')}

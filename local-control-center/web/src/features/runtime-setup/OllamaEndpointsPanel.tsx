@@ -44,6 +44,8 @@ import {
 	preferredWithEndpointFirst,
 } from './ollamaEndpoints';
 import { ProviderSwitch } from './ProviderSwitch';
+import { healthStatusLabel } from './providerCardModel';
+import { describeReason } from './reasonCopy';
 
 /** Model chips shown inline before the card falls back to a count-only summary. */
 const MODEL_CHIP_LIMIT = 6;
@@ -55,9 +57,11 @@ function errorMessage(error: unknown): string {
 type EndpointsPanelProps = {
 	token: string;
 	onRefresh?: () => Promise<unknown> | undefined;
+	/** Provider ids a running call holds; their switch shows "In use" and stays on. */
+	inUseProviderIds?: ReadonlySet<string>;
 };
 
-export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) {
+export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: EndpointsPanelProps) {
 	const { t } = useI18n();
 	const { notify } = useToast();
 	const [endpoints, setEndpoints] = useState<OllamaEndpoint[]>([]);
@@ -267,6 +271,7 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 							key={card.id}
 							card={card}
 							busyAction={busyAction}
+							inUse={inUseProviderIds?.has(card.id) ?? false}
 							onValidate={() => void runEndpointTask(card.id, 'validate')}
 							onSync={() => void runEndpointTask(card.id, 'sync')}
 							onSetPreferred={() => setRoleTarget(card)}
@@ -319,6 +324,7 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 function EndpointCard({
 	card,
 	busyAction,
+	inUse,
 	onValidate,
 	onSync,
 	onSetPreferred,
@@ -327,6 +333,7 @@ function EndpointCard({
 }: {
 	card: EndpointCardModel;
 	busyAction: string | null;
+	inUse: boolean;
 	onValidate: () => void;
 	onSync: () => void;
 	onSetPreferred: () => void;
@@ -338,7 +345,12 @@ function EndpointCard({
 	const validateBusy = busyAction === `${card.id}:validate`;
 	const syncBusy = busyAction === `${card.id}:sync`;
 	const anyBusy = busyAction !== null;
+	const rawFailure = card.failureReason
+		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
+		: '';
 
+	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
+	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
 		<article className="card card--static" data-tone={card.healthTone}>
 			<div className="card-header">
@@ -347,24 +359,22 @@ function EndpointCard({
 					<h4 className="card-title">{card.displayName}</h4>
 				</div>
 				<div className="inline">
-					<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
 					<ProviderSwitch
 						providerName={card.displayName}
 						checked={card.enabled}
 						busy={anyBusy}
+						inUse={inUse}
 						onChange={onToggleEnabled}
 					/>
 				</div>
 			</div>
 
 			<div className="card-meta">
+				<Badge tone={card.healthTone}>{healthStatusLabel(card.healthStatus, t)}</Badge>
 				<Badge tone="info">
 					{card.kind === 'local'
 						? t('app.ollama.kind.local', 'local')
 						: t('app.ollama.kind.remote', 'remote')}
-				</Badge>
-				<Badge tone={card.enabled ? 'ok' : 'warn'}>
-					{card.enabled ? t('app.ollama.enabled', 'enabled') : t('app.ollama.disabled', 'disabled')}
 				</Badge>
 				{card.credentialConfigured ? (
 					<Badge tone="ok">
@@ -394,9 +404,9 @@ function EndpointCard({
 			</dl>
 
 			{card.models.length ? (
-				<div className="inline">
+				<div className="inline provider-chip-list">
 					{card.models.slice(0, MODEL_CHIP_LIMIT).map((model) => (
-						<Badge tone="info" key={model}>
+						<Badge tone="info" className="provider-chip" key={model}>
 							{model}
 						</Badge>
 					))}
@@ -420,13 +430,10 @@ function EndpointCard({
 				</div>
 			) : null}
 
-			{card.failureReason ? (
-				<p className="card-body">
+			{rawFailure ? (
+				<p className="card-body card-reason" title={rawFailure}>
 					<span className="field-label">{t('app.ollama.card.lastError', 'Last error')}</span>{' '}
-					{redactVisibleSecret(
-						card.failureReason,
-						t('app.ollama.card.noReason', 'No reason reported.'),
-					)}
+					{describeReason(rawFailure, t)}
 				</p>
 			) : null}
 
@@ -455,7 +462,12 @@ function EndpointCard({
 				>
 					{t('app.ollama.card.setPreferred', 'Set preferred for role')}
 				</Button>
-				<Button variant="danger" disabled={anyBusy} icon={<Trash2 size={14} />} onClick={onDelete}>
+				<Button
+					className="provider-card-delete"
+					disabled={anyBusy}
+					icon={<Trash2 size={14} />}
+					onClick={onDelete}
+				>
 					{t('app.ollama.card.delete', 'Delete')}
 				</Button>
 			</div>

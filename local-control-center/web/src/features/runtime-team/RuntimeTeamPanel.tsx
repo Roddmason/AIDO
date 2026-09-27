@@ -392,7 +392,7 @@ export function RuntimeTeamPanel({
 						setManualRoles(new Set());
 					}}
 				>
-					{t('app.runtimeTeam.clear', 'Use automatic routing')}
+					{t('app.runtimeTeam.clear', 'Use the global team')}
 				</Button>
 				<Button
 					variant="primary"

@@ -66,6 +66,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { formatCostUsd, shortId, threadStatusTone, toneForStatus } from '../../lib/format';
 import { cardTransition, crossfade, listStagger } from '../../motion/variants';
 import { PRODUCT_LOOP_PHASES, PRODUCT_LOOP_STATE_ORDER } from '../workbench/productLoopModel';
+import { EffectiveTeamCard } from './EffectiveTeamCard';
 import { ThreadBlockerList } from './ThreadBlockerCard';
 import { ThreadCostPanel } from './ThreadCostPanel';
 import {
@@ -200,7 +201,14 @@ export function ThreadInspector({
 		panel = <GoalPanel detail={detail} threadId={threadId} />;
 	} else if (tab === 'team') {
 		panel = (
-			<TeamPanel overview={overview} loop={loop} roster={roster} onOpenSettings={onOpenSettings} />
+			<TeamPanel
+				overview={overview}
+				loop={loop}
+				roster={roster}
+				projectId={project.id}
+				detail={detail}
+				onOpenSettings={onOpenSettings}
+			/>
 		);
 	} else if (tab === 'plan') {
 		panel = (
@@ -560,24 +568,31 @@ function TeamPanel({
 	overview,
 	loop,
 	roster,
+	projectId,
+	detail,
 	onOpenSettings,
 }: {
 	overview: Overview;
 	loop: InspectorResource<LoopData>;
 	roster: InspectorResource<AgentProfilesResponse>;
+	projectId: string;
+	detail: InspectorResource<ThreadDetail>;
 	onOpenSettings: (section?: string) => void;
 }) {
 	return (
-		<ResourceGate resource={roster}>
-			{(data) => (
-				<TeamRoster
-					profiles={data.agentProfiles}
-					overview={overview}
-					loop={loop}
-					onOpenSettings={onOpenSettings}
-				/>
-			)}
-		</ResourceGate>
+		<>
+			<EffectiveTeamCard projectId={projectId} threadMetadata={detail.data?.thread.metadata} />
+			<ResourceGate resource={roster}>
+				{(data) => (
+					<TeamRoster
+						profiles={data.agentProfiles}
+						overview={overview}
+						loop={loop}
+						onOpenSettings={onOpenSettings}
+					/>
+				)}
+			</ResourceGate>
+		</>
 	);
 }
 

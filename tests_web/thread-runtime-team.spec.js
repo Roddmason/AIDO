@@ -90,6 +90,30 @@ function candidatesBody(nimValidation, selected) {
 	};
 }
 
+const GLOBAL_ROLE = (role, required, effective, source) => ({
+	role,
+	required,
+	configured: [],
+	effective,
+	assigned: effective[0] ?? null,
+	source,
+	invalid: [],
+	candidates: effective,
+});
+const GLOBAL_TEAM = {
+	roles: [
+		GLOBAL_ROLE('product_owner', true, ['claude_code_cli'], 'automatic'),
+		GLOBAL_ROLE('developer', true, ['claude_code_cli'], 'automatic'),
+		GLOBAL_ROLE('architect', false, [], 'automatic'),
+		GLOBAL_ROLE('security', false, [], 'automatic'),
+		GLOBAL_ROLE('technical_lead', false, ['claude_code_cli'], 'inherited'),
+		GLOBAL_ROLE('researcher', false, ['claude_code_cli'], 'inherited'),
+	],
+	allowedRuntimes: ['claude_code_cli'],
+	activeProviders: 1,
+	candidates: [],
+};
+
 async function mockRuntimeTeam(page, { probeSucceeds, holdPatch = false }) {
 	const state = { nimValidation: STALE, probes: [], patches: [], order: [] };
 	// When holdPatch is set, the run-configuration route parks on this promise before fulfilling, so a
@@ -106,6 +130,8 @@ async function mockRuntimeTeam(page, { probeSucceeds, holdPatch = false }) {
 		if (url.includes('/run-configuration')) state.order.push('patch');
 		if (url.includes('/messages') && request.method() === 'POST') state.order.push('message');
 	});
+	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) => route.fulfill({ json: GLOBAL_TEAM }));
 	await page.route('**/api/v1/runtime/team-candidates**', async (route) => {
 		const selected = new URL(route.request().url()).searchParams.get('selected');
 		await route.fulfill({
@@ -317,10 +343,10 @@ test('switching back to automatic routing after a failed first message clears th
 
 	await page.getByRole('button', { name: /AI team/ }).click();
 	const reopened = page.getByRole('dialog', { name: 'AI team for this thread' });
-	await reopened.getByRole('button', { name: 'Use automatic routing' }).click();
+	await reopened.getByRole('button', { name: 'Use the global team' }).click();
 	await reopened.getByRole('button', { name: 'Save team' }).click();
 	await expect(reopened).toBeHidden();
-	await expect(page.getByRole('button', { name: 'AI team · automatic' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'AI team · global' })).toBeVisible();
 	await page.getByRole('button', { name: 'Create thread' }).click();
 	await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeHidden({
 		timeout: 20_000,

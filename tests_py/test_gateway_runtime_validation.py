@@ -162,14 +162,15 @@ def test_auto_validation_prefers_the_last_validated_model_then_role_policy_model
         service = RuntimeValidationService(connection)
         account = service.accounts.get_provider_account("deepseek")
         ordered = service._models_to_validate(account, requested=None)
-    assert ordered == ["c/validated", "b/policy", "a/first"]
-    assert len(ordered) == MAX_AUTO_VALIDATION_ATTEMPTS
+    # Tras el validado y el de la política, una muestra con un modelo por upstream (a/, d/).
+    assert ordered == ["c/validated", "b/policy", "a/first", "d/other"]
+    assert len(ordered) <= MAX_AUTO_VALIDATION_ATTEMPTS
 
 
 def test_auto_validation_is_capped_and_reports_the_last_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    models = ["a/x", "b/x", "c/x", "d/x"]
+    models = [f"{chr(ord('a') + index)}/x" for index in range(MAX_AUTO_VALIDATION_ATTEMPTS + 1)]
     _deepseek_with_models(tmp_path, monkeypatch, models)
     calls: list[str] = []
     monkeypatch.setattr(
@@ -406,11 +407,11 @@ def test_omniroute_end_to_end_sync_validate_and_join_the_global_team(
     assert validated.status_code == 200, validated.text
     validation = validated.json()["validation"]
     assert validation["status"] == "validated"
-    assert validation["model"] == ALLOWLISTED[0]
+    # La allowlist curada va antes que el upstream sin cuenta aunque este sea el primero alfabético.
+    assert validation["model"] in ALLOWLISTED
     attempts = [(item["model"], item["status"]) for item in validation["attempts"]]
-    assert attempts == [(UNAVAILABLE_UPSTREAM, "failed"), (ALLOWLISTED[0], "validated")]
-    assert "No active credentials for provider: cc" in validation["attempts"][0]["evidence"]
-    assert [item["model"] for item in revalidated.json()["validation"]["attempts"]] == [ALLOWLISTED[0]]
+    assert attempts == [(validation["model"], "validated")]
+    assert [item["model"] for item in revalidated.json()["validation"]["attempts"]] == [validation["model"]]
 
     with _db() as connection:
         team = describe_global_team(connection, project_id=None)

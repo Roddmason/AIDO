@@ -148,7 +148,7 @@ def test_a_failed_probe_is_recorded_despite_a_concurrent_success_of_another_mode
     record_model_execution(connection, "ollama", "local_default", True, "test_prompt", started_at=_ago(1))
     monkeypatch.setattr(probe, "provider_instance", lambda provider_id, *, connection: _Provider())
 
-    def concurrent_success_then_unrecorded_failure(provider_id, model, *, connection, provider):
+    def concurrent_success_then_unrecorded_failure(provider_id, model, *, connection, provider, **_kwargs):
         record_model_execution(connection, provider_id, "other_model", True, "tool_broker")
         return {"ok": False, "error": "boom", "latencyMs": 5}
 

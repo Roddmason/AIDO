@@ -46,8 +46,12 @@ PROFILE_DEFAULTS: dict[str, str] = {
 
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
+# Plumbing read-only que usa el gestor de ramas para inventariar (fechas, merged, ahead/behind,
+# equivalencia de parches). Ninguno mueve refs ni toca el árbol de trabajo.
+GIT_BRANCH_INVENTORY_READ_COMMANDS = {"for-each-ref", "merge-base", "cherry", "rev-list"}
 GIT_WORKSPACE_WRITE_COMMANDS = {"branch", "checkout"}
-GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "HEAD"}
+GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "develop", "HEAD"}
+GIT_FLOW_RENAME_PREFIXES = ("feature/", "bugfix/", "release/", "hotfix/", "support/")
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
 GIT_BRANCH_MUTATION_FLAGS = {
     "-d",
@@ -256,7 +260,8 @@ def evaluate_git_workspace_command(
     network_required = bool(input_payload.get("networkRequired"))
     if network_required and not (
         (subcommand == "ls-remote" and git_operation == "remote_test")
-        or (subcommand == "push" and git_operation == "push_branch")
+        or (subcommand == "push" and git_operation in {"push_branch", "delete_remote_branch"})
+        or (subcommand == "fetch" and git_operation == "prune_remote_refs")
     ):
         categories.append("git_workspace_unapproved_network_denied")
         return {
@@ -271,6 +276,56 @@ def evaluate_git_workspace_command(
             "riskLevel": "low",
             "reason": f"Git {subcommand} is allowlisted for local workspace evidence.",
             "categories": [*categories, "git_workspace_command", f"git_{subcommand}"],
+        }
+    if subcommand in GIT_BRANCH_INVENTORY_READ_COMMANDS:
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": f"Git {subcommand} is allowlisted as read-only branch inventory plumbing.",
+            "categories": [*categories, "git_workspace_command", f"git_{subcommand.replace('-', '_')}"],
+        }
+    if subcommand == "merge-tree":
+        # Solo la forma que calcula el árbol de un merge hipotético (detección de squash): escribe
+        # objetos sueltos en la base de objetos, jamás refs, index ni árbol de trabajo.
+        if (
+            git_operation != "branch_inventory"
+            or len(args) != 3
+            or args[0] != "--write-tree"
+            or not all(_is_safe_git_arg(arg) for arg in args[1:])
+        ):
+            categories.append("git_workspace_merge_tree_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git merge-tree is limited to `merge-tree --write-tree <base> <branch>` for inventory.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": "Git merge-tree --write-tree is allowlisted to detect squash-merged branches.",
+            "categories": [*categories, "git_workspace_command", "git_merge_tree"],
+        }
+    if subcommand == "fetch":
+        if (
+            git_operation != "prune_remote_refs"
+            or not network_required
+            or len(args) != 2
+            or args[0] != "--prune"
+            or not _is_safe_remote_name(args[1])
+        ):
+            categories.append("git_workspace_fetch_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git fetch is limited to `fetch --prune <remote>` with prune_remote_refs.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git fetch --prune is allowlisted to drop stale remote-tracking refs.",
+            "categories": [*categories, "git_workspace_command", "git_fetch_prune"],
         }
     if subcommand == "init":
         if git_operation != "init_repository":
@@ -296,6 +351,30 @@ def evaluate_git_workspace_command(
             "riskLevel": "medium",
             "reason": "Git init is allowlisted for project repository setup.",
             "categories": [*categories, "git_workspace_command", "git_init"],
+        }
+    if subcommand == "push" and git_operation == "delete_remote_branch":
+        # Borrado remoto opt-in del gestor de ramas: forma exacta, nunca force ni refspec, y nunca
+        # una rama protegida (la validación de merged/protegida vive además en el servicio).
+        if (
+            not network_required
+            or len(args) != 3
+            or not _is_safe_remote_name(args[0])
+            or args[1] != "--delete"
+            or not _is_safe_git_arg(args[2])
+            or args[2] in GIT_PROTECTED_BRANCHES
+        ):
+            categories.append("git_workspace_push_delete_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Remote branch delete is limited to `push <remote> --delete <non-protected-branch>`.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "high",
+            "reason": "Remote branch delete is allowlisted for operator-confirmed branch cleanup.",
+            "categories": [*categories, "git_workspace_command", "git_push_delete_branch"],
         }
     if subcommand == "push":
         if (
@@ -513,6 +592,28 @@ def evaluate_git_workspace_command(
                 "riskLevel": "medium",
                 "reason": "Git work-branch delete is allowlisted for workspace GC.",
                 "categories": [*categories, "git_workspace_command", "git_branch_delete"],
+            }
+        if git_operation == "rename_branch":
+            if (
+                len(args) != 3
+                or args[0] != "-m"
+                or not all(_is_safe_git_arg(arg) for arg in args[1:])
+                or args[1] in GIT_PROTECTED_BRANCHES
+                or args[2] in GIT_PROTECTED_BRANCHES
+                or not args[2].startswith(GIT_FLOW_RENAME_PREFIXES)
+            ):
+                categories.append("git_workspace_branch_rename_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch rename is limited to `branch -m <branch> <gitflow-prefixed-name>`.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git branch rename to a gitflow prefix is allowlisted for local branches.",
+                "categories": [*categories, "git_workspace_command", "git_branch_rename"],
             }
         if git_operation == "create_branch":
             if any(arg in GIT_BRANCH_MUTATION_FLAGS or arg.startswith("-") for arg in args):

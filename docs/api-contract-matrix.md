@@ -10,7 +10,7 @@ The matrix below is regenerated from the generated frontend client
 `pnpm run openapi:generate`
 (`local-control-center/scripts/generate_openapi_client.py`). Do not edit the
 route tables by hand: re-parse `API_ENDPOINTS` after backend changes. Current
-total: 264 operations (263 under `/api/v1` plus `GET /healthz`), counted from
+total: 296 operations (295 under `/api/v1` plus `GET /healthz`), counted from
 `API_ENDPOINTS` in the regenerated client. No test asserts this count, so it can
 drift silently between edits.
 
@@ -57,6 +57,7 @@ packages, artifacts, test results, and workflow events.
 | `GET` | `/api/v1/projects/{project_id}/assessments` | List Assessments |
 | `GET` | `/api/v1/projects/{project_id}/findings` | List Findings |
 | `GET` | `/api/v1/projects/{project_id}/functionality` | Project Functionality |
+| `POST` | `/api/v1/projects/{project_id}/open-folder` | Open Project Folder |
 | `GET` | `/api/v1/providers` | Providers |
 | `GET` | `/api/v1/teams` | Teams |
 
@@ -64,6 +65,12 @@ packages, artifacts, test results, and workflow events.
 
 | Method | Path | Summary |
 | --- | --- | --- |
+| `GET` | `/api/v1/projects/{project_id}/git/branch-manager` | Git Branch Inventory |
+| `POST` | `/api/v1/projects/{project_id}/git/branch-manager/delete` | Delete Git Branches |
+| `POST` | `/api/v1/projects/{project_id}/git/branch-manager/prune` | Prune Git Remote Refs |
+| `POST` | `/api/v1/projects/{project_id}/git/branch-manager/rename` | Rename Git Branch |
+| `POST` | `/api/v1/projects/{project_id}/git/branch-manager/scan` | Scan Git Branches |
+| `POST` | `/api/v1/projects/{project_id}/git/branch-manager/worktrees/remove` | Remove Merged Git Worktrees |
 | `POST` | `/api/v1/projects/{project_id}/git/branch-policy/apply` | Apply Git Branch Policy |
 | `GET` | `/api/v1/projects/{project_id}/git/branches` | Git Branches |
 | `POST` | `/api/v1/projects/{project_id}/git/branches` | Create Git Branch |

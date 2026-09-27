@@ -17,7 +17,7 @@ import {
 	Settings2,
 	XCircle,
 } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
 	detectModelGatewayCliRuntime,
@@ -25,8 +25,12 @@ import {
 	getModelGatewayModels,
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
+	getProviderUsage,
 	healthCheckModelGatewayProvider,
+	type ProviderUsage,
+	type ProviderUsageEntry,
 	patchModelGatewayProvider,
+	refreshProviderUsage,
 	syncProviderAccountModels,
 	testPromptModelGatewayProvider,
 } from '../../api/client';
@@ -53,6 +57,7 @@ import {
 	isOllamaEndpoint,
 	type LocalRuntimeDraft,
 } from './localEndpoints';
+import { hasUsageToShow, ProviderUsageSection } from './ProviderUsageSection';
 import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
 import {
 	apiProviderIdsNeedingProbe,
@@ -114,6 +119,7 @@ export function RuntimeSetupPanel({
 	const [accounts, setAccounts] = useState<ModelGatewayProviderAccount[]>([]);
 	const [models, setModels] = useState<ModelGatewayModel[]>([]);
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [usage, setUsage] = useState<ProviderUsage | null>(null);
 	const [wizardOpen, setWizardOpen] = useState(false);
 	const [wizardProviderId, setWizardProviderId] = useState<string | null>(null);
 	const [localDraft, setLocalDraft] = useState<LocalRuntimeDraft | null>(null);
@@ -139,10 +145,44 @@ export function RuntimeSetupPanel({
 		}
 	}, []);
 
+	/** Usage quota per provider (read-only; the worker refreshes it, a failure keeps the last one). */
+	const loadUsage = useCallback(async () => {
+		try {
+			setUsage(await getProviderUsage());
+		} catch {
+			// Enrichment only: cards without usage keep working.
+		}
+	}, []);
+
+	/** Reads Claude/Codex usage now; the suspension it may cause changes every AI team. */
+	const refreshUsage = async () => {
+		if (!requireToken()) return;
+		try {
+			setUsage(await refreshProviderUsage(token));
+			invalidateRuntimeTeamCache();
+		} catch (error) {
+			notify({
+				title: t('app.providers.usage.refreshFailed', 'Could not read the usage now'),
+				body: redactVisibleSecret(
+					error instanceof Error ? error.message : String(error),
+					'usage refresh failed',
+				),
+				tone: 'danger',
+			});
+		}
+	};
+
+	const onUsageChanged = (next: ProviderUsage) => {
+		setUsage(next);
+		invalidateRuntimeTeamCache();
+		void onRefresh();
+	};
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: gatewayRevision is a deliberate refresh signal after endpoint mutations (loadGateway handles all in-file mutation refreshes directly).
 	useEffect(() => {
 		void loadGateway();
-	}, [gatewayRevision, loadGateway]);
+		void loadUsage();
+	}, [gatewayRevision, loadGateway, loadUsage]);
 
 	useEffect(() => {
 		const providerId = initialProviderId?.trim();
@@ -180,6 +220,12 @@ export function RuntimeSetupPanel({
 		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
 		[runtimeProviders, runtimeProviderConfiguration],
 	);
+	const usageById = useMemo(() => {
+		const map = new Map<string, ProviderUsageEntry>();
+		for (const entry of usage?.providers ?? []) map.set(entry.providerId, entry);
+		return map;
+	}, [usage]);
+	const suspendedCount = usage?.providers.filter((entry) => entry.suspended).length ?? 0;
 	const executableCount = providers.filter(
 		(provider) => deriveRuntimeState(provider) === 'executable',
 	).length;
@@ -204,7 +250,7 @@ export function RuntimeSetupPanel({
 			if (probeIds.length) {
 				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
 			}
-			await Promise.all([onRefresh(), loadGateway()]);
+			await Promise.all([onRefresh(), loadGateway(), loadUsage()]);
 			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
 		} finally {
 			setRefreshing(false);
@@ -401,6 +447,14 @@ export function RuntimeSetupPanel({
 						</button>
 					</div>
 				</div>
+				{suspendedCount > 0 ? (
+					<p className="field-help provider-usage-summary" role="status">
+						{t(
+							'app.providers.usage.summary',
+							'{count} provider(s) suspended by usage quota; AIDO fails over to the next runtime of each role.',
+						).replace('{count}', String(suspendedCount))}
+					</p>
+				) : null}
 				<DeferredLocalRuntime>
 					<LocalRuntimeDiscovery
 						token={token}
@@ -469,6 +523,18 @@ export function RuntimeSetupPanel({
 								onSync={() => runProviderTask(provider.id, 'sync')}
 								onToggleEnabled={(enabled) => void toggleProvider(provider.id, enabled)}
 								onConfigure={() => openWizard(provider.id)}
+								usage={
+									hasUsageToShow(usageById.get(provider.id)) ? (
+										<ProviderUsageSection
+											entry={usageById.get(provider.id) as ProviderUsageEntry}
+											generalThresholdPercent={usage?.generalThresholdPercent ?? 80}
+											token={token}
+											busy={busyAction !== null}
+											onChanged={onUsageChanged}
+											onRefresh={refreshUsage}
+										/>
+									) : null
+								}
 							/>
 						);
 					})}
@@ -525,6 +591,7 @@ function ProviderCard({
 	onSync,
 	onToggleEnabled,
 	onConfigure,
+	usage,
 }: {
 	provider: MergedProvider;
 	setup: ProviderSetupInfo | null;
@@ -535,6 +602,8 @@ function ProviderCard({
 	onSync: () => void;
 	onToggleEnabled: (enabled: boolean) => void;
 	onConfigure: () => void;
+	/** Usage-quota section, rendered by the panel that owns the usage state. */
+	usage?: ReactNode;
 }) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
@@ -668,6 +737,7 @@ function ProviderCard({
 			<p className="card-body card-reason" title={reason}>
 				{reason}
 			</p>
+			{usage}
 
 			{capabilities.length ? (
 				<div className="inline">

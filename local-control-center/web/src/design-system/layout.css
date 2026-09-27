@@ -1466,9 +1466,11 @@
 
 /* Card-first gallery: real CSS grid (correct reading + tab order),
    replacing the previous CSS multi-column masonry. */
+/* `min(18rem, 100%)`: a container narrower than 18rem (the Settings dialog on a phone) used to keep
+ * the 18rem column and push every card past its right edge, clipping badges and meters. */
 .masonry-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
 	gap: var(--space-4);
 	align-items: start;
 }

@@ -298,3 +298,150 @@
 		padding-inline: var(--space-2);
 	}
 }
+
+/* Usage quota inside a provider card (ProviderUsageSection): an inset block so the meters read as
+ * one unit apart from the status badges. Each window is a thin bar whose fill takes the status tone
+ * as it nears (warn, from 85% of the threshold) or crosses (danger) the suspension threshold, which
+ * is drawn as a tick on the track so "how far until AIDO stops using it" is visible, not computed.
+ * A suspended provider tints the block border so it is findable while scanning the grid. */
+.provider-usage {
+	display: grid;
+	min-inline-size: 0;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.provider-usage[data-suspended="true"] {
+	border-color: color-mix(in srgb, var(--color-status-danger) 55%, var(--color-border-subtle));
+}
+
+.provider-usage-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.provider-usage-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+/* The suspension chip carries a date; it may wrap rather than widen the card. */
+.provider-usage-chip {
+	white-space: normal;
+}
+
+.provider-usage-note {
+	margin: 0;
+}
+
+.provider-usage-note[data-tone="warn"] {
+	color: var(--color-status-warning);
+}
+
+.provider-usage-windows {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.provider-usage-window {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.provider-usage-row {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+}
+
+.provider-usage-row > .tnum {
+	color: var(--color-text-primary);
+	font-weight: var(--weight-medium);
+}
+
+.provider-usage-meter {
+	position: relative;
+	block-size: 0.5rem;
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+	overflow: visible;
+}
+
+.provider-usage-fill {
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	border-radius: inherit;
+	background: var(--color-status-success);
+	transition: inline-size 240ms ease;
+}
+
+.provider-usage-meter[data-tone="warn"] .provider-usage-fill {
+	background: var(--color-status-warning);
+}
+
+.provider-usage-meter[data-tone="danger"] .provider-usage-fill {
+	background: var(--color-status-danger);
+}
+
+.provider-usage-threshold {
+	position: absolute;
+	inset-block: -0.1875rem;
+	inline-size: 2px;
+	margin-inline-start: -1px;
+	border-radius: 1px;
+	background: var(--color-text-primary);
+}
+
+.provider-usage-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-2);
+}
+
+.provider-usage-threshold-field {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.provider-usage-label {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+.provider-usage-input {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+}
+
+.provider-usage-input > .input {
+	inline-size: 5.5rem;
+}
+
+.provider-usage-summary {
+	margin: 0 0 var(--space-3);
+	color: var(--color-status-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.provider-usage-fill {
+		transition: none;
+	}
+}

@@ -759,3 +759,73 @@ test('Add provider: the validate step saves the selection and shows which gatewa
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Providers & CLI: a provider over its usage threshold shows the suspension, its own threshold and a resume', async ({
+	page,
+}) => {
+	const resetsAt = new Date(Date.now() + 2 * 86_400_000).toISOString();
+	const claude = {
+		providerId: 'claude_code_cli',
+		thresholdPercent: 80,
+		thresholdSource: 'general',
+		ownThresholdPercent: null,
+		maxUsedPercent: 91,
+		windows: [
+			{ providerId: 'claude_code_cli', window: 'five_hour', label: '5h', usedPercent: 33, resetsAt, source: 'claude_oauth_usage', status: 'ok', observedAt: resetsAt },
+			{ providerId: 'claude_code_cli', window: 'seven_day', label: '7d', usedPercent: 91, resetsAt, source: 'claude_oauth_usage', status: 'ok', observedAt: resetsAt },
+		],
+		suspended: true,
+		suspendedUntil: resetsAt,
+		suspendedWindow: 'seven_day',
+		ignoreUntil: null,
+		lastPollAt: resetsAt,
+		lastPollError: null,
+		hasRemoteSource: true,
+	};
+	const calls = [];
+	const body = () => ({ generalThresholdPercent: 80, providers: [claude] });
+	await page.route('**/api/v1/runtime/provider-usage', (route) => route.fulfill({ json: body() }));
+	await page.route('**/api/v1/runtime/provider-usage/claude_code_cli/policy', async (route) => {
+		const threshold = route.request().postDataJSON().thresholdPercent;
+		calls.push(`policy:${threshold}`);
+		Object.assign(claude, { thresholdPercent: threshold ?? 80, ownThresholdPercent: threshold, thresholdSource: threshold === null ? 'general' : 'provider', suspended: (threshold ?? 80) <= 91, suspendedUntil: (threshold ?? 80) <= 91 ? resetsAt : null });
+		await route.fulfill({ json: body() });
+	});
+	await page.route('**/api/v1/runtime/provider-usage/claude_code_cli/resume', async (route) => {
+		calls.push('resume');
+		Object.assign(claude, { suspended: false, suspendedUntil: null, ignoreUntil: resetsAt });
+		await route.fulfill({ json: body() });
+	});
+	try {
+		await page.goto('/#settings-runtime');
+		const settings = await openSettings(page);
+		await expect(settings.getByText(/1 provider\(s\) suspended by usage quota/)).toBeVisible({ timeout: 30_000 });
+		const card = settings.locator('.card').filter({ hasText: 'Claude Code' }).first();
+		const usage = card.getByRole('region', { name: 'Usage quota' });
+		await expect(usage).toBeVisible();
+		await expect(usage.getByText(/^Suspended until /)).toBeVisible();
+		const weekly = usage.getByRole('meter', { name: 'Weekly' });
+		await expect(weekly).toHaveAttribute('aria-valuenow', '91');
+		await expect(weekly).toHaveAttribute('data-tone', 'danger');
+		await expect(usage.getByRole('meter', { name: '5-hour window' })).toHaveAttribute('data-tone', 'ok');
+		await expect(usage.getByText(/Uses the general 80%/)).toBeVisible();
+
+		const field = usage.getByLabel('Suspend at');
+		await field.fill('150');
+		await expect(usage.getByText('Enter a whole number from 1 to 100.')).toBeVisible();
+		await expect(usage.getByRole('button', { name: 'Save' })).toBeDisabled();
+		await field.fill('95');
+		await usage.getByRole('button', { name: 'Save' }).click();
+		await expect(usage.getByText(/Own threshold/)).toBeVisible();
+		await expect(usage.getByText(/^Suspended until /)).toHaveCount(0);
+
+		await field.fill('');
+		await usage.getByRole('button', { name: 'Save' }).click();
+		await expect(usage.getByText(/^Suspended until /)).toBeVisible();
+		await usage.getByRole('button', { name: 'Resume until reset' }).click();
+		await expect(usage.getByText(/^Suspended until /)).toHaveCount(0);
+		expect(calls).toEqual(['policy:95', 'policy:null', 'resume']);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

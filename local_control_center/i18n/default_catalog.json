@@ -11187,6 +11187,126 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.providers.usage.title": {
+      "en": "Usage quota",
+      "es": "Cuota de uso"
+    },
+    "app.providers.usage.suspendedUntil": {
+      "en": "Suspended until {time}",
+      "es": "Suspendido hasta {time}"
+    },
+    "app.providers.usage.nextReset": {
+      "en": "next reset",
+      "es": "el próximo reinicio"
+    },
+    "app.providers.usage.suspendedHelp": {
+      "en": "AIDO skips this provider, even inside a running loop, and fails over to the next runtime of each role.",
+      "es": "AIDO omite este proveedor, incluso dentro de un loop en curso, y pasa al siguiente runtime de cada rol."
+    },
+    "app.providers.usage.exhausted": {
+      "en": "limit reached",
+      "es": "límite alcanzado"
+    },
+    "app.providers.usage.meterText": {
+      "en": "{used} used, suspends at {threshold}%",
+      "es": "{used} usado, se suspende al {threshold}%"
+    },
+    "app.providers.usage.resetsAt": {
+      "en": "Resets {time}",
+      "es": "Se reinicia {time}"
+    },
+    "app.providers.usage.notReadYet": {
+      "en": "Usage not read yet. AIDO reads it from the local CLI login every few minutes.",
+      "es": "Aún no se lee el uso. AIDO lo lee desde el login local de la CLI cada pocos minutos."
+    },
+    "app.providers.usage.none": {
+      "en": "No usage recorded yet.",
+      "es": "Aún no hay uso registrado."
+    },
+    "app.providers.usage.threshold": {
+      "en": "Suspend at",
+      "es": "Suspender al"
+    },
+    "app.providers.usage.saveThreshold": {
+      "en": "Save",
+      "es": "Guardar"
+    },
+    "app.providers.usage.resume": {
+      "en": "Resume until reset",
+      "es": "Reanudar hasta el reinicio"
+    },
+    "app.providers.usage.refresh": {
+      "en": "Read usage",
+      "es": "Leer uso"
+    },
+    "app.providers.usage.ownThreshold": {
+      "en": "Own threshold. Clear the field to use the general {general}%.",
+      "es": "Umbral propio. Vacía el campo para usar el general de {general}%."
+    },
+    "app.providers.usage.inheritsThreshold": {
+      "en": "Uses the general {general}% (Settings > Runtime). Type a value to override it.",
+      "es": "Usa el general de {general}% (Configuración > Runtime). Escribe un valor para reemplazarlo."
+    },
+    "app.providers.usage.thresholdInvalid": {
+      "en": "Enter a whole number from 1 to 100.",
+      "es": "Ingresa un número entero de 1 a 100."
+    },
+    "app.providers.usage.lastRead": {
+      "en": "Last read {time}",
+      "es": "Última lectura {time}"
+    },
+    "app.providers.usage.resumed": {
+      "en": "Provider resumed until its usage window resets",
+      "es": "Proveedor reanudado hasta que se reinicie su ventana de uso"
+    },
+    "app.providers.usage.thresholdSaved": {
+      "en": "Usage threshold saved",
+      "es": "Umbral de uso guardado"
+    },
+    "app.providers.usage.saveFailed": {
+      "en": "Could not update the usage quota",
+      "es": "No se pudo actualizar la cuota de uso"
+    },
+    "app.providers.usage.refreshFailed": {
+      "en": "Could not read the usage now",
+      "es": "No se pudo leer el uso ahora"
+    },
+    "app.providers.usage.summary": {
+      "en": "{count} provider(s) suspended by usage quota; AIDO fails over to the next runtime of each role.",
+      "es": "{count} proveedor(es) suspendido(s) por cuota de uso; AIDO pasa al siguiente runtime de cada rol."
+    },
+    "app.providers.usage.window.five_hour": {
+      "en": "5-hour window",
+      "es": "Ventana de 5 horas"
+    },
+    "app.providers.usage.window.seven_day": {
+      "en": "Weekly",
+      "es": "Semanal"
+    },
+    "app.providers.usage.window.seven_day_opus": {
+      "en": "Weekly (Opus)",
+      "es": "Semanal (Opus)"
+    },
+    "app.providers.usage.window.seven_day_sonnet": {
+      "en": "Weekly (Sonnet)",
+      "es": "Semanal (Sonnet)"
+    },
+    "app.providers.usage.window.primary": {
+      "en": "Primary window",
+      "es": "Ventana principal"
+    },
+    "app.providers.usage.window.secondary": {
+      "en": "Secondary window",
+      "es": "Ventana secundaria"
+    },
+    "app.providers.usage.window.daily": {
+      "en": "Daily",
+      "es": "Diaria"
+    },
+    "app.providers.usage.window.monthly": {
+      "en": "Monthly",
+      "es": "Mensual"
+    },
     "app.settings.runtime.quota.suspendThresholdPercent": {
       "en": "Suspend a provider for AIDO at this % of its usage quota (all providers; each one can override it)",
       "es": "Suspender un proveedor para AIDO a este % de su cuota de uso (todos los proveedores; cada uno puede tener el suyo)"

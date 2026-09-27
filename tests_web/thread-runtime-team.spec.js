@@ -355,3 +355,130 @@ test('switching back to automatic routing after a failed first message clears th
 	expect(state.patches[1]).toEqual({ allowedRuntimes: [], roleRuntimes: {} });
 	expect(state.order.lastIndexOf('patch')).toBeLessThan(state.order.lastIndexOf('message'));
 });
+
+test('a reachable gateway that fails shows why per model and can be tested on a chosen model', async ({
+	page,
+}) => {
+	const omniFailed = {
+		status: 'failed',
+		checkedAt: '2026-09-22T10:00:00+00:00',
+		latencyMs: 2039,
+		model: 'anthropic/model-000',
+		reason: 'runtime_validation_failed',
+		httpStatus: 400,
+	};
+	const longBody = `HTTPError: HTTP Error 404: Not Found: ${'{"error": {"message": "Model not available on this gateway"}} '.repeat(5)}`;
+	const state = { omniValidation: omniFailed, bodies: [] };
+	const models = [
+		...Array.from({ length: 1200 }, (_, index) => `anthropic/model-${String(index).padStart(4, '0')}`),
+		'zz-free/working-model',
+	].map((model) => ({ id: `omniroute:${model}`, providerId: 'omniroute', model, enabled: true }));
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) => route.fulfill({ json: GLOBAL_TEAM }));
+	await page.route('**/api/v1/runtime/team-candidates**', (route) =>
+		route.fulfill({
+			json: {
+				candidates: [
+					{
+						providerId: 'omniroute',
+						label: 'OmniRoute',
+						kind: 'gateway',
+						validation: state.omniValidation,
+						eligibleRoles: ['product_owner', 'developer'],
+					},
+				],
+				freshnessSeconds: 1800,
+				suggestedRoleRuntimes: NO_SPLIT,
+			},
+		}),
+	);
+	await page.route('**/api/v1/model-gateway/models', (route) => route.fulfill({ json: { models } }));
+	await page.route('**/api/v1/model-gateway/providers/omniroute/validate-runtime', async (route) => {
+		const body = route.request().postDataJSON();
+		state.bodies.push(body);
+		if (body.model) state.omniValidation = { ...VALIDATED, model: body.model };
+		await route.fulfill({
+			json: {
+				validation: body.model
+					? {
+							providerId: 'omniroute',
+							kind: 'gateway',
+							status: 'validated',
+							model: body.model,
+							latencyMs: 300,
+							reason: null,
+							evidence: null,
+							httpStatus: null,
+							checkedAt: '2026-09-22T10:05:00+00:00',
+							attempts: null,
+						}
+					: {
+							providerId: 'omniroute',
+							kind: 'gateway',
+							status: 'failed',
+							model: 'cohere/model-000',
+							latencyMs: 40,
+							reason: 'runtime_validation_failed',
+							evidence: longBody,
+							httpStatus: 404,
+							checkedAt: '2026-09-22T10:05:00+00:00',
+							attempts: [
+								{
+									model: 'anthropic/model-0000',
+									status: 'failed',
+									reason: 'auth_missing',
+									evidence:
+										'HTTPError: HTTP Error 400: Bad Request: {"error": {"message": "No active credentials for provider: anthropic"}}',
+									latencyMs: 35,
+									httpStatus: 400,
+								},
+								{
+									model: 'cohere/model-000',
+									status: 'failed',
+									reason: 'runtime_validation_failed',
+									evidence: longBody,
+									latencyMs: 40,
+									httpStatus: 404,
+								},
+							],
+						},
+			},
+		});
+	});
+
+	const panel = await openNewThreadTeamPanel(page);
+	const row = panel.locator('.runtime-team-row').filter({ hasText: 'OmniRoute' });
+	// Enabled but failing: the disabled checkbox says why instead of staying silent.
+	await expect(panel.getByRole('checkbox', { name: /OmniRoute/ })).toBeDisabled();
+	await expect(row).toContainText('Cannot join: its last test failed');
+	await expect(row).toContainText('anthropic/model-000, HTTP 400');
+
+	await panel.getByRole('button', { name: 'Test OmniRoute', exact: true }).click();
+	const details = row.getByTestId('runtime-team-validation-details');
+	const tried = details.getByRole('list', { name: 'Models tested' }).getByRole('listitem');
+	await expect(tried).toHaveCount(2);
+	await expect(details).toContainText('None of the 2 models tried passed.');
+	await expect(tried.first()).toContainText('anthropic/model-0000');
+	await expect(tried.first()).toContainText('HTTP 400');
+	await expect(tried.first()).toContainText('No active credentials for provider: anthropic');
+	await expect(tried.first()).toContainText('no account for that upstream');
+	// A long gateway body is cut to an excerpt; the full answer is one click away.
+	const longAnswer = tried.nth(1).locator('details');
+	await expect(longAnswer.locator('summary')).toContainText('…');
+	await expect(longAnswer.locator('.runtime-team-evidence-full')).toBeHidden();
+	await longAnswer.locator('summary').click();
+	await expect(longAnswer.locator('.runtime-team-evidence-full')).toContainText(
+		'Model not available on this gateway"}} {"error"',
+	);
+
+	// The operator picks the model to validate out of 1201 enabled ones.
+	await panel.getByRole('button', { name: 'Test a model… OmniRoute' }).click();
+	await expect(row).toContainText('Showing 50 of 1201 matches · 1201 enabled models');
+	await row.getByLabel('Search enabled models').fill('working');
+	await expect(row).toContainText('Showing 1 of 1 matches · 1201 enabled models');
+	await row.getByRole('listbox', { name: 'Model to test OmniRoute' }).selectOption('zz-free/working-model');
+	await row.getByRole('button', { name: 'Test this model' }).click();
+	await expect.poll(() => state.bodies.at(-1)?.model).toBe('zz-free/working-model');
+	await expect(panel.getByRole('checkbox', { name: /OmniRoute/ })).toBeEnabled();
+	// The plain Test let the backend choose; only the picker sends a model.
+	expect(state.bodies[0]).not.toHaveProperty('model');
+});

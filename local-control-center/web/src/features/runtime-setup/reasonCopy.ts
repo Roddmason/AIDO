@@ -243,3 +243,130 @@ export function describeCardReason(reason: string, t: Translate): string {
 	const copy = CARD_REASON_COPY.get(code);
 	return copy ? t(copy.key, copy.fallback) : describeReason(trimmed, t);
 }
+
+/**
+ * Copy for the causes a real runtime test (`validate-runtime`) reports per model. Kept apart from
+ * {@link REASON_COPY} so the health and endpoint panels keep their wording; a test result explains
+ * both what failed and where to look (AIDO's machine, the gateway, or the upstream behind it).
+ */
+const VALIDATION_REASON_COPY = new Map<string, { key: string; fallback: string }>([
+	[
+		'runtime_validation_failed',
+		{
+			key: 'app.runtimeTeam.reason.runtime_validation_failed',
+			fallback: 'The provider answered, but not with a usable completion.',
+		},
+	],
+	[
+		'runtime_validation_required',
+		{
+			key: 'app.runtimeTeam.reason.runtime_validation_required',
+			fallback: 'Not tested yet.',
+		},
+	],
+	[
+		'runtime_validation_expired',
+		{
+			key: 'app.runtimeTeam.reason.runtime_validation_expired',
+			fallback: 'The last successful test is older than 30 minutes.',
+		},
+	],
+	[
+		'runtime_validation_configuration_changed',
+		{
+			key: 'app.runtimeTeam.reason.runtime_validation_configuration_changed',
+			fallback: 'The provider settings changed after the last test.',
+		},
+	],
+	[
+		'model_validation_invalid_response',
+		{
+			key: 'app.runtimeTeam.reason.model_validation_invalid_response',
+			fallback: 'The request reached the provider, but the reply had no completion.',
+		},
+	],
+	[
+		'credential_missing',
+		{
+			key: 'app.runtimeTeam.reason.credential_missing',
+			fallback: 'The API key reference has no value on this machine; no request was sent.',
+		},
+	],
+	[
+		'credential_invalid',
+		{
+			key: 'app.runtimeTeam.reason.credential_invalid',
+			fallback: 'The API key reference is not valid; no request was sent.',
+		},
+	],
+	[
+		'credential_unsupported',
+		{
+			key: 'app.runtimeTeam.reason.credential_unsupported',
+			fallback: 'AIDO cannot read the store of this API key reference here; no request was sent.',
+		},
+	],
+	[
+		'credential_ref_required',
+		{
+			key: 'app.runtimeTeam.reason.credential_ref_required',
+			fallback: 'This provider needs an API key reference; no request was sent.',
+		},
+	],
+	[
+		'auth_missing',
+		{
+			key: 'app.runtimeTeam.reason.auth_missing',
+			fallback:
+				'The provider rejected the request as unauthenticated. Through a gateway this usually means it has no account for that upstream.',
+		},
+	],
+	[
+		'auth_expired',
+		{
+			key: 'app.runtimeTeam.reason.auth_expired',
+			fallback: 'The provider rejected the credentials (invalid or expired).',
+		},
+	],
+	[
+		'rate_limited',
+		{
+			key: 'app.runtimeTeam.reason.rate_limited',
+			fallback: 'The provider is rate limiting requests; try again later or pick another model.',
+		},
+	],
+	[
+		'quota_exhausted',
+		{
+			key: 'app.runtimeTeam.reason.quota_exhausted',
+			fallback: 'The provider quota for this model is used up.',
+		},
+	],
+	[
+		'provider_unreachable',
+		{
+			key: 'app.runtimeTeam.reason.provider_unreachable',
+			fallback: 'AIDO could not reach the provider endpoint, or it did not answer in time.',
+		},
+	],
+	[
+		'model_not_found',
+		{
+			key: 'app.runtimeTeam.reason.model_not_found',
+			fallback: 'The provider does not serve this model.',
+		},
+	],
+	[
+		'model_required',
+		{
+			key: 'app.runtimeTeam.reason.model_required',
+			fallback: 'This provider has no enabled model to test.',
+		},
+	],
+]);
+
+/** Text for a runtime-test cause: the test copy, else the shared reason copy, else the raw code. */
+export function describeValidationReason(reason: string, t: Translate): string {
+	const copy = VALIDATION_REASON_COPY.get(reason.trim());
+	return copy ? t(copy.key, copy.fallback) : describeReason(reason, t);
+}

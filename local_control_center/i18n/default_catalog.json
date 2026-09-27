@@ -2899,10 +2899,6 @@
       "en": "Open in workbench",
       "es": "Abrir en workbench"
     },
-    "app.home.kindProject": {
-      "en": "Project",
-      "es": "Proyecto"
-    },
     "app.home.selected": {
       "en": "Selected",
       "es": "Seleccionado"
@@ -2935,17 +2931,9 @@
       "en": "Review",
       "es": "Revisión"
     },
-    "app.home.configure": {
-      "en": "Configure",
-      "es": "Configurar"
-    },
     "app.home.notReady": {
       "en": "Not ready",
       "es": "No listo"
-    },
-    "app.home.notConfigured": {
-      "en": "Not configured",
-      "es": "Sin configurar"
     },
     "app.home.allRuns": {
       "en": "All runs",
@@ -2958,6 +2946,34 @@
     "app.home.kindRun": {
       "en": "Run",
       "es": "Ejecución"
+    },
+    "app.home.lastActivity": {
+      "en": "Active",
+      "es": "Actividad"
+    },
+    "app.home.open": {
+      "en": "Open",
+      "es": "Abrir"
+    },
+    "app.home.attentionTitle": {
+      "en": "Needs your attention",
+      "es": "Requiere tu atención"
+    },
+    "app.home.setUpRuntimes": {
+      "en": "Set up runtimes",
+      "es": "Configurar runtimes"
+    },
+    "app.home.configure": {
+      "en": "Configure",
+      "es": "Configurar"
+    },
+    "app.home.availableToSetUp": {
+      "en": "{count} providers available to set up",
+      "es": "{count} proveedores disponibles para configurar"
+    },
+    "app.home.noRuntimeReady": {
+      "en": "No runtime can run work yet",
+      "es": "Ningún runtime puede ejecutar trabajo todavía"
     },
     "app.settings.group.project.purpose": {
       "en": "Pick the active project that work runs against.",
@@ -3222,6 +3238,10 @@
     "app.activeProjects.jobs": {
       "en": "jobs",
       "es": "trabajos"
+    },
+    "app.activeProjects.workspaces": {
+      "en": "workspaces",
+      "es": "espacios de trabajo"
     },
     "app.activeProjects.approval": {
       "en": "approval",

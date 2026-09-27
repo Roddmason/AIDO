@@ -101,6 +101,15 @@ chose. An order the operator wrote keeps the whole allowlist and may reach
 priority and its single-provider allowlist. Runs sealed before the global team (no snapshot) keep the
 legacy inheritance of the Product Owner's provider.
 
+Sealing reads only persisted runtime state (`RuntimeStatusService(offline=True)`): the send runs inside
+a SQLite transaction where network probes are forbidden. A send and the operator's retry recompute the
+snapshot; internal reseals (runtime risk review, research continuation) pass
+`refresh_global_team=False` and keep the run's snapshot, so the signed risk-review metadata never
+changes between review and continuation. An empty order fails closed (`role_allowlist` returns `[]`,
+never `None`); only an optional role in automatic mode borrows `allowedRuntimes`. A role left without
+candidates blocks with `resource_manager_unconfigured`, whose remediation opens the *team* section first
+("Open team") when the run carried a global snapshot.
+
 ## Risks
 
 - The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can

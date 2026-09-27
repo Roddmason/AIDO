@@ -27,22 +27,27 @@ const CANDIDATE = (providerId, label, kind, eligibleRoles) => ({
 	loadedModels: [],
 });
 
-function teamBody(developerOrder, source) {
-	const role = (name, required, effective, roleSource, candidates) => ({
+function teamBody(developerOrder, source, developerInvalid = []) {
+	const role = (name, required, effective, roleSource, candidates, invalid = []) => ({
 		role: name,
 		required,
-		configured: roleSource === 'automatic' || roleSource === 'inherited' ? [] : effective,
+		configured:
+			roleSource === 'automatic_fallback'
+				? invalid
+				: roleSource === 'automatic' || roleSource === 'inherited'
+					? []
+					: effective,
 		effective,
 		assigned: effective[0] ?? null,
 		source: roleSource,
-		invalid: [],
+		invalid,
 		candidates,
 	});
 	const all = ['claude_code_cli', 'codex_cli', 'llama_cpp'];
 	return {
 		roles: [
 			role('product_owner', true, ['codex_cli', 'llama_cpp'], 'automatic', all),
-			role('developer', true, developerOrder, source, all),
+			role('developer', true, developerOrder, source, all, developerInvalid),
 			role('architect', false, ['claude_code_cli'], 'automatic', ['claude_code_cli']),
 			role('security', false, ['llama_cpp'], 'automatic', ['llama_cpp']),
 			role('technical_lead', false, ['codex_cli', 'llama_cpp'], 'inherited', all),
@@ -61,7 +66,7 @@ function teamBody(developerOrder, source) {
 async function openGeneralAiTeam(page, state) {
 	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
 	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
-		route.fulfill({ json: teamBody(state.developer, state.source) }),
+		route.fulfill({ json: teamBody(state.developer, state.source, state.invalid ?? []) }),
 	);
 	await page.route('**/api/v1/settings/team.role.*', async (route) => {
 		const key = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
@@ -74,6 +79,7 @@ async function openGeneralAiTeam(page, state) {
 			state.writes.push({ key, scope: 'general', value: null });
 			state.developer = ['claude_code_cli', 'codex_cli', 'llama_cpp'];
 			state.source = 'automatic';
+			state.invalid = [];
 		}
 		await route.fulfill({ status: 204, body: '' });
 	});
@@ -113,4 +119,25 @@ test('adding a provider to a role writes the ordered list and "Automatic" clears
 	await developer.getByRole('button', { name: 'Automatic', exact: true }).click();
 	await expect.poll(() => state.writes.length).toBe(2);
 	expect(state.writes[1]).toEqual({ key: 'team.role.developer', scope: 'general', value: null });
+});
+
+test('a role whose chosen providers are all switched off says it fell back to automatic', async ({ page }) => {
+	const state = {
+		developer: ['claude_code_cli', 'codex_cli', 'llama_cpp'],
+		source: 'automatic_fallback',
+		invalid: ['gemini'],
+		writes: [],
+	};
+	const panel = await openGeneralAiTeam(page, state);
+	const developer = panel.getByRole('group', { name: 'Developer' });
+	await expect(developer.getByText('automatic (your selection is off)', { exact: true })).toBeVisible();
+	await expect(developer.getByText('Your selection is switched off; using automatic.')).toBeVisible();
+	await expect(developer.getByText('Ignored (inactive or not eligible): gemini')).toBeVisible();
+	await expect(developer).toContainText('Claude Code CLI');
+	// The dead selection can be cleared even though none of it is shown as an editable row.
+	await developer.getByRole('button', { name: 'Automatic', exact: true }).click();
+	await expect
+		.poll(() => state.writes)
+		.toEqual([{ key: 'team.role.developer', scope: 'general', value: null }]);
+	await expect(developer.getByText('Your selection is switched off; using automatic.')).toBeHidden();
 });

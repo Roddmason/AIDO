@@ -23,6 +23,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.provider_accounts import disabled_provider_ids
 from local_control_center.decision_engine.observers import observe_intake
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
@@ -1081,12 +1082,17 @@ class ThreadCoordinator:
             user_mode=resolution_mode,
         )
 
-    @staticmethod
-    def _team_plan(decision: IntentClassification) -> dict[str, Any]:
+    def _team_plan(self, decision: IntentClassification) -> dict[str, Any]:
         scope = _scope_for_decision(decision)
         mode = "critical" if decision.risk in {"high", "critical"} else "balanced"
         try:
-            return schedule_team(scope=scope, risk=decision.risk, mode=mode)
+            # Mismo filtro que el plan del loop: un proveedor apagado no aparece en el equipo planificado.
+            return schedule_team(
+                scope=scope,
+                risk=decision.risk,
+                mode=mode,
+                disabled_providers=disabled_provider_ids(self.connection),
+            )
         except ValueError:
             return {
                 "schedulerVersion": None,

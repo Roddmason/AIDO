@@ -664,7 +664,10 @@ def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | N
     if order:
         return list(order)
     if team_role and team_role in orders:
-        optional_automatic = team_role in OPTIONAL_TEAM_ROLES and team["source"].get(team_role) == "automatic"
+        optional_automatic = team_role in OPTIONAL_TEAM_ROLES and team["source"].get(team_role) in {
+            "automatic",
+            "automatic_fallback",
+        }
         return list(team["allowedRuntimes"]) if optional_automatic else []
     return list(orders.get("product_owner") or [])
 
@@ -673,8 +676,9 @@ def global_role_order_is_explicit(request_meta: Mapping[str, Any] | None, team_r
     """Verdadero si el orden que usa el rol lo escribió el operador (scope ``project``/``general``).
 
     Un rol heredado mira la procedencia del PO; un rol sin asignación propia (``None``) sigue el orden
-    del PO; un rol del equipo sin candidatos usa ``allowedRuntimes``, que nunca es explícito. Falso sin
-    snapshot global.
+    del PO; un rol del equipo sin candidatos usa ``allowedRuntimes``, que nunca es explícito. Un rol cuya
+    lista manual quedó entera apagada (``automatic_fallback``) usa el orden automático: no es explícito.
+    Falso sin snapshot global.
     """
     team = global_team_of(request_meta)
     if team is None:

@@ -584,11 +584,12 @@ def test_internal_reseals_keep_the_run_snapshot_and_sends_recompute_it(lane):
         connection, project_id=project["id"], thread_id=thread["id"], metadata={}, refresh_global_team=False
     )
     # El envío y el retry recalculan: un valor con forma válida que llegue igual se reemplaza.
-    SettingsRepository(connection).set_value("team.role.developer", "general", None, ["ollama"])
+    SettingsRepository(connection).set_value("team.role.product_owner", "general", None, ["ollama"])
     fresh = seal_thread_runtime_team(
         connection, project_id=project["id"], thread_id=thread["id"], metadata=previous
     )
-    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["source"]["developer"] == "general"
+    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["source"]["product_owner"] == "general"
+    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["roleRuntimes"]["product_owner"] == "ollama"
 
 
 def test_the_global_team_seals_the_validated_local_model_of_each_assigned_role(lane):

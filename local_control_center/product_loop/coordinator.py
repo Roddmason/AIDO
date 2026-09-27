@@ -3233,9 +3233,10 @@ class ProductLoopCoordinator:
         enriched_roles: list[dict[str, Any]] = []
         blockers: list[dict[str, Any]] = []
         local_affinity: dict[str, str] = {}
-        # Sin equipo de runtimes en el hilo, cada rol hereda el proveedor donde corrió el PO de este
-        # loop (evita que un candidato remoto que el operador nunca eligió compita en la ambigüedad
-        # de Jev, ver runtime_team.configuration.role_allowlist). Con equipo no cambia nada.
+        # Sin equipo en el hilo, cada rol usa el orden del equipo global sellado; un run sellado antes
+        # del equipo global (sin snapshot) hereda el proveedor donde corrió el PO de este loop (evita
+        # que un candidato remoto que el operador nunca eligió compita en la ambigüedad de Jev, ver
+        # runtime_team.configuration.role_allowlist). Con equipo en el hilo no cambia nada.
         thread_has_team = runtime_team_of(request_meta) is not None
         po_provider_id = str((product_owner_selected_resource or {}).get("providerId") or "").strip() or None
         po_model = str((product_owner_selected_resource or {}).get("model") or "").strip()
@@ -3427,8 +3428,9 @@ class ProductLoopCoordinator:
         Con Jev en ``runtime_selection`` las preferencias de ruteo no aplican y un allowlist con varios
         proveedores reabre la ambigüedad (``confidence_below_threshold``) que la herencia del PO evitaba.
         El orden automático trae a todos los elegibles activos sin que el operador los haya elegido, así
-        que se prueba cada proveedor en orden. Un orden explícito del operador no recorre: el spec
-        acepta la ambigüedad si el operador deja varios proveedores. Vacío si no aplica.
+        que se prueba cada proveedor en orden (también con ``automatic_fallback``, cuando la lista manual
+        del rol quedó entera apagada). Un orden explícito del operador no recorre: el spec acepta la
+        ambigüedad si el operador deja varios proveedores. Vacío si no aplica.
         """
         if runtime_team_of(request_meta) is not None or global_team_of(request_meta) is None:
             return []

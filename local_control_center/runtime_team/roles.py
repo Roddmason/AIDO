@@ -80,7 +80,7 @@ def team_role_for(role: str, *, kind: str = "", capabilities: Iterable[str] = ()
     """Traduce un rol del scheduler (o el rol de failover) al rol del equipo que lo gobierna.
 
     Devuelve ``None`` para roles sin asignación propia (aido_lead, qa_engineer, technical_lead...):
-    ``role_allowlist`` los confina al runtime del PO.
+    ``role_allowlist`` les da el orden del PO (equipo global) o el runtime del PO (equipo del hilo).
     """
     normalized = str(role or "").strip().lower()
     caps = {str(item).strip().lower() for item in capabilities}
@@ -93,16 +93,24 @@ def team_role_for(role: str, *, kind: str = "", capabilities: Iterable[str] = ()
     return None
 
 
-def auto_assign_roles(runtimes: Sequence[RuntimeFacts], runtime_order: Sequence[str] = ()) -> dict[str, str]:
+def auto_assign_roles(
+    runtimes: Sequence[RuntimeFacts], runtime_order: Sequence[str] = (), *, preranked: bool = False
+) -> dict[str, str]:
     """Reparte los roles entre los runtimes dados; un rol sin elegibles queda fuera del resultado.
 
     Cada rol toma el primer runtime elegible aún no usado; si todos se usaron, recicla desde el
-    primero del ranking (CLI primero, luego ``runtime_order``, luego ``provider_id``).
+    primero del ranking (CLI primero, luego ``runtime_order``, luego ``provider_id``). Con
+    ``preranked`` se usa el orden recibido tal cual (el equipo global ya antepone los frescos y manda
+    al final a los suspendidos por cuota).
     """
     order = {provider_id: index for index, provider_id in enumerate(runtime_order)}
-    ranked = sorted(
-        runtimes,
-        key=lambda item: (item.kind != "cli", order.get(item.provider_id, len(order)), item.provider_id),
+    ranked = (
+        list(runtimes)
+        if preranked
+        else sorted(
+            runtimes,
+            key=lambda item: (item.kind != "cli", order.get(item.provider_id, len(order)), item.provider_id),
+        )
     )
     used: list[str] = []
     assignment: dict[str, str] = {}

@@ -419,20 +419,22 @@ def _permission_profile(role: str) -> str:
     return _PERMISSION_PROFILE_BY_ROLE.get(role) or permission_profile_for({"role": role})
 
 
-def _default_runtime_policy(role: str) -> dict[str, Any]:
+def _default_runtime_policy(role: str, disabled: frozenset[str]) -> dict[str, Any]:
     capabilities = _ROLE_CAPABILITIES[role]
     required = ["code_edit"] if "code_edit" in capabilities else ["chat"]
     return {
-        "providerCandidates": list(_ROLE_PROVIDER_PREFERENCE[role]),
+        "providerCandidates": [
+            provider for provider in _ROLE_PROVIDER_PREFERENCE[role] if provider not in disabled
+        ],
         "requiredCapabilities": required,
         "selection": "first_executable",
         "fallback": "blocked_with_reason",
     }
 
 
-def _default_role_record(role: str) -> dict[str, Any]:
+def _default_role_record(role: str, disabled: frozenset[str] = frozenset()) -> dict[str, Any]:
     max_cost, max_tokens, max_seconds, approval_usd = _ROLE_COST_LIMITS[role]
-    profile = resolve_role(role, scope=set(), risk="medium", mode="balanced")
+    profile = resolve_role(role, scope=set(), risk="medium", mode="balanced", disabled_providers=disabled)
     return {
         "id": f"base-{role.replace('_', '-')}",
         "name": _ROLE_NAMES[role],
@@ -448,7 +450,7 @@ def _default_role_record(role: str) -> dict[str, Any]:
         "maxRuntimeSeconds": max_seconds,
         "requiresApprovalOverUsd": approval_usd,
         "qualityGates": profile["qualityGates"],
-        "defaultRuntimePolicy": _default_runtime_policy(role),
+        "defaultRuntimePolicy": _default_runtime_policy(role, disabled),
         "reviewerPolicy": profile["reviewerPolicy"],
         "outputSchema": profile["outputArtifactSchema"],
         "metadata": {
@@ -456,17 +458,23 @@ def _default_role_record(role: str) -> dict[str, Any]:
             "providerCatalogVersion": PROVIDER_CATALOG_VERSION,
             "capabilities": list(_ROLE_CAPABILITIES[role]),
             "requiredInputArtifacts": list(_ROLE_REQUIRED_INPUT_ARTIFACTS[role]),
-            "providerPreference": list(_ROLE_PROVIDER_PREFERENCE[role]),
+            "providerPreference": profile["providerPreference"],
             "runtimePreference": list(_ROLE_RUNTIME_PREFERENCE[role]),
         },
     }
 
 
-def team_profiles() -> list[dict[str, Any]]:
-    """Return the complete available team-profile catalog for persistence and UI read surfaces."""
+def team_profiles(disabled_providers: Collection[str] = ()) -> list[dict[str, Any]]:
+    """Catálogo completo de perfiles de equipo para persistencia y superficies de lectura.
+
+    ``disabled_providers`` (proveedores con el switch del operador apagado) salen de la preferencia de
+    proveedores de cada perfil, igual que en ``schedule_team``. Vacío conserva el catálogo completo, que
+    es lo que siembra la migración: el switch cambia en caliente y no se congela en la base.
+    """
+    disabled = frozenset(disabled_providers)
     rows: list[dict[str, Any]] = []
     for role in ALL_ROLES:
-        record = _default_role_record(role)
+        record = _default_role_record(role, disabled)
         rows.append(
             {
                 "id": f"team-profile-{role.replace('_', '-')}",
@@ -486,9 +494,10 @@ def team_profiles() -> list[dict[str, Any]]:
     return rows
 
 
-def team_member_defaults() -> list[dict[str, Any]]:
-    """Return the default executable member profile for every available role."""
-    return [_default_role_record(role) for role in ALL_ROLES]
+def team_member_defaults(disabled_providers: Collection[str] = ()) -> list[dict[str, Any]]:
+    """Perfil ejecutable por defecto de cada rol; ``disabled_providers`` como en ``team_profiles``."""
+    disabled = frozenset(disabled_providers)
+    return [_default_role_record(role, disabled) for role in ALL_ROLES]
 
 
 def _normalize_scope(scope: Any) -> set[str]:

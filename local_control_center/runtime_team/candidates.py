@@ -21,13 +21,7 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from .configuration import resolve_team_role_models
 from .facts import load_runtime_facts
 from .roles import RuntimeFacts, auto_assign_roles
-from .validation import (
-    MODEL_RUNTIME_KINDS,
-    RUNTIME_TEAM_FRESHNESS_SECONDS,
-    RuntimeValidationState,
-    enabled_models_validation_state,
-    runtime_validation_state,
-)
+from .validation import RUNTIME_TEAM_FRESHNESS_SECONDS, RuntimeValidationState, account_validation_state
 
 
 def _validation_record(item: RuntimeFacts, state: RuntimeValidationState) -> dict[str, Any]:
@@ -71,8 +65,12 @@ class RuntimeTeamCandidatesService:
             for account in store.list_provider_accounts()
             if str(account["providerId"]) in facts
         }
+        # Un runtime de modelo vale como validado por cualquiera de sus modelos habilitados: la falla de
+        # otro modelo del mismo servidor o gateway no lo saca del reparto (misma regla que el sellado).
         states = {
-            provider_id: self._runtime_state(store, provider_id, accounts.get(provider_id))
+            provider_id: account_validation_state(
+                self.connection, provider_id, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
+            )
             for provider_id in facts
         }
         ordered = sorted(
@@ -104,24 +102,6 @@ class RuntimeTeamCandidatesService:
             "suggestedRoleRuntimes": suggested,
             "suggestedRoleModels": resolve_team_role_models(self.connection, suggested),
         }
-
-    def _runtime_state(
-        self, store: ProviderAccountStore, provider_id: str, account: Mapping[str, Any] | None
-    ) -> RuntimeValidationState:
-        """Validación de 30 min del runtime; una cuenta de API/gateway/local vale por cualquier modelo.
-
-        La falla de un modelo del mismo servidor o gateway no saca del reparto a un runtime que tiene
-        otro modelo habilitado validado (misma regla por (provider, modelo) que el gate de envío y el
-        sellado). Un CLI queda con el estado a nivel de runtime.
-        """
-        if account is not None and str(account.get("providerType") or "") in MODEL_RUNTIME_KINDS:
-            enabled = [str(item["model"]) for item in store.list_models(provider_id) if item.get("enabled")]
-            return enabled_models_validation_state(
-                self.connection, provider_id, enabled, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
-            )
-        return runtime_validation_state(
-            self.connection, provider_id, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
-        )
 
     def _runtime_order(self) -> list[str]:
         try:

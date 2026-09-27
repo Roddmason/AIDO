@@ -11167,6 +11167,30 @@
       "en": "No project overrides are active.",
       "es": "No hay overrides de proyecto activos."
     },
+    "app.settings.team.role.product_owner": {
+      "en": "Product Owner runtimes (in order)",
+      "es": "Runtimes del Product Owner (en orden)"
+    },
+    "app.settings.team.role.developer": {
+      "en": "Developer runtimes (in order)",
+      "es": "Runtimes del Developer (en orden)"
+    },
+    "app.settings.team.role.architect": {
+      "en": "Architect runtimes (in order)",
+      "es": "Runtimes del Arquitecto (en orden)"
+    },
+    "app.settings.team.role.security": {
+      "en": "Security runtimes (in order)",
+      "es": "Runtimes de Seguridad (en orden)"
+    },
+    "app.settings.team.role.technical_lead": {
+      "en": "Technical Lead runtimes (in order; empty inherits the Product Owner)",
+      "es": "Runtimes del Technical Lead (en orden; vacío hereda del Product Owner)"
+    },
+    "app.settings.team.role.researcher": {
+      "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
+      "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
+    },
     "app.settings.plugins.loading": {
       "en": "Loading plugins...",
       "es": "Cargando plugins..."

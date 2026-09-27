@@ -473,6 +473,32 @@ REGISTRY: list[SettingDescriptor] = [
     ),
 ]
 
+GLOBAL_TEAM_ROLE_KEYS: tuple[str, ...] = (
+    "product_owner",
+    "developer",
+    "architect",
+    "security",
+    "technical_lead",
+    "researcher",
+)
+"""Roles del equipo de IA global con asignación propia (`team.role.<rol>`).
+
+Los cuatro primeros son los roles del equipo por hilo; `technical_lead` y `researcher` heredan del
+PO cuando su lista queda vacía (`runtime_team/global_team.py`). QA, DevOps y aido_lead no usan modelo.
+"""
+
+REGISTRY.extend(
+    SettingDescriptor(
+        key=f"team.role.{role}",
+        section="team",
+        project_section="team",
+        type="string_list",
+        default=[],
+        label_key=f"app.settings.team.role.{role}",
+    )
+    for role in GLOBAL_TEAM_ROLE_KEYS
+)
+
 REGISTRY.extend(
     SettingDescriptor(
         key=f"decision_engine.{key}",

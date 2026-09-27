@@ -1099,6 +1099,24 @@ kbd.command-kbd {
 	.setting-switch > input:focus-visible + .setting-switch-track {
 		outline: 2px solid CanvasText;
 	}
+
+	/* Opacity alone does not survive every high-contrast palette, and a disabled switch painted in
+	 * Highlight reads as actionable: follow the system convention and draw it in GrayText. */
+	.setting-switch:has(> input:disabled) .setting-switch-track {
+		border-color: GrayText;
+	}
+
+	.setting-switch:has(> input:disabled) > input:checked + .setting-switch-track {
+		border-color: GrayText;
+		background: GrayText;
+	}
+
+	.setting-switch:has(> input:disabled)
+		> input:checked
+		+ .setting-switch-track
+		.setting-switch-thumb {
+		background: Canvas;
+	}
 }
 
 /* Column chooser: a compact disclosure above wide tables that reveals advanced columns. */

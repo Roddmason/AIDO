@@ -23,7 +23,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 84
+CURRENT_SCHEMA_VERSION = 85
 
 
 def _execute_atomic_statements(
@@ -223,6 +223,7 @@ def _initialize_platform_schema_unlocked(connection: sqlite3.Connection) -> None
     init_phase82_schema(connection)
     init_phase83_schema(connection)
     init_phase84_schema(connection)
+    init_phase85_schema(connection)
     seed_platform_catalogs(connection)
     purge_tombstoned_provider_seeds(connection)
 
@@ -7154,6 +7155,72 @@ def init_phase84_schema(connection: sqlite3.Connection) -> None:
             ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (84, now)),
         ],
     )
+
+
+def init_phase85_schema(connection: sqlite3.Connection) -> None:
+    """Fase 85: validación modelo por modelo de un proveedor de API/gateway.
+
+    ``model_catalog`` gana ``disabled_reason``/``disabled_detail``: un modelo que falló la validación queda
+    deshabilitado con ``validation_failed`` (nunca se borra) y el operador lo ve como descartado, lo
+    re-habilita o lo vuelve a probar. ``model_validation_outcomes`` guarda el último resultado por
+    (proveedor, modelo) y ``model_validation_runs`` el avance de cada corrida (hechos/total, ok, fallidos)
+    para la barra de progreso. Ver ``runtime_team/catalog_validation.py``.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 85").fetchone():
+        return
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(model_catalog)")}
+    statements: list[tuple[str, tuple[object, ...]]] = [
+        (f"ALTER TABLE model_catalog ADD COLUMN {column} TEXT", ())
+        for column in ("disabled_reason", "disabled_detail")
+        if column not in columns
+    ]
+    statements.extend(
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS model_validation_outcomes (
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('ok', 'failed', 'skipped')),
+            http_status INTEGER,
+            reason TEXT,
+            detail TEXT,
+            latency_ms INTEGER,
+            run_id TEXT,
+            tested_at TEXT NOT NULL,
+            PRIMARY KEY (provider_id, model)
+        )""",
+                (),
+            ),
+            (
+                """CREATE TABLE IF NOT EXISTS model_validation_runs (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            total INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            ok INTEGER NOT NULL DEFAULT 0,
+            failed INTEGER NOT NULL DEFAULT 0,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            discarded INTEGER NOT NULL DEFAULT 0,
+            concurrency INTEGER NOT NULL DEFAULT 1,
+            model_timeout_seconds REAL NOT NULL DEFAULT 0,
+            budget_seconds REAL NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            started_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            finished_at TEXT
+        )""",
+                (),
+            ),
+            (
+                """CREATE INDEX IF NOT EXISTS idx_model_validation_runs_provider
+            ON model_validation_runs(provider_id, started_at)""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (85, utc_now())),
+        ]
+    )
+    _execute_atomic_statements(connection, statements)
 
 
 def purge_tombstoned_provider_seeds(connection: sqlite3.Connection) -> None:

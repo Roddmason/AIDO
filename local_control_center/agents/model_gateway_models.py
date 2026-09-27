@@ -207,6 +207,12 @@ class ModelCatalogRecord(BaseModel):
     source: str
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+    disabled_reason: Literal["validation_failed"] | None = Field(
+        default=None,
+        alias="disabledReason",
+        description="``validation_failed``: la validación modelo por modelo lo descartó (no se borra).",
+    )
+    disabled_detail: str | None = Field(default=None, alias="disabledDetail")
 
 
 class ModelCatalogUpsertRequest(GatewayFlexibleModel):

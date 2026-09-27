@@ -376,9 +376,9 @@ def test_a_keyring_ref_without_a_stored_secret_is_explained_before_any_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(probe, "CredentialResolver", _KeyringWithoutSecret)
-    cause, message = probe._stored_secret_missing({"credentialRef": "keyring:aido/nvidia"})
+    cause, message = probe.stored_secret_missing({"credentialRef": "keyring:aido/nvidia"})
     assert cause == "credential_missing"
     assert (
         message == "Credential ref keyring:aido/nvidia has no stored secret (Keyring credential is missing)."
     )
-    assert probe._stored_secret_missing({"credentialRef": ""}) is None
+    assert probe.stored_secret_missing({"credentialRef": ""}) is None

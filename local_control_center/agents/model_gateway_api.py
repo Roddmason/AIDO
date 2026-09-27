@@ -24,7 +24,18 @@ from local_control_center.executions.router import ExecutionRouter, queued_opera
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
-from local_control_center.runtime_team.contracts import RuntimeValidationRequest, RuntimeValidationResponse
+from local_control_center.runtime_team.catalog_validation import (
+    CatalogValidationBlocked,
+    CatalogValidationLimits,
+    CatalogValidationService,
+)
+from local_control_center.runtime_team.contracts import (
+    CatalogValidationRequest,
+    CatalogValidationResponse,
+    ModelValidationStatusResponse,
+    RuntimeValidationRequest,
+    RuntimeValidationResponse,
+)
 from local_control_center.runtime_team.probe import RuntimeValidationService
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
@@ -1047,6 +1058,75 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     "runtime_team.resume_after_validation_failed", extra={"providerId": provider_id}
                 )
         return {"validation": result}
+
+    @router.post("/providers/{provider_id}/validate-all-models", response_model=CatalogValidationResponse)
+    @queued_operation("models.validate_all_models", workload_class="remote_llm_light")
+    async def validate_all_models(
+        provider_id: str, body: CatalogValidationRequest, request: Request
+    ) -> dict[str, Any]:
+        """Prueba cada modelo habilitado (o los ``models`` pedidos) de un proveedor de API/gateway.
+
+        Los que responden quedan validados; los que fallan de forma definitiva se descartan
+        (``enabled=0`` con ``disabledReason='validation_failed'``, nunca se borran) si el proveedor
+        demostró funcionar; los transitorios (429, 5xx, timeout) quedan sin validar ni descartar. El
+        proveedor sigue validado con un solo modelo que pase. La red corre en hilos acotados del worker;
+        la corrida respeta la cancelación de la ejecución, el switch del proveedor y la cuota. El avance
+        se lee en ``GET .../model-validation``. Cada modelo probado consume una completion corta real.
+        """
+        require_write(request)
+        from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+        context = CURRENT_EXECUTION.get()
+        try:
+            result = CatalogValidationService(platform.connection).run(
+                provider_id,
+                run_id=context.execution_id if context is not None else None,
+                model_ids=body.models,
+                only_untested=body.only_untested,
+                limits=CatalogValidationLimits(
+                    concurrency=body.concurrency,
+                    model_timeout_seconds=body.model_timeout_seconds,
+                    budget_seconds=body.budget_seconds,
+                ),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except CatalogValidationBlocked as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=str(redact_secrets(f"{error.code}: {error.detail}")),
+            ) from error
+        run = result["run"]
+        audit(
+            "model_gateway.provider.models_validated",
+            provider_id,
+            {
+                key: run[key]
+                for key in ("runId", "status", "reason", "total", "ok", "failed", "skipped", "discarded")
+            },
+        )
+        if run["ok"]:
+            from local_control_center.remediations.service import BlockerRemediationService
+
+            try:
+                BlockerRemediationService(
+                    platform.connection, root=getattr(platform, "cwd", None)
+                ).resume_after_runtime_validation(provider_id)
+            except Exception:
+                logger.exception(
+                    "runtime_team.resume_after_validation_failed", extra={"providerId": provider_id}
+                )
+        return result
+
+    @router.get("/providers/{provider_id}/model-validation", response_model=ModelValidationStatusResponse)
+    async def model_validation_status(provider_id: str) -> dict[str, Any]:
+        """Avance de la última validación modelo por modelo y último resultado por modelo (sin red)."""
+        try:
+            return CatalogValidationService(platform.connection).status(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:

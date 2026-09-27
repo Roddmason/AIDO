@@ -17,6 +17,7 @@ INFERENCE_OPERATIONS = frozenset(
         "models.execute_ai_execution",
         "models.test_prompt",
         "models.validate_runtime",
+        "models.validate_all_models",
         "local_endpoints.validate_model",
         "models.route_execute",
     }

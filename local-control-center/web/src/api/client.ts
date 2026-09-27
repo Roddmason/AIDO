@@ -1516,6 +1516,22 @@ export function getWorkerStatus(signal?: AbortSignal) {
 	);
 }
 
+/** Lets the worker leader claim queued jobs again (a fresh install starts paused); write token. */
+export function resumeWorker(token: string) {
+	return requestGeneratedOperation<
+		'worker_resume_api_v1_workers_resume_post',
+		WorkerStatusResponse
+	>('worker_resume_api_v1_workers_resume_post', { token });
+}
+
+/** Stops the worker from claiming new jobs until it is resumed; write token. */
+export function pauseWorker(token: string) {
+	return requestGeneratedOperation<'worker_pause_api_v1_workers_pause_post', WorkerStatusResponse>(
+		'worker_pause_api_v1_workers_pause_post',
+		{ token },
+	);
+}
+
 /** Runs one bounded batch of queued local jobs now; requires the write token. */
 export function runWorkerOnce(token: string) {
 	return requestGeneratedOperation<

@@ -11187,6 +11187,42 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.worker.tokenRequired": {
+      "en": "A local write token is required to resume the worker.",
+      "es": "Se necesita el token local de escritura para reanudar el worker."
+    },
+    "app.worker.resumed": {
+      "en": "Worker resumed: queued work will start",
+      "es": "Worker reanudado: el trabajo en cola va a comenzar"
+    },
+    "app.worker.resumeFailed": {
+      "en": "Could not resume the worker",
+      "es": "No se pudo reanudar el worker"
+    },
+    "app.worker.paused": {
+      "en": "Worker paused",
+      "es": "Worker pausado"
+    },
+    "app.worker.offline": {
+      "en": "Worker offline",
+      "es": "Worker desconectado"
+    },
+    "app.worker.running": {
+      "en": "Worker running",
+      "es": "Worker activo"
+    },
+    "app.worker.pausedHint": {
+      "en": "Queued work (git refresh, runtime checks, thread runs) waits until you resume the worker.",
+      "es": "El trabajo en cola (refresco de git, chequeos de runtime, ejecuciones de hilos) espera hasta que reanudes el worker."
+    },
+    "app.worker.offlineHint": {
+      "en": "No worker process is connected. Start AIDO with its launcher so the worker runs next to the API.",
+      "es": "No hay un proceso worker conectado. Inicia AIDO con su lanzador para que el worker corra junto a la API."
+    },
+    "app.worker.resume": {
+      "en": "Resume",
+      "es": "Reanudar"
+    },
     "app.providers.usage.title": {
       "en": "Usage quota",
       "es": "Cuota de uso"

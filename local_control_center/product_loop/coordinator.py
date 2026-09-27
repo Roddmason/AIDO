@@ -3315,6 +3315,14 @@ class ProductLoopCoordinator:
                 decision=decision,
                 request_meta=request_meta,
             )
+            self._record_assigned_provider_skipped(
+                thread_id=thread_id,
+                loop_id=loop_id,
+                request_meta=request_meta,
+                team_role=team_role,
+                role=role,
+                decision=decision,
+            )
             observe_resource_decision(
                 self.connection,
                 decision=decision,
@@ -3364,6 +3372,46 @@ class ProductLoopCoordinator:
             },
         }
         return enriched, blockers
+
+    def _record_assigned_provider_skipped(
+        self,
+        *,
+        thread_id: str | None,
+        loop_id: str,
+        request_meta: dict[str, Any],
+        team_role: str | None,
+        role: str,
+        decision: dict[str, Any],
+    ) -> None:
+        """Evento ``runtime_failover`` cuando la selección no pudo usar el proveedor asignado del rol.
+
+        Spec §4.8: con equipo de IA global, si el primero del orden del rol no puede servir (inactivo,
+        sin validación o sin candidatos) y se elige el siguiente, el hilo lo dice. No aplica con equipo
+        por hilo (allowlist de un proveedor) ni sin snapshot global.
+        """
+        if runtime_team_of(request_meta) is not None or global_team_of(request_meta) is None:
+            return
+        order = global_role_order(request_meta, team_role)
+        selected = decision.get("selected") if isinstance(decision.get("selected"), dict) else {}
+        runtime_id = str(selected.get("providerId") or "").strip()
+        if not order or not runtime_id or runtime_id == order[0]:
+            return
+        self._record_thread_event(
+            thread_id=thread_id,
+            event_type="runtime_failover",
+            agent_role=role,
+            payload={
+                "loopId": loop_id,
+                "runtimeId": runtime_id,
+                "previousRuntimeId": order[0],
+                "failureClass": "assigned_unavailable",
+                "attempt": 0,
+                "reason": (
+                    f"The assigned provider {order[0]} could not serve the role; "
+                    f"{runtime_id} was selected from the role's order."
+                ),
+            },
+        )
 
     def _jev_provider_walk(
         self, project_id: str, request_meta: dict[str, Any], team_role: str | None

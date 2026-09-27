@@ -743,3 +743,47 @@ def test_failover_walks_an_automatic_order_one_provider_at_a_time_when_jev_selec
         role="developer",
     )
     assert recorded == expected
+
+
+def test_skipping_the_assigned_provider_records_a_runtime_failover_event(coordinator, monkeypatch):
+    """Spec §4.8: el asignado no pudo servir y se eligió el siguiente del orden ⇒ el hilo lo dice."""
+    events: list = []
+    monkeypatch.setattr(coordinator, "_record_thread_event", lambda **kwargs: events.append(kwargs))
+    _calls, select = _fake_select_resource(
+        {
+            ("nvidia_nim", "codex_cli"): {
+                "selected": {"providerId": "codex_cli", "model": "m"},
+                "candidates": [{}],
+            }
+        }
+    )
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    schedule = {
+        **SCHEDULE,
+        "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+    }
+    kwargs = {
+        "project_id": "project-team",
+        "loop_id": "loop-1",
+        "team_schedule": schedule,
+        "agent_tasks": [{"id": "task-1", "role": "backend_engineer"}],
+        "thread_id": "thread-1",
+    }
+    coordinator._team_schedule_with_resource_decisions(request_meta=GLOBAL, **kwargs)
+    assert [
+        (e["event_type"], e["payload"]["previousRuntimeId"], e["payload"]["runtimeId"]) for e in events
+    ] == [("runtime_failover", "nvidia_nim", "codex_cli")]
+    assert events[0]["payload"]["failureClass"] == "assigned_unavailable"
+    # El asignado sirvió, o el hilo tiene su propio equipo: sin evento.
+    events.clear()
+    _calls, select = _fake_select_resource(
+        {
+            ("nvidia_nim", "codex_cli"): {
+                "selected": {"providerId": "nvidia_nim", "model": "m"},
+                "candidates": [{}],
+            }
+        }
+    )
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    coordinator._team_schedule_with_resource_decisions(request_meta=GLOBAL, **kwargs)
+    assert events == []

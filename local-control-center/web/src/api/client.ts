@@ -2292,13 +2292,16 @@ export function getRuntimeTeam(projectId: string | null, signal?: AbortSignal) {
 /**
  * Real round trip against one runtime (queued `models.validate_runtime`); requires the write token.
  * `onExecution` sees each poll of the queued execution, e.g. `resource_wait` with the governor reason.
+ * Without `model` an API/gateway runtime picks its candidates (last validated, role-policy models, then
+ * enabled ones, capped) and reports every model it tried in `validation.attempts`.
  */
 export function validateRuntime(
 	token: string,
 	providerId: string,
-	projectId: string,
+	projectId: string | null,
 	signal?: AbortSignal,
 	onExecution?: ExecutionObserver,
+	model?: string | null,
 ) {
 	return requestGeneratedOperation<
 		'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post',
@@ -2308,7 +2311,7 @@ export function validateRuntime(
 		{
 			token,
 			pathParams: { provider_id: providerId },
-			body: { projectId },
+			body: { projectId, ...(model ? { model } : {}) },
 			signal,
 		},
 		onExecution,

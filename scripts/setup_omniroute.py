@@ -5,8 +5,9 @@ el catálogo, habilita la política de runtime remoto, siembra las capabilities 
 build y review exigen, corre el health-check, sincroniza y cura el catálogo de modelos, declara
 precio cero verificable y pinea el gateway en las políticas de rol.
 
-Todos los pasos son idempotentes: reejecutarlo converge al mismo estado y no duplica nada. La
-curación va siempre pegada al sync porque `sync-models` reactiva todo lo que el gateway anuncie.
+Todos los pasos son idempotentes: reejecutarlo converge al mismo estado y no duplica nada. El
+sync del backend ya preselecciona la misma allowlist; la curación sigue pegada al sync porque además
+fija capacidades y precio cero, y deshabilita lo que el operador haya habilitado fuera de la lista.
 
 Uso típico (con el control plane y OmniRoute levantados):
 
@@ -32,13 +33,17 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from local_control_center.agents.gateway_model_allowlist import (  # noqa: E402
+    OMNIROUTE_MODELS_FILE,
+    load_model_allowlist,
+)
 from local_control_center.shared.settings import default_db_path  # noqa: E402
 
 PROVIDER_ID = "omniroute"
 CATALOG_PROVIDER_ID = "omniroute"
 DEFAULT_API_BASE = "http://localhost:4310"
 DEFAULT_GATEWAY_URL = "http://localhost:20128/v1"
-DEFAULT_MODELS_FILE = REPO_ROOT / "scripts" / "omniroute_models.json"
+DEFAULT_MODELS_FILE = OMNIROUTE_MODELS_FILE
 # `chat` es obligatorio para ejecutar y las filas por provider_id ocultan por completo las de la
 # familia, así que se siembra junto a las que habilitan los roles de build (code) y review.
 RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
@@ -121,19 +126,15 @@ def check_gateway(gateway_url: str) -> list[str]:
 
 
 def load_allowlist(models_file: Path, override: str | None) -> list[dict[str, Any]]:
-    """Carga la allowlist de modelos, con override por línea de comandos."""
+    """Carga la allowlist de modelos (mismo parser que el sync del backend), con override por CLI."""
     if override:
         return [{"model": name.strip()} for name in override.split(",") if name.strip()]
     try:
-        document = json.loads(models_file.read_text(encoding="utf-8"))
+        return load_model_allowlist(models_file)
     except FileNotFoundError as error:
         raise SetupError(f"No existe la allowlist {models_file}") from error
-    except json.JSONDecodeError as error:
+    except ValueError as error:
         raise SetupError(f"Allowlist inválida en {models_file}: {error}") from error
-    models = document.get("models")
-    if not isinstance(models, list) or not models:
-        raise SetupError(f"{models_file} no declara ningún modelo en 'models'.")
-    return models
 
 
 def upsert_account(client: ControlPlaneClient, *, gateway_url: str, credential_ref: str | None) -> None:

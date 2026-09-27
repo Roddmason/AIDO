@@ -2,7 +2,8 @@
 
 Lee la misma evidencia de ejecución real que ``model_execution_health`` usa para su TTL de 24 h,
 pero con una ventana propia: el selector del hilo exige una prueba de ida y vuelta reciente con la
-configuración actual. Los consumidores de 24 h no cambian.
+configuración actual. Los consumidores de 24 h no cambian. Los runtimes de modelo (API, gateway,
+local) se evalúan por modelo habilitado: basta uno validado.
 
 @author Rodrigo Mason
 """
@@ -10,13 +11,20 @@ configuración actual. Los consumidores de 24 h no cambian.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from local_control_center.agents.model_execution_health import provider_configuration_fingerprint
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 
 RUNTIME_TEAM_FRESHNESS_SECONDS = 30 * 60
+#: Tipos de runtime cuya validación se lleva por (provider, modelo) habilitado.
+MODEL_RUNTIME_KINDS = frozenset({"api", "gateway", "local"})
+#: Runtimes remotos de modelo: el gate de un equipo sin ``roleModels`` los evalúa por cualquier modelo
+#: habilitado. Un local sella ``roleModels`` y un equipo legado sin ellos conserva el gate por runtime.
+REMOTE_MODEL_RUNTIME_KINDS = frozenset({"api", "gateway"})
 
 
 @dataclass(frozen=True)
@@ -87,6 +95,61 @@ def runtime_validation_state(
     if not 0 <= age < max_age_seconds:
         return RuntimeValidationState("stale", reason="runtime_validation_expired", **evidence)
     return RuntimeValidationState("validated", **evidence)
+
+
+def enabled_models_validation_state(
+    connection: sqlite3.Connection,
+    provider_id: str,
+    enabled_models: Iterable[str],
+    *,
+    max_age_seconds: int,
+    now: datetime | None = None,
+) -> RuntimeValidationState:
+    """Estado de un runtime de modelo evaluado por (provider, modelo) sobre sus modelos habilitados.
+
+    Vale como validado si ALGÚN modelo habilitado tiene una validación vigente: la falla de un modelo
+    (p. ej. un upstream del gateway sin cuenta) no oculta el éxito de otro. Sin ninguno validado devuelve
+    la evidencia más reciente entre los habilitados, así la evidencia de un modelo ya deshabilitado no
+    cuenta; sin modelos habilitados o sin evidencia de ellos, ``never``.
+    """
+    latest: RuntimeValidationState | None = None
+    for model in dict.fromkeys(enabled_models):
+        state = runtime_validation_state(
+            connection, provider_id, max_age_seconds=max_age_seconds, model=model, now=now
+        )
+        if state.status == "validated":
+            return state
+        if state.status != "never" and (
+            latest is None or str(state.checked_at or "") > str(latest.checked_at or "")
+        ):
+            latest = state
+    return latest or RuntimeValidationState("never", reason="runtime_validation_required")
+
+
+def account_validation_state(
+    connection: sqlite3.Connection,
+    provider_id: str,
+    *,
+    max_age_seconds: int,
+    kinds: frozenset[str] = MODEL_RUNTIME_KINDS,
+    now: datetime | None = None,
+) -> RuntimeValidationState:
+    """Validación de un runtime del equipo: por modelo habilitado en los ``kinds`` dados, global en el resto.
+
+    Un CLI valida siempre su primer modelo y su evidencia se lee a nivel de runtime como antes; una cuenta
+    desconocida también, para no inventar un estado.
+    """
+    store = ProviderAccountStore(connection)
+    try:
+        account = store.get_provider_account(provider_id)
+    except KeyError:
+        account = None
+    if account is None or str(account.get("providerType") or "") not in kinds:
+        return runtime_validation_state(connection, provider_id, max_age_seconds=max_age_seconds, now=now)
+    enabled = [str(item["model"]) for item in store.list_models(provider_id) if item.get("enabled")]
+    return enabled_models_validation_state(
+        connection, provider_id, enabled, max_age_seconds=max_age_seconds, now=now
+    )
 
 
 def runtime_validated_within(

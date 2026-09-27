@@ -4,8 +4,11 @@
  * and pick models, validate, then assign roles — that writes through the real control plane: it
  * creates a vault credential (secret in, never out), enables the provider account, discovers its
  * models, checks provider health and routes the chosen model to the selected roles. Inference is
- * a separate, explicitly authorized action on the provider card, never a configuration check. Auto-routing
- * gateways (OmniRoute) sync their catalog on entering the models step and route roles to the
+ * never a configuration check: the validate step only sends a real request when the operator clicks
+ * "Validate with a real request", which first saves the model selection and then runs the queued
+ * runtime validation, listing which model passed or failed and why. Auto-routing gateways (OmniRoute)
+ * sync their catalog on entering the models step — the backend preselects only the curated allowlist,
+ * since the gateway also announces upstreams the operator has no account for — and route roles to the
  * provider-level wildcard — the same `{provider, model: "*"}` candidate scripts/setup_omniroute.py
  * pins — because the gateway, not the role, picks the concrete model per request. The API key is
  * held in an uncontrolled masked input — never in React state, never serialized into the DOM — read
@@ -13,7 +16,15 @@
  * @author Rodrigo Mason
  */
 
-import { CheckCircle2, CircleDollarSign, KeyRound, Link2, RefreshCw, XCircle } from 'lucide-react';
+import {
+	CheckCircle2,
+	CircleDollarSign,
+	KeyRound,
+	Link2,
+	RefreshCw,
+	Send,
+	XCircle,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -26,7 +37,9 @@ import {
 	patchModelGatewayModel,
 	patchModelGatewayRolePolicy,
 	putSetting,
+	type RuntimeValidationResponse,
 	syncProviderAccountModels,
+	validateRuntime,
 } from '../../api/client';
 import type { CredentialBackend, ModelGatewayModel, ModelGatewayRolePolicy } from '../../api/types';
 import {
@@ -56,6 +69,7 @@ type WizardStep = 'provider' | 'credential' | 'models' | 'validate' | 'roles';
 const STEP_ORDER: WizardStep[] = ['provider', 'credential', 'models', 'validate', 'roles'];
 
 type TestOutcome = { ok: boolean; latencyMs?: number; sample?: string; error?: string | null };
+type RuntimeValidation = RuntimeValidationResponse['validation'];
 type CredentialMode = 'none' | 'key' | 'ref' | 'keep';
 type GeminiPricingMode = 'free' | 'configured';
 const GEMINI_MODEL_PRIORITY = [
@@ -124,6 +138,66 @@ function defaultCredentialMode(
 	return entry?.authKind === 'optional_api_key' ? 'none' : 'key';
 }
 
+const ATTEMPT_STATUS_COPY: Record<RuntimeValidation['status'], { key: string; fallback: string }> =
+	{
+		validated: { key: 'app.providers.wizard.attemptPassed', fallback: 'passed' },
+		failed: { key: 'app.providers.wizard.attemptFailed', fallback: 'failed' },
+		deferred: { key: 'app.providers.wizard.attemptDeferred', fallback: 'deferred' },
+	};
+
+/** Outcome of the real validation: the model that answered (or not) and every model tried, with its reason. */
+function RuntimeValidationSummary({ validation }: { validation: RuntimeValidation }) {
+	const { t } = useI18n();
+	const passed = validation.status === 'validated';
+	const attempts = validation.attempts?.length
+		? validation.attempts
+		: [
+				{
+					model: validation.model,
+					status: validation.status,
+					reason: validation.reason,
+					evidence: validation.evidence,
+					latencyMs: validation.latencyMs,
+				},
+			];
+	const headline = passed
+		? t('app.providers.wizard.realValidateOk', 'Validated with {model}').replace(
+				'{model}',
+				validation.model ?? '—',
+			)
+		: validation.status === 'deferred'
+			? t('app.providers.wizard.realValidateDeferred', 'Validation deferred')
+			: t('app.providers.wizard.realValidateFailed', 'No selected model passed');
+	return (
+		<div className="stack compact" role="status" data-testid="wizard-runtime-validation">
+			<div className="inline">
+				{passed ? (
+					<CheckCircle2 aria-hidden="true" size={15} />
+				) : (
+					<XCircle aria-hidden="true" size={15} />
+				)}
+				<Badge tone={passed ? 'ok' : validation.status === 'deferred' ? 'warn' : 'danger'}>
+					{headline}
+				</Badge>
+			</div>
+			<ul className="stack compact">
+				{attempts.map((attempt) => {
+					const copy = ATTEMPT_STATUS_COPY[attempt.status];
+					return (
+						<li key={attempt.model ?? 'none'} className="field-help">
+							<span className="mono">{attempt.model ?? '—'}</span>
+							{': '}
+							{t(copy.key, copy.fallback)}
+							{attempt.reason ? ` (${attempt.reason})` : ''}
+							{attempt.evidence ? ` — ${attempt.evidence}` : ''}
+						</li>
+					);
+				})}
+			</ul>
+		</div>
+	);
+}
+
 export function AddProviderWizard({
 	open,
 	token,
@@ -164,6 +238,7 @@ export function AddProviderWizard({
 	const [discovered, setDiscovered] = useState<ModelGatewayModel[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [validation, setValidation] = useState<TestOutcome | null>(null);
+	const [runtimeValidation, setRuntimeValidation] = useState<RuntimeValidation | null>(null);
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
 	const [assignedRoles, setAssignedRoles] = useState<Set<string>>(new Set());
 	const [roleModel, setRoleModel] = useState('');
@@ -210,6 +285,7 @@ export function AddProviderWizard({
 		setDiscovered([]);
 		setSelected(new Set());
 		setValidation(null);
+		setRuntimeValidation(null);
 		setError('');
 		setReenableRemote(true);
 		void getCredentials()
@@ -332,6 +408,7 @@ export function AddProviderWizard({
 		setDiscovered([]);
 		setSelected(new Set());
 		setValidation(null);
+		setRuntimeValidation(null);
 		setError('');
 	};
 
@@ -483,6 +560,51 @@ export function AddProviderWizard({
 	};
 
 	/**
+	 * Persist the enabled flag of every model whose selection changed. Each confirmed delta is
+	 * committed locally so a partial failure retries only the unsaved rows.
+	 */
+	const saveModelSelection = async () => {
+		for (const model of discovered) {
+			const enabled = selected.has(model.id);
+			if (enabled === model.enabled) continue;
+			await patchModelGatewayModel(token, model.id, { enabled });
+			setDiscovered((current) =>
+				current.map((entry) => (entry.id === model.id ? { ...entry, enabled } : entry)),
+			);
+		}
+	};
+
+	/**
+	 * Real round trip, only on the operator's click: the selection is saved first so the backend
+	 * probes the models the operator kept (last validated, role-policy models, then the rest, capped),
+	 * and the result lists each model tried with the backend's reason.
+	 */
+	const runRuntimeValidation = async () => {
+		if (busy) return;
+		if (!selected.size) {
+			setError(
+				t(
+					'app.providers.wizard.realValidateNeedsModels',
+					'Select at least one model before validating.',
+				),
+			);
+			return;
+		}
+		setBusy(true);
+		setError('');
+		setRuntimeValidation(null);
+		try {
+			await saveModelSelection();
+			const response = await validateRuntime(token, entry.id, null);
+			setRuntimeValidation(response.validation);
+		} catch (validateError) {
+			setError(errorMessage(validateError));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	/**
 	 * Route the chosen model to every checked role and stop routing the unchecked ones. A failure
 	 * must surface — the provider is already saved, but the operator's routing intent was not
 	 * applied — yet one role whose stored policy no longer validates (the PATCH revalidates the
@@ -523,15 +645,7 @@ export function AddProviderWizard({
 		setBusy(true);
 		setError('');
 		try {
-			for (const model of discovered) {
-				const enabled = selected.has(model.id);
-				if (enabled === model.enabled) continue;
-				await patchModelGatewayModel(token, model.id, { enabled });
-				// Commit each confirmed delta locally so a partial failure retries only unsaved rows.
-				setDiscovered((current) =>
-					current.map((entry) => (entry.id === model.id ? { ...entry, enabled } : entry)),
-				);
-			}
+			await saveModelSelection();
 			await applyRoleAssignments();
 			onSaved();
 			onClose();
@@ -932,6 +1046,20 @@ export function AddProviderWizard({
 								{validation.error ? <span className="field-help">{validation.error}</span> : null}
 							</div>
 						) : null}
+						<p className="field-help">
+							{t(
+								'app.providers.wizard.realValidateHelp',
+								'Validating sends one short test prompt with the selected models (it may use quota) and shows which model answered.',
+							)}
+						</p>
+						<Button
+							onClick={() => void runRuntimeValidation()}
+							loading={busy}
+							icon={<Send size={15} />}
+						>
+							{t('app.providers.wizard.realValidate', 'Validate with a real request')}
+						</Button>
+						{runtimeValidation ? <RuntimeValidationSummary validation={runtimeValidation} /> : null}
 					</>
 				) : null}
 

@@ -11191,6 +11191,46 @@
       "en": "Suspend a provider for AIDO at this % of its usage quota (all providers; each one can override it)",
       "es": "Suspender un proveedor para AIDO a este % de su cuota de uso (todos los proveedores; cada uno puede tener el suyo)"
     },
+    "app.providers.card.noEnabledModels": {
+      "en": "No model is enabled for this gateway. Sync models, then select the ones to use in Configure.",
+      "es": "Este gateway no tiene ningún modelo habilitado. Sincroniza los modelos y luego selecciona los que quieres usar en Configurar."
+    },
+    "app.providers.wizard.realValidate": {
+      "en": "Validate with a real request",
+      "es": "Validar con una solicitud real"
+    },
+    "app.providers.wizard.realValidateHelp": {
+      "en": "Validating sends one short test prompt with the selected models (it may use quota) and shows which model answered.",
+      "es": "La validación envía un prompt de prueba breve con los modelos seleccionados (puede consumir cuota) y muestra qué modelo respondió."
+    },
+    "app.providers.wizard.realValidateNeedsModels": {
+      "en": "Select at least one model before validating.",
+      "es": "Selecciona al menos un modelo antes de validar."
+    },
+    "app.providers.wizard.realValidateOk": {
+      "en": "Validated with {model}",
+      "es": "Validado con {model}"
+    },
+    "app.providers.wizard.realValidateFailed": {
+      "en": "No selected model passed",
+      "es": "Ningún modelo seleccionado pasó la prueba"
+    },
+    "app.providers.wizard.realValidateDeferred": {
+      "en": "Validation deferred",
+      "es": "Validación diferida"
+    },
+    "app.providers.wizard.attemptPassed": {
+      "en": "passed",
+      "es": "pasó"
+    },
+    "app.providers.wizard.attemptFailed": {
+      "en": "failed",
+      "es": "falló"
+    },
+    "app.providers.wizard.attemptDeferred": {
+      "en": "deferred",
+      "es": "diferido"
+    },
     "app.providers.switch.inUse": {
       "en": "In use",
       "es": "En uso"

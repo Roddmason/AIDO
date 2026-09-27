@@ -548,12 +548,24 @@ function ProviderCard({
 	const stateLabel = t(meta.labelKey, state);
 
 	const status = provider.status;
-	const reason = redactVisibleSecret(
-		status?.reason ?? provider.config?.reason,
-		t('app.runtime.card.noReason', 'No status reported yet.'),
-	);
-	const variables = provider.config?.variables ?? [];
 	const isCli = provider.kind === 'cli';
+	// A gateway announces every upstream it can route; with none of them enabled the backend only says
+	// "model not configured", so the card tells the operator what to do instead.
+	const needsModelSelection = Boolean(
+		setup?.enabled &&
+			catalogEntry(provider.id)?.providerType === 'gateway' &&
+			setup.enabledModelCount === 0,
+	);
+	const reason = needsModelSelection
+		? t(
+				'app.providers.card.noEnabledModels',
+				'No model is enabled for this gateway. Sync models, then select the ones to use in Configure.',
+			)
+		: redactVisibleSecret(
+				status?.reason ?? provider.config?.reason,
+				t('app.runtime.card.noReason', 'No status reported yet.'),
+			);
+	const variables = provider.config?.variables ?? [];
 	const capabilities = catalogEntry(provider.id)?.capabilities ?? status?.capabilities ?? [];
 	const facts = readinessFacts(provider);
 	const kindLabel = KIND_LABEL[provider.kind];

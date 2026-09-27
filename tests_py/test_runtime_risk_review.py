@@ -1039,3 +1039,19 @@ def test_durable_product_owner_selected_resource_reads_the_persisted_decision():
         _durable_product_owner_selected_resource({"productOwner": {"resourceDecision": {"selected": None}}})
         == {}
     )
+
+
+def test_the_reviewed_request_uses_the_single_provider_the_jev_walk_consulted():
+    """El hash firmado debe corresponder al request consultado, no al allowlist completo del rol."""
+    from local_control_center.product_loop.runtime_risk_review import walked_allowlist
+
+    walk = ["codex_cli", "ollama"]
+    one_provider = [{"providerId": "ollama", "model": "a"}, {"providerId": "ollama", "model": "b"}]
+    assert walked_allowlist(walk, one_provider) == ["ollama"]
+    # Sin recorrido (orden explícito o sin Jev) se reconstruye con el allowlist normal del rol.
+    assert walked_allowlist(["ollama"], one_provider) is None
+    assert walked_allowlist([], one_provider) is None
+    # Candidatos de varios proveedores o de uno fuera del orden: no es una decisión del recorrido.
+    assert walked_allowlist(walk, [{"providerId": "ollama"}, {"providerId": "codex_cli"}]) is None
+    assert walked_allowlist(walk, [{"providerId": "gemini"}]) is None
+    assert walked_allowlist(walk, []) is None

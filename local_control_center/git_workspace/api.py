@@ -20,6 +20,16 @@ from fastapi import APIRouter, HTTPException, Request
 from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.serialization import json_loads
 
+from .branch_manager import GitBranchManager
+from .branch_manager_models import (
+    BranchActionResponse,
+    BranchDeleteRequest,
+    BranchInventoryResponse,
+    BranchPruneRequest,
+    BranchRenameRequest,
+    BranchScanRequest,
+    BranchWorktreeRemoveRequest,
+)
 from .models import (
     GitBranchCreateRequest,
     GitBranchesResponse,
@@ -42,6 +52,7 @@ from .service import GitWorkspaceService, branches_view_from_status
 
 GIT_SNAPSHOT_PATH_PATTERN = re.compile(r"^/api/v1/projects/[^/]+/git/(?:status|branches)$")
 GIT_SNAPSHOT_TTL_SECONDS = 30
+BRANCH_SCAN_OPERATION = "git_branches.scan"
 
 
 def is_git_snapshot_request(method: str, path: str) -> bool:
@@ -213,6 +224,121 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         require_write(request)
         try:
             return service().gitleaks_scan(project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    def branch_manager() -> GitBranchManager:
+        return GitBranchManager(service())
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-manager/scan",
+        response_model=BranchInventoryResponse,
+    )
+    @queued_operation(BRANCH_SCAN_OPERATION, workload_class="qa_light")
+    async def scan_git_branches(project_id: str, body: BranchScanRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return branch_manager().inventory(
+                project_id, stale_days=body.stale_days, far_behind_commits=body.far_behind_commits
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.get(
+        "/api/v1/projects/{project_id}/git/branch-manager",
+        response_model=BranchInventoryResponse,
+    )
+    def git_branch_inventory(project_id: str) -> dict[str, Any]:
+        """Último inventario durable del gestor de ramas; nunca ejecuta Git en el proceso API."""
+        project = platform.connection.execute(
+            "SELECT path FROM projects WHERE id=?", (project_id,)
+        ).fetchone()
+        if project is None:
+            raise HTTPException(404, "Project not found.")
+        row = platform.connection.execute(
+            """SELECT result_json, finished_at FROM operational_executions
+            WHERE project_id=? AND operation=? AND status='completed'
+            ORDER BY finished_at DESC LIMIT 1""",
+            (project_id, BRANCH_SCAN_OPERATION),
+        ).fetchone()
+        result = json_loads(row["result_json"], {}) if row else None
+        if not isinstance(result, dict) or "branches" not in result:
+            return {
+                "status": "configuration_required",
+                "reason": "Branch inventory requires POST /git/branch-manager/scan.",
+                "projectId": project_id,
+                "root": project["path"],
+                "snapshotAt": None,
+                "refreshRequired": True,
+            }
+        changed = platform.connection.execute(
+            """SELECT 1 FROM operational_executions WHERE project_id=?
+            AND operation LIKE 'git.%' AND operation!='git.refresh' AND created_at>=? LIMIT 1""",
+            (project_id, row["finished_at"]),
+        ).fetchone()
+        return {**result, "snapshotAt": row["finished_at"], "refreshRequired": changed is not None}
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-manager/delete",
+        response_model=BranchActionResponse,
+    )
+    @queued_operation("git.branch_manager_delete", workload_class="qa_light")
+    async def delete_git_branches(
+        project_id: str, body: BranchDeleteRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return branch_manager().delete_branches(
+                project_id,
+                branches=body.branches,
+                force_branches=body.force_branches,
+                delete_remote=body.delete_remote,
+                remote_branches=body.remote_branches,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-manager/rename",
+        response_model=BranchActionResponse,
+    )
+    @queued_operation("git.branch_manager_rename", workload_class="qa_light")
+    async def rename_git_branch(
+        project_id: str, body: BranchRenameRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return branch_manager().rename_branch(project_id, branch=body.branch, new_name=body.new_name)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-manager/prune",
+        response_model=BranchActionResponse,
+    )
+    @queued_operation("git.branch_manager_prune", workload_class="qa_light")
+    async def prune_git_remote_refs(
+        project_id: str, body: BranchPruneRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return branch_manager().prune_remotes(project_id, remote=body.remote)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/git/branch-manager/worktrees/remove",
+        response_model=BranchActionResponse,
+    )
+    @queued_operation("git.branch_manager_remove_worktrees", workload_class="qa_light")
+    async def remove_merged_git_worktrees(
+        project_id: str, body: BranchWorktreeRemoveRequest, request: Request
+    ) -> dict[str, Any]:
+        require_write(request)
+        try:
+            return branch_manager().remove_merged_worktrees(
+                project_id, workspace_ids=body.workspace_ids, root=Path(platform.cwd)
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

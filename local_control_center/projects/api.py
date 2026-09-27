@@ -10,11 +10,16 @@ mutaciones (descubrir, crear, seleccionar directorio). No contiene lógica de ne
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.process_supervision.desktop_launcher import (
+    FileManagerUnavailable,
+    open_in_file_manager,
+)
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
@@ -29,6 +34,7 @@ from .models import (
     ProjectDiscoveryRequest,
     ProjectDiscoveryResponse,
     ProjectFindingsListResponse,
+    ProjectOpenFolderResponse,
     ProjectResponse,
     ProjectsListResponse,
     ProjectTemplatesResponse,
@@ -81,6 +87,40 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def select_directory(body: DirectoryPickerRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         return select_directory_with_native_dialog(title=body.title, initial_path=body.initial_path)
+
+    @router.post("/api/v1/projects/{project_id}/open-folder", response_model=ProjectOpenFolderResponse)
+    async def open_project_folder(project_id: str, request: Request) -> dict[str, Any]:
+        """Abre la carpeta REGISTRADA del proyecto en el explorador del SO (loopback + write token).
+
+        La ruta sale siempre de la fila del proyecto, nunca del request, y el argv del lanzador es
+        fijo por plataforma (sin shell). Igual que el picker nativo, corre en el proceso de escritorio
+        local porque el navegador no puede abrir el explorador.
+        """
+        require_write(request)
+        try:
+            project = repository().get_project(project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Project not found.") from error
+        folder = Path(str(project["path"]))
+        try:
+            launched = open_in_file_manager(folder)
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=409, detail=f"The project folder no longer exists: {folder}"
+            ) from error
+        except FileManagerUnavailable as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=project_id,
+            event_type="project.folder.opened",
+            payload={"launcher": Path(launched["argv"][0]).name},
+        )
+        return {
+            "status": "opened",
+            "projectId": project_id,
+            "path": str(folder),
+            "launcher": Path(launched["argv"][0]).name,
+        }
 
     @router.get("/api/v1/providers", response_model=ProvidersListResponse)
     async def providers() -> dict[str, Any]:

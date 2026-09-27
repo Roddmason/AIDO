@@ -14,6 +14,7 @@ from local_control_center.agents.model_execution_health import record_model_exec
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.settings.repository import SettingsRepository
 from local_control_center.threads import api as threads_api
 from local_control_center.threads import coordinator as threads_coordinator
 from local_control_center.threads.repository import ThreadsRepository
@@ -285,5 +286,41 @@ def test_clearing_the_team_restores_automatic_routing(tmp_path: Path) -> None:
             "source",
             "allowedRuntimes",
         }
+    finally:
+        runtime.close()
+
+
+def test_the_thread_reports_the_team_sealed_in_its_latest_run(tmp_path: Path) -> None:
+    """El inspector muestra con qué equipo corrió el último run, no solo la configuración vigente."""
+    runtime, client = _client(tmp_path)
+    try:
+        headers, thread = _setup(runtime, client, tmp_path)
+        url = f"/api/v1/threads/{thread['id']}/runtime-team"
+        empty = client.get(url)
+        assert empty.status_code == 200, empty.text
+        assert empty.json() == {
+            "jobId": None,
+            "sealedAt": None,
+            "source": "none",
+            "roleRuntimes": {},
+            "roleRuntimeOrder": {},
+            "roleSources": {},
+        }
+        SettingsRepository(runtime.connection).set_value(
+            "team.role.developer", "general", None, ["codex_cli"]
+        )
+        posted = client.post(
+            f"/api/v1/threads/{thread['id']}/messages", headers=headers, json={"content": OBJECTIVE}
+        )
+        assert posted.status_code == 200, posted.text
+        sealed = client.get(url).json()
+        assert sealed["jobId"] == posted.json()["run"]["jobId"]
+        assert sealed["source"] == "global"
+        assert sealed["roleRuntimes"]["developer"] == "codex_cli"
+        assert sealed["roleSources"]["developer"] == "general"
+        # Cambiar la configuración después no reescribe lo que ya se selló.
+        SettingsRepository(runtime.connection).set_value("team.role.developer", "general", None, ["ollama"])
+        assert client.get(url).json()["roleRuntimes"]["developer"] == "codex_cli"
+        assert client.get("/api/v1/threads/missing/runtime-team").status_code == 404
     finally:
         runtime.close()

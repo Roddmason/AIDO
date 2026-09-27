@@ -1276,3 +1276,43 @@ test('Threads: with its own AI team, the effective team card follows the thread 
 	await expect(techLead).toContainText('this thread');
 	await expect(card).not.toContainText('llama_cpp');
 });
+
+test('Threads: the effective team card shows the provider sealed in the last run when the team changed since', async ({
+	page,
+}) => {
+	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
+		route.fulfill({
+			json: {
+				roles: [
+					{ role: 'product_owner', required: true, configured: [], effective: ['llama_cpp'], assigned: 'llama_cpp', source: 'automatic', invalid: [], candidates: ['llama_cpp'] },
+					{ role: 'developer', required: true, configured: ['llama_cpp'], effective: ['llama_cpp'], assigned: 'llama_cpp', source: 'general', invalid: [], candidates: ['llama_cpp'] },
+				],
+				allowedRuntimes: ['llama_cpp'],
+				activeProviders: 1,
+				candidates: [],
+			},
+		}),
+	);
+	await page.route('**/api/v1/threads/*/runtime-team', (route) =>
+		route.fulfill({
+			json: {
+				jobId: 'job-1',
+				sealedAt: '2026-09-27T10:00:00+00:00',
+				source: 'global',
+				roleRuntimes: { product_owner: 'llama_cpp', developer: 'codex_cli' },
+				roleRuntimeOrder: { product_owner: ['llama_cpp'], developer: ['codex_cli'] },
+				roleSources: { product_owner: 'automatic', developer: 'general' },
+			},
+		}),
+	);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Sealed team differs ${Date.now()}`);
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+	const card = inspector.getByRole('region', { name: 'Effective AI team' });
+	await expect(card.locator('[data-role="developer"]')).toContainText('last run: codex_cli');
+	await expect(card.locator('[data-role="product_owner"]')).not.toContainText('last run');
+});

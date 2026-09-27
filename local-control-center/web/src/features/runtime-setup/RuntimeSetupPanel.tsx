@@ -40,6 +40,7 @@ import type {
 import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
+import { invalidateRuntimeTeamCache } from '../runtime-team/useRuntimeTeam';
 import { AddProviderWizard } from './AddProviderWizard';
 import {
 	DeferredLocalRuntime,
@@ -286,6 +287,8 @@ export function RuntimeSetupPanel({
 		setBusyAction(`${providerId}:toggle`);
 		try {
 			await patchModelGatewayProvider(token, providerId, { enabled });
+			// The switch changes every scope's AI team: drop the cached teams.
+			invalidateRuntimeTeamCache();
 			await Promise.all([onRefresh(), loadGateway()]);
 			notify({
 				title: enabled

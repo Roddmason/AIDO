@@ -555,6 +555,7 @@ export type ThreadRunConfigurationRequest = { "allowedRuntimes"?: Array<string>;
 export type ThreadRunConfigurationResponse = { "runtimeTeam"?: ThreadRuntimeTeamRecord | null; "threadId": string };
 export type ThreadRunSummary = { "jobId"?: null | string; "loopId"?: null | string; "reason"?: null | string; "status": "queued" | "running" | "blocked" | "awaiting_approval" | "completed" | "failed" };
 export type ThreadRuntimeTeamRecord = { "allowedRuntimes": Array<string>; "roleRuntimes": RoleRuntimesRecord };
+export type ThreadSealedRuntimeTeamResponse = { "jobId"?: null | string; "roleRuntimeOrder"?: Record<string, Array<string>>; "roleRuntimes"?: Record<string, null | string>; "roleSources"?: Record<string, string>; "sealedAt"?: null | string; "source": "thread" | "global" | "none" };
 export type ThreadSimilarityArtifactRef = { "artifactId": string; "kind": string; "title": string };
 export type ThreadSimilarityCandidateRecord = { "artifactRefs": Array<ThreadSimilarityArtifactRef>; "keywords": Array<string>; "projectId": string; "reason": string; "score": number; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "threadId": string; "title": string; "updatedAt": string };
 export type ThreadSimilarityEventRecord = { "action": "continue_existing" | "improve_existing" | "performance_pass" | "create_new_anyway"; "candidateThreadId": string; "createdAt": string; "functionalityId"?: string; "id": string; "projectId": string; "reason": string; "score": number; "sourceThreadId": string };
@@ -859,6 +860,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
 	{"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
 	{"method": "PATCH", "operationId": "update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch", "path": "/api/v1/threads/{thread_id}/run-configuration", "summary": "Update Thread Run Configuration"},
+	{"method": "GET", "operationId": "get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get", "path": "/api/v1/threads/{thread_id}/runtime-team", "summary": "Get Thread Sealed Runtime Team"},
 	{"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	{"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	{"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},
@@ -1008,6 +1010,7 @@ export type OperationRequestBodies = {
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": never,
 	"get_thread_api_v1_threads__thread_id__get": never,
 	"get_thread_board_api_v1_threads__thread_id__board_get": never,
+	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
 	"git_branches_api_v1_projects__project_id__git_branches_get": never,
 	"git_diff_api_v1_projects__project_id__git_diff_get": never,
@@ -1292,6 +1295,7 @@ export type OperationResponseBodies = {
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
 	"get_thread_api_v1_threads__thread_id__get": ThreadDetailResponse,
 	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
+	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": ThreadSealedRuntimeTeamResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
@@ -1580,6 +1584,7 @@ export type OperationResultBodies = {
 	"get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get": StorySpecResponse,
 	"get_thread_api_v1_threads__thread_id__get": ThreadDetailResponse,
 	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
+	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": ThreadSealedRuntimeTeamResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
@@ -2009,6 +2014,7 @@ export const OPERATIONS_BY_ID = {
 	"post_note_api_v1_threads__thread_id__notes_post": {"method": "POST", "operationId": "post_note_api_v1_threads__thread_id__notes_post", "path": "/api/v1/threads/{thread_id}/notes", "summary": "Post Note"},
 	"list_thread_remediations_api_v1_threads__thread_id__remediations_get": {"method": "GET", "operationId": "list_thread_remediations_api_v1_threads__thread_id__remediations_get", "path": "/api/v1/threads/{thread_id}/remediations", "summary": "List Thread Remediations"},
 	"update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch": {"method": "PATCH", "operationId": "update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch", "path": "/api/v1/threads/{thread_id}/run-configuration", "summary": "Update Thread Run Configuration"},
+	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": {"method": "GET", "operationId": "get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get", "path": "/api/v1/threads/{thread_id}/runtime-team", "summary": "Get Thread Sealed Runtime Team"},
 	"find_similar_to_thread_api_v1_threads__thread_id__similar_get": {"method": "GET", "operationId": "find_similar_to_thread_api_v1_threads__thread_id__similar_get", "path": "/api/v1/threads/{thread_id}/similar", "summary": "Find Similar To Thread"},
 	"mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post": {"method": "POST", "operationId": "mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post", "path": "/api/v1/threads/{thread_id}/similar/{candidate_id}/mark", "summary": "Mark Similar Thread"},
 	"unarchive_thread_api_v1_threads__thread_id__unarchive_post": {"method": "POST", "operationId": "unarchive_thread_api_v1_threads__thread_id__unarchive_post", "path": "/api/v1/threads/{thread_id}/unarchive", "summary": "Unarchive Thread"},

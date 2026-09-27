@@ -18,7 +18,11 @@ from fastapi import APIRouter, Body, HTTPException, Request
 
 from local_control_center.product_loop.eta import safe_estimate_thread_eta
 from local_control_center.remediations.service import BlockerRemediationService
-from local_control_center.runtime_team.configuration import write_thread_runtime_team
+from local_control_center.runtime_team.configuration import (
+    sealed_runtime_team_of_thread,
+    write_thread_runtime_team,
+)
+from local_control_center.runtime_team.contracts import ThreadSealedRuntimeTeamResponse
 from local_control_center.runtime_team.facts import load_runtime_facts
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import row_to_audit
@@ -361,6 +365,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         """Devuelve un hilo con su timeline completo (mensajes, artifacts, decisiones y eventos)."""
         try:
             return thread_detail(thread_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.get("/api/v1/threads/{thread_id}/runtime-team", response_model=ThreadSealedRuntimeTeamResponse)
+    def get_thread_sealed_runtime_team(thread_id: str) -> dict[str, Any]:
+        """Equipo de IA con el que corrió el último run del hilo (sellado), no la configuración vigente."""
+        try:
+            return sealed_runtime_team_of_thread(platform.connection, thread_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

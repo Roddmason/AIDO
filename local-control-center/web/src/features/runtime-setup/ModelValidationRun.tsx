@@ -97,6 +97,7 @@ export function ModelValidationRun({
 	providerName,
 	disabled = false,
 	onChanged,
+	beforeStart,
 }: {
 	token: string;
 	providerId: string;
@@ -105,6 +106,8 @@ export function ModelValidationRun({
 	disabled?: boolean;
 	/** The catalog changed (models discarded, restored or re-enabled): the caller re-reads it. */
 	onChanged?: () => void;
+	/** Runs before a full validation, e.g. the wizard saving the model selection first. */
+	beforeStart?: () => Promise<unknown>;
 }) {
 	const { t } = useI18n();
 	const { notify } = useToast();
@@ -161,6 +164,7 @@ export function ModelValidationRun({
 		else setRunning(true);
 		setQueuedReason(null);
 		try {
+			if (!model) await beforeStart?.();
 			const result = await validateAllModels(token, providerId, body, undefined, (execution) => {
 				setExecutionId(execution.executionId);
 				setQueuedReason(

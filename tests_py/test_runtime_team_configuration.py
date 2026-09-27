@@ -519,3 +519,15 @@ def test_sealing_a_thread_with_override_drops_the_global_snapshot(lane):
     )
     assert GLOBAL_RUNTIME_TEAM_METADATA_KEY not in stamped
     assert stamped[RUNTIME_TEAM_METADATA_KEY]["roleRuntimes"]["developer"] == "codex_cli"
+
+
+def test_an_order_is_explicit_only_when_the_operator_wrote_it():
+    from local_control_center.runtime_team.configuration import global_role_order_is_explicit
+
+    assert global_role_order_is_explicit(GLOBAL, "developer") is True  # project
+    assert global_role_order_is_explicit(GLOBAL, "product_owner") is True  # general
+    assert global_role_order_is_explicit(GLOBAL, "security") is False  # automatic
+    assert global_role_order_is_explicit(GLOBAL, "architect") is False  # sin candidatos
+    assert global_role_order_is_explicit(GLOBAL, "technical_lead") is True  # hereda un PO general
+    assert global_role_order_is_explicit(GLOBAL, None) is True  # sigue el orden del PO
+    assert global_role_order_is_explicit({}, "developer") is False

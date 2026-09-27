@@ -416,6 +416,9 @@ class RuntimeProviderStatus(BaseModel):
     #: Switch del operador (`provider_accounts.enabled`): apagado ⇒ ningún hilo lo usa, aunque esté sano.
     #: Distinto de ``globallyEnabled``, que refleja los flags por tipo (CLI/local/remoto).
     enabled: bool = False
+    #: Hay una llamada en curso con este proveedor (reserva ``active``/``dispatched`` vigente en
+    #: ``provider_execution_leases``): la UI no deja apagar el switch hasta que termine.
+    in_use: bool = Field(default=False, alias="inUse")
     globally_enabled: bool = Field(default=False, alias="globallyEnabled")
     project_enabled: bool = Field(default=False, alias="projectEnabled")
     policy_allowed: bool = Field(default=False, alias="policyAllowed")

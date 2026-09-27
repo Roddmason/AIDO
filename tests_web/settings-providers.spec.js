@@ -578,3 +578,26 @@ test('Providers & CLI: each provider card has a switch that patches enabled and 
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Providers & CLI: a provider used by a running thread keeps its switch locked as "In use"', async ({ page }) => {
+	await page.goto('/#settings-runtime');
+	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
+	await patchGemini(page, token, { enabled: true });
+	await page.route('**/api/v1/runtime/providers*', async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		body.providers = body.providers.map((item) => (item.id === 'gemini' ? { ...item, inUse: true } : item));
+		await route.fulfill({ response, json: body });
+	});
+	try {
+		const settings = await openSettings(page);
+		const card = settings.locator('.card').filter({ hasText: 'Google Gemini' }).first();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		const toggle = card.getByRole('checkbox', { name: 'Use Google Gemini in threads' });
+		await expect(toggle).toBeChecked();
+		await expect(toggle).toBeDisabled();
+		await expect(card.getByText('In use', { exact: true })).toBeVisible();
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

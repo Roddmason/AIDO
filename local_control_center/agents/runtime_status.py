@@ -1152,8 +1152,18 @@ class RuntimeStatusService:
         providers = self.list_provider_statuses(project_id=project_id)
         accounts = self.accounts.list_provider_accounts()
         enabled_accounts = {str(account["providerId"]): bool(account.get("enabled")) for account in accounts}
+        in_use = {
+            str(row[0])
+            for row in self.connection.execute(
+                "SELECT DISTINCT provider_id FROM provider_execution_leases "
+                "WHERE state IN ('active', 'dispatched') AND expires_at > ?",
+                # Mismo formato que escribe QuotaManager (``datetime.isoformat``), no ``utc_now`` ('Z').
+                (datetime.now(UTC).isoformat(),),
+            ).fetchall()
+        }
         for provider in providers:
             provider["enabled"] = enabled_accounts.get(str(provider["id"]), False)
+            provider["inUse"] = str(provider["id"]) in in_use
         ollama_provider_ids = {
             str(account["providerId"])
             for account in accounts

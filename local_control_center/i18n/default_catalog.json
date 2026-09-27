@@ -11187,6 +11187,14 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.providers.switch.inUse": {
+      "en": "In use",
+      "es": "En uso"
+    },
+    "app.providers.switch.inUseHint": {
+      "en": "A running thread is using this provider; you can switch it off when that run finishes.",
+      "es": "Un hilo en ejecución está usando este proveedor; podrás apagarlo cuando ese run termine."
+    },
     "app.aiTeam.lastRun": {
       "en": "last run: {provider}",
       "es": "último run: {provider}"

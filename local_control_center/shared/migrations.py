@@ -11,7 +11,13 @@ re-ejecutar todo el conjunto sobre una base ya migrada no produce cambios.
 
 from __future__ import annotations
 
+import errno
+import os
 import sqlite3
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
 from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
@@ -40,27 +46,99 @@ def _execute_atomic_statements(
         raise
 
 
-def initialize_platform_schema(connection: sqlite3.Connection) -> None:
-    """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma."""
+MIGRATION_LOCK_TIMEOUT_SECONDS = 300.0
+
+
+def _database_file(connection: sqlite3.Connection) -> Path | None:
+    """Archivo de la base ``main``; ``None`` para una base en memoria o temporal."""
+    for row in connection.execute("PRAGMA database_list"):
+        if row[1] == "main" and row[2]:
+            return Path(row[2])
+    return None
+
+
+@contextmanager
+def _migration_lock(connection: sqlite3.Connection) -> Iterator[None]:
+    """Serializa las migraciones entre procesos con un lock de archivo junto a la base.
+
+    El supervisor arranca la API y el worker a la vez y ambos migran la misma base. Cada fase abre
+    una transacción diferida (``SAVEPOINT``) que lee y luego escribe: si el otro proceso escribió
+    entre medio, SQLite no puede promoverla y falla al instante con "database is locked", sin
+    esperar el ``busy_timeout``. Con el lock, el segundo proceso espera y luego ve la base migrada.
+    """
+    database = _database_file(connection)
+    if database is None:
+        yield
+        return
+    lock_path = database.with_name(database.name + ".migrate.lock")
+    with lock_path.open("a+b") as handle:
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+        else:
+            import fcntl
+        deadline = time.monotonic() + MIGRATION_LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        errno.ETIMEDOUT, f"Another AIDO process is still migrating {database.name}."
+                    ) from error
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _schema_is_current(connection: sqlite3.Connection) -> bool:
+    """Todas las fases aplicadas y el catálogo de proveedores sembrado."""
     schema_exists = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
     ).fetchone()
-    if schema_exists:
-        # Completitud, no sólo la versión tope: una base a la que le falta una fase intermedia
-        # debe repararse. Mirar sólo el tope dejaba el hueco sin aplicar para siempre, y ese es
-        # justamente el escenario de recuperación que cubre test_operational_recovery.
-        applied = {int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations")}
-        current = applied.issuperset(range(1, CURRENT_SCHEMA_VERSION + 1))
-        provider_catalog_exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'"
-        ).fetchone()
-        provider_catalog_seeded = (
-            connection.execute("SELECT 1 FROM provider_accounts LIMIT 1").fetchone()
-            if provider_catalog_exists
-            else None
-        )
-        if current and provider_catalog_seeded:
-            return
+    if not schema_exists:
+        return False
+    applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
+    if not applied.issuperset(range(1, CURRENT_SCHEMA_VERSION + 1)):
+        return False
+    provider_catalog_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'"
+    ).fetchone()
+    return bool(
+        provider_catalog_exists and connection.execute("SELECT 1 FROM provider_accounts LIMIT 1").fetchone()
+    )
+
+
+def initialize_platform_schema(connection: sqlite3.Connection) -> None:
+    """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma.
+
+    Una base al día no toma el lock; si falta algo, migra un solo proceso a la vez.
+    """
+    if _schema_is_current(connection):
+        return
+    with _migration_lock(connection):
+        _initialize_platform_schema_unlocked(connection)
+
+
+def _initialize_platform_schema_unlocked(connection: sqlite3.Connection) -> None:
+    """Cuerpo de :func:`initialize_platform_schema`, ya bajo el lock de migración."""
+    # Completitud, no sólo la versión tope: una base a la que le falta una fase intermedia debe
+    # repararse (test_operational_recovery). Se vuelve a mirar bajo el lock: otro proceso pudo haber
+    # migrado mientras este esperaba.
+    if _schema_is_current(connection):
+        return
     init_base_schema(connection)
     init_phase2_schema(connection)
     init_phase3_schema(connection)

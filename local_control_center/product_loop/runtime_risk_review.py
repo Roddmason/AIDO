@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from local_control_center.agents.agent_resource_policy import (
     apply_profile_limits,
@@ -38,6 +39,7 @@ from local_control_center.product_loop.research_resolution import (
 )
 from local_control_center.project_constitution.repository import ProjectConstitutionRepository
 from local_control_center.remediations.repository import RemediationActionsRepository
+from local_control_center.runtime_team.roles import team_role_for
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -239,6 +241,22 @@ def _effective_metadata(coordinator, loop):
     return metadata
 
 
+def walked_allowlist(walk: list[str], candidates: list[Any]) -> list[str] | None:
+    """Allowlist de un proveedor que usó el recorrido de Jev, deducido de los candidatos persistidos.
+
+    ``None`` (el allowlist normal del rol) si no hubo recorrido o si los candidatos no vienen de un único
+    proveedor del orden (p. ej. ninguno tuvo candidatos y se registró el orden completo).
+    """
+    if len(walk) < 2:
+        return None
+    providers = {str(item.get("providerId") or "") for item in candidates if isinstance(item, dict)}
+    providers.discard("")
+    if len(providers) != 1:
+        return None
+    (provider,) = providers
+    return [provider] if provider in walk else None
+
+
 def _durable_product_owner_selected_resource(durable: dict) -> dict:
     """Selección de recurso del PO persistida en ``durableRun.productOwner``, o vacío si no hay.
 
@@ -324,6 +342,18 @@ def _checkpoint(coordinator, loop):
             raise ValueError("A role has no durable routing decision.")
         policy = json_loads(row["policy_result_json"])
         engine = policy.get("decisionEngine") or {}
+        # Con Jev y un orden automático del equipo global, la decisión se tomó sobre un solo proveedor
+        # del orden (``_select_walking_providers``): el request reconstruido usa ese mismo allowlist para
+        # que el hash firmado corresponda al request que de verdad se consultó.
+        walk = coordinator._jev_provider_walk(
+            loop["projectId"],
+            metadata,
+            team_role_for(
+                str(role["role"]),
+                kind=str(role.get("kind") or ""),
+                capabilities=role.get("capabilities") or [],
+            ),
+        )
         request = coordinator._team_resource_request(
             project_id=loop["projectId"],
             loop_id=loop["id"],
@@ -332,6 +362,7 @@ def _checkpoint(coordinator, loop):
             role_plan=role,
             agent_tasks=tasks,
             product_owner_provider_id=product_owner_provider_id,
+            allowed_override=walked_allowlist(walk, json_loads(row["candidates_json"], [])),
         )
         profile = effective_resource_profile(connection, request.agent_profile_id, request.project_id)
         request = apply_profile_limits(request, profile)

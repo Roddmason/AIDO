@@ -137,3 +137,25 @@ def test_runtime_providers_report_the_operator_switch(tmp_path: Path) -> None:
         assert by_id["ollama"]["enabled"] is False
     finally:
         runtime.close()
+
+
+def test_the_status_bar_rule_and_the_team_endpoint_count_the_same_active_providers(tmp_path: Path) -> None:
+    """La barra de estado cuenta ``enabled && policyAllowed && kind != manual`` sobre /runtime/providers
+    (``shellStatus.ts:isActiveTeamProvider``); debe coincidir con ``activeProviders`` del equipo."""
+    runtime, client = _client(tmp_path)
+    try:
+        _prepare(runtime, tmp_path)
+        ProviderAccountStore(runtime.connection).patch_provider_account("manual", {"enabled": True})
+        providers = client.get("/api/v1/runtime/providers").json()["providers"]
+        status_bar = [
+            item["id"]
+            for item in providers
+            if item.get("enabled")
+            and item.get("policyAllowed") is not False
+            and item["kind"] in {"cli", "api", "gateway", "local"}
+        ]
+        team = client.get("/api/v1/runtime/team").json()
+        assert "manual" not in status_bar
+        assert team["activeProviders"] == len(status_bar)
+    finally:
+        runtime.close()

@@ -39,6 +39,7 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
+import { AiTeamPanel } from './AiTeamPanel';
 import { AppearanceSettingsPanel } from './AppearanceSettingsPanel';
 import { AutonomyBody } from './AutonomyBody';
 import { CredentialManagerPanel } from './CredentialManagerPanel';
@@ -271,6 +272,14 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		),
 	},
 	{
+		id: 'ai-team',
+		titleKey: 'app.settings.section.aiTeam',
+		titleFallback: 'AI team',
+		icon: Users,
+		kind: 'display',
+		render: (ctx) => <AiTeamPanel ctx={ctx} />,
+	},
+	{
 		id: 'credentials',
 		titleKey: 'app.settings.section.credentials',
 		titleFallback: 'Credentials',
@@ -379,7 +388,12 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 		titleFallback: 'Team',
 		icon: Users,
 		kind: 'display',
-		render: (ctx) => <ProjectTeamPanel projectId={ctx.scopeId} onNavigate={ctx.closeSettings} />,
+		render: (ctx) => (
+			<>
+				<AiTeamPanel ctx={ctx} />
+				<ProjectTeamPanel projectId={ctx.scopeId} onNavigate={ctx.closeSettings} />
+			</>
+		),
 	},
 	{
 		id: 'routing',
@@ -468,6 +482,8 @@ export const PROJECT_SECTIONS: SectionDefinition[] = [
 export const SECTION_TO_SETTING_SECTION: Record<string, string> = {
 	general: 'worker',
 	'providers-cli': 'runtime',
+	'ai-team': 'team',
+	team: 'team',
 	autonomy: 'autonomy',
 	security: 'security',
 	research: 'research',

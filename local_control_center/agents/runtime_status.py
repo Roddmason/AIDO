@@ -63,6 +63,11 @@ CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
 OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
+PROVIDER_DISABLED_BLOCKER = "provider_disabled"
+PROVIDER_DISABLED_REASON = (
+    "provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); "
+    "no thread, agent or failover uses it until it is switched back on."
+)
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
     "claude_code_cli": ("claude",),
@@ -469,6 +474,8 @@ def _cli_provider_status(
     executable_source: str | None = None,
 ) -> dict[str, Any]:
     detected = detection.get("status") == "installed"
+    # El switch del operador es autoritativo: sin el campo (llamadas directas) no bloquea.
+    provider_enabled = bool(account.get("enabled", True))
     installation_enabled = bool((runtime_installation or {}).get("enabled"))
     account_enabled = bool((runtime_account or {}).get("enabled", False))
     policy_allowed = bool(policy_decision.get("allowed"))
@@ -494,6 +501,7 @@ def _cli_provider_status(
     command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection)
     can_run_prompt = bool(
         available
+        and provider_enabled
         and installation_enabled
         and account_enabled
         and authenticated
@@ -520,6 +528,8 @@ def _cli_provider_status(
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
         reason = "CLI runtime was detected but the safe version health check did not return a usable version."
+    elif not provider_enabled:
+        reason = PROVIDER_DISABLED_REASON
     elif not installation_enabled:
         reason = "CLI runtime is available but runtime_installations.enabled is false."
     elif not account_enabled:
@@ -708,6 +718,31 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
         required_configuration=["operator"],
         requires_approval=True,
     )
+
+
+def _apply_provider_switch(status: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    """Proyecta el switch del operador (``provider_accounts.enabled``) sobre un status de cualquier kind.
+
+    Apagado ⇒ no ejecutable para prompts, edición ni ProductOwner, con la causa ``provider_disabled``;
+    ``available``/``detected`` se conservan porque describen el runtime, no la decisión del operador. No
+    es un problema a reparar, así que no deja ``blockerType``: la UI no lo lista como runtime roto. La
+    razón solo se reescribe si el runtime venía ejecutable: una causa previa (no detectado, sin
+    credencial) es la que el operador necesita para cuando vuelva a encenderlo.
+    """
+    enabled = bool(account.get("enabled"))
+    status["enabled"] = enabled
+    if enabled or status.get("kind") == "manual":
+        return status
+    if status.get("executable") is True:
+        status["reason"] = PROVIDER_DISABLED_REASON
+    status.update(
+        executable=False,
+        canRunPrompt=False,
+        canEditWorkspace=False,
+        productOwnerExecutable=False,
+        blockerType=None,
+    )
+    return status
 
 
 def _unauthenticated_cli_reason(runtime_account: dict[str, Any] | None) -> str:
@@ -1101,6 +1136,8 @@ class RuntimeStatusService:
         accounts_by_id = {
             account["providerId"]: account for account in self.accounts.list_provider_accounts()
         }
+        for status in statuses:
+            _apply_provider_switch(status, accounts_by_id[status["id"]])
         for status in self._demote_exhausted_providers(statuses):
             account = accounts_by_id[status["id"]]
             policy = runtime_repo.runtime_policy_decision(
@@ -1187,7 +1224,11 @@ class RuntimeStatusService:
             if provider["id"] in ollama_provider_ids or str(provider["id"]).startswith("ollama-")
         ]
         ollama = next((provider for provider in ollama_providers if provider["id"] == "ollama"), None)
-        ollama_available = next((provider for provider in ollama_providers if provider["available"]), None)
+        # Un Ollama apagado por el operador no representa al grupo aunque su daemon responda.
+        ollama_available = next(
+            (provider for provider in ollama_providers if provider["available"] and provider.get("enabled")),
+            None,
+        )
         cli_providers = [provider for provider in providers if provider["id"] in CLI_RUNTIME_IDS]
         api_providers = [provider for provider in providers if provider["kind"] in API_RUNTIME_KINDS]
         return {

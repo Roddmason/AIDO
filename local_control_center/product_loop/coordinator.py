@@ -46,6 +46,7 @@ from local_control_center.agents.product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
     PRODUCT_OWNER_AGENT_RUNTIME_ORDER,
 )
+from local_control_center.agents.provider_accounts import disabled_provider_ids
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_failover import (
@@ -2869,7 +2870,12 @@ class ProductLoopCoordinator:
         mode = self._team_mode(request_meta)
         risk = self._team_risk(request_meta=request_meta, intent=intent, output=output, message=message)
         scope = self._team_scope(message=message, intent=intent, output=output, agent_tasks=tasks)
-        plan = schedule_team(scope=scope, risk=risk, mode=mode)
+        plan = schedule_team(
+            scope=scope,
+            risk=risk,
+            mode=mode,
+            disabled_providers=disabled_provider_ids(self.connection),
+        )
         return {**plan, "intent": intent}
 
     @staticmethod

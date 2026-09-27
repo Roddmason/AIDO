@@ -23,6 +23,8 @@ const REMOTE_ID = `ollama-e2e-remote-${RUN_ID}`;
 const DOWN_ID = `ollama-e2e-down-${RUN_ID}`;
 const SYNCED_ID = `ollama-e2e-synced-${RUN_ID}`;
 const PREFERRED_ID = `ollama-e2e-pref-${RUN_ID}`;
+/** Deleted by its own test, so the cleanup below leaves it alone instead of re-creating it. */
+const TOGGLE_ID = `ollama-e2e-toggle-${RUN_ID}`;
 const SYNCED_MODELS = ['llama3.2:3b', 'qwen3:8b'];
 /** The role whose policy the "set preferred" test rewrites; restored before the test returns. */
 const PREFERRED_ROLE = 'analyst';
@@ -238,5 +240,68 @@ test('Ollama endpoints: setting an endpoint as preferred rewrites the real role 
 		expect(updated.preferred.slice(1)).toEqual(original.preferred);
 	} finally {
 		await restoreRolePolicy(page, PREFERRED_ROLE, original.preferred);
+	}
+});
+
+test('Ollama endpoints: the card switch turns an endpoint off and Delete removes it for good', async ({
+	page,
+}) => {
+	await seedEndpoint(page, { id: TOGGLE_ID, baseUrl: DEAD_BASE_URL });
+	const settings = await openProvidersSettings(page);
+	const card = endpointCard(settings, TOGGLE_ID);
+	await expect(card).toBeVisible();
+
+	const toggle = card.getByRole('checkbox', { name: `Use ${TOGGLE_ID} in threads` });
+	await expect(toggle).toBeChecked();
+	await toggle.click();
+	await expect(toggle).not.toBeChecked();
+	await expect(card).toContainText('disabled');
+	// The switch is the real account flag, not a local preference.
+	const listed = await (await page.request.get('/api/v1/ollama/endpoints')).json();
+	expect(listed.endpoints.find((endpoint) => endpoint.id === TOGGLE_ID)?.enabled).toBe(false);
+
+	await card.getByRole('button', { name: 'Delete', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Delete Ollama endpoint' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'Delete endpoint' }).click();
+	await expect(dialog).toBeHidden();
+	await expect(page.getByText('Ollama endpoint deleted')).toBeVisible();
+	await expect(card).toBeHidden();
+	const after = await (await page.request.get('/api/v1/ollama/endpoints')).json();
+	expect(after.endpoints.some((endpoint) => endpoint.id === TOGGLE_ID)).toBe(false);
+});
+
+test('Ollama endpoints: a delete still in use lists the operator references to reassign', async ({
+	page,
+}) => {
+	// The 409 is injected so this test never deletes the seeded daemon other tests rely on; the real
+	// refusal (operator-authored reference blocks, seeded placeholder does not) is covered in pytest.
+	await page.route('**/api/v1/ollama/endpoints/ollama', async (route) => {
+		if (route.request().method() !== 'DELETE') return route.continue();
+		await route.fulfill({
+			status: 409,
+			json: {
+				detail: {
+					code: 'local_endpoint_in_use',
+					references: [{ kind: 'role_policy', id: 'qa', label: 'qa' }],
+				},
+			},
+		});
+	});
+	try {
+		const settings = await openProvidersSettings(page);
+		// The catalog's "Ollama local" provider card also states this URL: pick the endpoint card.
+		const card = endpointCard(settings, 'http://localhost:11434')
+			.filter({ has: page.getByRole('button', { name: 'Set preferred for role' }) })
+			.first();
+		await expect(card).toBeVisible();
+		await card.getByRole('button', { name: 'Delete', exact: true }).click();
+		const dialog = page.getByRole('dialog', { name: 'Delete Ollama endpoint' });
+		await dialog.getByRole('button', { name: 'Delete endpoint' }).click();
+		await expect(dialog.getByText('This endpoint is still in use')).toBeVisible();
+		await expect(dialog.getByText('qa', { exact: true })).toBeVisible();
+		await expect(dialog.getByRole('button', { name: 'Delete endpoint' })).toBeDisabled();
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });

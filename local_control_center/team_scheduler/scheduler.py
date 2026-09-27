@@ -14,6 +14,7 @@ contextos sensibles a seguridad ni con riesgo alto, sin importar el modo.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from local_control_center.agents.provider_catalog import PROVIDER_CATALOG, PROVIDER_CATALOG_VERSION
@@ -566,11 +567,39 @@ def _tools_for(kind: str, role: str) -> list[str]:
     return [*base, *_ROLE_EXTRA_TOOLS.get(role, [])]
 
 
-def resolve_role(role: str, *, scope: set[str], risk: str, mode: str) -> dict[str, Any]:
-    """Resuelve, para un rol seleccionado, su perfil de ejecución completo en el modo dado."""
+def _enabled_runtime(provider_kind: str, preference: list[str], disabled: frozenset[str]) -> str | None:
+    """Runtime por defecto del provider-kind, salvo que el operador lo haya apagado.
+
+    Apagado, cae al primer proveedor de la preferencia del rol que siga encendido; sin ninguno, ``None``
+    (el ResourceManager decide o bloquea con causa). Nunca devuelve un proveedor apagado.
+    """
+    default = _RUNTIME_BY_PROVIDER_KIND[provider_kind]
+    if default not in disabled:
+        return default
+    return next((provider for provider in preference if provider not in disabled), None)
+
+
+def resolve_role(
+    role: str,
+    *,
+    scope: set[str],
+    risk: str,
+    mode: str,
+    disabled_providers: Collection[str] = (),
+) -> dict[str, Any]:
+    """Resuelve, para un rol seleccionado, su perfil de ejecución completo en el modo dado.
+
+    ``disabled_providers`` son los proveedores que el operador apagó (``provider_accounts.enabled``):
+    salen de ``providerPreference`` y nunca quedan como ``runtime``. Vacío (default) conserva el plan
+    determinista de siempre.
+    """
     tier = MODE_TIERS[mode]
     kind = _role_kind(role)
     provider_kind = _PROVIDER_KIND[mode][kind]
+    disabled = frozenset(disabled_providers)
+    provider_preference = [
+        provider for provider in _ROLE_PROVIDER_PREFERENCE[role] if provider not in disabled
+    ]
     reviewer_policy = _reviewer_policy(role, scope=scope, risk=risk, mode=mode)
     tools = _tools_for(kind, role)
     return {
@@ -580,9 +609,9 @@ def resolve_role(role: str, *, scope: set[str], risk: str, mode: str) -> dict[st
         "capabilities": list(_ROLE_CAPABILITIES[role]),
         "permissionProfile": _permission_profile(role),
         "providerKind": provider_kind,
-        "providerPreference": list(_ROLE_PROVIDER_PREFERENCE[role]),
+        "providerPreference": provider_preference,
         "modelTier": tier["modelTier"],
-        "runtime": _RUNTIME_BY_PROVIDER_KIND[provider_kind],
+        "runtime": _enabled_runtime(provider_kind, provider_preference, disabled),
         "runtimePreference": list(_ROLE_RUNTIME_PREFERENCE[role]),
         "skills": list(_ROLE_SKILLS.get(role, [])),
         "tools": tools,
@@ -596,7 +625,9 @@ def resolve_role(role: str, *, scope: set[str], risk: str, mode: str) -> dict[st
     }
 
 
-def schedule_team(*, scope: Any, risk: str, mode: str) -> dict[str, Any]:
+def schedule_team(
+    *, scope: Any, risk: str, mode: str, disabled_providers: Collection[str] = ()
+) -> dict[str, Any]:
     """Compone el equipo mínimo para la tarea y resuelve la ejecución de cada rol en el modo dado.
 
     Args:
@@ -604,6 +635,7 @@ def schedule_team(*, scope: Any, risk: str, mode: str) -> dict[str, Any]:
             minúsculas y se deduplican.
         risk: nivel de riesgo (``low``/``medium``/``high``/``critical``).
         mode: modo de operación (``economy``/``balanced``/``critical``/``maximum``).
+        disabled_providers: proveedores apagados por el operador; ningún rol los prefiere ni los usa.
 
     Returns:
         Un plan determinista con ``schedulerVersion``, el contexto, el ``modelTier`` del modo, la lista
@@ -618,7 +650,12 @@ def schedule_team(*, scope: Any, risk: str, mode: str) -> dict[str, Any]:
         raise TeamScheduleError(f"Unknown task risk: {risk}. Expected one of {list(RISKS)}.")
     normalized_scope = _normalize_scope(scope)
     roles = select_roles(scope=normalized_scope, risk=risk, mode=mode)
-    assignments = [resolve_role(role, scope=normalized_scope, risk=risk, mode=mode) for role in sorted(roles)]
+    assignments = [
+        resolve_role(
+            role, scope=normalized_scope, risk=risk, mode=mode, disabled_providers=disabled_providers
+        )
+        for role in sorted(roles)
+    ]
     return {
         "schedulerVersion": SCHEDULER_VERSION,
         "mode": mode,

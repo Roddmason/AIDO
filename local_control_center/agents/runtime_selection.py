@@ -26,6 +26,16 @@ def is_ollama_runtime(runtime: dict[str, Any]) -> bool:
     return str(runtime.get("id") or "") == "ollama" or runtime.get("providerFamily") == "ollama"
 
 
+def runtime_disabled_by_operator(runtime: dict[str, Any]) -> bool:
+    """Indica si el operador apagó el switch del proveedor (``provider_accounts.enabled`` = false).
+
+    El switch es autoritativo para toda clase de runtime (CLI, API, gateway, local, Ollama, manual): un
+    runtime apagado no es candidato de ningún agente aunque esté detectado, autenticado y sano. Solo el
+    ``False`` explícito cuenta: un status sin el campo (fixtures, proyecciones parciales) no se descarta.
+    """
+    return runtime.get("enabled") is False
+
+
 def runtime_provider_family(runtime: dict[str, Any]) -> str:
     """Devuelve la familia de proveedor del runtime, normalizando Ollama por id o familia."""
     return "ollama" if is_ollama_runtime(runtime) else str(runtime.get("providerFamily") or "")

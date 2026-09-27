@@ -17,7 +17,7 @@ from local_control_center.shared.redaction import redact_secrets
 
 from .autonomy_profiles import REVERSIBILITIES
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
-from .runtime_selection import is_ollama_runtime, runtime_provider_family
+from .runtime_selection import is_ollama_runtime, runtime_disabled_by_operator, runtime_provider_family
 
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
 # Claves que delatan una historia técnica (tarea por rol de agente) en vez de valor de usuario. Viven
@@ -344,6 +344,8 @@ def is_product_owner_runtime(runtime: dict[str, Any]) -> bool:
     runtime_id = str(runtime.get("id") or "")
     runtime_family = runtime_provider_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
+    if runtime_disabled_by_operator(runtime):
+        return False
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         product_owner_executable = runtime.get("productOwnerExecutable")
         prompt_executable = (

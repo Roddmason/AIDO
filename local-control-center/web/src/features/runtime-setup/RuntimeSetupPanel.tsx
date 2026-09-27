@@ -58,6 +58,7 @@ import {
 	isOllamaEndpoint,
 	type LocalRuntimeDraft,
 } from './localEndpoints';
+import { ProviderSwitch } from './ProviderSwitch';
 import { hasUsageToShow, ProviderUsageSection } from './ProviderUsageSection';
 import { COST_META, deriveProviderSetup, type ProviderSetupInfo } from './providerCardModel';
 import {
@@ -231,8 +232,8 @@ export function RuntimeSetupPanel({
 	}, [accounts]);
 
 	const providers = useMemo(
-		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration),
-		[runtimeProviders, runtimeProviderConfiguration],
+		() => mergeProviders(runtimeProviders?.providers, runtimeProviderConfiguration, accounts),
+		[runtimeProviders, runtimeProviderConfiguration, accounts],
 	);
 	const usageById = useMemo(() => {
 		const map = new Map<string, ProviderUsageEntry>();
@@ -530,6 +531,7 @@ export function RuntimeSetupPanel({
 							<ProviderCard
 								key={provider.id}
 								provider={provider}
+								account={accountById.get(provider.id) ?? null}
 								setup={setup}
 								busyAction={busyAction}
 								onSetupAction={() => runSetupAction(provider.id)}
@@ -598,6 +600,7 @@ export function RuntimeSetupPanel({
 
 function ProviderCard({
 	provider,
+	account,
 	setup,
 	busyAction,
 	onSetupAction,
@@ -608,6 +611,8 @@ function ProviderCard({
 	usage,
 }: {
 	provider: MergedProvider;
+	/** The provider account behind the switch; null while the provider has none (not configured). */
+	account: ModelGatewayProviderAccount | null;
 	setup: ProviderSetupInfo | null;
 	busyAction: string | null;
 	/** Resolves false when the probe failed, so the card opens its recovery steps. */
@@ -649,6 +654,9 @@ function ProviderCard({
 				t('app.runtime.card.noReason', 'No status reported yet.'),
 			);
 	const variables = provider.config?.variables ?? [];
+	// The manual operator is a switch, not a runtime: there is nothing to probe or configure.
+	const isManual = provider.kind === 'manual';
+	const configurable = !isCli && !isManual && catalogEntry(provider.id) !== undefined;
 	const capabilities = catalogEntry(provider.id)?.capabilities ?? status?.capabilities ?? [];
 	const facts = readinessFacts(provider);
 	const kindLabel = KIND_LABEL[provider.kind];
@@ -665,12 +673,6 @@ function ProviderCard({
 	const syncBusy = busyAction === `${provider.id}:sync`;
 	const cost = setup ? COST_META[setup.cost] : null;
 	const canRunTasks = Boolean(setup?.enabled && setup?.hasCredential && !isCli);
-	// A running call holds the provider: switching it off mid-run would strand that run (spec §4.1).
-	const switchLocked = Boolean(setup?.enabled && status?.inUse);
-	const inUseHint = t(
-		'app.providers.switch.inUseHint',
-		'A running thread is using this provider; you can switch it off when that run finishes.',
-	);
 
 	/** A failed probe opens "How to configure" and moves focus there (recovery path). */
 	const runAction = async () => {
@@ -693,36 +695,21 @@ function ProviderCard({
 						<StateIcon aria-hidden="true" size={13} />
 						<span>{stateLabel}</span>
 					</Badge>
-					{setup ? (
-						<label
-							className="setting-switch provider-switch"
-							data-disabled={busyAction !== null || switchLocked ? 'true' : undefined}
-							data-in-use={switchLocked ? 'true' : undefined}
-							title={switchLocked ? inUseHint : undefined}
-						>
-							<input
-								type="checkbox"
-								checked={setup.enabled}
-								disabled={busyAction !== null || switchLocked}
-								aria-label={t('app.providers.switch.label', 'Use {provider} in threads').replace(
-									'{provider}',
-									provider.displayName,
-								)}
-								aria-description={switchLocked ? inUseHint : undefined}
-								onChange={(event) => onToggleEnabled(event.target.checked)}
-							/>
-							<span className="setting-switch-track" aria-hidden="true">
-								<span className="setting-switch-thumb" />
-							</span>
-							<span className="setting-switch-state" aria-hidden="true">
-								{switchLocked
-									? t('app.providers.switch.inUse', 'In use')
-									: setup.enabled
-										? t('app.providers.switch.on', 'Active')
-										: t('app.providers.switch.off', 'Inactive')}
-							</span>
-						</label>
-					) : null}
+					<ProviderSwitch
+						providerName={provider.displayName}
+						checked={Boolean(account?.enabled)}
+						busy={busyAction !== null}
+						inUse={Boolean(status?.inUse)}
+						unavailableHint={
+							account
+								? undefined
+								: t(
+										'app.providers.switch.noAccount',
+										'Configure this provider first; there is no account to switch on yet.',
+									)
+						}
+						onChange={onToggleEnabled}
+					/>
 				</div>
 			</div>
 			<div className="card-meta">
@@ -819,7 +806,7 @@ function ProviderCard({
 			)}
 
 			<div className="inline">
-				{action === 'use' ? (
+				{isManual ? null : action === 'use' ? (
 					<a className="button primary" href="#home">
 						{actionLabel}
 					</a>
@@ -834,7 +821,7 @@ function ProviderCard({
 						{busy ? t('app.runtime.setup.running', 'Running...') : actionLabel}
 					</button>
 				)}
-				{!isCli ? (
+				{configurable ? (
 					<button className="button" type="button" onClick={onConfigure}>
 						<Settings2 aria-hidden="true" size={14} />
 						{t('app.providers.card.configure', 'Configure')}

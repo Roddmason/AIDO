@@ -33,6 +33,9 @@ def enable_catalog_provider(connection, provider_id: str) -> None:
         "UPDATE model_catalog SET enabled = 1 WHERE provider_id = ?",
         (provider_id,),
     )
+    # El switch del operador es autoritativo: un proveedor apagado se rechaza aunque su status diga
+    # ejecutable, así que habilitarlo para la selección incluye encender su cuenta.
+    connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", (provider_id,))
 
 
 def register_model(
@@ -52,6 +55,10 @@ def register_model(
     capabilities: list[str] | None = None,
     privacy_level: str = "remote_allowed",
 ) -> dict:
+    # Registrar un modelo seleccionable presupone su proveedor encendido por el operador.
+    manager.connection.execute(
+        "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", (provider_id,)
+    )
     return manager.upsert_model_performance(
         {
             "providerId": provider_id,

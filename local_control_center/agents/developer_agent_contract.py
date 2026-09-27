@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
-from .runtime_selection import is_ollama_runtime, runtime_provider_family
+from .runtime_selection import is_ollama_runtime, runtime_disabled_by_operator, runtime_provider_family
 
 DEVELOPER_AGENT_ID = "developer_agent"
 DEVELOPER_AGENT_ALLOWED_TOOLS = [
@@ -84,6 +84,8 @@ def developer_agent_contract() -> dict[str, Any]:
 def _developer_runtime_reason(runtime: dict[str, Any]) -> str:
     runtime_id = str(runtime.get("id") or "")
     capabilities = set(runtime.get("capabilities") or [])
+    if runtime_disabled_by_operator(runtime):
+        return "provider_disabled: the operator switched this provider off."
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES and "code_edit" not in capabilities:
         return "CLI runtime does not advertise code_edit capability."
     if is_ollama_runtime(runtime) and not runtime.get("models"):
@@ -96,6 +98,8 @@ def is_developer_runtime(runtime: dict[str, Any]) -> bool:
     runtime_id = str(runtime.get("id") or "")
     runtime_family = runtime_provider_family(runtime)
     capabilities = set(runtime.get("capabilities") or [])
+    if runtime_disabled_by_operator(runtime):
+        return False
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return bool(
             runtime.get("executable")

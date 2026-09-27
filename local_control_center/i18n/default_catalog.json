@@ -11351,6 +11351,38 @@
       "en": "deferred",
       "es": "diferido"
     },
+    "app.providers.switch.noAccount": {
+      "en": "Configure this provider first; there is no account to switch on yet.",
+      "es": "Configura primero este proveedor; todavía no hay una cuenta que encender."
+    },
+    "app.runtime.instructions.openhands": {
+      "en": "Install OpenHands and put its CLI on PATH, then run Detect & check. It only runs once the operator switches it on and grants it the code_edit capability.",
+      "es": "Instala OpenHands y agrega su CLI al PATH; luego ejecuta Detectar y verificar. Solo se ejecuta cuando el operador lo enciende y le concede la capacidad code_edit."
+    },
+    "app.runtime.instructions.swe_agent": {
+      "en": "Install SWE-agent and put its CLI on PATH, then run Detect & check. It only runs once the operator switches it on and grants it the code_edit capability.",
+      "es": "Instala SWE-agent y agrega su CLI al PATH; luego ejecuta Detectar y verificar. Solo se ejecuta cuando el operador lo enciende y le concede la capacidad code_edit."
+    },
+    "app.runtime.health.reason.provider_disabled": {
+      "en": "The operator switched this provider off; no thread, agent or failover uses it until it is switched back on.",
+      "es": "El operador apagó este proveedor; ningún hilo, agente ni failover lo usa hasta que se vuelva a encender."
+    },
+    "app.ollama.card.delete": {
+      "en": "Delete",
+      "es": "Eliminar"
+    },
+    "app.ollama.delete.title": {
+      "en": "Delete Ollama endpoint",
+      "es": "Eliminar endpoint de Ollama"
+    },
+    "app.ollama.delete.body": {
+      "en": "Removes the endpoint and its synced models; it stays deleted after updates. Usage history, audit and evidence are kept.",
+      "es": "Elimina el endpoint y sus modelos sincronizados; sigue eliminado tras las actualizaciones. Se conservan el historial de uso, la auditoría y la evidencia."
+    },
+    "app.ollama.action.deleted": {
+      "en": "Ollama endpoint deleted",
+      "es": "Endpoint de Ollama eliminado"
+    },
     "app.providers.switch.inUse": {
       "en": "In use",
       "es": "En uso"

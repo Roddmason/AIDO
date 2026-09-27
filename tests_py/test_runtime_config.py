@@ -451,6 +451,9 @@ def test_sqlite_enabled_healthy_cli_is_executable_even_when_env_false(tmp_path: 
                 "configurationSource": "manual",
             }
         )
+        repo.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",)
+        )
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
             account["id"],
@@ -672,6 +675,7 @@ def test_runtime_status_uses_persisted_cli_installation_without_env_command(
                 "configurationSource": "manual",
             }
         )
+        connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",))
 
         codex = next(
             item
@@ -715,6 +719,7 @@ def test_cli_installed_version_ok_is_not_executable_until_native_auth_is_validat
                 "configurationSource": "manual",
             }
         )
+        connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",))
 
         codex = next(
             item
@@ -761,6 +766,9 @@ def test_cli_version_ok_with_validated_native_account_can_run_prompt_and_edit_wo
                 "configurationSource": "manual",
             }
         )
+        repo.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",)
+        )
         repo.set_runtime_setting("runtime.cli.enabled", True)
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
@@ -806,6 +814,9 @@ def test_chat_only_cli_with_mismatched_executable_fails_prompt_execution_closed(
                 "enabled": True,
                 "configurationSource": "manual",
             }
+        )
+        repo.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",)
         )
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
@@ -854,6 +865,9 @@ def test_stale_persisted_codex_version_cannot_authorize_product_owner(tmp_path: 
                 "enabled": True,
                 "configurationSource": "manual",
             }
+        )
+        repo.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("codex_cli",)
         )
         account = next(item for item in repo.list_runtime_accounts("codex_cli") if item["isDefault"])
         repo.update_runtime_account(
@@ -1008,6 +1022,9 @@ def _install_claude_cli(repo: RuntimeConfigRepository) -> None:
             "configurationSource": "manual",
         }
     )
+    repo.connection.execute(
+        "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("claude_code_cli",)
+    )
 
 
 def test_cli_becomes_executable_when_native_auth_probe_confirms_login(tmp_path: Path, monkeypatch) -> None:
@@ -1134,6 +1151,9 @@ def test_cli_version_probe_hiccup_falls_back_to_persisted_version(tmp_path: Path
                 "enabled": True,
                 "configurationSource": "manual",
             }
+        )
+        repo.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = ?", ("claude_code_cli",)
         )
         account = next(item for item in repo.list_runtime_accounts("claude_code_cli") if item["isDefault"])
         repo.update_runtime_account(

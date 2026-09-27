@@ -680,6 +680,10 @@ def _seed_ai_resource(
 def _seed_controlled_cli_catalog(connection) -> None:
     """A catalogued model is explicit test configuration, not availability inferred from seeds."""
     connection.execute("UPDATE model_catalog SET enabled = 0")
+    # El switch del operador es autoritativo: el catálogo controlado presupone ambos CLI encendidos.
+    connection.execute(
+        "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('codex_cli', 'claude_code_cli')"
+    )
     for provider in ("codex_cli", "claude_code_cli"):
         ProviderAccountStore(connection).upsert_model(
             {
@@ -4419,6 +4423,7 @@ def test_product_owner_resource_selection_obeys_its_mutable_role_policy_without_
         initialize_platform_schema(connection)
         connection.execute("UPDATE model_catalog SET enabled = 0")
         connection.execute("UPDATE model_catalog SET enabled = 1 WHERE provider_id = 'codex_cli'")
+        connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'codex_cli'")
         project = _workspace_project(connection, tmp_path, f"po-policy-{policy_state}")
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         if policy_state == "cli_disabled":
@@ -4932,7 +4937,7 @@ def test_run_user_message_blocks_when_team_scheduler_crashes_before_technical_le
     runtime = _ControlledRuntime()
     technical_lead = _TechnicalLeadPlanner()
 
-    def crashing_schedule_team(*, scope: list[str], risk: str, mode: str) -> dict[str, Any]:
+    def crashing_schedule_team(*, scope: list[str], risk: str, mode: str, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("controlled TeamScheduler crashed")
 
     monkeypatch.setattr(
@@ -4983,7 +4988,7 @@ def test_run_user_message_blocks_when_team_scheduler_crashes_after_technical_lea
     original_schedule_team = product_loop_coordinator.schedule_team
     call_count = 0
 
-    def crashing_schedule_team(*, scope: list[str], risk: str, mode: str) -> dict[str, Any]:
+    def crashing_schedule_team(*, scope: list[str], risk: str, mode: str, **_kwargs: Any) -> dict[str, Any]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:

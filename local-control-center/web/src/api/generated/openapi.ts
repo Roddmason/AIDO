@@ -265,6 +265,7 @@ export type NvidiaNimSystemFacts = { "containerRuntimes": Array<NvidiaNimContain
 export type OllamaEndpointCreateRequest = { "baseUrl": string; "credentialRef"?: null | string; "displayName"?: null | string; "enabled"?: boolean; "id": string; "kind"?: "local" | "remote" | null; "label"?: null | string; "metadata"?: JsonObject };
 export type OllamaEndpointHealthRecord = { "healthStatus": string; "id": string; "lastError"?: null | string; "latency": number; "latencyMs": number; "message"?: string; "models"?: Array<string>; "providerId": string; "status": string };
 export type OllamaEndpointHealthResponse = { "health": OllamaEndpointHealthRecord };
+export type OllamaEndpointPatchRequest = { "enabled": boolean };
 export type OllamaEndpointRecord = { "baseUrl": string; "createdAt": string; "credentialRef"?: null | string; "credentialStatus": string; "displayName": string; "enabled": boolean; "healthStatus": string; "id": string; "kind": "local" | "remote"; "label": string; "lastError": string; "lastHealthCheckAt"?: null | string; "latency"?: null | number; "latencyMs"?: null | number; "models"?: Array<string>; "providerId": string; "runtimeId": string; "updatedAt": string };
 export type OllamaEndpointResponse = { "endpoint": OllamaEndpointRecord };
 export type OllamaEndpointsListResponse = { "endpoints": Array<OllamaEndpointRecord> };
@@ -756,6 +757,8 @@ export const API_ENDPOINTS = [
 	{"method": "GET", "operationId": "local_preflight_api_v1_nvidia_nim_preflight_get", "path": "/api/v1/nvidia-nim/preflight", "summary": "Local Preflight"},
 	{"method": "GET", "operationId": "list_endpoints_api_v1_ollama_endpoints_get", "path": "/api/v1/ollama/endpoints", "summary": "List Endpoints"},
 	{"method": "POST", "operationId": "create_endpoint_api_v1_ollama_endpoints_post", "path": "/api/v1/ollama/endpoints", "summary": "Create Endpoint"},
+	{"method": "DELETE", "operationId": "delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete", "path": "/api/v1/ollama/endpoints/{endpoint_id}", "summary": "Delete Endpoint"},
+	{"method": "PATCH", "operationId": "patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch", "path": "/api/v1/ollama/endpoints/{endpoint_id}", "summary": "Patch Endpoint"},
 	{"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
 	{"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	{"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},
@@ -972,6 +975,7 @@ export type OperationRequestBodies = {
 	"decisions_api_v1_decision_engine_decisions_get": never,
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointDeclareRequest,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
+	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1089,6 +1093,7 @@ export type OperationRequestBodies = {
 	"overview_api_v1_model_gateway_overview_get": never,
 	"overview_api_v1_overview_get": never,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRulePatchRequest,
+	"patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch": OllamaEndpointPatchRequest,
 	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointPatchRequest,
 	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelPatchRequest,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogPatchRequest,
@@ -1261,6 +1266,7 @@ export type OperationResponseBodies = {
 	"decisions_api_v1_decision_engine_decisions_get": DecisionListResponse,
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
+	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1378,6 +1384,7 @@ export type OperationResponseBodies = {
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
+	"patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch": OllamaEndpointResponse,
 	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointView,
 	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelView,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
@@ -1554,6 +1561,7 @@ export type OperationResultBodies = {
 	"decisions_api_v1_decision_engine_decisions_get": DecisionListResponse,
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
+	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1671,6 +1679,7 @@ export type OperationResultBodies = {
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
+	"patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch": OllamaEndpointResponse,
 	"patch_local_endpoint_api_v1_local_endpoints__provider_id__patch": LocalEndpointView,
 	"patch_local_model_api_v1_local_endpoints__provider_id__models_patch": LocalModelView,
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
@@ -1926,6 +1935,8 @@ export const OPERATIONS_BY_ID = {
 	"local_preflight_api_v1_nvidia_nim_preflight_get": {"method": "GET", "operationId": "local_preflight_api_v1_nvidia_nim_preflight_get", "path": "/api/v1/nvidia-nim/preflight", "summary": "Local Preflight"},
 	"list_endpoints_api_v1_ollama_endpoints_get": {"method": "GET", "operationId": "list_endpoints_api_v1_ollama_endpoints_get", "path": "/api/v1/ollama/endpoints", "summary": "List Endpoints"},
 	"create_endpoint_api_v1_ollama_endpoints_post": {"method": "POST", "operationId": "create_endpoint_api_v1_ollama_endpoints_post", "path": "/api/v1/ollama/endpoints", "summary": "Create Endpoint"},
+	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": {"method": "DELETE", "operationId": "delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete", "path": "/api/v1/ollama/endpoints/{endpoint_id}", "summary": "Delete Endpoint"},
+	"patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch": {"method": "PATCH", "operationId": "patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch", "path": "/api/v1/ollama/endpoints/{endpoint_id}", "summary": "Patch Endpoint"},
 	"health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": {"method": "POST", "operationId": "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/health", "summary": "Health Endpoint"},
 	"sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": {"method": "POST", "operationId": "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post", "path": "/api/v1/ollama/endpoints/{endpoint_id}/sync-models", "summary": "Sync Models"},
 	"open_design_api_v1_open_design_get": {"method": "GET", "operationId": "open_design_api_v1_open_design_get", "path": "/api/v1/open-design", "summary": "Open Design"},

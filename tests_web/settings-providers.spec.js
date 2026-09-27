@@ -863,3 +863,34 @@ test('Providers & CLI: the general usage threshold is editable there and the pro
 		});
 	}
 });
+
+test('Providers & CLI: every CLI card, including OpenHands and SWE-agent, carries its own switch', async ({
+	page,
+}) => {
+	const patches = [];
+	await page.route('**/api/v1/model-gateway/providers/*', async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+		const body = route.request().postDataJSON();
+		patches.push({ id, ...body });
+		await route.fulfill({ json: { provider: { providerId: id, enabled: body.enabled } } });
+	});
+	try {
+		const settings = await openSettings(page);
+		for (const name of ['OpenHands', 'SWE-agent', 'Manual Operator']) {
+			const card = settings.locator('.card').filter({ hasText: name }).first();
+			await expect(card.getByRole('checkbox', { name: `Use ${name} in threads` })).toBeVisible({
+				timeout: 30_000,
+			});
+		}
+		// Switching Claude Code alone off/on patches only its own account.
+		const card = settings.locator('.card').filter({ hasText: 'Claude Code CLI' }).first();
+		const toggle = card.getByRole('checkbox', { name: 'Use Claude Code CLI in threads' });
+		await expect(toggle).toBeVisible();
+		const wasChecked = await toggle.isChecked();
+		await toggle.click();
+		await expect.poll(() => patches).toEqual([{ id: 'claude_code_cli', enabled: !wasChecked }]);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

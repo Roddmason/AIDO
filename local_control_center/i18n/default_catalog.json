@@ -11191,6 +11191,114 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.settings.section.aiTeam": {
+      "en": "AI team",
+      "es": "Equipo de IA"
+    },
+    "app.aiTeam.title": {
+      "en": "AI team",
+      "es": "Equipo de IA"
+    },
+    "app.aiTeam.help": {
+      "en": "Every thread uses this team unless it sets its own. The first provider of a role is used; the next ones are fallbacks when it is inactive or fails.",
+      "es": "Todos los hilos usan este equipo salvo que definan el suyo. Se usa el primer proveedor de cada rol; los siguientes son respaldo si está inactivo o falla."
+    },
+    "app.aiTeam.loadFailed": {
+      "en": "The AI team could not be loaded",
+      "es": "No se pudo cargar el equipo de IA"
+    },
+    "app.aiTeam.loadFailedBody": {
+      "en": "Check the control plane connection and try again.",
+      "es": "Revisa la conexión con el plano de control y reintenta."
+    },
+    "app.aiTeam.loading": {
+      "en": "Loading the AI team",
+      "es": "Cargando el equipo de IA"
+    },
+    "app.aiTeam.required": {
+      "en": "required",
+      "es": "obligatorio"
+    },
+    "app.aiTeam.assigned": {
+      "en": "assigned",
+      "es": "asignado"
+    },
+    "app.aiTeam.noCandidates": {
+      "en": "No active provider can take this role",
+      "es": "Ningún proveedor activo puede cumplir este rol"
+    },
+    "app.aiTeam.invalid": {
+      "en": "Ignored (inactive or not eligible): {ids}",
+      "es": "Ignorados (inactivos o no elegibles): {ids}"
+    },
+    "app.aiTeam.addProvider": {
+      "en": "Add provider",
+      "es": "Agregar proveedor"
+    },
+    "app.aiTeam.pickProvider": {
+      "en": "Choose a provider…",
+      "es": "Elige un proveedor…"
+    },
+    "app.aiTeam.add": {
+      "en": "Add",
+      "es": "Agregar"
+    },
+    "app.aiTeam.automatic": {
+      "en": "Automatic",
+      "es": "Automático"
+    },
+    "app.aiTeam.moveUp": {
+      "en": "Move up",
+      "es": "Subir"
+    },
+    "app.aiTeam.moveDown": {
+      "en": "Move down",
+      "es": "Bajar"
+    },
+    "app.aiTeam.remove": {
+      "en": "Remove",
+      "es": "Quitar"
+    },
+    "app.aiTeam.role.product_owner": {
+      "en": "Product Owner",
+      "es": "Product Owner (PO)"
+    },
+    "app.aiTeam.role.developer": {
+      "en": "Developer",
+      "es": "Desarrollador"
+    },
+    "app.aiTeam.role.architect": {
+      "en": "Architect",
+      "es": "Arquitecto"
+    },
+    "app.aiTeam.role.security": {
+      "en": "Security",
+      "es": "Seguridad"
+    },
+    "app.aiTeam.role.technical_lead": {
+      "en": "Technical Lead",
+      "es": "Líder técnico"
+    },
+    "app.aiTeam.role.researcher": {
+      "en": "Researcher",
+      "es": "Investigador"
+    },
+    "app.aiTeam.source.project": {
+      "en": "project",
+      "es": "proyecto"
+    },
+    "app.aiTeam.source.general": {
+      "en": "general",
+      "es": "general (global)"
+    },
+    "app.aiTeam.source.automatic": {
+      "en": "automatic",
+      "es": "automático"
+    },
+    "app.aiTeam.source.inherited": {
+      "en": "inherits the Product Owner",
+      "es": "hereda del Product Owner"
+    },
     "app.providers.switch.label": {
       "en": "Use {provider} in threads",
       "es": "Usar {provider} en los hilos"

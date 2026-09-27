@@ -435,9 +435,13 @@ def seal_thread_runtime_team(
                 stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = previous_global
             return stamped
         # offline: el envío también corre en una transacción; se lee el estado persistido, sin sondear.
-        stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = resolve_global_team(
-            connection, project_id=project_id, offline=True
-        ).sealed()
+        snapshot = resolve_global_team(connection, project_id=project_id, offline=True).sealed()
+        # Como el equipo por hilo: los roles asignados a un runtime local sellan su modelo validado (30
+        # min) con las capacidades del rol; sin modelo resoluble el rol usa la selección determinista.
+        role_models = resolve_team_role_models(connection, snapshot["roleRuntimes"])
+        if role_models:
+            snapshot[ROLE_MODELS_KEY] = role_models
+        stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = snapshot
         return stamped
     if effective.missing_roles:
         team, discarded = effective.narrowed, effective.excluded
@@ -590,7 +594,15 @@ def role_model_pins(request_meta: Mapping[str, Any] | None, team_role: str | Non
     ``roleModels``).
     """
     team = runtime_team_of(request_meta)
-    if team is None or not team_role:
+    if team is None:
+        # Equipo global: el modelo sellado del rol fija el modelo solo en su proveedor asignado.
+        global_team = global_team_of(request_meta)
+        if global_team is None or not team_role:
+            return {}
+        model = global_team[ROLE_MODELS_KEY].get(team_role)
+        order = global_team["roleRuntimeOrder"].get(team_role) or []
+        return {order[0]: model} if model and order else {}
+    if not team_role:
         return {}
     provider_id = team[ROLE_RUNTIMES_KEY].get(team_role)
     model = (team.get(ROLE_MODELS_KEY) or {}).get(team_role)
@@ -609,10 +621,16 @@ def global_team_of(request_meta: Mapping[str, Any] | None) -> dict[str, Any] | N
     }
     sources = raw.get("source") if isinstance(raw.get("source"), dict) else {}
     allowed = raw.get("allowedRuntimes")
+    models = raw.get(ROLE_MODELS_KEY) if isinstance(raw.get(ROLE_MODELS_KEY), dict) else {}
     return {
         "roleRuntimeOrder": orders,
         "source": {str(role): str(value) for role, value in sources.items()},
         "allowedRuntimes": _clean_ids(allowed) if isinstance(allowed, list) else [],
+        ROLE_MODELS_KEY: {
+            str(role): str(model).strip()
+            for role, model in models.items()
+            if str(model or "").strip() and orders.get(str(role))
+        },
     }
 
 

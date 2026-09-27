@@ -280,11 +280,15 @@ def test_clearing_the_team_restores_automatic_routing(tmp_path: Path) -> None:
         # Sin equipo en el hilo el servidor sella el equipo global; el valor del cliente se descarta.
         sealed_orders = run_metadata["globalRuntimeTeam"]["roleRuntimeOrder"]
         assert "forged_runtime" not in sealed_orders.get("developer", [])
-        assert set(run_metadata["globalRuntimeTeam"]) == {
+        assert {"roleRuntimeOrder", "roleRuntimes", "source", "allowedRuntimes"} <= set(
+            run_metadata["globalRuntimeTeam"]
+        )
+        assert set(run_metadata["globalRuntimeTeam"]) <= {
             "roleRuntimeOrder",
             "roleRuntimes",
             "source",
             "allowedRuntimes",
+            "roleModels",
         }
     finally:
         runtime.close()

@@ -647,9 +647,23 @@
 	gap: var(--space-1);
 }
 
-/* Card titles inside Settings: one step under the page-level card title. */
+/* Card titles inside Settings: one step under the page-level card title. A long name ("Ollama
+ * Local/Remote") used to push the switch onto its own line, so the switch sat in a different spot on
+ * that card; the title now ends in an ellipsis (full name in its tooltip) and the switch stays put. */
+.provider-card > .card-header {
+	flex-wrap: nowrap;
+}
+
+.provider-card > .card-header > .inline:first-child {
+	flex: 1 1 0;
+}
+
 .provider-card > .card-header .card-title {
+	min-width: 0;
+	overflow: hidden;
 	font-size: var(--font-size-md);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* Discovery: the button and its one-line hint side by side; the hint wraps within its own column. */

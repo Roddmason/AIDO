@@ -64,6 +64,7 @@ API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
 OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
 PROVIDER_DISABLED_BLOCKER = "provider_disabled"
+CLI_NOT_DETECTED_REASON_CODE = "cli_not_detected"
 PROVIDER_DISABLED_REASON = (
     "provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); "
     "no thread, agent or failover uses it until it is switched back on."
@@ -521,9 +522,8 @@ def _cli_provider_status(
     )
     validation_expired = False
     if not configured and configuration is not None:
-        reason = (
-            f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
-        )
+        # Código al frente: la web lo traduce ("Not detected yet: run Detect & check…").
+        reason = f"{CLI_NOT_DETECTED_REASON_CODE}: {configuration.reason} Run Detect & check to find it on this machine."
     elif not detected:
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
@@ -531,7 +531,7 @@ def _cli_provider_status(
     elif not provider_enabled:
         reason = PROVIDER_DISABLED_REASON
     elif not installation_enabled:
-        reason = "CLI runtime is available but runtime_installations.enabled is false."
+        reason = "CLI is detected but its installation is switched off in AIDO; turn the provider switch on."
     elif not account_enabled:
         reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
     elif not authenticated:
@@ -657,7 +657,7 @@ def _ollama_provider_status(
     elif not installation_enabled:
         reason = "Ollama runtime installation is disabled."
     elif not enabled:
-        reason = "Ollama daemon is reachable but provider_accounts.enabled is false."
+        reason = "Ollama responds but the provider switch is off in AIDO."
     elif not policy_allowed:
         reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
     elif not has_prompt_capability:

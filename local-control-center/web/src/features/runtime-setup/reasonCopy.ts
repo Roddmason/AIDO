@@ -10,6 +10,14 @@ type Translate = (key: string, fallback?: string) => string;
 
 export const REASON_COPY = new Map<string, { key: string; fallback: string }>([
 	[
+		'cli_not_detected',
+		{
+			key: 'app.runtime.health.reason.cli_not_detected',
+			fallback:
+				'AIDO has not found this CLI on this machine yet. Run Detect & check; if it is not installed, install it and make sure it is on PATH.',
+		},
+	],
+	[
 		'provider_disabled',
 		{
 			key: 'app.runtime.health.reason.provider_disabled',
@@ -200,6 +208,13 @@ export function describeReason(reason: string, t: Translate): string {
  * the mechanism, the card only has two lines to say what state the provider is in and what to do.
  */
 const CARD_REASON_COPY = new Map<string, { key: string; fallback: string }>([
+	[
+		'cli_not_detected',
+		{
+			key: 'app.providers.card.reason.cli_not_detected',
+			fallback: 'Not detected on this machine yet. Run Detect & check.',
+		},
+	],
 	[
 		'provider_disabled',
 		{

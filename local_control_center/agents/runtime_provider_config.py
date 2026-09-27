@@ -126,13 +126,10 @@ class RuntimeProviderConfiguration:
             return self.resolution_error
         if self.configured:
             if self.spec.kind == "cli":
-                return "Deprecated CLI command environment override is present."
+                return "CLI command set by environment override."
             return "Required runtime provider configuration is present."
         if self.spec.kind == "cli":
-            return (
-                "No deprecated CLI command environment override is set; normal CLI configuration lives "
-                "in runtime_installations and runtime_accounts."
-            )
+            return "CLI command is not configured."
         return "Missing required runtime provider configuration or credential: " + ", ".join(self.missing)
 
     def value(self, key: str) -> str | None:

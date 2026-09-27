@@ -37,6 +37,7 @@ from local_control_center.product_loop.metadata import (
 )
 from local_control_center.remediations.service import BlockerRemediationService
 from local_control_center.runtime_team.configuration import (
+    GLOBAL_RUNTIME_TEAM_METADATA_KEY,
     RUNTIME_TEAM_DISCARDED_METADATA_KEY,
     RUNTIME_TEAM_METADATA_KEY,
     ensure_thread_runtime_team_ready,
@@ -81,6 +82,7 @@ _PUBLIC_MESSAGE_PROTECTED_PRODUCT_LOOP_METADATA_KEYS = frozenset(
         *RESOURCE_COST_POLICY_METADATA_KEYS,
         RUNTIME_TEAM_METADATA_KEY,
         RUNTIME_TEAM_DISCARDED_METADATA_KEY,
+        GLOBAL_RUNTIME_TEAM_METADATA_KEY,
     }
 )
 

@@ -10,6 +10,11 @@ del proyecto solo restringe, nunca amplía, y un valor entrante del cliente (inc
 descarta siempre. Un equipo estrechado a vacío se conserva vacío para fallar cerrado en el loop en vez
 de volver al ruteo automático.
 
+Sin equipo en el hilo, el sellado deja ``globalRuntimeTeam`` (snapshot del equipo de IA global,
+``global_team.py``) y ``role_allowlist`` devuelve el orden del rol (asignado + fallbacks); el equipo del
+hilo tiene prioridad. Un run sellado antes del equipo global (sin snapshot) conserva la herencia del
+proveedor del PO.
+
 @author Rodrigo Mason
 """
 
@@ -42,6 +47,8 @@ RUNTIME_TEAM_METADATA_KEY = "runtimeTeam"
 """Clave sellada en la metadata del run con el equipo efectivo; nunca se acepta del cliente."""
 RUNTIME_TEAM_DISCARDED_METADATA_KEY = "runtimeTeamDiscarded"
 """Clave sellada con los runtimes elegidos que el sellado dejó fuera (política o vencidos) y su causa."""
+GLOBAL_RUNTIME_TEAM_METADATA_KEY = "globalRuntimeTeam"
+"""Snapshot del equipo de IA global sellado en el run cuando el hilo no tiene equipo propio; nunca del cliente."""
 PROJECT_ALLOWLIST_EXCLUDED_REASON = "project_runtime_allowlist_excluded"
 ALLOWED_RUNTIMES_KEY = "allowedRuntimes"
 ROLE_RUNTIMES_KEY = "roleRuntimes"
@@ -398,6 +405,8 @@ def seal_thread_runtime_team(
 ) -> dict[str, Any]:
     """Sella en la metadata del run el equipo efectivo del hilo; descarta cualquier valor entrante.
 
+    Sin equipo en el hilo sella el snapshot del equipo de IA global (``globalRuntimeTeam``).
+
     Saca los runtimes vencidos (30 min) y los que excluye el proyecto, y deja lo descartado en
     ``runtimeTeamDiscarded`` con los roles que el operador les había asignado. Si sacar los vencidos dejaría PO o Developer sin runtime (un re-sellado
     de retry, donde no corre el gate de envío), conserva los vencidos: el gate de ejecución (24 h)
@@ -406,8 +415,15 @@ def seal_thread_runtime_team(
     stamped = dict(metadata)
     stamped.pop(RUNTIME_TEAM_METADATA_KEY, None)
     stamped.pop(RUNTIME_TEAM_DISCARDED_METADATA_KEY, None)
+    stamped.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY, None)
     effective = _effective_thread_runtime_team(connection, project_id=project_id, thread_id=thread_id)
     if effective is None:
+        # Import diferido: global_team importa facts/roles y podría llegar a importar este módulo.
+        from .global_team import resolve_global_team
+
+        stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = resolve_global_team(
+            connection, project_id=project_id
+        ).sealed()
         return stamped
     if effective.missing_roles:
         team, discarded = effective.narrowed, effective.excluded
@@ -465,14 +481,20 @@ def role_allowlist(
     por ``confidence_below_threshold`` y el reparto del operador, no su umbral, debe decidir. Sin PO
     asignado se conserva el conjunto completo del hilo.
 
-    Sin equipo (hilo creado por API, p. ej. el plugin OpenClaw), cada rol hereda el proveedor donde
-    corrió el PO del loop (``product_owner_provider_id``) por la misma razón: sin restringir, un
+    Sin equipo en el hilo y con snapshot del equipo global (``globalRuntimeTeam``), el rol usa su
+    orden: asignado primero y fallbacks después (``global_role_order``); la preferencia de ruteo del
+    mismo orden (``role_routing_preferences``) decide entre ellos.
+
+    Sin equipo ni snapshot global (run sellado antes del equipo global), cada rol hereda el proveedor
+    donde corrió el PO del loop (``product_owner_provider_id``) por la misma razón: sin restringir, un
     candidato remoto que el operador nunca eligió compite en la ambigüedad de Jev. ``None`` sólo si
     tampoco hay selección del PO disponible (compatibilidad con llamadas que no la conocen, p. ej. la
     selección del propio PO o un failover que deliberadamente busca en todo el conjunto).
     """
     team = runtime_team_of(request_meta)
     if team is None:
+        if global_team_of(request_meta) is not None:
+            return global_role_order(request_meta, team_role) or None
         return [product_owner_provider_id] if product_owner_provider_id else None
     role_runtimes = team[ROLE_RUNTIMES_KEY]
     assigned = (role_runtimes.get(team_role) if team_role else None) or role_runtimes.get("product_owner")
@@ -494,6 +516,58 @@ def role_model_pins(request_meta: Mapping[str, Any] | None, team_role: str | Non
     provider_id = team[ROLE_RUNTIMES_KEY].get(team_role)
     model = (team.get(ROLE_MODELS_KEY) or {}).get(team_role)
     return {provider_id: model} if provider_id and model else {}
+
+
+def global_team_of(request_meta: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Snapshot ``globalRuntimeTeam`` sellado en el run, validado; ``None`` si falta o está malformado."""
+    raw = (request_meta or {}).get(GLOBAL_RUNTIME_TEAM_METADATA_KEY)
+    if not isinstance(raw, dict) or not isinstance(raw.get("roleRuntimeOrder"), dict):
+        return None
+    orders = {
+        str(role): _clean_ids(order)
+        for role, order in raw["roleRuntimeOrder"].items()
+        if isinstance(order, list)
+    }
+    sources = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+    allowed = raw.get("allowedRuntimes")
+    return {
+        "roleRuntimeOrder": orders,
+        "source": {str(role): str(value) for role, value in sources.items()},
+        "allowedRuntimes": _clean_ids(allowed) if isinstance(allowed, list) else [],
+    }
+
+
+def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | None) -> list[str]:
+    """Orden de proveedores del rol en el equipo global: asignado primero, luego fallbacks.
+
+    Un rol sin asignación propia (``None``: aido_lead, qa_engineer…) sigue el orden del PO. Un rol
+    del equipo sin candidatos (opcional vacío) puede usar cualquier runtime del equipo, como en el
+    equipo por hilo. Vacío sin snapshot global.
+    """
+    team = global_team_of(request_meta)
+    if team is None:
+        return []
+    orders = team["roleRuntimeOrder"]
+    order = orders.get(team_role) if team_role else None
+    if order:
+        return list(order)
+    if team_role and team_role in orders:
+        return list(team["allowedRuntimes"])
+    return list(orders.get("product_owner") or team["allowedRuntimes"])
+
+
+def role_routing_preferences(
+    request_meta: Mapping[str, Any] | None, team_role: str | None
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Orden del rol como preferencia de ruteo: ids y comodines ``{provider, model: ""}`` (tier 1).
+
+    Solo aplica con equipo global y sin equipo por hilo (con equipo por hilo la allowlist es un único
+    proveedor y los pins de la política del rol eligen el modelo, como hasta ahora).
+    """
+    if runtime_team_of(request_meta) is not None:
+        return [], []
+    order = global_role_order(request_meta, team_role)
+    return order, [{"provider": provider_id, "model": ""} for provider_id in order]
 
 
 def restrict_to_allowlist(provider_ids: Iterable[str], allowlist: list[str] | None) -> list[str]:

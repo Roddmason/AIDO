@@ -27,7 +27,7 @@ from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
-from .credentials import CredentialResolver
+from .credentials import CredentialResolver, preferred_credential_ref
 from .developer_agent_contract import developer_agent_readiness
 from .endpoint_locality import endpoint_locality, is_local_model_runtime, is_self_hosted_inference
 from .local_runtime_causes import local_runtime_cause_of
@@ -245,7 +245,19 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
 def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
     required_configuration = _api_required_configuration(account)
     credential_status = str(account.get("credentialStatus") or "unknown")
-    credential_resolution = CredentialResolver().resolve(str(account.get("credentialRef") or ""), fetch=False)
+    # Misma ref que usa la ejecución (``preferred_credential_ref``): el estado no puede decir "falta
+    # la variable" cuando la credencial vigente es otra (keyring del account o env de runtime).
+    account_ref = str(account.get("credentialRef") or "")
+    runtime_configuration = runtime_provider_configuration(str(account["providerId"]))
+    env_ref = (
+        runtime_configuration.configured_env_ref("apiKey")
+        if runtime_configuration and runtime_configuration.configured
+        else None
+    )
+    effective_ref = preferred_credential_ref(account_ref, env_ref)
+    credential_resolution = CredentialResolver().resolve(effective_ref, fetch=False)
+    if effective_ref != account_ref.strip() and credential_resolution.status in PRESENT_CREDENTIAL_STATUSES:
+        credential_status = credential_resolution.status
     base_url = str(account.get("baseUrl") or "").strip()
     return {
         "requiredConfiguration": required_configuration,

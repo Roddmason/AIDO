@@ -627,14 +627,13 @@ class ModelGateway:
             )
         if provider_type in REMOTE_PROVIDER_TYPES:
             runtime_configuration = runtime_provider_configuration(provider_id)
-            credential_ref = str(
-                (
-                    runtime_configuration.configured_env_ref("apiKey")
-                    if runtime_configuration and runtime_configuration.configured
-                    else None
-                )
-                or account.get("credentialRef")
-                or ""
+            from .credentials import preferred_credential_ref
+
+            credential_ref = preferred_credential_ref(
+                str(account.get("credentialRef") or ""),
+                runtime_configuration.configured_env_ref("apiKey")
+                if runtime_configuration and runtime_configuration.configured
+                else None,
             )
             policy_decision = RuntimeConfigRepository(self.repository.connection).runtime_policy_decision(
                 provider_id=provider_id,

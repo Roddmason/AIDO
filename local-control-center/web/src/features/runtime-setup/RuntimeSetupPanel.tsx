@@ -486,9 +486,9 @@ export function RuntimeSetupPanel({
 						? accountById.get(wizardProviderId)?.metadata?.freeTierDeclaredByOperator === true
 						: false
 				}
-				initialCredentialRef={
-					wizardProviderId ? (accountById.get(wizardProviderId)?.credentialRef ?? '') : ''
-				}
+				initialCredentialRef={storedCredentialRef(
+					wizardProviderId ? accountById.get(wizardProviderId) : undefined,
+				)}
 				initialBaseUrl={wizardProviderId ? (accountById.get(wizardProviderId)?.baseUrl ?? '') : ''}
 				onClose={() => setWizardOpen(false)}
 				onSaved={() => {
@@ -875,4 +875,29 @@ function ProviderCard({
 			</div>
 		</article>
 	);
+}
+
+/** Credential placeholders the schema seeds on hosted providers (`shared/migrations.py`, phase 12). */
+const SEEDED_CREDENTIAL_PLACEHOLDERS: Record<string, string> = {
+	nvidia_nim: 'NVIDIA_NIM_API_KEY',
+	openai_api: 'OPENAI_API_KEY',
+	openai_compatible: 'OPENAI_API_KEY',
+	anthropic_api: 'AIDO_ANTHROPIC_API_KEY',
+	openrouter: 'OPENROUTER_API_KEY',
+};
+
+/**
+ * Reference the wizard may offer to keep. A seeded placeholder (NIM's `NVIDIA_NIM_API_KEY`, stored bare or
+ * normalized to `env:`) that does not resolve is not a credential the operator stored: offering "keep"
+ * hid the API key field and the provider kept failing with a valid key in hand. Any other reference is
+ * the operator's choice and is kept, even when it does not resolve yet.
+ */
+function storedCredentialRef(account: ModelGatewayProviderAccount | undefined): string {
+	const ref = account?.credentialRef?.trim() ?? '';
+	if (!ref || !account) return '';
+	const placeholder = SEEDED_CREDENTIAL_PLACEHOLDERS[account.providerId];
+	const isPlaceholder = Boolean(placeholder) && ref.replace(/^env:/, '') === placeholder;
+	const resolves =
+		account.credentialStatus === 'configured' || account.credentialStatus === 'unverified';
+	return isPlaceholder && !resolves ? '' : ref;
 }

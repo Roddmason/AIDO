@@ -337,7 +337,17 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         require_write(request)
         try:
             label, source, locator = _resolve_create_fields(body)
-            credential = _manager(platform).create_credential(
+            manager = _manager(platform)
+            existing = _repository(platform).find_credential_by_name(label)
+            if (
+                existing is not None
+                and existing.get("locator") == locator
+                and (source is None or existing.get("backendKind") == source)
+            ):
+                # Reingresar la key del mismo proveedor (mismo nombre y locator) es una rotación: antes
+                # fallaba con "Credential already exists" y el wizard decía "could not be saved".
+                return {"credential": manager.rotate(label, body.value, actor=body.actor)}
+            credential = manager.create_credential(
                 name=label,
                 value=body.value,
                 locator=locator,

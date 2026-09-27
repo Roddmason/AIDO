@@ -10,6 +10,7 @@ from functools import partial
 from typing import Any
 
 from local_control_center.agents import local_endpoint_lease
+from local_control_center.agents.credentials import preferred_credential_ref
 from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_provider_config import (
@@ -348,8 +349,10 @@ class ProviderAdapterFactory:
             or None
         )
         credential_ref = (
-            (configuration.configured_env_ref("apiKey") if configuration else None)
-            or str(account.get("credentialRef") or "").strip()
+            preferred_credential_ref(
+                str(account.get("credentialRef") or ""),
+                configuration.configured_env_ref("apiKey") if configuration else None,
+            )
             or None
         )
         return base_url, credential_ref

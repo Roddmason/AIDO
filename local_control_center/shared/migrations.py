@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 82
+CURRENT_SCHEMA_VERSION = 83
 
 
 def _execute_atomic_statements(
@@ -143,6 +143,7 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase80_schema(connection)
     init_phase81_schema(connection)
     init_phase82_schema(connection)
+    init_phase83_schema(connection)
     seed_platform_catalogs(connection)
 
 
@@ -6974,3 +6975,45 @@ def init_phase82_schema(connection: sqlite3.Connection) -> None:
             """
         )
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (82, ?)", (utc_now(),))
+
+
+def init_phase83_schema(connection: sqlite3.Connection) -> None:
+    """Fase 83: uso de cuota por proveedor y umbral de suspensión automática.
+
+    ``provider_usage_windows`` guarda la última observación de cada ventana de uso (5 h, semanal,
+    diaria, mensual) con su porcentaje, reinicio y fuente. ``provider_usage_policies`` guarda el
+    umbral propio del proveedor (override del general ``runtime.quota.suspendThresholdPercent``), la
+    reanudación manual (``ignore_until``) y el estado del último refresco. Ver
+    ``agents/provider_usage.py``.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 83").fetchone():
+        return
+    with immediate_transaction(connection):
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS provider_usage_windows (
+                provider_id TEXT NOT NULL,
+                window_kind TEXT NOT NULL,
+                used_percent REAL CHECK (used_percent IS NULL OR (used_percent >= 0 AND used_percent <= 100)),
+                resets_at TEXT,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ok',
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (provider_id, window_kind)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS provider_usage_policies (
+                provider_id TEXT PRIMARY KEY,
+                threshold_percent REAL
+                    CHECK (threshold_percent IS NULL OR (threshold_percent >= 1 AND threshold_percent <= 100)),
+                ignore_until TEXT,
+                last_poll_at TEXT,
+                last_poll_error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (83, ?)", (utc_now(),))

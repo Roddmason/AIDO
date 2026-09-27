@@ -117,6 +117,7 @@ class LocalWorkerRuntime:
         self.db_path = Path(db_path)
         self.cwd = Path(cwd)
         self._health_refresh_due_at = 0.0
+        self._usage_refresh_due_at = 0.0
         self._cooldown_resume_due_at = 0.0
         self.settings = settings or WorkerSettings()
         self.worker_id = f"local-worker-{uuid.uuid4()}"
@@ -251,6 +252,43 @@ class LocalWorkerRuntime:
                 outcome=f"queued:{result['enqueued']}",
             )
 
+    def _refresh_provider_usage_if_due(self) -> None:
+        """Refresca el porcentaje de uso de los proveedores con fuente propia (Claude, Codex).
+
+        Lo hace el líder, fuera de cualquier transacción, como mucho cada ``MIN_POLL_INTERVAL_SECONDS``.
+        Con el uso al día, un proveedor que cruza el umbral del operador queda suspendido y el
+        siguiente intento de un loop en curso cambia de runtime (``provider_usage``). Un fallo aquí
+        nunca detiene al worker.
+        """
+        import time as _time
+
+        from local_control_center.agents.provider_usage import (
+            MIN_POLL_INTERVAL_SECONDS,
+            refresh_provider_usage,
+        )
+        from local_control_center.shared.db import open_sqlite_connection
+
+        now = _time.monotonic()
+        if now < self._usage_refresh_due_at:
+            return
+        self._usage_refresh_due_at = now + MIN_POLL_INTERVAL_SECONDS
+        try:
+            connection = open_sqlite_connection(self.db_path)
+            try:
+                with connection:
+                    refresh_provider_usage(connection)
+            finally:
+                connection.close()
+        except Exception as error:  # el uso es auxiliar: nunca frena la cola
+            from local_control_center.shared.diagnostics import diagnostic_event
+
+            diagnostic_event(
+                "runtime.provider_usage_refresh",
+                component="worker",
+                workerId=self.worker_id,
+                outcome=f"failed:{type(error).__name__}",
+            )
+
     def _resume_cooldown_blocked_threads_if_due(self) -> None:
         """Reanuda hilos bloqueados sólo por cooldown de cuota vencido, sin costo si no hay candidatos.
 
@@ -309,6 +347,7 @@ class LocalWorkerRuntime:
                 # el "run once" que el operador pide para SU operación ejecutaba un health check en
                 # su lugar. Dentro de un job la salud rancia se renueva sola (RuntimeStatusService).
                 self._refresh_runtime_health_if_due()
+                self._refresh_provider_usage_if_due()
             self._resume_cooldown_blocked_threads_if_due()
             try:
                 from local_control_center.process_supervision.recovery import recover_managed_processes

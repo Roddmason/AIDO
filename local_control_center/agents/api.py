@@ -45,6 +45,8 @@ from .contracts import (
     ProductOwnerAgentRunRequest,
     ProductOwnerAgentRunResponse,
     ProductOwnerAgentStatusResponse,
+    ProviderUsagePolicyRequest,
+    ProviderUsageResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
     ResearchAgentRunRequest,
@@ -1274,6 +1276,55 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return RuntimeTeamCandidatesService(platform.connection).list_candidates(
             project_id=projectId, selected=selected_ids
         )
+
+    @router.get("/api/v1/runtime/provider-usage", response_model=ProviderUsageResponse)
+    def get_provider_usage() -> dict[str, Any]:
+        """Uso de cuota por proveedor, umbral efectivo y suspensión automática (sin consultar la red)."""
+        from local_control_center.agents.provider_usage import describe_provider_usage
+
+        return describe_provider_usage(platform.connection)
+
+    @router.post("/api/v1/runtime/provider-usage/refresh", response_model=ProviderUsageResponse)
+    def refresh_provider_usage_now(request: Request) -> dict[str, Any]:
+        """Refresca ya el uso de Claude/Codex y la contabilidad de AIDO (ignora el intervalo mínimo)."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import describe_provider_usage, refresh_provider_usage
+
+        refresh_provider_usage(platform.connection, force=True)
+        return describe_provider_usage(platform.connection)
+
+    @router.put("/api/v1/runtime/provider-usage/{provider_id}/policy", response_model=ProviderUsageResponse)
+    def put_provider_usage_policy(
+        provider_id: str, body: ProviderUsagePolicyRequest, request: Request
+    ) -> dict[str, Any]:
+        """Fija el umbral propio del proveedor (o lo quita con ``null`` para heredar el general)."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import ProviderUsageStore, describe_provider_usage
+
+        store = ProviderUsageStore(platform.connection)
+        store.set_policy(
+            provider_id,
+            threshold_percent=body.threshold_percent,
+            ignore_until=store.policy(provider_id)["ignoreUntil"],
+        )
+        return describe_provider_usage(platform.connection)
+
+    @router.post("/api/v1/runtime/provider-usage/{provider_id}/resume", response_model=ProviderUsageResponse)
+    def resume_provider_usage(provider_id: str, request: Request) -> dict[str, Any]:
+        """Reanuda ya un proveedor suspendido por cuota, hasta el reinicio de la ventana que lo suspendió."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import ProviderUsageStore, describe_provider_usage
+
+        store = ProviderUsageStore(platform.connection)
+        suspension = store.suspensions().get(provider_id)
+        if suspension is None:
+            raise HTTPException(status_code=409, detail=f"{provider_id} is not suspended by quota.")
+        store.set_policy(
+            provider_id,
+            threshold_percent=store.policy(provider_id)["thresholdPercent"],
+            ignore_until=suspension["until"],
+        )
+        return describe_provider_usage(platform.connection)
 
     @router.get("/api/v1/runtime/team", response_model=RuntimeTeamResponse)
     def get_runtime_team(projectId: str | None = None) -> dict[str, Any]:

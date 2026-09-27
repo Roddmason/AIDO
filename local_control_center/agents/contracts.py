@@ -1013,3 +1013,49 @@ class RuntimeProvidersResponse(BaseModel):
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
     configuration_warnings: list[str] = Field(default_factory=list, alias="configurationWarnings")
     providers: list[RuntimeProviderStatus]
+
+
+class ProviderUsageWindowRecord(BaseModel):
+    """Una ventana de uso observada (5 h, semanal, diaria, mensual) de un proveedor."""
+
+    provider_id: str = Field(alias="providerId")
+    window: str
+    label: str
+    used_percent: float | None = Field(default=None, alias="usedPercent")
+    resets_at: str | None = Field(default=None, alias="resetsAt")
+    source: str
+    status: str
+    observed_at: str = Field(alias="observedAt")
+
+
+class ProviderUsageRecord(BaseModel):
+    """Uso de cuota, umbral efectivo y suspensión automática de un proveedor."""
+
+    provider_id: str = Field(alias="providerId")
+    threshold_percent: float = Field(alias="thresholdPercent")
+    threshold_source: Literal["provider", "general"] = Field(alias="thresholdSource")
+    own_threshold_percent: float | None = Field(default=None, alias="ownThresholdPercent")
+    max_used_percent: float | None = Field(default=None, alias="maxUsedPercent")
+    windows: list[ProviderUsageWindowRecord] = Field(default_factory=list)
+    suspended: bool = False
+    suspended_until: str | None = Field(default=None, alias="suspendedUntil")
+    suspended_window: str | None = Field(default=None, alias="suspendedWindow")
+    ignore_until: str | None = Field(default=None, alias="ignoreUntil")
+    last_poll_at: str | None = Field(default=None, alias="lastPollAt")
+    last_poll_error: str | None = Field(default=None, alias="lastPollError")
+    has_remote_source: bool = Field(default=False, alias="hasRemoteSource")
+
+
+class ProviderUsageResponse(BaseModel):
+    """Umbral general y uso por proveedor (``GET /api/v1/runtime/provider-usage``)."""
+
+    general_threshold_percent: float = Field(alias="generalThresholdPercent")
+    providers: list[ProviderUsageRecord]
+
+
+class ProviderUsagePolicyRequest(BaseModel):
+    """Umbral propio del proveedor; ``null`` vuelve al umbral general."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    threshold_percent: float | None = Field(default=None, alias="thresholdPercent", ge=1, le=100)

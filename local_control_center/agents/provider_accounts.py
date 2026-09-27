@@ -286,6 +286,38 @@ def row_to_pricing_snapshot(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+PROVIDER_TOMBSTONES_TABLE = "provider_account_tombstones"
+
+
+def record_provider_tombstone(connection: sqlite3.Connection, provider_id: str) -> None:
+    """Marca una cuenta borrada por el operador para que ninguna semilla de migración la resucite."""
+    connection.execute(
+        f"INSERT OR REPLACE INTO {PROVIDER_TOMBSTONES_TABLE} (provider_id, deleted_at) VALUES (?, ?)",
+        (provider_id, utc_now()),
+    )
+
+
+def clear_provider_tombstone(connection: sqlite3.Connection, provider_id: str) -> None:
+    """Retira el tombstone de una cuenta que el operador vuelve a dar de alta.
+
+    Tolera una base sin la tabla (esquema anterior a la fase 84 en fixtures parciales): sin tabla no
+    hay tombstone que retirar.
+    """
+    try:
+        connection.execute(f"DELETE FROM {PROVIDER_TOMBSTONES_TABLE} WHERE provider_id = ?", (provider_id,))
+    except sqlite3.OperationalError as error:
+        if "no such table" not in str(error):
+            raise
+
+
+def disabled_provider_ids(connection: sqlite3.Connection) -> frozenset[str]:
+    """Ids de las cuentas con el switch del operador apagado (``provider_accounts.enabled`` = 0)."""
+    return frozenset(
+        str(row[0])
+        for row in connection.execute("SELECT provider_id FROM provider_accounts WHERE enabled = 0")
+    )
+
+
 class ProviderAccountStore:
     """SQLite store for provider accounts, model catalog, pricing snapshots, and health checks."""
 
@@ -412,6 +444,9 @@ class ProviderAccountStore:
                 now,
             ),
         )
+        if existing is None:
+            # Un alta explícita revive la cuenta: el tombstone solo impide que la resuciten las semillas.
+            clear_provider_tombstone(self.connection, provider_id)
         return self.get_provider_account(provider_id)
 
     def patch_provider_account(self, provider_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -424,7 +459,30 @@ class ProviderAccountStore:
             merged["healthStatus"] = "unknown"
             merged["lastHealthCheckAt"] = None
             merged["lastError"] = ""
-        return self.upsert_provider_account(merged)
+        updated = self.upsert_provider_account(merged)
+        if "enabled" in body and str(existing.get("providerType") or "") == "cli":
+            self._sync_cli_runtime_switch(str(existing["providerId"]), bool(updated["enabled"]))
+        return updated
+
+    def _sync_cli_runtime_switch(self, runtime_id: str, enabled: bool) -> None:
+        """Alinea la instalación y la cuenta nativa por defecto del CLI con el switch del operador.
+
+        El switch (``provider_accounts.enabled``) es la única autoridad por proveedor: sin esta
+        proyección, encender un CLI sembrado con ``runtime_installations.enabled = 0`` no tendría efecto
+        y no hay otra superficie que lo encienda. openhands/swe_agent siguen además gated por la
+        capability ``code_edit``. Comparte la transacción del llamador.
+        """
+        now = utc_now()
+        flag = 1 if enabled else 0
+        self.connection.execute(
+            "UPDATE runtime_installations SET enabled = ?, updated_at = ? WHERE runtime_id = ? AND enabled != ?",
+            (flag, now, runtime_id, flag),
+        )
+        self.connection.execute(
+            "UPDATE runtime_accounts SET enabled = ?, updated_at = ? "
+            "WHERE runtime_id = ? AND is_default = 1 AND enabled != ?",
+            (flag, now, runtime_id, flag),
+        )
 
     def set_provider_catalog_id(self, provider_id: str, catalog_id: str) -> dict[str, Any]:
         """Fija la identidad de catálogo (campo del servidor) de una cuenta existente.

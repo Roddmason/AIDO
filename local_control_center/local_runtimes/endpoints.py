@@ -23,7 +23,7 @@ from local_control_center.agents import local_model_state
 from local_control_center.agents.endpoint_locality import endpoint_locality, endpoint_network_scope
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.local_model_state import LoadState
-from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.provider_accounts import ProviderAccountStore, record_provider_tombstone
 from local_control_center.agents.provider_catalog import PROVIDER_CATALOG_VERSION, ProviderCatalogEntry
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.runtime_team.configuration import (
@@ -335,6 +335,12 @@ catálogo: sin borrarlos, volver a agregar el endpoint heredaría su cooldown y 
 ``local_model_settings`` no figura aquí: la borra ``delete_for_account`` en la misma transacción.
 """
 _ROLE_POLICY_REFERENCE_COLUMNS = ("preferred_json", "fallback_json", "escalation_json")
+SEED_OWNED_POLICY_MODELS: dict[str, frozenset[str]] = {"ollama": frozenset({"local_default"})}
+"""Referencias de role policy que siembran las migraciones, no el operador: ``ollama:local_default``.
+
+Son un placeholder de la semilla (el operador nunca elige ``local_default``): no bloquean el borrado del
+proveedor y el borrado las retira. Cualquier otra referencia es del operador y sigue bloqueando.
+"""
 
 
 class LocalEndpointInUseError(RuntimeError):
@@ -376,6 +382,21 @@ def _policy_ref_providers(raw: Any) -> set[str]:
     return providers
 
 
+def _is_seed_owned_ref(provider_id: str, ref: Any) -> bool:
+    """Indica si la referencia es el placeholder sembrado del proveedor (p. ej. ``ollama:local_default``)."""
+    if not isinstance(ref, dict):
+        return False
+    provider = str(ref.get("provider") or ref.get("providerId") or "")
+    return provider == provider_id and str(ref.get("model") or "") in SEED_OWNED_POLICY_MODELS.get(
+        provider_id, frozenset()
+    )
+
+
+def _operator_policy_refs(provider_id: str, raw: Any) -> list[Any]:
+    """Referencias de la lista que no son el placeholder sembrado del proveedor."""
+    return [ref for ref in raw if not _is_seed_owned_ref(provider_id, ref)] if isinstance(raw, list) else []
+
+
 def _role_policy_references(connection: sqlite3.Connection, provider_id: str) -> list[dict[str, str]]:
     rows = connection.execute(
         "SELECT id, role, preferred_json, fallback_json, escalation_json FROM role_model_policies ORDER BY role"
@@ -384,14 +405,49 @@ def _role_policy_references(connection: sqlite3.Connection, provider_id: str) ->
         {"kind": "role_policy", "id": str(row["id"]), "label": str(row["role"])}
         for row in rows
         if any(
-            provider_id in _policy_ref_providers(json_loads(row[column], []))
+            provider_id
+            in _policy_ref_providers(_operator_policy_refs(provider_id, json_loads(row[column], [])))
             for column in _ROLE_POLICY_REFERENCE_COLUMNS
         )
     ]
 
 
+def _strip_seed_owned_policy_refs(connection: sqlite3.Connection, provider_id: str) -> list[str]:
+    """Retira de las role policies el placeholder sembrado del proveedor borrado; devuelve los roles tocados.
+
+    Solo corre cuando ya no quedan referencias del operador, así que una política queda sin el proveedor.
+    """
+    if provider_id not in SEED_OWNED_POLICY_MODELS:
+        return []
+    touched: list[str] = []
+    now = utc_now()
+    rows = connection.execute(
+        "SELECT id, role, preferred_json, fallback_json, escalation_json FROM role_model_policies ORDER BY role"
+    ).fetchall()
+    for row in rows:
+        changes = {}
+        for column in _ROLE_POLICY_REFERENCE_COLUMNS:
+            refs = json_loads(row[column], [])
+            kept = _operator_policy_refs(provider_id, refs)
+            if isinstance(refs, list) and len(kept) != len(refs):
+                changes[column] = json_dumps(kept)
+        if not changes:
+            continue
+        assignments = ", ".join(f"{column} = ?" for column in changes)
+        connection.execute(
+            f"UPDATE role_model_policies SET {assignments}, updated_at = ? WHERE id = ?",
+            (*changes.values(), now, row["id"]),
+        )
+        touched.append(str(row["role"]))
+    return touched
+
+
 def endpoint_references(connection: sqlite3.Connection, provider_id: str) -> list[dict[str, str]]:
-    """Equipos de hilo (``runConfiguration``) y role policies (preferidos, fallback, escalación) que usan el endpoint."""
+    """Equipos de hilo (``runConfiguration``) y role policies (preferidos, fallback, escalación) que usan el endpoint.
+
+    El placeholder sembrado por las migraciones (``SEED_OWNED_POLICY_MODELS``) no cuenta: no lo eligió el
+    operador y el borrado lo retira.
+    """
     return [
         *_thread_team_references(connection, provider_id),
         *_role_policy_references(connection, provider_id),
@@ -405,8 +461,10 @@ def delete_local_endpoint_account(
 
     Limpia la configuración por modelo con ``LocalModelSettingsRepository.delete_for_account`` y el
     estado operativo de ``TOMBSTONE_TABLES``, y conserva ``usage_ledger``, auditoría,
-    ``model_execution_health`` y evidencia. Todo ocurre dentro de su propia ``immediate_transaction``:
-    si hay referencias no se escribe nada.
+    ``model_execution_health`` y evidencia. Retira de las role policies el placeholder sembrado del
+    proveedor y deja un tombstone en ``provider_account_tombstones`` para que ninguna semilla de migración
+    resucite la cuenta. Todo ocurre dentro de su propia ``immediate_transaction``: si hay referencias del
+    operador no se escribe nada.
 
     Raises:
         LocalEndpointInUseError: si equipos de hilo o role policies referencian el endpoint.
@@ -416,6 +474,7 @@ def delete_local_endpoint_account(
         references = endpoint_references(connection, provider_id)
         if references:
             raise LocalEndpointInUseError(references)
+        seed_policy_roles = _strip_seed_owned_policy_refs(connection, provider_id)
         settings_removed = LocalModelSettingsRepository(connection).delete_for_account(provider_id)
         removed = {"local_model_settings": settings_removed}
         removed.update(
@@ -430,7 +489,9 @@ def delete_local_endpoint_account(
             "baseUrl": account.get("baseUrl"),
             "deletedAt": utc_now(),
             "removedRows": removed,
+            "seedPolicyReferencesRemoved": seed_policy_roles,
         }
+        record_provider_tombstone(connection, provider_id)
         EventBus(connection).record_audit(
             action="local_endpoint.deleted", target=provider_id, payload=tombstone, actor=actor
         )

@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
-from .runtime_selection import runtime_provider_family
+from .runtime_selection import runtime_disabled_by_operator, runtime_provider_family
 
 ARCHITECT_AGENT_ID = "architect_agent"
 ARCHITECT_AGENT_ALLOWED_TOOLS = sorted(MODEL_PROVIDER_FAMILIES)
@@ -126,6 +126,8 @@ def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
     runtime_family = runtime_provider_family(runtime)
+    if runtime_disabled_by_operator(runtime):
+        return False
     if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
         return bool(runtime.get("executable") and runtime.get("canRunPrompt")) and "chat" in set(
             runtime.get("capabilities") or []

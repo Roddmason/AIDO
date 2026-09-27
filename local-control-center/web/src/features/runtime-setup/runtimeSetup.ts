@@ -28,7 +28,11 @@ import {
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-import type { RuntimeProvider, RuntimeProviderConfiguration } from '../../api/types';
+import type {
+	ModelGatewayProviderAccount,
+	RuntimeProvider,
+	RuntimeProviderConfiguration,
+} from '../../api/types';
 
 type IconComponent = ComponentType<LucideProps>;
 
@@ -92,6 +96,32 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
 		authKind: 'none',
 		capabilities: ['code_edit', 'issue_to_patch'],
 		instructionsKey: 'app.runtime.instructions.claude_code_cli',
+	},
+	{
+		id: 'openhands',
+		displayName: 'OpenHands',
+		group: 'cli',
+		Icon: SquareTerminal,
+		providerType: 'cli',
+		apiFormat: 'cli',
+		defaultBaseUrl: null,
+		needsBaseUrl: false,
+		authKind: 'none',
+		capabilities: ['code_edit', 'issue_to_patch'],
+		instructionsKey: 'app.runtime.instructions.openhands',
+	},
+	{
+		id: 'swe_agent',
+		displayName: 'SWE-agent',
+		group: 'cli',
+		Icon: SquareTerminal,
+		providerType: 'cli',
+		apiFormat: 'cli',
+		defaultBaseUrl: null,
+		needsBaseUrl: false,
+		authKind: 'none',
+		capabilities: ['code_edit', 'issue_to_patch'],
+		instructionsKey: 'app.runtime.instructions.swe_agent',
 	},
 	{
 		id: 'ollama',
@@ -385,12 +415,29 @@ function findById<T extends { id: string }>(
 	return items?.find((item) => item.id === id) ?? null;
 }
 
-/** Left-join runtime status + configuration by provider id, in the fixed catalog order. */
+/**
+ * Whether an account outside the catalog still needs a card here to carry its switch. Ollama endpoints
+ * and local servers have their own panels (with an inline switch), so they are left out.
+ */
+function needsExtraCard(account: ModelGatewayProviderAccount): boolean {
+	return (
+		!CATALOG_BY_ID.has(account.providerId) &&
+		account.apiFormat !== 'ollama' &&
+		account.providerType !== 'local'
+	);
+}
+
+/**
+ * Left-join runtime status + configuration by provider id, in the fixed catalog order, then one card
+ * per remaining provider account (the manual operator, extra gateway instances) so every account the
+ * control plane can route to has a switch.
+ */
 export function mergeProviders(
 	status: readonly RuntimeProvider[] | null | undefined,
 	config: readonly RuntimeProviderConfiguration[] | null | undefined,
+	accounts: readonly ModelGatewayProviderAccount[] = [],
 ): MergedProvider[] {
-	return PROVIDER_CATALOG.map((entry) => {
+	const catalogCards = PROVIDER_CATALOG.map((entry) => {
 		const statusRecord = findById(status, entry.id);
 		const configRecord = findById(config, entry.id);
 		return {
@@ -401,6 +448,17 @@ export function mergeProviders(
 			config: configRecord,
 		};
 	});
+	const extraCards = accounts.filter(needsExtraCard).map((account) => {
+		const statusRecord = findById(status, account.providerId);
+		return {
+			id: account.providerId,
+			displayName: statusRecord?.displayName ?? account.displayName ?? account.providerId,
+			kind: statusRecord?.kind ?? account.providerType,
+			status: statusRecord,
+			config: findById(config, account.providerId),
+		};
+	});
+	return [...catalogCards, ...extraCards];
 }
 
 /**

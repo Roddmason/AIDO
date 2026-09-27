@@ -81,6 +81,10 @@ def lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         connection = store.connection
         connection.execute("UPDATE model_catalog SET enabled = 0")
         connection.execute("UPDATE ai_model_performance SET enabled = 0")
+        # Los dos CLI del carril están encendidos por el operador (el switch es autoritativo).
+        connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('codex_cli', 'claude_code_cli')"
+        )
         manager = AIResourceManager(connection)
         statuses = []
         for provider, model in (("codex_cli", "fixture-codex"), ("claude_code_cli", "fixture-claude")):

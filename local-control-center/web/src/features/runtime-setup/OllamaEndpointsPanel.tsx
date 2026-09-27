@@ -1,21 +1,24 @@
 /**
  * Ollama endpoints section of Providers & CLI: one card per configured endpoint — local or remote —
  * stating its base URL, health, last measured latency, synced models and whether it is enabled, plus
- * the four actions that keep it honest: add an endpoint, validate it against `/api/tags`, sync its
- * model catalog, and make it the preferred candidate of a role. Every action writes through the real
- * control plane and re-reads it; a failed probe surfaces the backend's reason instead of a green tick.
+ * the actions that keep it honest: add an endpoint, switch it on or off, validate it against
+ * `/api/tags`, sync its model catalog, make it the preferred candidate of a role and delete it. Every
+ * action writes through the real control plane and re-reads it; a failed probe surfaces the backend's
+ * reason instead of a green tick, and a delete still in use lists what must be reassigned first.
  * @author Rodrigo Mason
  */
 
-import { Boxes, PlugZap, Plus, RefreshCw, Server, ShieldCheck, Wand2 } from 'lucide-react';
+import { Boxes, PlugZap, Plus, RefreshCw, Server, ShieldCheck, Trash2, Wand2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
 	createOllamaEndpoint,
+	deleteOllamaEndpoint,
 	getModelGatewayRolePolicies,
 	getOllamaEndpoints,
 	healthCheckOllamaEndpoint,
 	patchModelGatewayRolePolicy,
+	patchOllamaEndpoint,
 	syncOllamaEndpointModels,
 } from '../../api/client';
 import type { ModelGatewayRolePolicy, OllamaEndpoint } from '../../api/types';
@@ -30,6 +33,8 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
+import { invalidateRuntimeTeamCache } from '../runtime-team/useRuntimeTeam';
+import { DeleteEndpointDialog } from './EndpointDeleteDialog';
 import {
 	deriveEndpointCard,
 	type EndpointCardModel,
@@ -38,6 +43,7 @@ import {
 	normalizeBaseUrl,
 	preferredWithEndpointFirst,
 } from './ollamaEndpoints';
+import { ProviderSwitch } from './ProviderSwitch';
 
 /** Model chips shown inline before the card falls back to a count-only summary. */
 const MODEL_CHIP_LIMIT = 6;
@@ -62,6 +68,7 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 	const [endpointsLoading, setEndpointsLoading] = useState(false);
 	const [addOpen, setAddOpen] = useState(false);
 	const [roleTarget, setRoleTarget] = useState<EndpointCardModel | null>(null);
+	const [deleteTarget, setDeleteTarget] = useState<EndpointCardModel | null>(null);
 
 	const load = useCallback(async () => {
 		setEndpointsLoading(true);
@@ -139,6 +146,32 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 			});
 			// A rejected probe still updates the stored health, so re-read before giving up.
 			await load();
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	/** Operator switch: an endpoint switched off is used by no thread, agent or failover. */
+	const toggleEndpoint = async (endpointId: string, enabled: boolean) => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:toggle`);
+		try {
+			await patchOllamaEndpoint(token, endpointId, enabled);
+			// The switch changes every scope's AI team: drop the cached teams.
+			invalidateRuntimeTeamCache();
+			notify({
+				title: enabled
+					? t('app.providers.action.enabled', 'Provider enabled for threads')
+					: t('app.providers.action.disabled', 'Provider disabled for threads'),
+				tone: 'ok',
+			});
+			await Promise.all([load(), onRefresh?.()]);
+		} catch (error) {
+			notify({
+				title: t('app.providers.action.toggleFailed', 'Could not update the provider'),
+				body: redactVisibleSecret(errorMessage(error), 'ollama endpoint update failed'),
+				tone: 'danger',
+			});
 		} finally {
 			setBusyAction(null);
 		}
@@ -237,6 +270,10 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 							onValidate={() => void runEndpointTask(card.id, 'validate')}
 							onSync={() => void runEndpointTask(card.id, 'sync')}
 							onSetPreferred={() => setRoleTarget(card)}
+							onToggleEnabled={(enabled) => void toggleEndpoint(card.id, enabled)}
+							onDelete={() => {
+								if (requireToken()) setDeleteTarget(card);
+							}}
 						/>
 					))}
 				</div>
@@ -248,6 +285,23 @@ export function OllamaEndpointsPanel({ token, onRefresh }: EndpointsPanelProps) 
 				onClose={() => setAddOpen(false)}
 				onCreated={async () => {
 					setAddOpen(false);
+					await Promise.all([load(), onRefresh?.()]);
+				}}
+			/>
+			<DeleteEndpointDialog
+				card={deleteTarget}
+				token={token}
+				remove={deleteOllamaEndpoint}
+				title={t('app.ollama.delete.title', 'Delete Ollama endpoint')}
+				description={t(
+					'app.ollama.delete.body',
+					'Removes the endpoint and its synced models; it stays deleted after updates. Usage history, audit and evidence are kept.',
+				)}
+				onClose={() => setDeleteTarget(null)}
+				onDeleted={async () => {
+					setDeleteTarget(null);
+					invalidateRuntimeTeamCache();
+					notify({ title: t('app.ollama.action.deleted', 'Ollama endpoint deleted'), tone: 'ok' });
 					await Promise.all([load(), onRefresh?.()]);
 				}}
 			/>
@@ -268,12 +322,16 @@ function EndpointCard({
 	onValidate,
 	onSync,
 	onSetPreferred,
+	onToggleEnabled,
+	onDelete,
 }: {
 	card: EndpointCardModel;
 	busyAction: string | null;
 	onValidate: () => void;
 	onSync: () => void;
 	onSetPreferred: () => void;
+	onToggleEnabled: (enabled: boolean) => void;
+	onDelete: () => void;
 }) {
 	const { t } = useI18n();
 	const KindIcon = card.kind === 'local' ? Boxes : Server;
@@ -288,7 +346,15 @@ function EndpointCard({
 					<KindIcon aria-hidden="true" size={18} />
 					<h4 className="card-title">{card.displayName}</h4>
 				</div>
-				<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
+				<div className="inline">
+					<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
+					<ProviderSwitch
+						providerName={card.displayName}
+						checked={card.enabled}
+						busy={anyBusy}
+						onChange={onToggleEnabled}
+					/>
+				</div>
 			</div>
 
 			<div className="card-meta">
@@ -388,6 +454,9 @@ function EndpointCard({
 					onClick={onSetPreferred}
 				>
 					{t('app.ollama.card.setPreferred', 'Set preferred for role')}
+				</Button>
+				<Button variant="danger" disabled={anyBusy} icon={<Trash2 size={14} />} onClick={onDelete}>
+					{t('app.ollama.card.delete', 'Delete')}
 				</Button>
 			</div>
 		</article>

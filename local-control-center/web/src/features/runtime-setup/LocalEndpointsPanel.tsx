@@ -12,7 +12,6 @@ import { Pencil, PlugZap, RefreshCw, Server, ShieldCheck, Trash2 } from 'lucide-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-	deleteLocalEndpoint,
 	getLocalEndpoints,
 	healthCheckModelGatewayProvider,
 	type LocalEndpointView,
@@ -29,16 +28,17 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
+import { invalidateRuntimeTeamCache } from '../runtime-team/useRuntimeTeam';
+import { DeleteEndpointDialog } from './EndpointDeleteDialog';
 import {
 	deriveLocalEndpointCard,
-	type EndpointReference,
-	endpointInUseReferences,
 	errorMessage,
 	isOllamaEndpoint,
 	LOCALITY_META,
 	type LocalEndpointCardModel,
 } from './localEndpoints';
 import { isAbsoluteHttpUrl, normalizeBaseUrl } from './ollamaEndpoints';
+import { ProviderSwitch } from './ProviderSwitch';
 import { describeReason } from './reasonCopy';
 
 type LocalEndpointsPanelProps = {
@@ -96,6 +96,32 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 
 	const afterMutation = async () => {
 		await Promise.all([load(), onRefresh?.()]);
+	};
+
+	/** Operator switch: an endpoint switched off is used by no thread, agent or failover. */
+	const toggleEndpoint = async (endpointId: string, enabled: boolean) => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:toggle`);
+		try {
+			await patchLocalEndpoint(token, endpointId, { enabled });
+			// The switch changes every scope's AI team: drop the cached teams.
+			invalidateRuntimeTeamCache();
+			notify({
+				title: enabled
+					? t('app.providers.action.enabled', 'Provider enabled for threads')
+					: t('app.providers.action.disabled', 'Provider disabled for threads'),
+				tone: 'ok',
+			});
+			await afterMutation();
+		} catch (error) {
+			notify({
+				title: t('app.providers.action.toggleFailed', 'Could not update the provider'),
+				body: redactVisibleSecret(errorMessage(error), 'local endpoint update failed'),
+				tone: 'danger',
+			});
+		} finally {
+			setBusyAction(null);
+		}
 	};
 
 	const runTask = async (endpointId: string, task: EndpointTask) => {
@@ -204,6 +230,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 							key={card.id}
 							card={card}
 							busyAction={busyAction}
+							onToggleEnabled={(enabled) => void toggleEndpoint(card.id, enabled)}
 							onProbe={() => void runTask(card.id, 'probe')}
 							onSync={() => void runTask(card.id, 'sync')}
 							onEdit={() =>
@@ -232,6 +259,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 				onClose={() => setDeleteTarget(null)}
 				onDeleted={async () => {
 					setDeleteTarget(null);
+					invalidateRuntimeTeamCache();
 					notify({
 						title: t('app.localRuntime.panel.deleted', 'Local endpoint deleted'),
 						tone: 'ok',
@@ -246,6 +274,7 @@ export function LocalEndpointsPanel({ token, revision = 0, onRefresh }: LocalEnd
 function LocalEndpointCard({
 	card,
 	busyAction,
+	onToggleEnabled,
 	onProbe,
 	onSync,
 	onEdit,
@@ -253,6 +282,7 @@ function LocalEndpointCard({
 }: {
 	card: LocalEndpointCardModel;
 	busyAction: string | null;
+	onToggleEnabled: (enabled: boolean) => void;
 	onProbe: () => void;
 	onSync: () => void;
 	onEdit: () => void;
@@ -269,7 +299,15 @@ function LocalEndpointCard({
 					<Server aria-hidden="true" size={18} />
 					<h4 className="card-title">{card.displayName}</h4>
 				</div>
-				<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
+				<div className="inline">
+					<Badge tone={card.healthTone}>{card.healthStatus}</Badge>
+					<ProviderSwitch
+						providerName={card.displayName}
+						checked={card.enabled}
+						busy={anyBusy}
+						onChange={onToggleEnabled}
+					/>
+				</div>
 			</div>
 
 			<div className="card-meta">
@@ -462,108 +500,6 @@ function EditEndpointDialog({
 					</Button>
 					<Button variant="primary" loading={busy} onClick={() => void submit()}>
 						{t('app.localRuntime.edit.save', 'Save changes')}
-					</Button>
-				</div>
-			</div>
-		</Modal>
-	);
-}
-
-/** Confirms a deletion; a 409 turns the dialog into the list of teams and policies to reassign. */
-function DeleteEndpointDialog({
-	card,
-	token,
-	onClose,
-	onDeleted,
-}: {
-	card: LocalEndpointCardModel | null;
-	token: string;
-	onClose: () => void;
-	onDeleted: () => Promise<void>;
-}) {
-	const { t } = useI18n();
-	const [busy, setBusy] = useState(false);
-	const [references, setReferences] = useState<EndpointReference[] | null>(null);
-	const [error, setError] = useState('');
-
-	useEffect(() => {
-		if (!card) return;
-		setReferences(null);
-		setError('');
-	}, [card]);
-
-	if (!card) return null;
-
-	const confirm = async () => {
-		if (busy) return;
-		setBusy(true);
-		setError('');
-		try {
-			await deleteLocalEndpoint(token, card.id);
-			await onDeleted();
-		} catch (deleteError) {
-			const inUse = endpointInUseReferences(deleteError);
-			if (inUse) setReferences(inUse);
-			else
-				setError(redactVisibleSecret(errorMessage(deleteError), 'local endpoint deletion failed'));
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	return (
-		<Modal
-			open
-			label={t('app.localRuntime.delete.title', 'Delete local endpoint')}
-			onClose={onClose}
-		>
-			<div className="form-grid">
-				<p className="field-help">
-					{t(
-						'app.localRuntime.delete.body',
-						'Removes the endpoint, its model catalog and its model settings. Usage history, audit and evidence are kept.',
-					)}{' '}
-					<span className="mono">{card.id}</span>
-				</p>
-				{references ? (
-					<section className="stack compact" role="alert">
-						<strong>{t('app.localRuntime.delete.inUse', 'This endpoint is still in use')}</strong>
-						<span className="field-help">
-							{t(
-								'app.localRuntime.delete.inUseHelp',
-								'Reassign these first; AIDO never reassigns them for you.',
-							)}
-						</span>
-						<ul className="stack compact">
-							{references.map((reference) => (
-								<li key={`${reference.kind}:${reference.id}`} className="inline">
-									<Badge tone="warn">
-										{reference.kind === 'thread_team'
-											? t('app.localRuntime.delete.kindThreadTeam', 'Thread team')
-											: t('app.localRuntime.delete.kindRolePolicy', 'Role policy')}
-									</Badge>
-									<span>{reference.label}</span>
-								</li>
-							))}
-						</ul>
-					</section>
-				) : null}
-				{error ? (
-					<div className="form-error" role="alert">
-						{error}
-					</div>
-				) : null}
-				<div className="wizard-actions">
-					<Button onClick={onClose} disabled={busy}>
-						{t('app.localRuntime.delete.cancel', 'Cancel')}
-					</Button>
-					<Button
-						variant="danger"
-						loading={busy}
-						disabled={references !== null}
-						onClick={() => void confirm()}
-					>
-						{t('app.localRuntime.delete.confirm', 'Delete endpoint')}
 					</Button>
 				</div>
 			</div>

@@ -17,7 +17,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 83
+CURRENT_SCHEMA_VERSION = 84
 
 
 def _execute_atomic_statements(
@@ -144,7 +144,9 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
     init_phase81_schema(connection)
     init_phase82_schema(connection)
     init_phase83_schema(connection)
+    init_phase84_schema(connection)
     seed_platform_catalogs(connection)
+    purge_tombstoned_provider_seeds(connection)
 
 
 def init_phase80_schema(connection: sqlite3.Connection) -> None:
@@ -7017,3 +7019,82 @@ def init_phase83_schema(connection: sqlite3.Connection) -> None:
             """
         )
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (83, ?)", (utc_now(),))
+
+
+PROVIDER_SEED_TABLES: tuple[tuple[str, str], ...] = (
+    ("model_catalog", "provider_id"),
+    ("provider_limits", "provider_id"),
+    ("runtime_capabilities", "runtime"),
+    ("runtime_accounts", "runtime_id"),
+    ("runtime_installations", "runtime_id"),
+    ("provider_accounts", "provider_id"),
+)
+"""Tablas que las fases sembradoras repueblan con ``INSERT OR IGNORE`` en cada pasada completa."""
+
+
+def init_phase84_schema(connection: sqlite3.Connection) -> None:
+    """Fase 84: el switch por proveedor (``provider_accounts.enabled``) pasa a ser autoritativo.
+
+    Hasta ahora el estado de un CLI ignoraba ``provider_accounts.enabled`` (sembrado en 0) y solo miraba
+    ``runtime_installations``/``runtime_accounts``: un CLI que corría hoy se veía "Inactivo" en su tarjeta.
+    Para que nada que funciona deje de funcionar, esta fase enciende una única vez el switch de cada CLI
+    cuya instalación y cuenta nativa están habilitadas (los que ejecutan hoy); desde aquí el switch manda.
+    Crea además ``provider_account_tombstones``: una cuenta que el operador borró (p. ej. Ollama) no vuelve
+    a aparecer cuando una pasada completa de migraciones re-ejecuta las semillas.
+    """
+    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 84").fetchone():
+        return
+    now = utc_now()
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS provider_account_tombstones (
+            provider_id TEXT PRIMARY KEY,
+            deleted_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """UPDATE provider_accounts
+            SET enabled = 1, updated_at = ?
+            WHERE provider_type = 'cli'
+              AND provider_id != 'manual'
+              AND enabled = 0
+              AND EXISTS (
+                  SELECT 1 FROM runtime_installations
+                  WHERE runtime_installations.runtime_id = provider_accounts.provider_id
+                    AND runtime_installations.enabled = 1
+              )
+              AND EXISTS (
+                  SELECT 1 FROM runtime_accounts
+                  WHERE runtime_accounts.runtime_id = provider_accounts.provider_id
+                    AND runtime_accounts.enabled = 1
+              )""",
+                (now,),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (84, now)),
+        ],
+    )
+
+
+def purge_tombstoned_provider_seeds(connection: sqlite3.Connection) -> None:
+    """Retira lo que las semillas re-insertaron para cuentas que el operador borró.
+
+    Las fases sembradoras (p. ej. la 12 con Ollama) corren con ``INSERT OR IGNORE`` en cada pasada
+    completa; sin esto un Ollama borrado reaparecía tras cualquier actualización de esquema. Solo toca
+    ids con tombstone: dar de alta la cuenta de nuevo retira su tombstone.
+    """
+    tombstones = [
+        str(row[0]) for row in connection.execute("SELECT provider_id FROM provider_account_tombstones")
+    ]
+    if not tombstones:
+        return
+    _execute_atomic_statements(
+        connection,
+        [
+            (f"DELETE FROM {table} WHERE {column} = ?", (provider_id,))
+            for provider_id in tombstones
+            for table, column in PROVIDER_SEED_TABLES
+        ],
+    )

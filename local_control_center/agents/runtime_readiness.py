@@ -181,6 +181,8 @@ def apply_effective_readiness(
     reasons = []
     healthy = healthy_evidence(status)
     for condition, reason in (
+        # El switch del operador va primero: es la causa que explica todas las demás.
+        (kind != "manual" and account.get("enabled") is False, "provider_disabled"),
         (not status["configured"], "configuration_required"),
         (kind == "cli" and not status["installed"], "not_installed"),
         (kind != "manual" and not status["authenticated"], "authentication_required"),

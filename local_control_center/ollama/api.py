@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.credentials import CredentialResolver
@@ -21,16 +21,19 @@ from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.local_runtimes.endpoints import (
-    normalize_base_url as _normalize_base_url,
-)
-from local_control_center.local_runtimes.endpoints import (
+    LocalEndpointInUseError,
+    delete_local_endpoint_account,
     reconcile_absent_models,
     upsert_local_runtime_records,
+)
+from local_control_center.local_runtimes.endpoints import (
+    normalize_base_url as _normalize_base_url,
 )
 from local_control_center.local_runtimes.endpoints import (
     validate_endpoint_id as _validate_endpoint_id,
 )
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
@@ -54,6 +57,12 @@ class OllamaEndpointCreateRequest(_AliasedModel):
     credential_ref: str | None = Field(default=None, alias="credentialRef")
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OllamaEndpointPatchRequest(_AliasedModel):
+    """Switch del operador de un endpoint Ollama: apagado, ningún hilo ni agente lo usa."""
+
+    enabled: bool
 
 
 class OllamaEndpointRecord(_AliasedModel):
@@ -389,6 +398,47 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         )
         audit("ollama.endpoint.health_checked", endpoint_id, health)
         return {"health": health}
+
+    @router.patch("/endpoints/{endpoint_id}", response_model=OllamaEndpointResponse)
+    async def patch_endpoint(
+        endpoint_id: str, body: OllamaEndpointPatchRequest, request: Request
+    ) -> dict[str, Any]:
+        """Enciende o apaga un endpoint Ollama y proyecta el switch a sus registros de runtime."""
+        require_write(request)
+        endpoint_id = _validate_endpoint_id(endpoint_id)
+        account = get_endpoint_account(endpoint_id)
+        with immediate_transaction(platform.connection):
+            updated = providers().patch_provider_account(endpoint_id, {"enabled": body.enabled})
+            _upsert_runtime_records(
+                runtimes(),
+                endpoint_id=endpoint_id,
+                kind=_endpoint_kind(updated),
+                display_name=str(updated["displayName"]),
+                credential_ref=str(updated.get("credentialRef") or "") or None,
+                enabled=body.enabled,
+                health_status=str(account.get("healthStatus") or "unknown"),
+                last_health_check_at=account.get("lastHealthCheckAt"),
+                last_error=str(account.get("lastError") or ""),
+            )
+            audit("ollama.endpoint.updated", endpoint_id, {"enabled": body.enabled})
+        return {"endpoint": _endpoint_record(providers(), providers().get_provider_account(endpoint_id))}
+
+    @router.delete("/endpoints/{endpoint_id}", status_code=204)
+    async def delete_endpoint(endpoint_id: str, request: Request) -> Response:
+        """Borra el endpoint con tombstone; 409 con las referencias del operador que aún lo usan.
+
+        El placeholder ``ollama:local_default`` que siembran las migraciones en las role policies no
+        bloquea: el borrado lo retira. El tombstone impide que una semilla vuelva a crear la cuenta.
+        """
+        require_write(request)
+        account = get_endpoint_account(_validate_endpoint_id(endpoint_id))
+        try:
+            delete_local_endpoint_account(platform.connection, account)
+        except LocalEndpointInUseError as error:
+            raise HTTPException(
+                status_code=409, detail={"code": "local_endpoint_in_use", "references": error.references}
+            ) from error
+        return Response(status_code=204)
 
     @router.post("/endpoints/{endpoint_id}/sync-models", response_model=OllamaSyncModelsResponse)
     @queued_operation("ollama.sync_models", workload_class="remote_llm_light")

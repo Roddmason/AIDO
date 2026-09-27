@@ -1867,6 +1867,33 @@ export function syncOllamaEndpointModels(token: string, endpointId: string) {
 	);
 }
 
+/** Operator switch of one Ollama endpoint: switched off, no thread or agent uses it. */
+export function patchOllamaEndpoint(token: string, endpointId: string, enabled: boolean) {
+	return requestGeneratedOperation<'patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch'>(
+		'patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+			body: { enabled },
+		},
+	);
+}
+
+/**
+ * Deletes an Ollama endpoint (tombstoned, so no migration seed brings it back). While a thread team or
+ * an operator-authored role policy still uses it the route answers 409 `local_endpoint_in_use` with
+ * the references; the seeded `ollama:local_default` placeholder never blocks.
+ */
+export async function deleteOllamaEndpoint(token: string, endpointId: string): Promise<void> {
+	await requestGeneratedOperation<
+		'delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete',
+		unknown
+	>('delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete', {
+		token,
+		pathParams: { endpoint_id: endpointId },
+	});
+}
+
 /** Local OpenAI-compatible servers with health, locality, load state and per-model settings. */
 export function getLocalEndpoints(signal?: AbortSignal) {
 	return requestGeneratedOperation<'list_local_endpoints_api_v1_local_endpoints_get'>(

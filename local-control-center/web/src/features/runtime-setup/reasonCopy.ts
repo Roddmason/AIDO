@@ -10,6 +10,14 @@ type Translate = (key: string, fallback?: string) => string;
 
 export const REASON_COPY = new Map<string, { key: string; fallback: string }>([
 	[
+		'provider_disabled',
+		{
+			key: 'app.runtime.health.reason.provider_disabled',
+			fallback:
+				'The operator switched this provider off; no thread, agent or failover uses it until it is switched back on.',
+		},
+	],
+	[
 		'health_check_required',
 		{
 			key: 'app.runtime.health.reason.health_check_required',

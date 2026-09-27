@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .runtime_selection import runtime_disabled_by_operator
 
 SECURITY_AGENT_ID = "security_agent"
 SECURITY_AGENT_ALLOWED_TOOLS = [
@@ -101,6 +102,8 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
     available chat model.
     """
     runtime_family = _security_runtime_family(runtime)
+    if runtime_disabled_by_operator(runtime):
+        return False
     if runtime_family not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])

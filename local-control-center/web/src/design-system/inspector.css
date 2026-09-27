@@ -535,3 +535,50 @@
 	justify-items: start;
 	gap: var(--space-1);
 }
+
+/* Effective AI team at the top of the Team tab. The pane can be ~12rem wide, where the shared
+ * two-column .provider-facts grid broke provider names and sources mid-word; here each role stacks
+ * (role eyebrow over "provider · source") and only a wide pane restores the label/value columns. */
+.effective-team {
+	gap: var(--space-2);
+	padding: var(--space-3);
+}
+
+.effective-team > .card-title {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+}
+
+.effective-team .provider-facts {
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-2);
+}
+
+.effective-team .provider-facts div {
+	display: grid;
+	gap: 0;
+}
+
+.effective-team .provider-facts dt {
+	font-size: var(--font-size-xs);
+}
+
+.effective-team .provider-facts dd {
+	font-size: var(--font-size-sm);
+	overflow-wrap: break-word;
+}
+
+@container (min-width: 24rem) {
+	.effective-team .provider-facts {
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: var(--space-1) var(--space-3);
+	}
+
+	.effective-team .provider-facts div {
+		display: contents;
+	}
+
+	.effective-team .provider-facts dt {
+		align-self: baseline;
+	}
+}

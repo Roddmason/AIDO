@@ -67,3 +67,122 @@
 	max-height: 14rem;
 	overflow-y: auto;
 }
+
+/* ---- AI team (global team per role) ---- */
+
+.ai-team-panel {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.ai-team-panel > .field-help {
+	margin: 0;
+	max-width: 65ch;
+}
+
+/* Each role is a fieldset card. The native legend is lifted out of the border (float + full width
+ * turns it into an ordinary grid item) so the role name and its chips sit inside the card like any
+ * card title instead of straddling the top border and wrapping over it on phones. */
+.ai-team-role {
+	min-inline-size: 0;
+	margin: 0;
+}
+
+.ai-team-role > legend {
+	float: left;
+	width: 100%;
+	padding: 0;
+	color: var(--color-text-primary);
+	font-weight: var(--weight-bold);
+	line-height: var(--line-snug);
+}
+
+.ai-team-role > .field-help {
+	margin: 0;
+}
+
+/* Ordered providers: rank matters (first = assigned, rest = fallbacks), so each row carries its
+ * position as a quiet mono numeral; the assigned row earns the accent border, never a side stripe. */
+.ai-team-order {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: ai-team-rank;
+}
+
+.ai-team-order > li {
+	min-height: var(--control-height-sm);
+	padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	counter-increment: ai-team-rank;
+}
+
+.ai-team-order > li::before {
+	content: counter(ai-team-rank);
+	min-inline-size: 1ch;
+	color: var(--color-text-muted);
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+}
+
+.ai-team-order > li[data-assigned="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 48%, var(--color-border-subtle));
+	color: var(--color-text-primary);
+	font-weight: var(--weight-medium);
+}
+
+.ai-team-order > li.muted {
+	padding-block: var(--space-2);
+	border-style: dashed;
+	background: transparent;
+	color: var(--color-text-muted);
+}
+
+.ai-team-order > li.muted::before {
+	content: none;
+}
+
+/* Reorder/remove controls: a compact square group pushed to the row's end. */
+.ai-team-order > li > .inline {
+	margin-inline-start: auto;
+	flex-wrap: nowrap;
+	gap: var(--space-1);
+}
+
+.ai-team-order > li > .inline > .button {
+	min-width: var(--control-height-sm);
+	min-height: var(--control-height-sm);
+	padding: 0;
+	font-weight: var(--weight-regular);
+}
+
+/* Add row: the provider picker takes the free width; it mirrors .select (the panel renders a bare
+ * <select>) so it matches every other field in Settings. */
+.ai-team-role > .inline:last-child > select {
+	flex: 1 1 12rem;
+	min-width: 0;
+	max-width: 22rem;
+	min-height: var(--control-height);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+}
+
+.ai-team-role > .inline:last-child > select:focus {
+	border-color: var(--color-focus);
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.ai-team-role > .inline:last-child > select:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}

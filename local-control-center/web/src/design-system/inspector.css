@@ -568,6 +568,13 @@
 	overflow-wrap: break-word;
 }
 
+/* "· source" moves as one piece: as plain inline text the pane broke after the dot, leaving it
+ * dangling at the end of the provider line ("Codex CLI ·" / "automatic"). */
+.effective-team .provider-facts dd > .muted {
+	display: inline-block;
+	max-inline-size: 100%;
+}
+
 @container (min-width: 24rem) {
 	.effective-team .provider-facts {
 		grid-template-columns: auto minmax(0, 1fr);

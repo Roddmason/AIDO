@@ -252,7 +252,8 @@ def test_general_configuration_orders_the_role_and_project_overrides_it(lane) ->
     assert project_team.roles["developer"].source == "project"
     assert project_team.roles["developer"].effective == ("codex_cli",)
     assert project_team.roles["product_owner"].source == "general"
-    assert project_team.allowed_runtimes == ("codex_cli", "llama_cpp")
+    # Unión en orden de roles (PO primero): llama (PO), codex (dev), claude (arquitecto automático).
+    assert project_team.allowed_runtimes == ("llama_cpp", "codex_cli", "claude_code_cli")
 
 
 def test_invalid_ids_are_reported_and_dropped_and_an_empty_list_means_automatic(lane) -> None:
@@ -538,7 +539,6 @@ git commit -m "Feature (RuntimeTeam): resolucion del equipo de IA global por rol
   - `GLOBAL_RUNTIME_TEAM_METADATA_KEY = "globalRuntimeTeam"`
   - `global_team_of(request_meta) -> dict[str, Any] | None` (snapshot sellado validado: `roleRuntimeOrder` dict de listas, `source` dict, `allowedRuntimes` lista).
   - `global_role_order(request_meta, team_role: str | None) -> list[str]`: orden del rol; `None`/rol desconocido ⇒ orden del PO; rol sin candidatos ⇒ `allowedRuntimes`.
-  - `global_role_is_explicit(request_meta, team_role) -> bool`: `source` en `{"project", "general"}`.
   - `role_routing_preferences(request_meta, team_role) -> tuple[list[str], list[dict[str, str]]]`: `(orden, [{"provider": id, "model": ""} …])`, o `([], [])` si aplica un equipo por hilo o no hay snapshot global.
 - Cambia: `role_allowlist(request_meta, team_role, *, product_owner_provider_id=None)`: sin equipo por hilo y con snapshot global devuelve `global_role_order(...)`; sin snapshot conserva la herencia del PO (runs sellados antes de este cambio).
 
@@ -549,7 +549,6 @@ Agregar a `tests_py/test_runtime_team_configuration.py` (usar la fixture `lane` 
 ```python
 from local_control_center.runtime_team.configuration import (  # ampliar el import existente
     GLOBAL_RUNTIME_TEAM_METADATA_KEY,
-    global_role_is_explicit,
     global_role_order,
     global_team_of,
     role_routing_preferences,
@@ -601,9 +600,7 @@ def test_routing_preferences_follow_the_global_order_as_provider_wildcards():
     order, wildcards = role_routing_preferences(GLOBAL, "product_owner")
     assert order == ["codex_cli", "ollama"]
     assert wildcards == [{"provider": "codex_cli", "model": ""}, {"provider": "ollama", "model": ""}]
-    assert global_role_is_explicit(GLOBAL, "developer") is True
-    assert global_role_is_explicit(GLOBAL, "security") is False
-    assert global_role_is_explicit({}, "developer") is False
+    assert role_routing_preferences({}, "developer") == ([], [])
 
 
 def test_a_malformed_global_snapshot_is_ignored():
@@ -693,14 +690,6 @@ def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | N
     return list(orders.get("product_owner") or team["allowedRuntimes"])
 
 
-def global_role_is_explicit(request_meta: Mapping[str, Any] | None, team_role: str | None) -> bool:
-    """Verdadero si el operador configuró el orden de ese rol (general o proyecto), no el automático."""
-    team = global_team_of(request_meta)
-    if team is None or not team_role:
-        return False
-    return team["source"].get(team_role) in {"project", "general"}
-
-
 def role_routing_preferences(
     request_meta: Mapping[str, Any] | None, team_role: str | None
 ) -> tuple[list[str], list[dict[str, str]]]:
@@ -782,8 +771,8 @@ git commit -m "Feature (RuntimeTeam): un hilo sin equipo propio sella el equipo 
 - Test: `tests_py/test_runtime_team_loop_enforcement.py` (ampliar)
 
 **Interfaces:**
-- Consumes: `role_routing_preferences`, `global_role_is_explicit`, `global_team_of` (Task 3).
-- Cambia el comportamiento: con snapshot global, `AIResourceRequest.preferred_provider_ids` = orden del rol y `preferred_resources` = comodines del orden (los pins de la política del rol quedan detrás); la ampliación a "todo el catálogo" cuando el rol queda sin candidatos solo ocurre para roles automáticos/heredados, nunca para un orden explícito del operador.
+- Consumes: `role_routing_preferences`, `global_team_of` (Task 3).
+- Cambia el comportamiento: con snapshot global, `AIResourceRequest.preferred_provider_ids` = orden del rol y `preferred_resources` = comodines del orden (los pins de la política del rol quedan detrás); la ampliación a "todo el catálogo" cuando el rol queda sin candidatos deja de aplicarse cuando hay snapshot global (el orden automático ya contiene a todos los elegibles activos; el explícito es la decisión del operador), y sigue igual para runs sin snapshot (herencia del PO).
 
 - [ ] **Step 1: Tests que fallan**
 
@@ -816,49 +805,72 @@ def test_the_global_team_order_is_the_allowlist_and_the_routing_preference(coord
         {"provider": "nvidia_nim", "model": ""},
         {"provider": "codex_cli", "model": ""},
     ]
-    # Con equipo por hilo nada cambia: allowlist de un proveedor y pins de la política del rol.
+    # Con equipo por hilo nada cambia: allowlist de un proveedor y las preferencias de la política.
     thread_request = _team_request(coordinator, build, TEAM)
     assert thread_request.allowed_provider_ids == ["codex_cli"]
-    assert all(item.get("model") != "" or item.get("provider") != "codex_cli" for item in thread_request.preferred_resources[:0])
+    policy = coordinator._resource_role_policy("backend_engineer")
+    assert thread_request.preferred_provider_ids == policy["preferredProviderIds"]
+    assert thread_request.preferred_resources == policy["preferredResources"]
 
 
-def test_an_explicit_role_order_without_candidates_is_not_widened_to_the_whole_catalog(coordinator, monkeypatch):
+@pytest.mark.parametrize("developer_source", ["project", "automatic"])
+def test_with_a_global_team_a_role_without_candidates_is_never_widened_to_the_whole_catalog(
+    coordinator, monkeypatch, developer_source
+):
+    """El orden automático ya contiene a todos los elegibles activos y el explícito es del operador:
+    ampliar a todo el catálogo solo sumaría proveedores inactivos o no elegibles."""
+    meta = {
+        "globalRuntimeTeam": {
+            **GLOBAL["globalRuntimeTeam"],
+            "source": {**GLOBAL["globalRuntimeTeam"]["source"], "developer": developer_source},
+        }
+    }
     calls, select = _fake_select_resource(
-        {("nvidia_nim", "codex_cli"): {"selected": None, "candidates": []}, None: {"selected": {"providerId": "gemini", "model": "g"}, "candidates": [{"providerId": "gemini"}]}}
+        {
+            ("nvidia_nim", "codex_cli"): {"selected": None, "candidates": []},
+            None: {"selected": {"providerId": "gemini", "model": "g"}, "candidates": [{"providerId": "gemini"}]},
+        }
     )
     monkeypatch.setattr(AIResourceManager, "select_resource", select)
-    schedule = {**SCHEDULE, "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}]}
-    roles, _blockers = coordinator._team_resource_selection(
+    schedule = {
+        **SCHEDULE,
+        "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+    }
+    coordinator._team_schedule_with_resource_decisions(
         project_id="project-team",
         loop_id="loop-1",
-        request_meta=GLOBAL,
+        request_meta=meta,
         team_schedule=schedule,
         agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
         product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
     )
     assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("nvidia_nim", "codex_cli")]
-    assert roles[0].get("resourceDecision", {}).get("selected") is None
 
 
-def test_an_automatic_role_without_candidates_still_widens(coordinator, monkeypatch):
-    automatic = {"globalRuntimeTeam": {**GLOBAL["globalRuntimeTeam"], "source": {**GLOBAL["globalRuntimeTeam"]["source"], "developer": "automatic"}}}
+def test_without_a_global_snapshot_the_legacy_widening_still_applies(coordinator, monkeypatch):
     calls, select = _fake_select_resource(
-        {("nvidia_nim", "codex_cli"): {"selected": None, "candidates": []}, None: {"selected": {"providerId": "gemini", "model": "g"}, "candidates": [{"providerId": "gemini"}]}}
+        {
+            ("codex_cli",): {"selected": None, "candidates": []},
+            None: {"selected": {"providerId": "gemini", "model": "g"}, "candidates": [{"providerId": "gemini"}]},
+        }
     )
     monkeypatch.setattr(AIResourceManager, "select_resource", select)
-    schedule = {**SCHEDULE, "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}]}
-    coordinator._team_resource_selection(
+    schedule = {
+        **SCHEDULE,
+        "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+    }
+    coordinator._team_schedule_with_resource_decisions(
         project_id="project-team",
         loop_id="loop-1",
-        request_meta=automatic,
+        request_meta={},
         team_schedule=schedule,
         agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
         product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
     )
-    assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("nvidia_nim", "codex_cli"), ()]
+    assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("codex_cli",), ()]
 ```
 
-Antes de escribir estos tests, leer la firma real de `_team_resource_selection` (`grep -n "def _team_resource_selection" -A 14 local_control_center/product_loop/coordinator.py`) y ajustar los argumentos con nombre a los reales (el bloque de ampliación de la línea ~3262 está dentro de esa función; sus parámetros incluyen `project_id`, `loop_id`, `request_meta`, `team_schedule`, `agent_tasks`, `product_owner_selected_resource`, `runtime_risk_review_id`, `thread_id`). Si la función devuelve otra forma que `(roles, blockers)`, adaptar las aserciones al valor real; la aserción esencial es la lista de allowlists que vio `select_resource`.
+`_team_schedule_with_resource_decisions` está en `coordinator.py:3208` con exactamente esos parámetros con nombre (`runtime_risk_review_id` y `thread_id` opcionales) y devuelve `(team_schedule, blockers)`; si `_fake_select_resource` necesita otra clave (p. ej. el fake recibe `allowed_provider_ids=None` para la ampliación), la clave `None` ya la cubre. Si la función lanza por otro motivo antes de la segunda selección (p. ej. por `observe_resource_decision`), adaptar el fake devolviendo `routingDecisionId` como ya hace y revisar el traceback: el test debe medir las allowlists, nada más.
 
 - [ ] **Step 2: Correr y ver el fallo**
 
@@ -867,7 +879,7 @@ Expected: FAIL (`preferred_provider_ids` no empieza por el orden del rol; la seg
 
 - [ ] **Step 3: Implementar**
 
-Import en `coordinator.py` (bloque `from local_control_center.runtime_team.configuration import (...)`): agregar `global_role_is_explicit`, `role_routing_preferences`.
+Import en `coordinator.py` (bloque `from local_control_center.runtime_team.configuration import (...)`): agregar `global_team_of`, `role_routing_preferences`.
 
 En `_team_resource_request`, antes de construir `AIResourceRequest`:
 
@@ -903,9 +915,10 @@ pasa a
                 and not thread_has_team
                 and po_provider_id
                 and not decision.get("candidates")
-                # Un orden que el operador escribió para el rol no se amplía a todo el catálogo:
-                # el rol queda sin candidatos y el blocker de asignación lo dice.
-                and not global_role_is_explicit(request_meta, team_role_for(role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []))
+                # Con equipo global no se amplía a todo el catálogo: el orden automático ya trae a
+                # todos los elegibles activos y el explícito es la decisión del operador; el rol
+                # queda sin candidatos y el blocker de asignación lo dice.
+                and global_team_of(request_meta) is None
             ):
 ```
 
@@ -967,13 +980,20 @@ def test_runtime_team_reports_the_global_assignment_sources_and_active_providers
         assert roles["architect"]["required"] is False
         assert body["activeProviders"] >= 2
         assert {item["providerId"] for item in body["candidates"]} >= {"codex_cli", "ollama"}
+    finally:
+        runtime.close()
 
+
+def test_runtime_providers_report_the_operator_switch(tmp_path: Path) -> None:
+    """Un solo GET por runtime: el estado de proveedores puede cachearse entre llamadas."""
+    runtime, client = _client(tmp_path)
+    try:
+        project_id = _prepare(runtime, tmp_path)
+        ProviderAccountStore(runtime.connection).patch_provider_account("ollama", {"enabled": False})
         providers = client.get("/api/v1/runtime/providers", params={"projectId": project_id}).json()["providers"]
         by_id = {item["id"]: item for item in providers}
         assert by_id["codex_cli"]["enabled"] is True
-        ProviderAccountStore(runtime.connection).patch_provider_account("codex_cli", {"enabled": False})
-        providers = client.get("/api/v1/runtime/providers", params={"projectId": project_id}).json()["providers"]
-        assert {item["id"]: item for item in providers}["codex_cli"]["enabled"] is False
+        assert by_id["ollama"]["enabled"] is False
     finally:
         runtime.close()
 ```
@@ -1299,7 +1319,8 @@ function teamBody(developerOrder, source) {
 }
 
 async function openGeneralAiTeam(page, state) {
-	await page.route('**/api/v1/runtime/team**', (route) =>
+	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
 		route.fulfill({ json: teamBody(state.developer, state.source) }),
 	);
 	await page.route('**/api/v1/settings/team.role.*', async (route) => {
@@ -1457,11 +1478,12 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 		return (
 			<ErrorState
 				title={t('app.aiTeam.loadFailed', 'The AI team could not be loaded')}
+				body={t('app.aiTeam.loadFailedBody', 'Check the control plane connection and try again.')}
 				action={<Button onClick={reload}>{t('app.global.retry', 'Retry')}</Button>}
 			/>
 		);
 	}
-	if (!data) return <Skeleton lines={6} />;
+	if (!data) return <Skeleton label={t('app.aiTeam.loading', 'Loading the AI team')} />;
 
 	const labelOf = (providerId: string) =>
 		data.candidates.find((candidate) => candidate.providerId === providerId)?.label ?? providerId;
@@ -1531,9 +1553,9 @@ function RoleRow({
 						{index === 0 ? <StatusChip tone="ok">{t('app.aiTeam.assigned', 'assigned')}</StatusChip> : null}
 						{own.includes(id) ? (
 							<span className="inline">
-								<Button variant="ghost" disabled={index === 0} onClick={() => move(own.indexOf(id), -1)} aria-label={t('app.aiTeam.moveUp', 'Move up')}>↑</Button>
-								<Button variant="ghost" disabled={index === own.length - 1} onClick={() => move(own.indexOf(id), 1)} aria-label={t('app.aiTeam.moveDown', 'Move down')}>↓</Button>
-								<Button variant="ghost" onClick={() => commit(own.filter((item) => item !== id))} aria-label={t('app.aiTeam.remove', 'Remove')}>×</Button>
+								<Button disabled={index === 0} onClick={() => move(own.indexOf(id), -1)} aria-label={t('app.aiTeam.moveUp', 'Move up')}>↑</Button>
+								<Button disabled={index === own.length - 1} onClick={() => move(own.indexOf(id), 1)} aria-label={t('app.aiTeam.moveDown', 'Move down')}>↓</Button>
+								<Button onClick={() => commit(own.filter((item) => item !== id))} aria-label={t('app.aiTeam.remove', 'Remove')}>×</Button>
 							</span>
 						) : null}
 					</li>
@@ -1563,7 +1585,7 @@ function RoleRow({
 				<Button disabled={!pick} onClick={() => { commit([...own, pick]); setPick(''); }}>
 					{t('app.aiTeam.add', 'Add')}
 				</Button>
-				<Button variant="ghost" disabled={own.length === 0} onClick={() => onWrite(null)}>
+				<Button disabled={own.length === 0} onClick={() => onWrite(null)}>
 					{t('app.aiTeam.automatic', 'Automatic')}
 				</Button>
 			</div>
@@ -1572,7 +1594,7 @@ function RoleRow({
 }
 ```
 
-Verificar contra `components/ui/Button.tsx` que `variant="ghost"` existe (`grep -n "ghost\|ButtonVariant" local-control-center/web/src/components/ui/Button.tsx`); si el nombre es otro (`secondary`, `subtle`), usar ese. `ErrorState`/`Skeleton`: revisar sus props reales en `components/ui/ErrorState.tsx` y `Skeleton.tsx` (`lines`, `title`, `action`) y ajustar.
+Props verificadas en `components/ui`: `Button` (`variant` `'primary' | 'secondary' | 'danger'`, default `secondary`), `ErrorState({ title, body, action })`, `Skeleton({ className, label })`. Si el panel necesita estilos propios (`.ai-team-panel`, `.ai-team-role`, `.ai-team-order`), agregarlos al stylesheet donde viven `.setting-row`/`.provider-facts` (buscar con `grep -rn "provider-facts" local-control-center/web/src --include=*.css`), respetando los guardrails visuales del repo (sin gradientes ni acentos ajenos a los tokens existentes).
 
 - [ ] **Step 5: Registrar las secciones**
 
@@ -1613,6 +1635,8 @@ app.settings.section.aiTeam   "AI team" / "Equipo de IA"
 app.aiTeam.title              "AI team" / "Equipo de IA"
 app.aiTeam.help               "Every thread uses this team unless it sets its own. The first provider of a role is used; the next ones are fallbacks when it is inactive or fails." / "Todos los hilos usan este equipo salvo que definan el suyo. Se usa el primer proveedor de cada rol; los siguientes son respaldo si está inactivo o falla."
 app.aiTeam.loadFailed         "The AI team could not be loaded" / "No se pudo cargar el equipo de IA"
+app.aiTeam.loadFailedBody     "Check the control plane connection and try again." / "Revisa la conexión con el plano de control y reintenta."
+app.aiTeam.loading            "Loading the AI team" / "Cargando el equipo de IA"
 app.aiTeam.required           "required" / "obligatorio"
 app.aiTeam.assigned           "assigned" / "asignado"
 app.aiTeam.noCandidates       "No active provider can take this role" / "Ningún proveedor activo puede cumplir este rol"
@@ -1669,7 +1693,7 @@ git commit -m "Feature (Web): panel Equipo de IA con el orden de proveedores por
 
 - [ ] **Step 1: Specs que fallan**
 
-En `tests_web/thread-runtime-team.spec.js` cambiar la línea 323 a `await expect(page.getByRole('button', { name: 'AI team · global' })).toBeVisible();` y agregar el mock `await page.route('**/api/v1/runtime/team**', (route) => route.fulfill({ json: GLOBAL_TEAM }));` dentro de `mockRuntimeTeam` con:
+En `tests_web/thread-runtime-team.spec.js` cambiar la línea 323 a `await expect(page.getByRole('button', { name: 'AI team · global' })).toBeVisible();` y agregar el mock `await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) => route.fulfill({ json: GLOBAL_TEAM }));` (regex: un glob `**/runtime/team**` también capturaría `team-candidates`) dentro de `mockRuntimeTeam` con:
 
 ```js
 const GLOBAL_TEAM = {
@@ -1856,5 +1880,5 @@ git push origin dev
 ## Self-review (hecho al escribir el plan)
 
 - **Cobertura del spec (rebanada 1):** §4.1 switch (Task 6), barra de estado (Task 6); §4.2 settings/roles/automático/resolución/ruteo/failover (Tasks 1-4); §4.6 `runtime/team` (Task 5); §4.7 Providers & CLI, panel Equipo de IA, chip, inspector (Tasks 6-8); §4.8 filas de proveedor inactivo/falla/sin candidatos (Task 4 + failover existente); §4.10 unitarios, API, Playwright, gates, en vivo (cada task + Task 9). Fuera de esta rebanada: sesiones (§4.3-4.5), `team.sessionMaxTurns`, `provider-sessions` API, eventos `provider_session`.
-- **Placeholders:** ninguno; donde una firma real puede diferir (props de `Button`/`ErrorState`/`Skeleton`, argumentos de `_team_resource_selection`, nombre del gate de drift) el paso dice qué leer y cómo ajustar.
-- **Consistencia de nombres:** `GLOBAL_TEAM_ROLE_KEYS` (registry) = `GLOBAL_TEAM_ROLES` (global_team) — test en Task 2; `globalRuntimeTeam` = `GLOBAL_RUNTIME_TEAM_METADATA_KEY` en Tasks 3-4 y en los mocks de tests; `role_routing_preferences` y `global_role_is_explicit` definidas en Task 3 y usadas en Task 4; `getRuntimeTeam`/`RuntimeTeam`/`RuntimeTeamRole` definidos en Task 5 y usados en Tasks 7-8; claves i18n `app.aiTeam.*` compartidas por Tasks 7-8.
+- **Placeholders:** ninguno; donde un nombre real puede diferir (nombre del gate de drift, del test de tripwires del modal) el paso dice qué comando correr para hallarlo.
+- **Consistencia de nombres:** `GLOBAL_TEAM_ROLE_KEYS` (registry) = `GLOBAL_TEAM_ROLES` (global_team) — test en Task 2; `globalRuntimeTeam` = `GLOBAL_RUNTIME_TEAM_METADATA_KEY` en Tasks 3-4 y en los mocks de tests; `role_routing_preferences` y `global_team_of` definidas en Task 3 y usadas en Task 4; `_team_schedule_with_resource_decisions` (coordinator.py:3208) es la función que contiene la ampliación; `getRuntimeTeam`/`RuntimeTeam`/`RuntimeTeamRole` definidos en Task 5 y usados en Tasks 7-8; claves i18n `app.aiTeam.*` compartidas por Tasks 7-8.

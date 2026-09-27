@@ -33,16 +33,21 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = useI18n();
 	const projectId = ctx.scope === 'project' ? ctx.scopeId : null;
 	const { data, failed, reload } = useRuntimeTeam(projectId, true);
-	const [busyRole, setBusyRole] = useState<string | null>(null);
+	// Per-role busy flags: concurrent writes to two roles must not unlock each other's row.
+	const [busyRoles, setBusyRoles] = useState<ReadonlySet<string>>(() => new Set());
 
 	const write = async (role: string, ids: string[] | null) => {
-		setBusyRole(role);
+		setBusyRoles((current) => new Set(current).add(role));
 		try {
 			if (ids === null) await ctx.clearValue(`team.role.${role}`, ctx.scope, ctx.scopeId);
 			else await ctx.setValue(`team.role.${role}`, ctx.scope, ctx.scopeId, ids);
 			reload();
 		} finally {
-			setBusyRole(null);
+			setBusyRoles((current) => {
+				const next = new Set(current);
+				next.delete(role);
+				return next;
+			});
 		}
 	};
 
@@ -73,7 +78,7 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 					key={role.role}
 					role={role}
 					scope={ctx.scope}
-					busy={busyRole === role.role}
+					busy={busyRoles.has(role.role)}
 					labelOf={labelOf}
 					onWrite={(ids) => void write(role.role, ids)}
 				/>
@@ -113,6 +118,11 @@ function RoleRow({
 		commit(next);
 	};
 	const automatic = role.source === 'automatic' || role.source === 'inherited';
+	// Last own entry that is actually rendered: ids dropped as invalid never show a row to swap with.
+	const lastVisibleOwn = own.reduce(
+		(last, id, index) => (effective.includes(id) ? index : last),
+		-1,
+	);
 	return (
 		<fieldset className="ai-team-role" aria-label={name} disabled={busy}>
 			<legend className="inline">
@@ -143,7 +153,7 @@ function RoleRow({
 										↑
 									</Button>
 									<Button
-										disabled={ownIndex === own.length - 1}
+										disabled={ownIndex >= lastVisibleOwn}
 										onClick={() => move(ownIndex, 1)}
 										aria-label={t('app.aiTeam.moveDown', 'Move down')}
 									>

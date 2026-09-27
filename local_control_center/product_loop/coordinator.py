@@ -3394,17 +3394,18 @@ class ProductLoopCoordinator:
     ) -> dict[str, Any]:
         """Selecciona con ``allowed``; con ``walk`` de 2+ proveedores prueba de a uno, en orden.
 
-        Se queda con el primer proveedor que tiene candidatos (seleccionado o no: su veredicto es el
-        de la elección determinista); si ninguno tiene, devuelve la última decisión.
+        Cada proveedor se sondea sin registrar (``record=False``: sin fila de ruteo ni Jev) y solo el
+        primero con candidatos se selecciona de verdad; su veredicto es el de la elección determinista.
+        Si ninguno tiene candidatos, se registra una única decisión sobre el orden completo para que el
+        blocker de asignación tenga su evidencia.
         """
         if len(walk) < 2:
             return manager.select_resource(build_request(allowed), **select_kwargs)
-        decision: dict[str, Any] = {}
         for provider_id in walk:
-            decision = manager.select_resource(build_request([provider_id]), **select_kwargs)
-            if decision.get("selected") is not None or decision.get("candidates"):
-                break
-        return decision
+            probe = manager.select_resource(build_request([provider_id]), record=False)
+            if probe.get("selected") is not None or probe.get("candidates"):
+                return manager.select_resource(build_request([provider_id]), **select_kwargs)
+        return manager.select_resource(build_request(list(walk)), **select_kwargs)
 
     def _team_resource_request(
         self,

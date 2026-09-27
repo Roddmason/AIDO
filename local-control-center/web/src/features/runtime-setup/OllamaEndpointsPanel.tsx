@@ -265,7 +265,7 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 					</span>
 				</section>
 			) : (
-				<div className="masonry-grid">
+				<div className="masonry-grid provider-grid">
 					{cards.map((card) => (
 						<EndpointCard
 							key={card.id}
@@ -352,7 +352,7 @@ function EndpointCard({
 	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
 	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
-		<article className="card card--static" data-tone={card.healthTone}>
+		<article className="card card--static provider-card" data-tone={card.healthTone}>
 			<div className="card-header">
 				<div className="inline">
 					<KindIcon aria-hidden="true" size={18} />
@@ -437,7 +437,7 @@ function EndpointCard({
 				</p>
 			) : null}
 
-			<div className="inline">
+			<div className="provider-card-actions">
 				<Button
 					variant="primary"
 					loading={validateBusy}

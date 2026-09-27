@@ -73,11 +73,16 @@ export function LocalRuntimeDiscovery({
 
 	return (
 		<section
-			className="stack compact"
+			className="stack compact local-runtime-discovery"
 			aria-label={t('app.localRuntime.discovery.title', 'Local runtimes found')}
 		>
-			<div className="inline">
-				<Button icon={<Radar size={15} />} loading={busy} onClick={() => void discover()}>
+			<div className="local-runtime-discovery-row">
+				<Button
+					className="local-runtime-discovery-button"
+					icon={<Radar size={15} />}
+					loading={busy}
+					onClick={() => void discover()}
+				>
 					{t('app.localRuntime.discovery.detect', 'Detect local runtimes')}
 				</Button>
 				<span className="field-help">
@@ -92,7 +97,7 @@ export function LocalRuntimeDiscovery({
 					{t('app.localRuntime.discovery.none', 'No local runtime answered on this machine.')}
 				</p>
 			) : (
-				<div className="masonry-grid">
+				<div className="masonry-grid provider-grid">
 					{suggestions.map((suggestion) => {
 						const key = suggestionKey(suggestion);
 						const unknownServer = suggestion.server === 'unknown_openai_compatible';
@@ -100,7 +105,7 @@ export function LocalRuntimeDiscovery({
 							suggestion.alreadyConfigured ||
 							(suggestion.requiresConfirmation && !confirmed.has(key));
 						return (
-							<article key={key} className="card card--static">
+							<article key={key} className="card card--static provider-card">
 								<div className="card-header">
 									<div className="inline">
 										<Server aria-hidden="true" size={16} />

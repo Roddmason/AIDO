@@ -69,8 +69,12 @@ export function RuntimeHealthModal({
 							describeReason(alert.reason, t) ||
 							t('app.runtime.health.causeUnknown', 'The runtime reported no further detail.');
 						return (
-							<article key={alert.providerId} className="thread-remediation-card">
-								<h3 className="thread-remediation-title">
+							<article
+								key={alert.providerId}
+								className="thread-remediation-card runtime-health-card"
+								data-tone={revalidates ? 'warn' : 'danger'}
+							>
+								<h3 className="thread-remediation-title runtime-health-title">
 									{alert.displayName}
 									{copy ? ` — ${t(copy.titleKey, copy.titleFallback)}` : ''}
 								</h3>
@@ -79,7 +83,7 @@ export function RuntimeHealthModal({
 										{t(copy.explanationKey, copy.explanationFallback)}
 									</p>
 								) : null}
-								<dl className="thread-remediation-facts">
+								<dl className="thread-remediation-facts runtime-health-facts">
 									<div>
 										<dt>{t('app.runtime.health.cause', 'Cause')}</dt>
 										<dd>{causeText}</dd>
@@ -90,26 +94,26 @@ export function RuntimeHealthModal({
 											<dd>{t(copy.impactKey, copy.impactFallback)}</dd>
 										</div>
 									) : null}
-								</dl>
-								{alert.loginCommand ? (
-									<div className="thread-remediation-facts">
+									{/* The sign-in command is one more fact of the same list: its label aligns with
+									    Cause and Impact (it used to sit in a second, misaligned block of bare dt/dd). */}
+									{alert.loginCommand ? (
 										<div>
 											<dt>{t('app.runtime.health.loginCommand', 'Sign in from your terminal')}</dt>
 											<dd>
 												<code className="mono">{alert.loginCommand}</code>
 											</dd>
 										</div>
-									</div>
-								) : null}
+									) : null}
+								</dl>
 								{alert.lastError ? (
 									<details className="thread-remediation-detail">
 										<summary>{t('app.runtime.health.technical', 'Technical detail')}</summary>
 										<pre className="mono">{alert.lastError}</pre>
 									</details>
 								) : null}
-								<div className="thread-remediation-actions">
+								<div className="thread-remediation-actions runtime-health-actions">
 									<Button
-										className="thread-remediation-primary"
+										className="thread-remediation-primary runtime-health-action"
 										onClick={() =>
 											revalidates
 												? onRevalidate(alert.providerId)

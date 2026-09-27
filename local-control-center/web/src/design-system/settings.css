@@ -72,10 +72,14 @@
 
 .ai-team-panel {
 	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
 	gap: var(--space-3);
+	align-items: stretch;
 }
 
+/* Two role cards per row on a wide dialog halve the section's length; the intro spans the row. */
 .ai-team-panel > .field-help {
+	grid-column: 1 / -1;
 	margin: 0;
 	max-width: 65ch;
 }
@@ -84,8 +88,10 @@
  * turns it into an ordinary grid item) so the role name and its chips sit inside the card like any
  * card title instead of straddling the top border and wrapping over it on phones. */
 .ai-team-role {
+	--control-height: var(--control-height-sm);
 	min-inline-size: 0;
 	margin: 0;
+	font-size: var(--font-size-sm);
 }
 
 .ai-team-role > legend {
@@ -137,9 +143,11 @@
 	font-weight: var(--weight-medium);
 }
 
+/* "No active provider can take this role": plain muted copy, not a dashed box inside the card. */
 .ai-team-order > li.muted {
-	padding-block: var(--space-2);
-	border-style: dashed;
+	min-height: 0;
+	padding: 0;
+	border: 0;
 	background: transparent;
 	color: var(--color-text-muted);
 }
@@ -165,7 +173,7 @@
 /* Add row: the provider picker takes the free width; it mirrors .select (the panel renders a bare
  * <select>) so it matches every other field in Settings. */
 .ai-team-role > .inline:last-child > select {
-	flex: 1 1 12rem;
+	flex: 1 1 9rem; /* fits select + Add + Automatic on one line in a half-width role card */
 	min-width: 0;
 	max-width: 22rem;
 	min-height: var(--control-height);
@@ -548,6 +556,206 @@
 	border-color: color-mix(in oklch, var(--color-status-danger) 60%, var(--color-border-default));
 	background: transparent;
 	color: var(--color-status-danger);
+}
+
+/* ---- Runtime setup layout: proportionate cards and compact action rows ---- */
+
+/* Section body: one vertical rhythm for summary, toolbar, discovery, empty state and grid. A
+ * dedicated class (not `.stack`) so the author `display: grid` never beats the `hidden` attribute
+ * that hides the body while a wizard is open. */
+.runtime-setup-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.runtime-setup-body[hidden] {
+	display: none;
+}
+
+.runtime-setup-body > p {
+	margin: 0;
+}
+
+/* Provider, Ollama, local-endpoint and discovery grids: cards in a row share its height (the grid
+ * default `start` left a short Azure card floating beside a tall Gemini one), a step less gap. */
+.provider-grid {
+	gap: var(--space-3);
+	align-items: stretch;
+}
+
+/* A flex column so the action row can take the free space above it and every card of a row ends
+ * on the same line, whatever badges or facts it carries. */
+.card.provider-card {
+	--badge-height: 1.5rem;
+	--badge-font-size: var(--font-size-xs);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+/* Actions: one compact row on a hairline, pinned to the card bottom. Buttons drop to the small
+ * control height (still >= 32px, over the 24px target minimum) so "Detect & check", "Configure"
+ * and the details toggle share one line in a 23rem card instead of stacking as full-size slabs. */
+.provider-card-actions {
+	--control-height: var(--control-height-sm);
+	margin-top: auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	font-size: var(--font-size-sm);
+}
+
+/* "Configuration details" is a disclosure, not a peer action: a quiet square chevron at the row
+ * end (its name lives on aria-label and the tooltip), so it never wraps onto a line of its own. */
+.button.provider-card-disclosure {
+	width: var(--control-height);
+	margin-inline-start: auto;
+	padding: 0;
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.button.provider-card-disclosure:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+}
+
+.button.provider-card-disclosure:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Chevron flips with the expanded state; the flip is instant under reduced motion (see below). */
+.provider-card-disclosure-icon {
+	transition: transform var(--duration-normal) var(--ease-standard);
+}
+
+.provider-card-disclosure[aria-expanded="true"] > .provider-card-disclosure-icon {
+	transform: rotate(180deg);
+}
+
+/* The discovery button keeps its label on one line beside the hint instead of being squeezed. */
+.button.local-runtime-discovery-button {
+	flex: none;
+	white-space: nowrap;
+}
+
+/* Status badges in the card meta row are one step smaller (the --badge-* hooks set on the card),
+ * like the capability chips, so four status facts take one tidy line, not two rows of pills. */
+.provider-card > .card-meta {
+	gap: var(--space-1);
+}
+
+/* Card titles inside Settings: one step under the page-level card title. */
+.provider-card > .card-header .card-title {
+	font-size: var(--font-size-md);
+}
+
+/* Discovery: the button and its one-line hint side by side; the hint wraps within its own column. */
+.local-runtime-discovery-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.local-runtime-discovery-row > .field-help {
+	min-width: 0;
+}
+
+/* "No executable runtimes": a compact guided block, not a tall dashed well of full-size buttons. */
+.runtime-setup-empty {
+	--control-height: var(--control-height-sm);
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	padding: var(--space-4);
+}
+
+/* "Runtimes ready 0 / 24 executable" is one phrase: never broken across lines. */
+.runtime-setup-ready {
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+	.local-runtime-discovery-row {
+		flex-wrap: wrap;
+	}
+
+	/* Phones: the shared toolbar stacks every button full width at full height; here Add provider
+	 * and Refresh health drop to the small control height and share a row when they fit. */
+	.runtime-setup-actions {
+		--control-height: var(--control-height-sm);
+		font-size: var(--font-size-sm);
+	}
+
+	/* Side by side when both labels fit, else each takes its own (short) row; labels never break. */
+	.button.runtime-setup-action {
+		flex: 1 1 auto;
+		width: auto;
+		white-space: nowrap;
+	}
+}
+
+/* ---- AI health modal (RuntimeHealthModal) ----
+ * It borrows the thread remediation card; these hooks size it for a dialog. The tone follows the
+ * blocker: an expired validation is a warning (revalidate, no new sign-in), everything else danger.
+ * Borders mix in oklab: the oklch hue path from red (28) to the blue-grey border ran through purple. */
+.runtime-health-card {
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+
+.runtime-health-card[data-tone="danger"] {
+	border-color: color-mix(in oklab, var(--color-status-danger) 45%, var(--color-border-subtle));
+}
+
+.runtime-health-card[data-tone="warn"] {
+	border-color: color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+}
+
+.runtime-health-title {
+	margin: 0;
+	font-size: var(--font-size-md);
+	line-height: var(--line-snug);
+}
+
+.runtime-health-card[data-tone="warn"] > .runtime-health-title {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* Cause / Impact / Sign-in share one label column (subgrid): per-row columns let the longer
+ * "Sign in from your terminal" label push its value out of line with the others. */
+.runtime-health-facts {
+	grid-template-columns: minmax(5rem, 10rem) minmax(0, 1fr);
+	column-gap: var(--space-3);
+}
+
+.runtime-health-facts > div {
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+}
+
+/* Narrow card (phone): one column, each label above its value, as the shared card does. */
+@container (max-width: 26rem) {
+	.runtime-health-facts {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* The repair action keeps its intrinsic width at the row end instead of the shared full-width
+ * `.thread-remediation-primary` slab (the class stays: tests and the thread card share it). */
+.runtime-health-actions {
+	justify-content: flex-end;
+}
+
+.button.runtime-health-action {
+	display: inline-flex;
+	width: auto;
 }
 
 /* ---- Add-provider wizard: real-request validation result ---- */

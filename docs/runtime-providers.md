@@ -292,6 +292,10 @@ or unknown answer reads as `unknown`):
 - `runtime.local.maxCallSeconds` caps one local model call (default 900 s, range 30-3600 s).
 - `project.runtime.defaultMode` accepts `local` (any enabled local runtime);
   `ollama` stays valid and means `local` restricted to Ollama.
+- The per-provider switch in *Settings → Providers & CLI* is `provider_accounts.enabled`
+  (`PATCH /api/v1/model-gateway/providers/{id}`, reported as `enabled` by
+  `GET /api/v1/runtime/providers`). A disabled provider is excluded from every thread's team, from
+  failover and from the status bar's active-provider count.
 
 ### Resources and concurrency
 

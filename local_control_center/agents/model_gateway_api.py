@@ -80,6 +80,8 @@ from .model_gateway_models import (
     ProviderLimitsListResponse,
     ProviderLimitStatusResponse,
     ProviderLimitUpsertRequest,
+    ProviderModelsBulkPatchRequest,
+    ProviderModelsBulkPatchResponse,
     ProviderRerankRequest,
     ProviderRerankResponse,
     RolePoliciesListResponse,
@@ -668,6 +670,45 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.provider.updated", provider_id, {"providerId": provider_id})
         return {"provider": provider}
+
+    @router.patch("/providers/{provider_id}/models", response_model=ProviderModelsBulkPatchResponse)
+    async def patch_provider_models(
+        provider_id: str, body: ProviderModelsBulkPatchRequest, request: Request
+    ) -> dict[str, Any]:
+        """Habilita o deshabilita en bloque modelos del proveedor en una sola transacción.
+
+        Un gateway anuncia más de mil modelos: la UI guarda la selección con una request por lote en
+        vez de un PATCH por fila. Todo o nada: un id ajeno al catálogo del proveedor revierte el lote
+        (404) para que la UI reintente solo lo que no quedó guardado.
+        """
+        require_write(request)
+        store = providers()
+        try:
+            account = store.get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        account_provider_id = str(account["providerId"])
+        transaction = (
+            nullcontext()
+            if platform.connection.in_transaction
+            else immediate_transaction(platform.connection)
+        )
+        try:
+            with transaction:
+                updated = store.set_models_enabled(account_provider_id, body.enabled, body.models)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="models_not_found") from error
+        audit(
+            "model_gateway.provider.models_bulk_updated",
+            account_provider_id,
+            {
+                "providerId": account_provider_id,
+                "enabled": body.enabled,
+                "updated": updated,
+                "scope": "all" if body.models is None else "listed",
+            },
+        )
+        return {"providerId": account_provider_id, "enabled": body.enabled, "updated": updated}
 
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
     # Diagnostico del propio control plane, no carga de inferencia: una request HTTP corta.

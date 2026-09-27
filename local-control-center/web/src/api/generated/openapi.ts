@@ -120,7 +120,7 @@ export type DeveloperAgentStatusResponse = { "developerAgent": DeveloperAgentSta
 export type DeveloperDetails = { "input"?: JsonObject; "metadata"?: JsonObject; "output"?: JsonObject };
 export type DirectoryPickerRequest = { "initialPath"?: null | string; "title"?: string };
 export type DirectoryPickerResponse = { "reason"?: null | string; "selectedPath"?: null | string; "status": string };
-export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord> };
+export type DiscoverModelsResponse = { "models": Array<ModelCatalogRecord>; "recommendedModels"?: Array<string> | null };
 export type DockerSandboxStatus = { "available": boolean; "defaultNetwork": string; "executable"?: null | string; "fallback": string; "hostMount": string; "mode": string; "policy": SandboxProfileRecord; "required": boolean; "writes": string };
 export type EmbeddingResponse = { "data": Array<EmbeddingVector>; "model": string; "providerId": string; "usage"?: CapabilityUsage | null };
 export type EmbeddingVector = { "embedding": Array<number>; "index": number; "object"?: string };
@@ -370,6 +370,8 @@ export type ProviderLimitStatusResponse = { "status": ProviderLimitStatusRecord 
 export type ProviderLimitUpsertRequest = { "dailyRequests"?: null | number; "dailyTokens"?: null | number; "enabled"?: boolean; "fallbackRetryAfterSeconds"?: number; "maxConcurrency"?: null | number; "maxCostPerRequestUsd"?: null | number; "model": string; "monthlyBudgetUsd"?: null | number; "monthlyRequests"?: null | number; "monthlyTokens"?: null | number; "providerId": string; "rpm"?: null | number; "tpm"?: null | number; "unknownLimitStrategy"?: "conservative" | "block" | "allow"; "windowTimezone"?: string };
 export type ProviderLimitWindowStatus = { "committedRequests": number; "committedTokens": number; "kind": "minute" | "day" | "month"; "knownCostUsd": number; "reservedCostUsd": number; "reservedRequests": number; "reservedTokens": number; "resetsAt": string; "startsAt": string; "unverifiedCostUsd": number; "unverifiedTokens": number };
 export type ProviderLimitsListResponse = { "providerLimits": Array<ProviderLimitRecord> };
+export type ProviderModelsBulkPatchRequest = { "enabled": boolean; "models"?: Array<string> | null };
+export type ProviderModelsBulkPatchResponse = { "enabled": boolean; "providerId": string; "updated": number };
 export type ProviderRecord = { "capabilities": Array<JsonValue>; "id": string; "kind": string; "label": string; "metadata": JsonObject; "models": Array<JsonValue>; "status": string; "updatedAt": string };
 export type ProviderRerankRequest = { "model": string; "passages": Array<RerankPassage>; "query": string; "truncate"?: "START" | "END" | "NONE" | null };
 export type ProviderRerankResponse = { "rerank": RerankResponse };
@@ -737,6 +739,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post", "path": "/api/v1/model-gateway/providers/{provider_id}/health-check", "summary": "Provider Health Check"},
 	{"method": "POST", "operationId": "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post", "path": "/api/v1/model-gateway/providers/{provider_id}/images/edits", "summary": "Execute Provider Image Editing"},
 	{"method": "POST", "operationId": "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post", "path": "/api/v1/model-gateway/providers/{provider_id}/images/generations", "summary": "Execute Provider Image Generation"},
+	{"method": "PATCH", "operationId": "patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch", "path": "/api/v1/model-gateway/providers/{provider_id}/models", "summary": "Patch Provider Models"},
 	{"method": "POST", "operationId": "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post", "path": "/api/v1/model-gateway/providers/{provider_id}/rerank", "summary": "Execute Provider Rerank"},
 	{"method": "POST", "operationId": "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post", "path": "/api/v1/model-gateway/providers/{provider_id}/test-prompt", "summary": "Test Prompt"},
 	{"method": "POST", "operationId": "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post", "path": "/api/v1/model-gateway/providers/{provider_id}/validate-runtime", "summary": "Validate Runtime"},
@@ -1099,6 +1102,7 @@ export type OperationRequestBodies = {
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogPatchRequest,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountPatchRequest,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitPatchRequest,
+	"patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch": ProviderModelsBulkPatchRequest,
 	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": RolePolicyPatchRequest,
 	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfilePatchRequest,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowStatusChangeRequest,
@@ -1390,6 +1394,7 @@ export type OperationResponseBodies = {
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountResponse,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitResponse,
+	"patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch": ProviderModelsBulkPatchResponse,
 	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": RolePolicyResponse,
 	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfileResponse,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
@@ -1685,6 +1690,7 @@ export type OperationResultBodies = {
 	"patch_model_api_v1_model_gateway_models__model_id__patch": ModelCatalogResponse,
 	"patch_provider_api_v1_model_gateway_providers__provider_id__patch": ProviderAccountResponse,
 	"patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch": ProviderLimitResponse,
+	"patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch": ProviderModelsBulkPatchResponse,
 	"patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch": RolePolicyResponse,
 	"patch_routing_profile_api_v1_model_gateway_routing_profiles__profile_id__patch": RoutingProfileResponse,
 	"pause_workflow_api_v1_workflows__workflow_id__pause_post": WorkflowResponse,
@@ -1915,6 +1921,7 @@ export const OPERATIONS_BY_ID = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": {"method": "POST", "operationId": "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post", "path": "/api/v1/model-gateway/providers/{provider_id}/health-check", "summary": "Provider Health Check"},
 	"execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": {"method": "POST", "operationId": "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post", "path": "/api/v1/model-gateway/providers/{provider_id}/images/edits", "summary": "Execute Provider Image Editing"},
 	"execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": {"method": "POST", "operationId": "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post", "path": "/api/v1/model-gateway/providers/{provider_id}/images/generations", "summary": "Execute Provider Image Generation"},
+	"patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch": {"method": "PATCH", "operationId": "patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch", "path": "/api/v1/model-gateway/providers/{provider_id}/models", "summary": "Patch Provider Models"},
 	"execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": {"method": "POST", "operationId": "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post", "path": "/api/v1/model-gateway/providers/{provider_id}/rerank", "summary": "Execute Provider Rerank"},
 	"test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": {"method": "POST", "operationId": "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post", "path": "/api/v1/model-gateway/providers/{provider_id}/test-prompt", "summary": "Test Prompt"},
 	"validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": {"method": "POST", "operationId": "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post", "path": "/api/v1/model-gateway/providers/{provider_id}/validate-runtime", "summary": "Validate Runtime"},

@@ -685,6 +685,46 @@ class ProviderAccountStore:
         }
         return self.upsert_model(merged)
 
+    def set_models_enabled(self, provider_id: str, enabled: bool, model_ids: list[str] | None = None) -> int:
+        """Fija ``enabled`` en bloque para modelos de un proveedor y devuelve cuántas filas tocó.
+
+        Igual que ``patch_model``, marca las filas como ``operator_override`` para que un resync
+        respete la elección. ``model_ids=None`` aplica a todo el catálogo del proveedor. Corre en la
+        transacción del llamador; los ids se envían en tramos para no rozar el límite de parámetros
+        de SQLite con catálogos de miles de modelos.
+
+        Raises:
+            KeyError: algún id no pertenece al catálogo de ``provider_id`` (no se aplica nada si el
+                llamador revierte la transacción).
+        """
+        now = utc_now()
+        if model_ids is None:
+            cursor = self.connection.execute(
+                """
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?
+                WHERE provider_id = ?
+                """,
+                (1 if enabled else 0, now, provider_id),
+            )
+            return int(cursor.rowcount or 0)
+        unique_ids = list(dict.fromkeys(model_ids))
+        updated = 0
+        chunk_size = 500
+        for start in range(0, len(unique_ids), chunk_size):
+            chunk = unique_ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor = self.connection.execute(
+                f"""
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?
+                WHERE provider_id = ? AND id IN ({placeholders})
+                """,
+                (1 if enabled else 0, now, provider_id, *chunk),
+            )
+            updated += int(cursor.rowcount or 0)
+        if updated != len(unique_ids):
+            raise KeyError(f"{len(unique_ids) - updated} model(s) not found for provider {provider_id}")
+        return updated
+
     def list_pricing_snapshots(
         self,
         *,

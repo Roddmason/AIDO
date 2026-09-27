@@ -249,6 +249,7 @@ the API.
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/health-check` | Provider Health Check |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/images/edits` | Execute Provider Image Editing |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/images/generations` | Execute Provider Image Generation |
+| `PATCH` | `/api/v1/model-gateway/providers/{provider_id}/models` | Patch Provider Models |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/rerank` | Execute Provider Rerank |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/test-prompt` | Test Prompt |
 | `GET` | `/api/v1/model-gateway/role-policies` | List Role Policies |

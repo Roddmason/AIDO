@@ -184,6 +184,14 @@ def select_product_owner_resources(
                 request_meta=request_meta,
             )
         )
+        coordinator._record_assigned_provider_skipped(
+            thread_id=thread_id,
+            loop_id=loop["id"],
+            request_meta=request_meta,
+            team_role="product_owner",
+            role="product_owner",
+            decision=product_owner_resource_decision,
+        )
     except Exception as error:
         reason = (
             f"AIResourceManager failed to select a ProductOwnerAgent resource: {redact_secrets(str(error))}"

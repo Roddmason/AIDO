@@ -211,6 +211,34 @@
 	min-inline-size: 8ch;
 }
 
+/* "In use": a running thread holds the provider, so the switch is locked ON (native disabled). It
+ * must not read as the generic faded disabled state, which says "unavailable": the track keeps
+ * its full checked accent, the state text stays at full contrast, and the thumb squares off into
+ * a pin so the switch reads as held rather than toggleable. The dotted underline is the usual cue
+ * that the words carry a tooltip (`title`, mirrored in `aria-description`); the help cursor
+ * repeats it on hover. Specificity (0,3,0) beats the shared :has(> input:disabled) dimming. */
+.setting-switch.provider-switch[data-in-use="true"] {
+	cursor: help;
+	opacity: 1;
+}
+
+.setting-switch.provider-switch[data-in-use="true"] .setting-switch-thumb {
+	border-radius: var(--radius-xs);
+}
+
+.setting-switch.provider-switch[data-in-use="true"] .setting-switch-state {
+	color: var(--color-text-primary);
+	text-decoration: underline dotted;
+	text-decoration-color: var(--color-text-muted);
+	text-underline-offset: 0.2em;
+}
+
+/* Hovering a locked switch must not brighten it into a "click me" state. */
+.setting-switch.provider-switch[data-in-use="true"]:hover > input:checked + .setting-switch-track {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
 /* Phones stack every setting row (label -> control -> actions, layout.css). A general-scope boolean
  * is a single switch, so stacking only doubled each row's height and parked the switch far from
  * its label; it keeps the label/value columns instead. Project-scope editing (`data-editing`)

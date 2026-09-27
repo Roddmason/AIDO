@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT = ROOT / "local_control_center"
 
 APPROVED_SUBPROCESS_FILES = {
+    # Lectura de cuota de Codex por su app-server oficial (autorizada por el operador): argv fijo
+    # `[codex, "app-server"]`, shell=False, sin argumentos del llamador, plazo total de 10 s con kill del
+    # árbol de procesos, stdout acotado, stderr descartado y veto dentro de transacciones SQLite
+    # (assert_external_boundary); invariantes fijadas por test_codex_app_server_usage.py.
+    "local_control_center/agents/codex_app_server.py",
     "local_control_center/integrations/mcp_gateway.py",
     # Read-only NIM host probe boundary: exact-argv allowlist, shell=False, bounded
     # timeout/output, no caller-controlled arguments; invariants pinned by

@@ -30,6 +30,17 @@ export type SettingsState = {
 };
 
 /** Loads resolved settings for both scopes while `enabled`; disabled or missing id clears state. */
+/**
+ * Window event fired after a setting is written or cleared, with the key as `detail`, so surfaces
+ * that derive state from a setting outside this hook (the provider cards' inherited quota
+ * threshold) re-read it without polling.
+ */
+export const SETTING_CHANGE_EVENT = 'aido:setting-changed';
+
+function announceSettingChange(key: string) {
+	window.dispatchEvent(new CustomEvent(SETTING_CHANGE_EVENT, { detail: key }));
+}
+
 export function useSettings(
 	projectId: string | undefined,
 	enabled: boolean,
@@ -77,6 +88,7 @@ export function useSettings(
 		async (key: string, scope: SettingScope, scopeId: string | null, value: JsonValue) => {
 			await putSetting(key, { scope, scopeId: scopeId ?? undefined, value }, token);
 			refresh();
+			announceSettingChange(key);
 		},
 		[token, refresh],
 	);
@@ -87,6 +99,7 @@ export function useSettings(
 			if (scopeId !== null) params.scopeId = scopeId;
 			await deleteSetting(key, params, token);
 			refresh();
+			announceSettingChange(key);
 		},
 		[token, refresh],
 	);

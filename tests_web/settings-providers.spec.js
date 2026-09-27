@@ -829,3 +829,37 @@ test('Providers & CLI: a provider over its usage threshold shows the suspension,
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Providers & CLI: the general usage threshold is editable there and the provider cards pick it up', async ({
+	page,
+}) => {
+	await page.goto('/#settings-runtime');
+	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
+	let usageReads = 0;
+	await page.route('**/api/v1/runtime/provider-usage', async (route) => {
+		usageReads += 1;
+		await route.continue();
+	});
+	const label = 'Suspend a provider for AIDO at this % of its usage quota (all providers; each one can override it)';
+	try {
+		const settings = await openSettings(page);
+		const field = settings.getByLabel(label);
+		await expect(field).toBeVisible({ timeout: 30_000 });
+		await expect.poll(() => usageReads).toBeGreaterThan(0);
+		const before = usageReads;
+		await field.fill('90');
+		await settings.locator('.setting-row').filter({ hasText: label }).getByRole('button', { name: 'Save', exact: true }).click();
+		await expect
+			.poll(async () => {
+				const general = (await (await page.request.get('/api/v1/settings')).json()).general;
+				return general.find((item) => item.key === 'runtime.quota.suspendThresholdPercent').value;
+			})
+			.toBe(90);
+		await expect.poll(() => usageReads).toBeGreaterThan(before);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+		await page.request.delete('/api/v1/settings/runtime.quota.suspendThresholdPercent?scope=general', {
+			headers: { 'X-Local-Control-Token': token },
+		});
+	}
+});

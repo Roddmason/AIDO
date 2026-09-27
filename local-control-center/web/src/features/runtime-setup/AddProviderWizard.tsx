@@ -6,7 +6,9 @@
  * models, checks provider health and routes the chosen model to the selected roles. Inference is
  * never a configuration check: the validate step only sends a real request when the operator clicks
  * "Validate with a real request", which first saves the model selection and then runs the queued
- * runtime validation, listing which model passed or failed and why. Auto-routing gateways (OmniRoute)
+ * runtime validation, listing which model passed or failed and why; API and gateway providers can also
+ * "Validate all models" there (ModelValidationRun: every selected model one by one, failing ones
+ * discarded, the provider kept while one passes). Auto-routing gateways (OmniRoute)
  * sync their catalog on entering the models step — the backend preselects only the curated allowlist,
  * since the gateway also announces upstreams the operator has no account for — and route roles to the
  * provider-level wildcard — the same `{provider, model: "*"}` candidate scripts/setup_omniroute.py
@@ -56,6 +58,7 @@ import {
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { ModelSelectionList, type SelectableModel } from './ModelSelectionList';
+import { ModelValidationRun } from './ModelValidationRun';
 import {
 	COST_META,
 	costForModels,
@@ -1159,6 +1162,15 @@ export function AddProviderWizard({
 							{t('app.providers.wizard.realValidate', 'Validate with a real request')}
 						</Button>
 						{runtimeValidation ? <RuntimeValidationSummary validation={runtimeValidation} /> : null}
+						{(entry.providerType === 'api' || entry.providerType === 'gateway') && selected.size ? (
+							<ModelValidationRun
+								token={token}
+								providerId={entry.id}
+								providerName={entry.displayName}
+								disabled={busy}
+								beforeStart={saveModelSelection}
+							/>
+						) : null}
 					</>
 				) : null}
 

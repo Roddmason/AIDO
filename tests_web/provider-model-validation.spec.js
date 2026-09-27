@@ -234,3 +234,61 @@ test('Providers & CLI: validate all models shows progress, the ok/discarded summ
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Add provider: the validate step can validate every selected model after saving the selection', async ({
+	page,
+}) => {
+	const models = [
+		{ id: `${PROVIDER}:cc/claude-x`, providerId: PROVIDER, model: 'cc/claude-x', enabled: false, freeTier: true },
+		{ id: `${PROVIDER}:oc/big-pickle`, providerId: PROVIDER, model: 'oc/big-pickle', enabled: true, freeTier: true },
+	];
+	const events = [];
+	const finished = run('completed', { total: 2, done: 2, ok: 1, failed: 1, discarded: 1 });
+	await page.route('/api/v1/provider-accounts/from-catalog', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/settings/runtime.remote.enabled', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/model-gateway/role-policies', (route) =>
+		route.fulfill({ json: { rolePolicies: [] } }),
+	);
+	await page.route(`/api/v1/provider-accounts/${PROVIDER}/sync-models`, (route) =>
+		route.fulfill({ json: { models } }),
+	);
+	await page.route(`**/api/v1/model-gateway/providers/${PROVIDER}/models`, async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		const body = route.request().postDataJSON();
+		events.push(`patch:${body.models.join(',')}:${body.enabled}`);
+		await route.fulfill({ json: { providerId: PROVIDER, enabled: body.enabled, updated: body.models.length } });
+	});
+	await page.route(`**/api/v1/model-gateway/providers/${PROVIDER}/model-validation`, (route) =>
+		route.fulfill({
+			json: {
+				run: events.some((item) => item.startsWith('validate')) ? finished : null,
+				outcomes: [],
+				untested: 0,
+				providerValidation: VALIDATED,
+			},
+		}),
+	);
+	await page.route(`**/api/v1/model-gateway/providers/${PROVIDER}/validate-all-models`, (route) => {
+		events.push(`validate:${JSON.stringify(route.request().postDataJSON())}`);
+		return route.fulfill({ json: { run: finished, outcomes: [], providerValidation: VALIDATED } });
+	});
+	try {
+		await page.goto('/#settings-runtime');
+		await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
+		const settings = page.getByRole('dialog', { name: 'Settings' });
+		await settings.getByRole('button', { name: 'Add provider' }).click();
+		const wizard = page.getByRole('region', { name: 'Add provider' });
+		await wizard.getByLabel('Provider', { exact: true }).selectOption(PROVIDER);
+		await wizard.getByRole('button', { name: 'Next' }).click();
+		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+		await wizard.getByRole('checkbox', { name: 'cc/claude-x', exact: true }).check();
+		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+		// The selection is saved before the run, so the backend tests the models the operator kept.
+		const section = wizard.getByRole('region', { name: 'Model validation' });
+		await section.getByRole('button', { name: 'Validate all models' }).click();
+		await expect(section.getByText('1 ok · 1 discarded', { exact: true })).toBeVisible();
+		expect(events).toEqual([`patch:${PROVIDER}:cc/claude-x:true`, 'validate:{}']);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

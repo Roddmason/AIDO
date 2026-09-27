@@ -72,6 +72,14 @@ export type ThreadSealedRuntimeTeam =
 	OperationResponse<'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get'>;
 export type RuntimeValidationResponse =
 	OperationResponse<'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post'>;
+export type CatalogValidationRequest =
+	MutationBody<'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post'>;
+export type CatalogValidationResponse =
+	OperationResponse<'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post'>;
+export type ModelValidationStatus =
+	OperationResponse<'model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get'>;
+export type ModelValidationRun = NonNullable<ModelValidationStatus['run']>;
+export type ModelValidationOutcome = ModelValidationStatus['outcomes'][number];
 export type ThreadRunConfigurationRequest =
 	MutationBody<'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch'>;
 export type ThreadRunConfigurationResponse =
@@ -2359,6 +2367,49 @@ export function validateRuntime(
 		},
 		onExecution,
 	);
+}
+
+/**
+ * Tests every enabled model of an API/gateway provider one by one (queued `models.validate_all_models`),
+ * or only `models` (catalog ids, e.g. a discarded model to retest). Passing models become validated;
+ * definitive failures are discarded (disabled with `disabledReason: validation_failed`, never deleted).
+ * Progress is read with {@link getModelValidationStatus}; `onExecution` sees each poll (executionId to cancel).
+ */
+export function validateAllModels(
+	token: string,
+	providerId: string,
+	body: CatalogValidationRequest = {},
+	signal?: AbortSignal,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post',
+		CatalogValidationResponse
+	>(
+		'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post',
+		{ token, pathParams: { provider_id: providerId }, body, signal },
+		onExecution,
+	);
+}
+
+/** Last model-by-model validation run of a provider and the last result per model; a read, no network. */
+export function getModelValidationStatus(providerId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get',
+		ModelValidationStatus
+	>('model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get', {
+		pathParams: { provider_id: providerId },
+		signal,
+	});
+}
+
+/** Requests cancellation of a durable execution (idempotent); requires the write token. */
+export function cancelExecution(token: string, executionId: string, reason: string) {
+	return requestGeneratedOperation('cancel_api_v1_executions__execution_id__cancel_post', {
+		token,
+		pathParams: { execution_id: executionId },
+		body: { reason },
+	});
 }
 
 /** Sets or clears the thread's AI team; requires the write token. */

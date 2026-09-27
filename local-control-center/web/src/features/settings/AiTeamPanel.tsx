@@ -124,7 +124,7 @@ function RoleRow({
 		-1,
 	);
 	return (
-		<fieldset className="ai-team-role" aria-label={name} disabled={busy}>
+		<fieldset className="card card--static ai-team-role" aria-label={name} disabled={busy}>
 			<legend className="inline">
 				<span>{name}</span>
 				{role.required ? (

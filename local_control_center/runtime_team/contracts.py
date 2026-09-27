@@ -84,3 +84,31 @@ class RuntimeTeamCandidatesResponse(BaseModel):
     freshness_seconds: int = Field(alias="freshnessSeconds")
     suggested_role_runtimes: RoleRuntimesRecord = Field(alias="suggestedRoleRuntimes")
     suggested_role_models: dict[str, str] = Field(default_factory=dict, alias="suggestedRoleModels")
+
+
+GlobalTeamRole = Literal[
+    "product_owner", "developer", "architect", "security", "technical_lead", "researcher"
+]
+GlobalTeamSource = Literal["project", "general", "automatic", "inherited"]
+
+
+class GlobalTeamRoleRecord(BaseModel):
+    """Un rol del equipo de IA global: orden configurado, orden efectivo, asignado y procedencia."""
+
+    role: GlobalTeamRole
+    required: bool
+    configured: list[str] = Field(default_factory=list)
+    effective: list[str] = Field(default_factory=list)
+    assigned: str | None = None
+    source: GlobalTeamSource
+    invalid: list[str] = Field(default_factory=list)
+    candidates: list[str] = Field(default_factory=list)
+
+
+class RuntimeTeamResponse(BaseModel):
+    """Equipo de IA global efectivo de un proyecto (o general) con los candidatos activos."""
+
+    roles: list[GlobalTeamRoleRecord]
+    allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
+    active_providers: int = Field(alias="activeProviders")
+    candidates: list[RuntimeTeamCandidateRecord]

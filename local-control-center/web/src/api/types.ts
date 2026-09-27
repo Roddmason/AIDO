@@ -23,6 +23,7 @@ import type {
 	EventRecord as GeneratedEventRecord,
 	RiskRecord as GeneratedRiskRecord,
 	TeamActivityEntry as GeneratedTeamActivityEntry,
+	GlobalTeamRoleRecord,
 	JobRecord,
 	McpServerRegisterRequest,
 	ModelBenchmarkOutcomeRecord,
@@ -52,6 +53,7 @@ import type {
 	RuntimeProviderConfigurationRecord,
 	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
+	RuntimeTeamResponse,
 	TeamActivityResponse,
 	TeamRecord,
 	ThreadAgentEventRecord,
@@ -102,6 +104,8 @@ export type Artifact = ArtifactRecord;
 export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
+export type RuntimeTeam = RuntimeTeamResponse;
+export type RuntimeTeamRole = GlobalTeamRoleRecord;
 export type RuntimeProvider = RuntimeProviderStatus;
 export type RuntimeProviderConfiguration = RuntimeProviderConfigurationRecord;
 export type RetrievalStatus = RetrievalStatusResponse;

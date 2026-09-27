@@ -188,7 +188,7 @@ def describe_global_team(connection: sqlite3.Connection, *, project_id: str | No
     facts = load_runtime_facts(connection, project_id=project_id)
     team, ranked = _resolve(connection, project_id=project_id, facts=facts)
     candidates = RuntimeTeamCandidatesService(connection).list_candidates(
-        project_id=project_id, selected=None
+        project_id=project_id, selected=None, facts=facts
     )
     return {
         "roles": [

@@ -413,6 +413,9 @@ class RuntimeProviderStatus(BaseModel):
     authenticated: bool = False
     available: bool
     executable: bool
+    #: Switch del operador (`provider_accounts.enabled`): apagado ⇒ ningún hilo lo usa, aunque esté sano.
+    #: Distinto de ``globallyEnabled``, que refleja los flags por tipo (CLI/local/remoto).
+    enabled: bool = False
     globally_enabled: bool = Field(default=False, alias="globallyEnabled")
     project_enabled: bool = Field(default=False, alias="projectEnabled")
     policy_allowed: bool = Field(default=False, alias="policyAllowed")

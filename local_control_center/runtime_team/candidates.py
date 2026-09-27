@@ -43,14 +43,22 @@ class RuntimeTeamCandidatesService:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
-    def list_candidates(self, *, project_id: str | None, selected: list[str] | None) -> dict[str, Any]:
+    def list_candidates(
+        self,
+        *,
+        project_id: str | None,
+        selected: list[str] | None,
+        facts: Mapping[str, RuntimeFacts] | None = None,
+    ) -> dict[str, Any]:
         """Lista runtimes habilitados; el reparto usa ``selected`` (o todos) filtrado a los validados.
 
         El estado de carga se lee una vez para todas las cuentas (en paralelo, espera acotada) y deja
         caliente la caché compartida que ``resolve_team_role_models`` consulta sin esperar, así la vista
         previa de ``suggestedRoleModels`` usa los mismos estados que ``loadedModels``.
         """
-        facts = load_runtime_facts(self.connection, project_id=project_id)
+        # ``facts`` ya cargados (``describe_global_team``) evitan recalcular el estado de runtimes.
+        if facts is None:
+            facts = load_runtime_facts(self.connection, project_id=project_id)
         store = ProviderAccountStore(self.connection)
         accounts = {
             str(account["providerId"]): account

@@ -19,7 +19,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.runtime_team.candidates import RuntimeTeamCandidatesService
-from local_control_center.runtime_team.contracts import RuntimeTeamCandidatesResponse
+from local_control_center.runtime_team.contracts import RuntimeTeamCandidatesResponse, RuntimeTeamResponse
+from local_control_center.runtime_team.global_team import describe_global_team
 from local_control_center.shared.event_bus import EventBus
 
 from .architect_agent import ArchitectAgentRunner
@@ -1273,6 +1274,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return RuntimeTeamCandidatesService(platform.connection).list_candidates(
             project_id=projectId, selected=selected_ids
         )
+
+    @router.get("/api/v1/runtime/team", response_model=RuntimeTeamResponse)
+    def get_runtime_team(projectId: str | None = None) -> dict[str, Any]:
+        """Equipo de IA global efectivo (proyecto > general > automático) y candidatos activos por rol."""
+        return describe_global_team(platform.connection, project_id=projectId)
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
     async def list_runtime_provider_configuration() -> dict[str, Any]:

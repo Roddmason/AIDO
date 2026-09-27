@@ -601,3 +601,19 @@ test('Providers & CLI: a provider used by a running thread keeps its switch lock
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
 });
+
+test('Configure provider: an unresolved seeded placeholder asks for the API key instead of keeping it', async ({
+	page,
+}) => {
+	// NIM is seeded with the bare placeholder NVIDIA_NIM_API_KEY; without that variable it is not a stored
+	// credential, and offering "Keep current" hid the key field while NIM rejected every request.
+	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
+	await page.request.patch('/api/v1/model-gateway/providers/nvidia_nim', {
+		headers: { 'X-Local-Control-Token': token },
+		data: { credentialRef: 'NVIDIA_NIM_API_KEY' },
+	});
+	const wizard = await openConfigureWizard(page, 'NVIDIA NIM');
+	await wizard.getByRole('button', { name: 'Next' }).click();
+	await expect(wizard.getByRole('radio', { name: 'Keep current' })).toHaveCount(0);
+	await expect(wizard.getByLabel('API key')).toBeVisible();
+});

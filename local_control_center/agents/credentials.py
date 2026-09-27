@@ -106,6 +106,8 @@ class CredentialResolver:
             return self._resolve_env(ref.removeprefix("env:"), public_ref=ref, fetch=fetch)
         if ref.startswith("keyring:"):
             return self._resolve_keyring(ref.removeprefix("keyring:"), public_ref=ref, fetch=fetch)
+        if ref.startswith("dpapi_sqlite:"):
+            return self._resolve_dpapi_sqlite(ref.removeprefix("dpapi_sqlite:"), public_ref=ref, fetch=fetch)
         if ref.startswith("openbao:"):
             return self._resolve_vault_compatible(
                 ref.removeprefix("openbao:"), public_ref=ref, source="openbao", fetch=fetch
@@ -170,6 +172,7 @@ class CredentialResolver:
             alias = f"AIDO_{name}"
             value = os.environ.get(alias)
             resolved_name = alias if value else name
+        value = clean_secret_value(value)
         if value:
             return CredentialResolution(
                 ref=public_ref, status="configured", source="env", value=value if fetch else None
@@ -223,10 +226,57 @@ class CredentialResolver:
                 source="keyring",
                 message=f"Keyring backend is unavailable: {error.__class__.__name__}",
             )
+        value = clean_secret_value(value)
         if value:
             return CredentialResolution(ref=public_ref, status="configured", source="keyring", value=value)
         return CredentialResolution(
             ref=public_ref, status="missing", source="keyring", message="Keyring credential is missing"
+        )
+
+    @staticmethod
+    def _resolve_dpapi_sqlite(locator: str, *, public_ref: str, fetch: bool) -> CredentialResolution:
+        """Resuelve ``dpapi_sqlite:<locator>``, la ref pública del backend DPAPI de Windows.
+
+        El gestor de credenciales guarda con ese backend cuando ``AIDO_DPAPI_SQLITE_PATH`` está definido,
+        pero el resolver no conocía el esquema y la ref quedaba siempre "invalid".
+        """
+        locator = locator.strip()
+        if not locator:
+            return CredentialResolution(
+                ref=public_ref,
+                status="invalid",
+                source="dpapi_sqlite",
+                message="DPAPI refs require a locator",
+            )
+        path = str(os.environ.get("AIDO_DPAPI_SQLITE_PATH") or "").strip()
+        if not path:
+            return CredentialResolution(
+                ref=public_ref,
+                status="unsupported",
+                source="dpapi_sqlite",
+                message="AIDO_DPAPI_SQLITE_PATH is not set; the DPAPI credential backend is not configured",
+            )
+        if not fetch:
+            return CredentialResolution(
+                ref=public_ref,
+                status="unverified",
+                source="dpapi_sqlite",
+                message="DPAPI ref is valid; value was not fetched during status check",
+            )
+        from local_control_center.credentials.backends import CredentialBackendError, DpapiSqliteBackend
+
+        try:
+            value = clean_secret_value(DpapiSqliteBackend(path).read(locator))
+        except CredentialBackendError as error:
+            return CredentialResolution(
+                ref=public_ref, status="unsupported", source="dpapi_sqlite", message=str(error)
+            )
+        if value:
+            return CredentialResolution(
+                ref=public_ref, status="configured", source="dpapi_sqlite", value=value
+            )
+        return CredentialResolution(
+            ref=public_ref, status="missing", source="dpapi_sqlite", message="DPAPI credential is missing"
         )
 
     def _resolve_vault_compatible(
@@ -572,3 +622,41 @@ class CredentialResolver:
         with opener.open(request, timeout=timeout) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
         return response_payload if isinstance(response_payload, dict) else {}
+
+
+USABLE_CREDENTIAL_STATUSES = frozenset({"configured", "unverified"})
+
+
+def clean_secret_value(value: str | None) -> str | None:
+    """Quita espacios, saltos de línea y comillas envolventes de un secreto leído de env/keyring.
+
+    Un ``nvapi-...`` con salto de línea final pegado en el Credential Manager o una variable ``"nvapi-..."`` con comillas
+    viajaban tal cual en ``Authorization: Bearer`` y el proveedor rechazaba una key válida.
+    """
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned or None
+
+
+def preferred_credential_ref(
+    account_ref: str | None,
+    env_ref: str | None,
+    *,
+    resolver: CredentialResolver | None = None,
+) -> str:
+    """Ref de credencial que manda para un proveedor: la del account si resuelve, si no la del entorno.
+
+    La ref que el operador guardó en el account (p. ej. ``keyring:aido/providers/nvidia_nim``) es su
+    decisión explícita y gana; una variable de entorno (p. ej. ``AIDO_NVIDIA_API_KEY`` vieja) ya no la
+    pisa en silencio. El entorno solo se usa si el account no tiene ref o su ref no resuelve (un
+    placeholder heredado como ``NVIDIA_NIM_API_KEY`` sin la variable definida). Lo usan el estado, el
+    health check, la prueba de prompt, el sync y la ejecución, para que todos lean la misma ref.
+    """
+    account = (account_ref or "").strip()
+    env = (env_ref or "").strip()
+    if account and (resolver or CredentialResolver()).status(account) in USABLE_CREDENTIAL_STATUSES:
+        return account
+    return env or account

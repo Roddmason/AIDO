@@ -32,6 +32,14 @@
 	background: var(--color-surface-card-hover);
 }
 
+/* Disabled reads as unavailable, not just faded: the global opacity (base.css) alone left a secondary
+   button's label close to an enabled one on both themes. Size and position stay put. */
+.button:disabled:not(.primary):not(.danger) {
+	border-color: var(--color-border-default);
+	background: transparent;
+	color: var(--color-text-disabled);
+}
+
 .button.primary:hover:not(:disabled) {
 	background: var(--color-accent-strong);
 	border-color: var(--color-accent-strong);

@@ -570,6 +570,12 @@ function ProviderCard({
 	const syncBusy = busyAction === `${provider.id}:sync`;
 	const cost = setup ? COST_META[setup.cost] : null;
 	const canRunTasks = Boolean(setup?.enabled && setup?.hasCredential && !isCli);
+	// A running call holds the provider: switching it off mid-run would strand that run (spec §4.1).
+	const switchLocked = Boolean(setup?.enabled && status?.inUse);
+	const inUseHint = t(
+		'app.providers.switch.inUseHint',
+		'A running thread is using this provider; you can switch it off when that run finishes.',
+	);
 
 	/** A failed probe opens "How to configure" and moves focus there (recovery path). */
 	const runAction = async () => {
@@ -595,25 +601,30 @@ function ProviderCard({
 					{setup ? (
 						<label
 							className="setting-switch provider-switch"
-							data-disabled={busyAction !== null ? 'true' : undefined}
+							data-disabled={busyAction !== null || switchLocked ? 'true' : undefined}
+							data-in-use={switchLocked ? 'true' : undefined}
+							title={switchLocked ? inUseHint : undefined}
 						>
 							<input
 								type="checkbox"
 								checked={setup.enabled}
-								disabled={busyAction !== null}
+								disabled={busyAction !== null || switchLocked}
 								aria-label={t('app.providers.switch.label', 'Use {provider} in threads').replace(
 									'{provider}',
 									provider.displayName,
 								)}
+								aria-description={switchLocked ? inUseHint : undefined}
 								onChange={(event) => onToggleEnabled(event.target.checked)}
 							/>
 							<span className="setting-switch-track" aria-hidden="true">
 								<span className="setting-switch-thumb" />
 							</span>
 							<span className="setting-switch-state" aria-hidden="true">
-								{setup.enabled
-									? t('app.providers.switch.on', 'Active')
-									: t('app.providers.switch.off', 'Inactive')}
+								{switchLocked
+									? t('app.providers.switch.inUse', 'In use')
+									: setup.enabled
+										? t('app.providers.switch.on', 'Active')
+										: t('app.providers.switch.off', 'Inactive')}
 							</span>
 						</label>
 					) : null}

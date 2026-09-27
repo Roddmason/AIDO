@@ -159,3 +159,29 @@ def test_the_status_bar_rule_and_the_team_endpoint_count_the_same_active_provide
         assert team["activeProviders"] == len(status_bar)
     finally:
         runtime.close()
+
+
+def test_a_provider_with_a_live_execution_lease_is_reported_in_use(tmp_path: Path) -> None:
+    """El switch no deja apagar un proveedor mientras una llamada suya sigue en curso."""
+    from datetime import UTC, datetime, timedelta
+
+    runtime, client = _client(tmp_path)
+    try:
+        _prepare(runtime, tmp_path)
+        now = datetime.now(UTC)
+        for lease_id, provider, state, expires in (
+            ("lease-live", "codex_cli", "dispatched", now + timedelta(minutes=5)),
+            ("lease-expired", "ollama", "active", now - timedelta(minutes=5)),
+        ):
+            runtime.connection.execute(
+                """INSERT INTO provider_execution_leases
+                   (id, provider_id, model, state, expires_at, created_at, updated_at)
+                   VALUES (?, ?, 'm', ?, ?, ?, ?)""",
+                (lease_id, provider, state, expires.isoformat(), now.isoformat(), now.isoformat()),
+            )
+        providers = client.get("/api/v1/runtime/providers").json()["providers"]
+        by_id = {item["id"]: item for item in providers}
+        assert by_id["codex_cli"]["inUse"] is True
+        assert by_id["ollama"]["inUse"] is False
+    finally:
+        runtime.close()

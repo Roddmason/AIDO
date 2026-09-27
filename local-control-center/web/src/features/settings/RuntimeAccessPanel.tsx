@@ -37,8 +37,14 @@ const RUNTIME_FLAG_KEYS = [
 	'runtime.nvidia.enabled',
 ];
 
-/** Platform-wide numeric limits of the transports above; plain settings, never kill switches. */
-const RUNTIME_LIMIT_KEYS = ['runtime.local.maxCallSeconds'];
+/**
+ * Platform-wide numeric limits of the transports above; plain settings, never kill switches. The
+ * quota threshold is the general "suspend at N% of usage" every provider card inherits.
+ */
+const RUNTIME_LIMIT_KEYS = [
+	'runtime.local.maxCallSeconds',
+	'runtime.quota.suspendThresholdPercent',
+];
 
 type PendingDisable = {
 	key: string;

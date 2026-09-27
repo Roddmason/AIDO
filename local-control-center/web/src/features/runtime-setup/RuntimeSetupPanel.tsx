@@ -45,6 +45,7 @@ import { StatusChip as Badge, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { invalidateRuntimeTeamCache } from '../runtime-team/useRuntimeTeam';
+import { SETTING_CHANGE_EVENT } from '../settings/useSettings';
 import { AddProviderWizard } from './AddProviderWizard';
 import {
 	DeferredLocalRuntime,
@@ -171,6 +172,19 @@ export function RuntimeSetupPanel({
 			});
 		}
 	};
+
+	// The general quota threshold lives in Settings: re-read usage when the operator changes it.
+	useEffect(() => {
+		const onSettingChanged = (event: Event) => {
+			const key = (event as CustomEvent<string>).detail;
+			if (typeof key === 'string' && key.startsWith('runtime.quota.')) {
+				invalidateRuntimeTeamCache();
+				void loadUsage();
+			}
+		};
+		window.addEventListener(SETTING_CHANGE_EVENT, onSettingChanged);
+		return () => window.removeEventListener(SETTING_CHANGE_EVENT, onSettingChanged);
+	}, [loadUsage]);
 
 	const onUsageChanged = (next: ProviderUsage) => {
 		setUsage(next);

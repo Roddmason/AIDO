@@ -297,7 +297,7 @@ export function ProviderUsageSection({
 							).replace('{general}', String(Math.round(generalThresholdPercent)))
 						: t(
 								'app.providers.usage.inheritsThreshold',
-								'Uses the general {general}% (Settings > Runtime). Type a value to override it.',
+								'Uses the general {general}% set above in Providers & CLI. Type a value to override it.',
 							).replace('{general}', String(Math.round(generalThresholdPercent)))
 					: t('app.providers.usage.thresholdInvalid', 'Enter a whole number from 1 to 100.')}
 			</span>

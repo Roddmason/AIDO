@@ -107,8 +107,17 @@ test('Settings Plugins console installs, enables, inspects, and audits local plu
 	await dialog.getByRole('button', { name: 'Plugins', exact: true }).first().click();
 	await expect(dialog.getByRole('heading', { name: 'Plugin registry' })).toBeVisible();
 
-	// The empty installed view routes straight to the folder installer.
-	await dialog.getByRole('button', { name: 'Install from folder' }).click();
+	// The empty installed view routes straight to the folder installer. Plugins cannot be uninstalled
+	// and the desktop and mobile projects share one server, so the second run finds the first run's
+	// plugin installed: then the folder installer is reached through its tab.
+	const emptyShortcut = dialog.getByRole('button', { name: 'Install from folder' });
+	const installedRow = dialog.getByRole('row').filter({ hasText: /e2e\.plugin\./ }).first();
+	await expect(emptyShortcut.or(installedRow)).toBeVisible();
+	if (await emptyShortcut.isVisible()) {
+		await emptyShortcut.click();
+	} else {
+		await dialog.getByRole('tab', { name: 'Available (local folder)' }).click();
+	}
 	await expect(dialog.getByRole('tab', { name: 'Available (local folder)' })).toHaveAttribute(
 		'aria-selected',
 		'true',
@@ -170,7 +179,7 @@ test('Settings Plugins console installs, enables, inspects, and audits local plu
 
 	// Events tab: the full lifecycle trail (install + enable) is auditable.
 	await dialog.getByRole('tab', { name: 'Events', exact: true }).click();
-	await expect(dialog.getByText('enable', { exact: true })).toBeVisible();
+	await expect(dialog.getByText('enable', { exact: true }).first()).toBeVisible();
 	await expect(dialog.getByText('install_local', { exact: true }).first()).toBeVisible();
 
 	// Single-layer behaviour is unchanged: with the inspector already gone, one Escape

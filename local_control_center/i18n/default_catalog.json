@@ -11244,8 +11244,8 @@
       "es": "Umbral propio. Vacía el campo para usar el general de {general}%."
     },
     "app.providers.usage.inheritsThreshold": {
-      "en": "Uses the general {general}% (Settings > Runtime). Type a value to override it.",
-      "es": "Usa el general de {general}% (Configuración > Runtime). Escribe un valor para reemplazarlo."
+      "en": "Uses the general {general}% set above in Providers & CLI. Type a value to override it.",
+      "es": "Usa el general de {general}% configurado arriba en Proveedores y CLI. Escribe un valor para reemplazarlo."
     },
     "app.providers.usage.thresholdInvalid": {
       "en": "Enter a whole number from 1 to 100.",

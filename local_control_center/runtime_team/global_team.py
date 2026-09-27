@@ -155,7 +155,11 @@ def _resolve(
             roles[role] = RoleAssignment(role, tuple(configured), tuple(effective), source, invalid)
             continue
         if role in DERIVED_TEAM_ROLES:
-            roles[role] = RoleAssignment(role, (), roles["product_owner"].effective, "inherited")
+            # GLOBAL_TEAM_ROLES pone al PO primero; si ese orden cambiara, un rol derivado sin PO resuelto
+            # queda vacío en vez de lanzar KeyError.
+            product_owner = roles.get("product_owner")
+            inherited = product_owner.effective if product_owner else ()
+            roles[role] = RoleAssignment(role, (), inherited, "inherited")
             continue
         first = automatic.get(role)
         effective = ([first] if first else []) + [

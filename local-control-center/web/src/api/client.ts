@@ -65,6 +65,8 @@ export type RuntimeTeamCandidatesResponse =
 	OperationResponse<'list_runtime_team_candidates_api_v1_runtime_team_candidates_get'>;
 export type RuntimeTeamCandidate = RuntimeTeamCandidatesResponse['candidates'][number];
 export type RuntimeTeamResponse = OperationResponse<'get_runtime_team_api_v1_runtime_team_get'>;
+export type ThreadSealedRuntimeTeam =
+	OperationResponse<'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get'>;
 export type RuntimeValidationResponse =
 	OperationResponse<'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post'>;
 export type ThreadRunConfigurationRequest =
@@ -2218,6 +2220,17 @@ export function getRuntimeTeamCandidates(
 		RuntimeTeamCandidatesResponse
 	>('list_runtime_team_candidates_api_v1_runtime_team_candidates_get', {
 		query: { projectId, selected: selected === null ? undefined : selected.join(',') },
+		signal,
+	});
+}
+
+/** AI team sealed in the thread's latest run (its own team, the global one, or none yet). */
+export function getThreadSealedRuntimeTeam(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get',
+		ThreadSealedRuntimeTeam
+	>('get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get', {
+		pathParams: { thread_id: threadId },
 		signal,
 	});
 }

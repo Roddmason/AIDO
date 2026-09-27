@@ -11187,6 +11187,10 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.aiTeam.lastRun": {
+      "en": "last run: {provider}",
+      "es": "último run: {provider}"
+    },
     "app.runtimeTeam.chipGlobal": {
       "en": "AI team · global",
       "es": "Equipo IA · global"

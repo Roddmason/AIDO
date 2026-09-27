@@ -457,6 +457,69 @@ def seal_thread_runtime_team(
     return stamped
 
 
+THREAD_RUN_JOB_KIND = "thread.product_loop.run"
+
+
+def sealed_runtime_team_of_thread(connection: sqlite3.Connection, thread_id: str) -> dict[str, Any]:
+    """Equipo sellado en el último run del hilo: el del hilo (``thread``), el global o ninguno.
+
+    Lee el ``runMetadata`` del job más reciente del hilo (lo que el loop usó de verdad), no la
+    configuración vigente: cambiar el equipo después no reescribe lo ya sellado.
+
+    Raises:
+        KeyError: si el hilo no existe.
+    """
+    thread = connection.execute(
+        "SELECT project_id FROM project_threads WHERE id = ?", (thread_id,)
+    ).fetchone()
+    if thread is None:
+        raise KeyError(f"Thread not found: {thread_id}")
+    row = connection.execute(
+        """SELECT id, payload, created_at FROM jobs
+           WHERE project_id = ? AND kind = ? AND json_extract(payload, '$.threadId') = ?
+           ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+        (thread["project_id"], THREAD_RUN_JOB_KIND, thread_id),
+    ).fetchone()
+    empty: dict[str, Any] = {
+        "jobId": None,
+        "sealedAt": None,
+        "source": "none",
+        "roleRuntimes": {},
+        "roleRuntimeOrder": {},
+        "roleSources": {},
+    }
+    if row is None:
+        return empty
+    payload = json_loads(row["payload"], {})
+    meta = payload.get("runMetadata") if isinstance(payload, dict) else None
+    base = {**empty, "jobId": str(row["id"]), "sealedAt": str(row["created_at"])}
+    team = runtime_team_of(meta if isinstance(meta, dict) else None)
+    if team is not None:
+        roles = dict(team[ROLE_RUNTIMES_KEY])
+        return {
+            **base,
+            "source": "thread",
+            "roleRuntimes": roles,
+            "roleRuntimeOrder": {role: [provider] for role, provider in roles.items()},
+            "roleSources": dict.fromkeys(roles, "thread"),
+        }
+    snapshot = (meta or {}).get(GLOBAL_RUNTIME_TEAM_METADATA_KEY) if isinstance(meta, dict) else None
+    validated = global_team_of(meta if isinstance(meta, dict) else None)
+    if validated is None or not isinstance(snapshot, dict):
+        return base
+    raw_roles = snapshot.get("roleRuntimes") if isinstance(snapshot.get("roleRuntimes"), dict) else {}
+    return {
+        **base,
+        "source": "global",
+        "roleRuntimes": {
+            role: (str(raw_roles.get(role)) if raw_roles.get(role) else (order[0] if order else None))
+            for role, order in validated["roleRuntimeOrder"].items()
+        },
+        "roleRuntimeOrder": validated["roleRuntimeOrder"],
+        "roleSources": validated["source"],
+    }
+
+
 def discarded_runtimes_of(request_meta: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     """Runtimes que el sellado sacó del equipo del run (vencidos o fuera de la política del proyecto)."""
     raw = (request_meta or {}).get(RUNTIME_TEAM_DISCARDED_METADATA_KEY)

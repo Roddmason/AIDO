@@ -206,6 +206,7 @@ export function ThreadInspector({
 				loop={loop}
 				roster={roster}
 				projectId={project.id}
+				threadId={threadId}
 				detail={detail}
 				onOpenSettings={onOpenSettings}
 			/>
@@ -569,6 +570,7 @@ function TeamPanel({
 	loop,
 	roster,
 	projectId,
+	threadId,
 	detail,
 	onOpenSettings,
 }: {
@@ -576,12 +578,17 @@ function TeamPanel({
 	loop: InspectorResource<LoopData>;
 	roster: InspectorResource<AgentProfilesResponse>;
 	projectId: string;
+	threadId: string | null;
 	detail: InspectorResource<ThreadDetail>;
 	onOpenSettings: (section?: string) => void;
 }) {
 	return (
 		<>
-			<EffectiveTeamCard projectId={projectId} threadMetadata={detail.data?.thread.metadata} />
+			<EffectiveTeamCard
+				projectId={projectId}
+				threadId={threadId}
+				threadMetadata={detail.data?.thread.metadata}
+			/>
 			<ResourceGate resource={roster}>
 				{(data) => (
 					<TeamRoster

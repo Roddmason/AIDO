@@ -105,6 +105,17 @@ class GlobalTeamRoleRecord(BaseModel):
     candidates: list[str] = Field(default_factory=list)
 
 
+class ThreadSealedRuntimeTeamResponse(BaseModel):
+    """Equipo sellado en el último run del hilo (``thread``: su propio equipo; ``global``: el global)."""
+
+    job_id: str | None = Field(default=None, alias="jobId")
+    sealed_at: str | None = Field(default=None, alias="sealedAt")
+    source: Literal["thread", "global", "none"]
+    role_runtimes: dict[str, str | None] = Field(default_factory=dict, alias="roleRuntimes")
+    role_runtime_order: dict[str, list[str]] = Field(default_factory=dict, alias="roleRuntimeOrder")
+    role_sources: dict[str, str] = Field(default_factory=dict, alias="roleSources")
+
+
 class RuntimeTeamResponse(BaseModel):
     """Equipo de IA global efectivo de un proyecto (o general) con los candidatos activos."""
 

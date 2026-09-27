@@ -5536,8 +5536,9 @@ class ProductLoopCoordinator:
                 order, order_wildcards = role_routing_preferences(
                     getattr(run, "request_meta", None), team_role_for(role)
                 )
-                decision = manager.select_resource(
-                    AIResourceRequest(
+
+                def failover_request(allowed: list[str] | None) -> AIResourceRequest:
+                    return AIResourceRequest(
                         project_id=run.project_id,
                         workflow_run_id=run.loop["id"],
                         agent_id=role,
@@ -5547,9 +5548,9 @@ class ProductLoopCoordinator:
                         risk_level=str((run.team_schedule or {}).get("risk") or "medium"),
                         routing_policy=str((run.team_schedule or {}).get("mode") or "balanced"),
                         required_capabilities=["chat"],
-                        allowed_provider_ids=role_allowlist(
-                            getattr(run, "request_meta", None), team_role_for(role)
-                        ),
+                        allowed_provider_ids=allowed
+                        if allowed is not None
+                        else role_allowlist(getattr(run, "request_meta", None), team_role_for(role)),
                         preferred_provider_ids=[
                             *order,
                             *(item for item in policy["preferredProviderIds"] if item not in order),
@@ -5568,6 +5569,15 @@ class ProductLoopCoordinator:
                         allow_unknown_cost=policy["allowUnknownCost"],
                         require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
                         require_approval_over_usd=policy["requiresApprovalOverUsd"],
+                    )
+
+                # Con Jev y un orden automático, el failover también prueba de a un proveedor.
+                decision = self._select_walking_providers(
+                    manager,
+                    failover_request,
+                    None,
+                    self._jev_provider_walk(
+                        run.project_id, getattr(run, "request_meta", None) or {}, team_role_for(role)
                     ),
                     record=True,
                     allow_decision_inference=True,

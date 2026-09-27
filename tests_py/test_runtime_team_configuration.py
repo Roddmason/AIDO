@@ -531,3 +531,36 @@ def test_an_order_is_explicit_only_when_the_operator_wrote_it():
     assert global_role_order_is_explicit(GLOBAL, "technical_lead") is True  # hereda un PO general
     assert global_role_order_is_explicit(GLOBAL, None) is True  # sigue el orden del PO
     assert global_role_order_is_explicit({}, "developer") is False
+
+
+def test_an_empty_global_order_fails_closed_instead_of_opening_the_catalog():
+    """Proveedores explícitos apagados o fuera de la política dejan el orden vacío: bloquear, no ampliar."""
+    team = GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    empty = {
+        GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+            **team,
+            "roleRuntimeOrder": {role: [] for role in team["roleRuntimeOrder"]},
+            "allowedRuntimes": [],
+        }
+    }
+    assert role_allowlist(empty, "developer", product_owner_provider_id="ollama") == []
+    assert role_allowlist(empty, "product_owner") == []
+    assert role_allowlist(empty, None) == []
+    assert restrict_to_allowlist(["codex_cli", "ollama"], role_allowlist(empty, "product_owner")) == []
+
+
+def test_only_an_automatic_optional_role_borrows_the_team_runtimes():
+    team = GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    explicit_empty = {
+        GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+            **team,
+            "roleRuntimeOrder": {**team["roleRuntimeOrder"], "developer": [], "security": []},
+            "source": {**team["source"], "developer": "general", "security": "project"},
+        }
+    }
+    # Obligatorio con orden explícito inválido: bloquea, no toma los proveedores del PO.
+    assert role_allowlist(explicit_empty, "developer") == []
+    # Opcional con orden explícito inválido: tampoco.
+    assert role_allowlist(explicit_empty, "security") == []
+    # Opcional automático sin candidatos: puede usar cualquier runtime del equipo.
+    assert role_allowlist(explicit_empty, "architect") == ["codex_cli", "ollama"]

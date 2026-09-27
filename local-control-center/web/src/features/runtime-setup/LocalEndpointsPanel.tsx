@@ -8,7 +8,7 @@
  * @author Rodrigo Mason
  */
 
-import { Pencil, PlugZap, RefreshCw, Server, ShieldCheck, Trash2 } from 'lucide-react';
+import { Pencil, RefreshCw, Server, ShieldCheck, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -22,8 +22,10 @@ import {
 	StatusChip as Badge,
 	Button,
 	Checkbox,
+	IconButton,
 	Dialog as Modal,
 	TextField,
+	Tooltip,
 	useToast,
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -174,7 +176,10 @@ export function LocalEndpointsPanel({
 	};
 
 	return (
-		<section className="stack" aria-label={t('app.localRuntime.panel.title', 'Local endpoints')}>
+		<section
+			className="stack providers-cli-section"
+			aria-label={t('app.localRuntime.panel.title', 'Local endpoints')}
+		>
 			<div className="surface-toolbar">
 				<div className="inline">
 					<Server aria-hidden="true" size={16} />
@@ -372,33 +377,44 @@ function LocalEndpointCard({
 
 			<div className="provider-card-actions">
 				<Button
+					className="endpoint-card-action"
 					variant="primary"
 					loading={busyAction === `${card.id}:probe`}
 					disabled={anyBusy}
-					icon={<PlugZap size={14} />}
 					onClick={onProbe}
 				>
 					{t('app.localRuntime.panel.probe', 'Probe')}
 				</Button>
 				<Button
+					className="endpoint-card-action"
 					loading={busyAction === `${card.id}:sync`}
 					disabled={anyBusy}
-					icon={<RefreshCw size={14} />}
 					onClick={onSync}
 				>
 					{t('app.localRuntime.panel.sync', 'Sync models')}
 				</Button>
-				<Button disabled={anyBusy} icon={<Pencil size={14} />} onClick={onEdit}>
-					{t('app.localRuntime.panel.edit', 'Edit')}
-				</Button>
-				<Button
-					className="provider-card-delete"
-					disabled={anyBusy}
-					icon={<Trash2 size={14} />}
-					onClick={onDelete}
-				>
-					{t('app.localRuntime.panel.delete', 'Delete')}
-				</Button>
+				{/* Same row anatomy as the Ollama card: two labelled actions, then icon buttons. */}
+				<span className="provider-card-icon-actions">
+					<Tooltip label={t('app.localRuntime.panel.edit', 'Edit')}>
+						<IconButton
+							aria-label={t('app.localRuntime.panel.edit', 'Edit')}
+							disabled={anyBusy}
+							onClick={onEdit}
+						>
+							<Pencil aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+					<Tooltip label={t('app.localRuntime.panel.delete', 'Delete')}>
+						<IconButton
+							className="provider-card-delete-icon"
+							aria-label={t('app.localRuntime.panel.delete', 'Delete')}
+							disabled={anyBusy}
+							onClick={onDelete}
+						>
+							<Trash2 aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+				</span>
 			</div>
 		</article>
 	);

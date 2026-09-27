@@ -371,9 +371,73 @@
       "en": "This provider needs no API key; saving enables it.",
       "es": "Este proveedor no necesita API key; guardar lo habilita."
     },
-    "app.providers.wizard.modelsSelected": {
-      "en": "selected",
-      "es": "seleccionados"
+    "app.providers.models.countSelected": {
+      "en": "{selected} selected of {total}",
+      "es": "{selected} seleccionados de {total}"
+    },
+    "app.providers.models.countShown": {
+      "en": "{shown} shown",
+      "es": "{shown} visibles"
+    },
+    "app.providers.models.filterAria": {
+      "en": "Filter models",
+      "es": "Filtrar modelos"
+    },
+    "app.providers.models.filterPlaceholder": {
+      "en": "Filter by id or name",
+      "es": "Filtra por id o nombre"
+    },
+    "app.providers.models.toggleShown": {
+      "en": "All shown",
+      "es": "Todos los visibles"
+    },
+    "app.providers.models.toggleAll": {
+      "en": "All models",
+      "es": "Todos los modelos"
+    },
+    "app.providers.models.selectAll": {
+      "en": "Select all",
+      "es": "Seleccionar todos"
+    },
+    "app.providers.models.selectNone": {
+      "en": "Select none",
+      "es": "Quitar todos"
+    },
+    "app.providers.models.selectShown": {
+      "en": "Select shown",
+      "es": "Seleccionar visibles"
+    },
+    "app.providers.models.clearShown": {
+      "en": "Clear shown",
+      "es": "Quitar visibles"
+    },
+    "app.providers.models.selectRecommended": {
+      "en": "Select recommended ({count})",
+      "es": "Seleccionar recomendados ({count})"
+    },
+    "app.providers.models.selectRecommendedHint": {
+      "en": "Keep only the curated models this gateway is known to serve.",
+      "es": "Deja solo los modelos curados que este gateway atiende."
+    },
+    "app.providers.models.listAria": {
+      "en": "Models",
+      "es": "Modelos"
+    },
+    "app.providers.models.noMatch": {
+      "en": "No model matches “{query}”.",
+      "es": "Ningún modelo coincide con “{query}”."
+    },
+    "app.providers.models.showingOf": {
+      "en": "Showing {shown} of {total}",
+      "es": "Mostrando {shown} de {total}"
+    },
+    "app.providers.models.showMore": {
+      "en": "Show {count} more",
+      "es": "Mostrar {count} más"
+    },
+    "app.providers.wizard.savingModels": {
+      "en": "Saving model selection… {done}/{total}",
+      "es": "Guardando la selección de modelos… {done}/{total}"
     },
     "app.providers.wizard.modelsEmpty": {
       "en": "No models synced yet.",

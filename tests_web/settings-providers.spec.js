@@ -17,25 +17,33 @@ const SECRET = 'sk-e2e-secret-never-rendered-0123456789';
 /** No `sk-` substring: secret redaction rewrites those and would corrupt assertions on this ref. */
 const SEEDED_CREDENTIAL_REF = 'env:AIDO_E2E_GEMINI_KEY';
 
-async function mockWizardModelCatalog(page, models, onPatch) {
+/**
+ * Mocks the wizard's model endpoints. The selection is saved through the bulk endpoint
+ * (`PATCH /model-gateway/providers/{id}/models`, one request per batch of ids); `onPatch` sees each
+ * batch as `{ enabled, models }` and returns false to fail it. A per-model PATCH fails the test.
+ */
+async function mockWizardModelCatalog(page, models, onPatch, { recommendedModels } = {}) {
 	await page.route('/api/v1/provider-accounts/from-catalog', (route) => route.fulfill({ json: {} }));
 	await page.route('/api/v1/model-gateway/role-policies', (route) =>
 		route.fulfill({ json: { rolePolicies: [] } }),
 	);
 	await page.route('/api/v1/provider-accounts/ollama/sync-models', (route) =>
-		route.fulfill({ json: { models } }),
+		route.fulfill({ json: { models, recommendedModels: recommendedModels ?? null } }),
 	);
-	await page.route('**/api/v1/model-gateway/models/*', async (route) => {
+	await page.route('**/api/v1/model-gateway/providers/ollama/models', async (route) => {
 		if (route.request().method() !== 'PATCH') return route.continue();
-		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
 		const body = route.request().postDataJSON();
-		const model = models.find((entry) => entry.id === id);
-		if (onPatch && !onPatch(id, body.enabled)) {
+		if (onPatch && !onPatch({ enabled: body.enabled, models: body.models })) {
 			await route.fulfill({ status: 500, json: { detail: 'model_update_failed' } });
 			return;
 		}
-		Object.assign(model, body);
-		await route.fulfill({ json: { model } });
+		const ids = new Set(body.models);
+		for (const model of models) if (ids.has(model.id)) model.enabled = body.enabled;
+		await route.fulfill({ json: { providerId: 'ollama', enabled: body.enabled, updated: ids.size } });
+	});
+	await page.route('**/api/v1/model-gateway/models/*', async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		throw new Error('the wizard must save the model selection in bulk, not one PATCH per model');
 	});
 }
 
@@ -57,8 +65,8 @@ test('Configure provider: model selection survives sync and saves only changed e
 	const model = (id, enabled) => ({ id, providerId: 'ollama', model: id, enabled, freeTier: true });
 	const models = [model('enabled-first', true), model('disabled-second', false), model('unchanged', true)];
 	const writes = [];
-	await mockWizardModelCatalog(page, models, (id, enabled) => {
-		writes.push({ id, enabled });
+	await mockWizardModelCatalog(page, models, (batch) => {
+		writes.push(batch);
 		return true;
 	});
 	try {
@@ -69,15 +77,15 @@ test('Configure provider: model selection survives sync and saves only changed e
 		await wizard.getByRole('checkbox', { name: 'disabled-second', exact: true }).check();
 		models.push(model('new-disabled', false));
 		await wizard.getByRole('button', { name: 'Sync models', exact: true }).click();
-		await expect(wizard.getByText('2/4 selected', { exact: true })).toBeVisible();
+		await expect(wizard.getByText('2 selected of 4', { exact: true })).toBeVisible();
 		await expect(wizard.getByRole('checkbox', { name: 'enabled-first', exact: true })).not.toBeChecked();
 		await expect(wizard.getByRole('checkbox', { name: 'disabled-second', exact: true })).toBeChecked();
 		await expect(wizard.getByRole('checkbox', { name: 'new-disabled', exact: true })).not.toBeChecked();
 		await finishModelSelection(wizard);
 		await expect(wizard).toBeHidden();
 		expect(writes).toEqual([
-			{ id: 'enabled-first', enabled: false },
-			{ id: 'disabled-second', enabled: true },
+			{ enabled: true, models: ['disabled-second'] },
+			{ enabled: false, models: ['enabled-first'] },
 		]);
 
 		wizard = await openModelSelection(page);
@@ -98,9 +106,10 @@ test('Configure provider: a failed model save stays open and retries only unsave
 	];
 	let failSave = true;
 	const writes = [];
-	await mockWizardModelCatalog(page, models, (id, enabled) => {
-		writes.push({ id, enabled });
-		return !(id === 'disable-second' && failSave);
+	// The enable batch commits; the disable batch fails once, so the retry re-sends only that batch.
+	await mockWizardModelCatalog(page, models, (batch) => {
+		writes.push(batch);
+		return !(batch.enabled === false && failSave);
 	});
 	try {
 		const wizard = await openModelSelection(page);
@@ -110,16 +119,83 @@ test('Configure provider: a failed model save stays open and retries only unsave
 		await expect(wizard.getByRole('alert')).toContainText('model_update_failed');
 		await expect(wizard).toBeVisible();
 		expect(writes).toEqual([
-			{ id: 'enable-first', enabled: true },
-			{ id: 'disable-second', enabled: false },
+			{ enabled: true, models: ['enable-first'] },
+			{ enabled: false, models: ['disable-second'] },
 		]);
 		failSave = false;
 		await wizard.getByRole('button', { name: 'Save & finish', exact: true }).click();
 		await expect(wizard).toBeHidden();
 		expect(writes).toEqual([
-			{ id: 'enable-first', enabled: true },
-			{ id: 'disable-second', enabled: false },
-			{ id: 'disable-second', enabled: false },
+			{ enabled: true, models: ['enable-first'] },
+			{ enabled: false, models: ['disable-second'] },
+			{ enabled: false, models: ['disable-second'] },
+		]);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
+test('Configure provider: a 1000+ model catalog is filtered, bulk-selected and saved in batches', async ({
+	page,
+}) => {
+	const models = Array.from({ length: 1200 }, (_, index) => {
+		const name = `vendor${index % 12}/model-${String(index).padStart(4, '0')}`;
+		return { id: `ollama:${name}`, providerId: 'ollama', model: name, enabled: false, freeTier: true };
+	});
+	const recommended = ['vendor0/model-0000', 'vendor1/model-0001', 'vendor2/model-0002'];
+	const writes = [];
+	await mockWizardModelCatalog(
+		page,
+		models,
+		(batch) => {
+			writes.push({ enabled: batch.enabled, count: batch.models.length });
+			return true;
+		},
+		{ recommendedModels: recommended },
+	);
+	try {
+		const wizard = await openModelSelection(page);
+		await expect(wizard.getByText('0 selected of 1200', { exact: true })).toBeVisible();
+		// Paged rendering: 200 rows mounted, the rest behind "Show more".
+		const list = wizard.getByRole('group', { name: 'Models' });
+		await expect(list.getByRole('checkbox')).toHaveCount(200);
+		await wizard.getByRole('button', { name: 'Show 200 more' }).click();
+		await expect(list.getByRole('checkbox')).toHaveCount(400);
+
+		// Nothing is preselected; "Select recommended" offers the curated allowlist only.
+		await wizard.getByRole('button', { name: 'Select recommended (3)' }).click();
+		await expect(wizard.getByText('3 selected of 1200', { exact: true })).toBeVisible();
+
+		// Filtering narrows the list and the shown-set actions (tri-state header included).
+		await wizard.getByRole('searchbox', { name: 'Filter models' }).fill('VENDOR3/');
+		await expect(wizard.getByText('100 shown')).toBeVisible();
+		const header = wizard.getByRole('checkbox', { name: 'All shown' });
+		await expect(header).not.toBeChecked();
+		await wizard.getByRole('button', { name: 'Select shown' }).click();
+		await expect(wizard.getByText('103 selected of 1200', { exact: true })).toBeVisible();
+		await expect(header).toBeChecked();
+		await list.getByRole('checkbox', { name: 'vendor3/model-0003', exact: true }).uncheck();
+		await expect(header).toHaveJSProperty('indeterminate', true);
+		await header.click();
+		await expect(header).toBeChecked();
+		await wizard.getByRole('button', { name: 'Clear shown' }).click();
+		await expect(wizard.getByText('3 selected of 1200', { exact: true })).toBeVisible();
+		await wizard.getByRole('searchbox', { name: 'Filter models' }).fill('no-such-model');
+		await expect(wizard.getByText('No model matches “no-such-model”.')).toBeVisible();
+		await wizard.getByRole('searchbox', { name: 'Filter models' }).fill('');
+
+		await wizard.getByRole('button', { name: 'Select none' }).click();
+		await expect(wizard.getByText('0 selected of 1200', { exact: true })).toBeVisible();
+		await wizard.getByRole('button', { name: 'Select all' }).click();
+		await expect(wizard.getByText('1200 selected of 1200', { exact: true })).toBeVisible();
+
+		await finishModelSelection(wizard);
+		await expect(wizard).toBeHidden();
+		// 1200 changes travel as three bulk requests, not 1200 sequential PATCHes.
+		expect(writes).toEqual([
+			{ enabled: true, count: 500 },
+			{ enabled: true, count: 500 },
+			{ enabled: true, count: 200 },
 		]);
 	} finally {
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
@@ -296,7 +372,7 @@ test('Add provider: the last step routes the chosen model to the selected roles'
 
 	await wizard.getByRole('button', { name: 'Next' }).click();
 	await wizard.getByRole('button', { name: 'Sync models' }).click();
-	await expect(wizard.getByText('1/1 selected')).toBeVisible();
+	await expect(wizard.getByText('1 selected of 1', { exact: true })).toBeVisible();
 	await expect(wizard.getByText('free tier', { exact: true })).toBeVisible();
 
 	await wizard.getByRole('button', { name: 'Next' }).click(); // models  -> validate
@@ -397,7 +473,7 @@ test('Add provider: OmniRoute syncs its models on its own and starts with every 
 	await chooseProvider(wizard, 'ollama');
 	await wizard.getByRole('button', { name: 'Next' }).click();
 	await wizard.getByRole('button', { name: 'Sync models' }).click();
-	await expect(wizard.getByText('1/1 selected')).toBeVisible();
+	await expect(wizard.getByText('1 selected of 1', { exact: true })).toBeVisible();
 	await wizard.getByRole('button', { name: 'Back' }).click(); // models     -> credential
 	await wizard.getByRole('button', { name: 'Back' }).click(); // credential -> provider
 	await page.unroute('/api/v1/provider-accounts/from-catalog');
@@ -416,7 +492,7 @@ test('Add provider: OmniRoute syncs its models on its own and starts with every 
 
 	// Step 03 syncs without a click — the gateway owns model choice, the operator only curates —
 	// and shows OmniRoute's two models, not the one left over from the ollama leg.
-	await expect(wizard.getByText('2/2 selected')).toBeVisible();
+	await expect(wizard.getByText('2 selected of 2', { exact: true })).toBeVisible();
 
 	await wizard.getByRole('button', { name: 'Next' }).click(); // models  -> validate
 	await wizard.getByRole('button', { name: 'Next' }).click(); // validate -> roles
@@ -729,14 +805,13 @@ test('Add provider: the validate step saves the selection and shows which gatewa
 	await page.route('/api/v1/provider-accounts/omniroute/sync-models', (route) =>
 		route.fulfill({ json: { models } }),
 	);
-	await page.route('**/api/v1/model-gateway/models/*', async (route) => {
+	await page.route('**/api/v1/model-gateway/providers/omniroute/models', async (route) => {
 		if (route.request().method() !== 'PATCH') return route.continue();
-		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
 		const body = route.request().postDataJSON();
-		events.push(`patch:${id}:${body.enabled}`);
-		const model = models.find((entry) => entry.id === id);
-		Object.assign(model, body);
-		await route.fulfill({ json: { model } });
+		for (const id of body.models) events.push(`patch:${id}:${body.enabled}`);
+		const ids = new Set(body.models);
+		for (const model of models) if (ids.has(model.id)) model.enabled = body.enabled;
+		await route.fulfill({ json: { providerId: 'omniroute', enabled: body.enabled, updated: ids.size } });
 	});
 	await page.route('**/api/v1/model-gateway/providers/omniroute/validate-runtime', async (route) => {
 		events.push(`validate:${JSON.stringify(route.request().postDataJSON())}`);
@@ -769,7 +844,7 @@ test('Add provider: the validate step saves the selection and shows which gatewa
 		const wizard = await openWizard(page);
 		await chooseProvider(wizard, 'omniroute');
 		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
-		await expect(wizard.getByText('2/3 selected', { exact: true })).toBeVisible();
+		await expect(wizard.getByText('2 selected of 3', { exact: true })).toBeVisible();
 		await expect(wizard.getByRole('checkbox', { name: 'cc/claude-x', exact: true })).not.toBeChecked();
 
 		// With nothing selected the real validation is refused before any request is sent.

@@ -428,7 +428,10 @@ export function RuntimeSetupPanel({
 
 	return (
 		<>
-			<div className="runtime-setup-body" hidden={wizardOpen || localDraft !== null}>
+			<div
+				className="runtime-setup-body providers-cli-section"
+				hidden={wizardOpen || localDraft !== null}
+			>
 				<p className="muted">
 					{t(
 						'app.runtime.summary',

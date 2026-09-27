@@ -8,7 +8,7 @@
  * @author Rodrigo Mason
  */
 
-import { Boxes, PlugZap, Plus, RefreshCw, Server, ShieldCheck, Trash2, Wand2 } from 'lucide-react';
+import { Boxes, Plus, RefreshCw, Server, ShieldCheck, Trash2, Wand2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -26,9 +26,11 @@ import {
 	StatusChip as Badge,
 	Button,
 	Checkbox,
+	IconButton,
 	Dialog as Modal,
 	SelectField,
 	TextField,
+	Tooltip,
 	useToast,
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -209,7 +211,7 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 	};
 
 	return (
-		<section className="stack">
+		<section className="stack providers-cli-section">
 			<div className="surface-toolbar">
 				<div className="inline">
 					<Boxes aria-hidden="true" size={16} />
@@ -441,37 +443,45 @@ function EndpointCard({
 
 			<div className="provider-card-actions">
 				<Button
+					className="endpoint-card-action"
 					variant="primary"
 					loading={validateBusy}
 					disabled={anyBusy}
-					icon={<PlugZap size={14} />}
 					onClick={onValidate}
 				>
 					{t('app.ollama.card.validate', 'Validate')}
 				</Button>
 				<Button
+					className="endpoint-card-action"
 					loading={syncBusy}
 					disabled={anyBusy}
-					icon={<RefreshCw size={14} />}
 					onClick={onSync}
 				>
 					{t('app.ollama.card.syncModels', 'Sync models')}
 				</Button>
-				<Button
-					icon={<Wand2 size={14} />}
-					disabled={anyBusy || card.models.length === 0}
-					onClick={onSetPreferred}
-				>
-					{t('app.ollama.card.setPreferred', 'Set preferred for role')}
-				</Button>
-				<Button
-					className="provider-card-delete"
-					disabled={anyBusy}
-					icon={<Trash2 size={14} />}
-					onClick={onDelete}
-				>
-					{t('app.ollama.card.delete', 'Delete')}
-				</Button>
+				{/* Secondary actions: compact icon buttons (named via aria-label, explained by a tooltip)
+				    so the four actions share one row in a 23rem card instead of wrapping onto two. */}
+				<span className="provider-card-icon-actions">
+					<Tooltip label={t('app.ollama.card.setPreferred', 'Set preferred for role')}>
+						<IconButton
+							aria-label={t('app.ollama.card.setPreferred', 'Set preferred for role')}
+							disabled={anyBusy || card.models.length === 0}
+							onClick={onSetPreferred}
+						>
+							<Wand2 aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+					<Tooltip label={t('app.ollama.card.delete', 'Delete')}>
+						<IconButton
+							className="provider-card-delete-icon"
+							aria-label={t('app.ollama.card.delete', 'Delete')}
+							disabled={anyBusy}
+							onClick={onDelete}
+						>
+							<Trash2 aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+				</span>
 			</div>
 		</article>
 	);

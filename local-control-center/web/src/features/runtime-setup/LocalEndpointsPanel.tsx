@@ -311,7 +311,9 @@ function LocalEndpointCard({
 			<div className="card-header">
 				<div className="inline">
 					<Server aria-hidden="true" size={18} />
-					<h4 className="card-title">{card.displayName}</h4>
+					<h4 className="card-title" title={card.displayName}>
+						{card.displayName}
+					</h4>
 				</div>
 				<div className="inline">
 					<ProviderSwitch

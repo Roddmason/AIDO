@@ -11211,6 +11211,14 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.runtime.health.reason.cli_not_detected": {
+      "en": "AIDO has not found this CLI on this machine yet. Run Detect & check; if it is not installed, install it and make sure it is on PATH.",
+      "es": "AIDO aún no encuentra esta CLI en este equipo. Ejecuta Detectar y verificar; si no está instalada, instálala y asegúrate de que esté en el PATH."
+    },
+    "app.providers.card.reason.cli_not_detected": {
+      "en": "Not detected on this machine yet. Run Detect & check.",
+      "es": "Aún no se detecta en este equipo. Ejecuta Detectar y verificar."
+    },
     "app.worker.tokenRequired": {
       "en": "A local write token is required to resume the worker.",
       "es": "Se necesita el token local de escritura para reanudar el worker."

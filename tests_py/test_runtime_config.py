@@ -992,7 +992,7 @@ def test_cli_command_env_is_deprecated_optional_override() -> None:
     assert unset.configured is False
     assert unset.status == "override_unset"
     assert unset.missing == []
-    assert "runtime_installations" in unset.reason
+    assert unset.reason == "CLI command is not configured."
 
     override = runtime_provider_configuration("codex_cli", environ={"AIDO_CODEX_COMMAND": "codex"})
     assert override is not None

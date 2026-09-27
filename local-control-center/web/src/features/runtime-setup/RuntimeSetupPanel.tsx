@@ -706,7 +706,9 @@ function ProviderCard({
 			<div className="card-header">
 				<div className="inline">
 					{ProviderGlyph ? <ProviderGlyph aria-hidden="true" size={18} /> : null}
-					<h4 className="card-title">{provider.displayName}</h4>
+					<h4 className="card-title" title={provider.displayName}>
+						{provider.displayName}
+					</h4>
 				</div>
 				<div className="inline">
 					<ProviderSwitch

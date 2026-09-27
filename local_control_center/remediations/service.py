@@ -41,7 +41,11 @@ from local_control_center.remediations.payloads import (
 )
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
-from local_control_center.runtime_team.validation import runtime_validation_state
+from local_control_center.runtime_team.validation import (
+    REMOTE_MODEL_RUNTIME_KINDS,
+    account_validation_state,
+    runtime_validation_state,
+)
 from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -1660,7 +1664,8 @@ class BlockerRemediationService:
         """Pares (runtime, modelo) del payload persistido que siguen sin validación vigente (24 h).
 
         Un runtime con ``runtimeModels`` se evalúa por cada modelo sellado que el gate de ejecución vio
-        vencido (``staleRuntimes[].model``); uno sin modelos, a nivel de runtime como antes. Así un éxito
+        vencido (``staleRuntimes[].model``); uno sin modelos, como el gate: por cualquier modelo habilitado
+        validado en API/gateway y a nivel de runtime en el resto. Así un éxito
         de otro modelo del mismo servidor no reanuda un loop que volvería a bloquear en el sellado.
         """
         runtime_models = stored.get("runtimeModels") if isinstance(stored.get("runtimeModels"), dict) else {}
@@ -1668,8 +1673,17 @@ class BlockerRemediationService:
         for provider_id in [str(item) for item in stored.get("runtimeIds") or [] if str(item).strip()]:
             models = [str(model) for model in runtime_models.get(provider_id) or [] if str(model).strip()]
             for model in models or [None]:
-                state = runtime_validation_state(
-                    self.connection, provider_id, max_age_seconds=VALIDATION_TTL_SECONDS, model=model
+                state = (
+                    runtime_validation_state(
+                        self.connection, provider_id, max_age_seconds=VALIDATION_TTL_SECONDS, model=model
+                    )
+                    if model
+                    else account_validation_state(
+                        self.connection,
+                        provider_id,
+                        max_age_seconds=VALIDATION_TTL_SECONDS,
+                        kinds=REMOTE_MODEL_RUNTIME_KINDS,
+                    )
                 )
                 if state.status != "validated":
                     targets.append((provider_id, model))

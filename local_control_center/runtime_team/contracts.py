@@ -21,8 +21,22 @@ class RuntimeValidationRequest(BaseModel):
     model: str | None = Field(default=None, min_length=1, max_length=160)
 
 
+class RuntimeValidationAttemptRecord(BaseModel):
+    """Un modelo probado durante una validación sin modelo pedido, con su resultado y causa."""
+
+    model: str | None = None
+    status: RuntimeValidationOutcome
+    reason: str | None = None
+    evidence: str | None = None
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
+
+
 class RuntimeValidationResultRecord(BaseModel):
-    """Resultado redactado de una prueba de ida y vuelta de un runtime."""
+    """Resultado redactado de una prueba de ida y vuelta de un runtime.
+
+    ``attempts`` lista cada modelo probado cuando el runtime eligió los candidatos (API/gateway sin
+    modelo pedido); ``None`` cuando se probó un único modelo fijado.
+    """
 
     provider_id: str = Field(alias="providerId")
     kind: str
@@ -32,6 +46,7 @@ class RuntimeValidationResultRecord(BaseModel):
     reason: str | None = None
     evidence: str | None = None
     checked_at: str = Field(alias="checkedAt")
+    attempts: list[RuntimeValidationAttemptRecord] | None = None
 
 
 class RuntimeValidationResponse(BaseModel):

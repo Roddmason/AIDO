@@ -31,6 +31,7 @@ from local_control_center.shared.time import utc_now
 
 from .credentials import CredentialResolver
 from .endpoint_locality import catalog_entry_for_account, is_self_hosted_inference
+from .gateway_model_allowlist import apply_allowlist_entry, gateway_model_allowlist
 from .local_runtime_health import LocalHealthResult, local_profile_for_account, probe_local_runtime
 from .model_gateway_models import (
     COMPACT_ENDPOINT_ID_PATTERN,
@@ -536,11 +537,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         existing_models = (
             {str(row["model"]): row for row in providers().list_models(provider_id)} if self_hosted else {}
         )
+        # Un gateway de auto-ruteo anuncia upstreams sin cuenta: solo su allowlist curada queda
+        # preseleccionada; el resto se sincroniza deshabilitado y el operador puede habilitarlo.
+        allowlist = gateway_model_allowlist(catalog_entry.id)
         for item in discovered:
             if excluded_by_catalog_rule(str(item.get("model") or "")):
                 excluded_count += 1
                 continue
             enriched = enrich_catalog_model(catalog_entry, item)
+            allowlist_entry = allowlist.get(str(enriched.get("model") or "")) if allowlist else None
+            enriched = apply_allowlist_entry(enriched, allowlist_entry)
             if self_hosted:
                 enriched = self_hosted_model_pricing(
                     enriched, existing_models.get(str(enriched.get("model") or ""))
@@ -553,7 +559,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                         "apiFamily": api_family,
                         "supportsEmbeddings": api_family == "embeddings",
                         "supportsRerank": api_family == "rerank",
-                        "enabled": True,
+                        "enabled": allowlist is None or allowlist_entry is not None,
                         "source": enriched.get("source", f"provider_account_sync:{provider_id}"),
                     },
                     preserve_operator_enabled=True,
@@ -578,6 +584,9 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "catalogId": catalog_entry.id,
                 "count": len(stored),
                 "excludedByCatalogRule": excluded_count,
+                "allowlisted": None
+                if allowlist is None
+                else sum(1 for row in stored if row.get("model") in allowlist),
                 "absentDisabled": len(absent),
             },
         )

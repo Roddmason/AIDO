@@ -39,7 +39,12 @@ from local_control_center.shared.time import utc_now
 
 from .facts import load_runtime_facts
 from .roles import OPTIONAL_TEAM_ROLES, TEAM_ROLES, RuntimeFacts, missing_required_roles
-from .validation import RUNTIME_TEAM_FRESHNESS_SECONDS, runtime_validation_state
+from .validation import (
+    REMOTE_MODEL_RUNTIME_KINDS,
+    RUNTIME_TEAM_FRESHNESS_SECONDS,
+    account_validation_state,
+    runtime_validation_state,
+)
 
 THREAD_RUN_CONFIGURATION_KEY = "runConfiguration"
 """Clave dentro de `project_threads.metadata` donde el hilo recuerda lo que el operador eligió."""
@@ -244,7 +249,9 @@ def assess_runtime_team(
 
     Sin ``only_assigned`` revisa todo el conjunto seleccionado (base del sellado de envío, spec §3.4);
     con él, solo los runtimes que tienen un rol asignado (gate de ejecución, spec §1.4). Si el equipo
-    sellado trae ``roleModels``, cada runtime se evalúa por los modelos sellados de sus roles.
+    sellado trae ``roleModels``, cada runtime se evalúa por los modelos sellados de sus roles; si no, un
+    runtime de API/gateway vale por cualquiera de sus modelos habilitados validado (la falla de un upstream
+    del gateway no oculta el éxito de otro) y el resto (CLI, local legado) por su última evidencia.
     """
     roles = team.get(ROLE_RUNTIMES_KEY) or {}
     role_models = team.get(ROLE_MODELS_KEY) or {}
@@ -264,8 +271,14 @@ def assess_runtime_team(
             }
         )
         for model in models or [None]:
-            state = runtime_validation_state(
-                connection, provider_id, max_age_seconds=max_age_seconds, model=model
+            state = (
+                runtime_validation_state(
+                    connection, provider_id, max_age_seconds=max_age_seconds, model=model
+                )
+                if model
+                else account_validation_state(
+                    connection, provider_id, max_age_seconds=max_age_seconds, kinds=REMOTE_MODEL_RUNTIME_KINDS
+                )
             )
             if state.status != "validated":
                 item = {

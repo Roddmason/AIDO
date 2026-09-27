@@ -5,6 +5,8 @@ con un ``AIResourceRequest`` del operador que autoriza el costo desconocido, por
 aprobación: queda auditado como ``runtime.validation.operator_approved`` y consume cuota de
 suscripción. Toda falla deja evidencia (salvo una denegación de política del proyecto), así una
 prueba fallida invalida también la validación de 24 h; la causa sale del clasificador compartido.
+Sin modelo pedido, una cuenta de API/gateway prueba candidatos acotados (último validado, modelos de
+las políticas de rol, resto de habilitados) hasta que uno pase: un gateway anuncia upstreams sin cuenta.
 
 @author Rodrigo Mason
 """
@@ -43,6 +45,7 @@ from local_control_center.agents.providers.factory import (
     provider_account_policy_kind,
 )
 from local_control_center.agents.providers.http_transport import http_error_excerpt
+from local_control_center.agents.routing_profiles import RoutingProfileStore
 from local_control_center.agents.runtime_failure_classifier import (
     EVIDENCE_LIMIT,
     classify_local_model_error,
@@ -73,6 +76,10 @@ VALIDATION_RESPONSE_FORMAT = {
 }
 DEFERRED_VALIDATION_CAUSES = TRANSIENT_LOCAL_RUNTIME_CAUSES | frozenset({"insufficient_time_for_model_load"})
 HTTP_BAD_REQUEST = 400
+#: Tope de modelos que prueba una validación sin modelo pedido en una cuenta de API/gateway.
+MAX_AUTO_VALIDATION_ATTEMPTS = 3
+#: Causas a nivel de proveedor: probar otro modelo del mismo endpoint no cambiaría el resultado.
+_PROVIDER_LEVEL_CAUSES = frozenset({"provider_unreachable"})
 
 
 def _result(
@@ -179,6 +186,23 @@ def _validation_json_ok(content: str) -> bool:
     return isinstance(payload, dict) and payload.get("ok") is True
 
 
+def _role_policy_models(connection: sqlite3.Connection, provider_id: str) -> list[str]:
+    """Modelos concretos (no comodín) que las políticas de rol nombran para ``provider_id``, en orden.
+
+    Recorre cada política en su orden de prioridad (preferred → fallback → escalation); un comodín
+    ``*`` no nombra un modelo y se omite.
+    """
+    models: list[str] = []
+    for policy in RoutingProfileStore(connection).list_role_policies():
+        for ref in [*policy.get("preferred", []), *policy.get("fallback", []), *policy.get("escalation", [])]:
+            if not isinstance(ref, dict) or str(ref.get("provider") or "") != provider_id:
+                continue
+            model = str(ref.get("model") or "").strip()
+            if model and model != "*" and model not in models:
+                models.append(model)
+    return models
+
+
 class RuntimeValidationService:
     """Ejecuta la prueba real de un runtime y deja la evidencia en ``model_execution_health``."""
 
@@ -220,20 +244,53 @@ class RuntimeValidationService:
         ).fetchone()
         return str(row["model"]) if row is not None else None
 
-    def _model_to_validate(self, account: dict[str, Any], *, requested: str | None) -> str | None:
-        """Modelo a probar: el pedido si está habilitado; en cuentas locales el resuelto; si no, el primero.
+    def _models_to_validate(self, account: dict[str, Any], *, requested: str | None) -> list[str]:
+        """Modelos a probar en orden: el pedido si está habilitado; en locales el resuelto; si no, candidatos.
 
         En una cuenta local sin modelo pedido se prueba lo que usaría un rol de chat (cargado → por defecto
-        → orden del operador), no el primero alfabético.
+        → orden del operador), no el primero alfabético. En API/gateway sin modelo pedido se devuelven hasta
+        ``MAX_AUTO_VALIDATION_ATTEMPTS`` candidatos (ver :meth:`_auto_validation_candidates`): un gateway
+        anuncia modelos upstream sin cuenta y el primero alfabético no representa lo que el operador usa.
         """
         provider_id = str(account["providerId"])
         enabled = [
             str(item["model"]) for item in self.accounts.list_models(provider_id) if item.get("enabled")
         ]
         if requested:
-            return requested if requested in enabled else None
-        if str(account.get("providerType") or "") != "local" or not enabled:
-            return enabled[0] if enabled else None
+            return [requested] if requested in enabled else []
+        if not enabled:
+            return []
+        if str(account.get("providerType") or "") != "local":
+            return self._auto_validation_candidates(provider_id, enabled)
+        resolved = self._resolve_local_chat_model(account, provider_id, enabled)
+        return [resolved] if resolved else []
+
+    def _auto_validation_candidates(self, provider_id: str, enabled: list[str]) -> list[str]:
+        """Orden de prueba de una cuenta de API/gateway sin modelo pedido, acotado y sin repetidos.
+
+        Primero los modelos habilitados con una validación exitosa (el más reciente antes), luego los
+        modelos concretos que las políticas de rol nombran para este proveedor y, al final, el resto de
+        los habilitados en el orden estable del catálogo.
+        """
+        enabled_set = set(enabled)
+        validated = [
+            str(row["model"])
+            for row in self.connection.execute(
+                """SELECT model, MAX(started_at) AS last_success FROM model_execution_health
+                   WHERE provider_id = ? AND success = 1 GROUP BY model ORDER BY last_success DESC""",
+                (provider_id,),
+            ).fetchall()
+            if str(row["model"]) in enabled_set
+        ]
+        ordered = list(
+            dict.fromkeys([*validated, *_role_policy_models(self.connection, provider_id), *enabled])
+        )
+        return [model for model in ordered if model in enabled_set][:MAX_AUTO_VALIDATION_ATTEMPTS]
+
+    def _resolve_local_chat_model(
+        self, account: dict[str, Any], provider_id: str, enabled: list[str]
+    ) -> str | None:
+        """Modelo que usaría un rol de chat en una cuenta local."""
         return resolve_local_model(
             required_capabilities=frozenset({"chat"}),
             enabled_models=enabled,
@@ -310,7 +367,6 @@ class RuntimeValidationService:
         """
         from local_control_center.agents.model_gateway_api import (
             _requires_remote_provider_call,
-            _run_provider_test_prompt,
             _validate_real_discovery_credentials,
         )
 
@@ -336,19 +392,50 @@ class RuntimeValidationService:
         except HTTPException as error:
             cause, evidence = _failure_cause(provider_id, str(error.detail), fallback="credential_invalid")
             return self._failed(provider_id, kind, reason=cause, evidence=evidence)
-        model = self._model_to_validate(account, requested=model)
-        if model is None:
+        models = self._models_to_validate(account, requested=model)
+        if not models:
             return self._failed(provider_id, kind, reason="model_required")
         try:
             provider = provider_instance(provider_id, connection=self.connection)
         except ProviderAdapterResolutionError as error:
             code = str(getattr(error, "public_code", error.code))
-            return self._failed(provider_id, kind, model=model, reason=code, evidence=str(error))
+            return self._failed(provider_id, kind, model=models[0], reason=code, evidence=str(error))
         profile = _local_profile(account)
         if profile is not None:
             if not credential_transport_allowed(account):
-                return self._failed(provider_id, kind, model=model, reason="insecure_credential_transport")
-            return self._validate_local_model(account, provider, model, profile)
+                return self._failed(
+                    provider_id, kind, model=models[0], reason="insecure_credential_transport"
+                )
+            return self._validate_local_model(account, provider, models[0], profile)
+        if model:
+            return self._probe_remote_model(provider_id, kind, models[0], provider)
+        return self._probe_remote_candidates(provider_id, kind, models, provider)
+
+    def _probe_remote_candidates(
+        self, provider_id: str, kind: str, models: list[str], provider: Any
+    ) -> dict[str, Any]:
+        """Prueba los candidatos en orden hasta que uno valide; cada intento deja su propia evidencia.
+
+        Una falla de un modelo (p. ej. un upstream del gateway sin cuenta) no corta la búsqueda; una causa
+        a nivel de proveedor (endpoint inalcanzable) sí, porque otro modelo fallaría igual. El resultado
+        es el del modelo validado, o el del último intento, con ``attempts`` para que el operador vea qué
+        modelo pasó o falló y por qué.
+        """
+        attempts: list[dict[str, Any]] = []
+        result: dict[str, Any] = {}
+        for candidate in models:
+            result = self._probe_remote_model(provider_id, kind, candidate, provider)
+            attempts.append(
+                {key: result[key] for key in ("model", "status", "reason", "evidence", "latencyMs")}
+            )
+            if result["status"] == "validated" or result.get("reason") in _PROVIDER_LEVEL_CAUSES:
+                break
+        return {**result, "attempts": attempts}
+
+    def _probe_remote_model(self, provider_id: str, kind: str, model: str, provider: Any) -> dict[str, Any]:
+        """Completion fija de test-prompt contra un modelo de API/gateway, con su evidencia por modelo."""
+        from local_control_center.agents.model_gateway_api import _run_provider_test_prompt
+
         started_at = datetime.now(UTC).isoformat(timespec="microseconds")
         fingerprint = provider_configuration_fingerprint(self.connection, provider_id)
         outcome = _run_provider_test_prompt(provider_id, model, connection=self.connection, provider=provider)

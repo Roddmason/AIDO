@@ -2,8 +2,8 @@
 
 Para runtimes locales agrega los modelos cargados (caché compartida, espera acotada) y la vista
 previa del modelo por rol con el mismo resolvedor que sella ``roleModels`` en el hilo. Un runtime
-local vale como validado si alguno de sus modelos habilitados lo está (validación por (provider,
-modelo), igual que el gate de envío y el sellado).
+de modelo (API, gateway o local) vale como validado si alguno de sus modelos habilitados lo está
+(validación por (provider, modelo), igual que el gate de envío y el sellado).
 
 @author Rodrigo Mason
 """
@@ -21,7 +21,13 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from .configuration import resolve_team_role_models
 from .facts import load_runtime_facts
 from .roles import RuntimeFacts, auto_assign_roles
-from .validation import RUNTIME_TEAM_FRESHNESS_SECONDS, RuntimeValidationState, runtime_validation_state
+from .validation import (
+    MODEL_RUNTIME_KINDS,
+    RUNTIME_TEAM_FRESHNESS_SECONDS,
+    RuntimeValidationState,
+    enabled_models_validation_state,
+    runtime_validation_state,
+)
 
 
 def _validation_record(item: RuntimeFacts, state: RuntimeValidationState) -> dict[str, Any]:
@@ -102,24 +108,17 @@ class RuntimeTeamCandidatesService:
     def _runtime_state(
         self, store: ProviderAccountStore, provider_id: str, account: Mapping[str, Any] | None
     ) -> RuntimeValidationState:
-        """Validación de 30 min del runtime; una cuenta local vale por su primer modelo habilitado validado.
+        """Validación de 30 min del runtime; una cuenta de API/gateway/local vale por cualquier modelo.
 
-        La falla de un modelo del mismo servidor no saca del reparto a un runtime local que tiene otro
-        modelo habilitado validado (misma regla por (provider, modelo) que el gate de envío y el sellado).
-        Sin modelo validado, o fuera de las cuentas locales, queda el estado a nivel de runtime.
+        La falla de un modelo del mismo servidor o gateway no saca del reparto a un runtime que tiene
+        otro modelo habilitado validado (misma regla por (provider, modelo) que el gate de envío y el
+        sellado). Un CLI queda con el estado a nivel de runtime.
         """
-        if account is not None and str(account.get("providerType") or "") == "local":
-            for item in store.list_models(provider_id):
-                if not item.get("enabled"):
-                    continue
-                state = runtime_validation_state(
-                    self.connection,
-                    provider_id,
-                    max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS,
-                    model=str(item["model"]),
-                )
-                if state.status == "validated":
-                    return state
+        if account is not None and str(account.get("providerType") or "") in MODEL_RUNTIME_KINDS:
+            enabled = [str(item["model"]) for item in store.list_models(provider_id) if item.get("enabled")]
+            return enabled_models_validation_state(
+                self.connection, provider_id, enabled, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
+            )
         return runtime_validation_state(
             self.connection, provider_id, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS
         )

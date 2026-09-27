@@ -617,3 +617,145 @@ test('Configure provider: an unresolved seeded placeholder asks for the API key 
 	await expect(wizard.getByRole('radio', { name: 'Keep current' })).toHaveCount(0);
 	await expect(wizard.getByLabel('API key')).toBeVisible();
 });
+
+test('Providers & CLI: an active gateway without enabled models asks to sync and select them', async ({
+	page,
+}) => {
+	await page.route('**/api/v1/model-gateway/providers', async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		const others = body.providers.filter((item) => item.providerId !== 'omniroute');
+		const omniroute = body.providers.find((item) => item.providerId === 'omniroute') ?? {};
+		body.providers = [
+			...others,
+			{
+				...omniroute,
+				providerId: 'omniroute',
+				displayName: 'OmniRoute',
+				enabled: true,
+				credentialStatus: 'not_required',
+				healthStatus: 'healthy',
+				baseUrl: 'http://localhost:20128/v1',
+			},
+		];
+		await route.fulfill({ response, json: body });
+	});
+	await page.route('**/api/v1/model-gateway/models', async (route) => {
+		if (route.request().method() !== 'GET') return route.continue();
+		const response = await route.fetch();
+		const body = await response.json();
+		body.models = [
+			...body.models.filter((item) => item.providerId !== 'omniroute'),
+			{ id: 'omniroute:cc/claude-x', providerId: 'omniroute', model: 'cc/claude-x', enabled: false },
+		];
+		await route.fulfill({ response, json: body });
+	});
+	try {
+		const settings = await openSettings(page);
+		const card = settings.locator('.card').filter({ hasText: 'OmniRoute' }).first();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		await expect(card.locator('.card-reason')).toHaveText(
+			'No model is enabled for this gateway. Sync models, then select the ones to use in Configure.',
+		);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});
+
+test('Add provider: the validate step saves the selection and shows which gateway model passed or failed', async ({
+	page,
+}) => {
+	const gatewayModel = (model, enabled) => ({
+		id: `omniroute:${model}`,
+		providerId: 'omniroute',
+		model,
+		enabled,
+		freeTier: true,
+	});
+	// The backend preselects the curated allowlist: the upstream without an account arrives unchecked.
+	const models = [
+		gatewayModel('cc/claude-x', false),
+		gatewayModel('oc/big-pickle', true),
+		gatewayModel('oc/deepseek-v4-flash-free', true),
+	];
+	const events = [];
+	await page.route('/api/v1/provider-accounts/from-catalog', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/settings/runtime.remote.enabled', (route) => route.fulfill({ json: {} }));
+	await page.route('/api/v1/model-gateway/role-policies', (route) =>
+		route.fulfill({ json: { rolePolicies: [] } }),
+	);
+	await page.route('/api/v1/provider-accounts/omniroute/sync-models', (route) =>
+		route.fulfill({ json: { models } }),
+	);
+	await page.route('**/api/v1/model-gateway/models/*', async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+		const body = route.request().postDataJSON();
+		events.push(`patch:${id}:${body.enabled}`);
+		const model = models.find((entry) => entry.id === id);
+		Object.assign(model, body);
+		await route.fulfill({ json: { model } });
+	});
+	await page.route('**/api/v1/model-gateway/providers/omniroute/validate-runtime', async (route) => {
+		events.push(`validate:${JSON.stringify(route.request().postDataJSON())}`);
+		await route.fulfill({
+			json: {
+				validation: {
+					providerId: 'omniroute',
+					kind: 'gateway',
+					status: 'validated',
+					model: 'oc/big-pickle',
+					latencyMs: 120,
+					reason: null,
+					evidence: null,
+					checkedAt: '2026-09-27T10:00:00+00:00',
+					attempts: [
+						{
+							model: 'cc/claude-x',
+							status: 'failed',
+							reason: 'runtime_validation_failed',
+							evidence: 'HTTPError: HTTP Error 400: Bad Request: No active credentials for provider: cc',
+							latencyMs: 5,
+						},
+						{ model: 'oc/big-pickle', status: 'validated', reason: null, evidence: null, latencyMs: 120 },
+					],
+				},
+			},
+		});
+	});
+	try {
+		const wizard = await openWizard(page);
+		await chooseProvider(wizard, 'omniroute');
+		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+		await expect(wizard.getByText('2/3 selected', { exact: true })).toBeVisible();
+		await expect(wizard.getByRole('checkbox', { name: 'cc/claude-x', exact: true })).not.toBeChecked();
+
+		// With nothing selected the real validation is refused before any request is sent.
+		await wizard.getByRole('checkbox', { name: 'oc/big-pickle', exact: true }).uncheck();
+		await wizard.getByRole('checkbox', { name: 'oc/deepseek-v4-flash-free', exact: true }).uncheck();
+		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+		await wizard.getByRole('button', { name: 'Validate with a real request', exact: true }).click();
+		await expect(wizard.getByRole('alert')).toContainText('Select at least one model before validating.');
+		expect(events).toEqual([]);
+
+		// The operator keeps the broken upstream and one curated model: the selection is saved first,
+		// then the backend picks and reports every model it tried.
+		await wizard.getByRole('button', { name: 'Back', exact: true }).click();
+		await wizard.getByRole('checkbox', { name: 'cc/claude-x', exact: true }).check();
+		await wizard.getByRole('checkbox', { name: 'oc/big-pickle', exact: true }).check();
+		await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+		await wizard.getByRole('button', { name: 'Validate with a real request', exact: true }).click();
+		const summary = wizard.getByTestId('wizard-runtime-validation');
+		await expect(summary).toContainText('Validated with oc/big-pickle');
+		await expect(summary).toContainText('cc/claude-x: failed (runtime_validation_failed)');
+		await expect(summary).toContainText('No active credentials for provider: cc');
+		await expect(summary).toContainText('oc/big-pickle: passed');
+		expect(events).toEqual([
+			'patch:omniroute:cc/claude-x:true',
+			'patch:omniroute:oc/deepseek-v4-flash-free:false',
+			'validate:{"projectId":null}',
+		]);
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

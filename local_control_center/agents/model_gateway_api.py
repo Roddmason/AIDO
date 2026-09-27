@@ -118,6 +118,7 @@ from .providers.factory import (
     provider_account_requires_credential,
     provider_account_requires_explicit_model_manifest,
 )
+from .providers.http_transport import http_error_excerpt
 from .providers.image_artifacts import DurableImageArtifactStore, ImageArtifactError
 from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .quota_manager import QuotaManager
@@ -188,6 +189,8 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
 
 TEST_PROMPT_MESSAGE = "Reply with the single word: ok."
 TEST_PROMPT_SAMPLE_LIMIT = 280
+#: Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida.
+TEST_PROMPT_ERROR_BODY_LIMIT = 400
 
 
 def _resolve_test_prompt_model(
@@ -317,8 +320,22 @@ def _run_provider_test_prompt(
             "sample": "",
             "totalTokens": None,
             "usageSource": "unknown",
-            "error": str(redact_secrets(f"{error.__class__.__name__}: {error}")),
+            "error": str(redact_secrets(_provider_error_detail(error))),
         }
+
+
+def _provider_error_detail(error: Exception) -> str:
+    """Texto de la falla con un extracto del cuerpo de un ``HTTPError``, sin redactar.
+
+    Un gateway explica en el cuerpo por qué rechazó el modelo (p. ej. un upstream sin cuenta); sin él la
+    evidencia se reduce a ``HTTP Error 400: Bad Request`` y el operador no sabe qué corregir.
+    """
+    detail = f"{error.__class__.__name__}: {error}"
+    if isinstance(error, HTTPError):
+        body = " ".join(http_error_excerpt(error, limit=TEST_PROMPT_ERROR_BODY_LIMIT).split())
+        if body:
+            detail = f"{detail}: {body}"
+    return detail
 
 
 def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict[str, Any]) -> dict[str, Any]:

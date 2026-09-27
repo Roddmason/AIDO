@@ -1,6 +1,7 @@
 {
   "$comment": [
     "Allowlist de modelos de OmniRoute que AIDO habilita en su model_catalog.",
+    "El sync de modelos del backend la preselecciona: lo anunciado fuera de ella queda deshabilitado.",
     "Regla del proyecto: solo free tiers oficiales de API y providers keyless legitimos.",
     "Excluidos a proposito: prefijos aug/, tllm/, ddgw/, pepper/, mcode/ y veo-free/ (reexponen",
     "servicios comerciales fuera de su cliente oficial), y los alias auto/* (enrutan a cualquier",

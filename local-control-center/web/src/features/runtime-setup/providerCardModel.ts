@@ -38,6 +38,8 @@ export type ProviderSetupInfo = {
 	baseUrl: string;
 	healthStatus: string;
 	modelCount: number;
+	/** Models the operator kept enabled; a gateway with none cannot validate nor run. */
+	enabledModelCount: number;
 	cost: CostKnowledge;
 	roles: string[];
 };
@@ -146,6 +148,7 @@ export function deriveProviderSetup(
 		baseUrl: String(account?.baseUrl || entry.defaultBaseUrl || ''),
 		healthStatus: String(account?.healthStatus ?? 'unknown'),
 		modelCount: providerModels.length,
+		enabledModelCount: providerModels.filter((model) => model.enabled).length,
 		cost: costForModels(providerModels),
 		roles: rolesForProvider(entry.id, rolePolicies),
 	};

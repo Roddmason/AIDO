@@ -1535,10 +1535,6 @@
       "en": "executable runtime",
       "es": "runtime ejecutable"
     },
-    "app.runtimeTeam.chipAuto": {
-      "en": "AI team · automatic",
-      "es": "Equipo IA · automático"
-    },
     "app.runtimeTeam.chipCount": {
       "en": "AI team · {selected} of {total}",
       "es": "Equipo IA · {selected} de {total}"
@@ -1664,8 +1660,8 @@
       "es": "Product Owner y Developer necesitan un runtime antes de que el hilo pueda ejecutarse."
     },
     "app.runtimeTeam.clear": {
-      "en": "Use automatic routing",
-      "es": "Usar ruteo automático"
+      "en": "Use the global team",
+      "es": "Usar el equipo global"
     },
     "app.runtimeTeam.save": {
       "en": "Save team",
@@ -11190,6 +11186,22 @@
     "app.settings.team.role.researcher": {
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
+    },
+    "app.runtimeTeam.chipGlobal": {
+      "en": "AI team · global",
+      "es": "Equipo IA · global"
+    },
+    "app.aiTeam.effectiveTitle": {
+      "en": "Effective AI team",
+      "es": "Equipo de IA efectivo"
+    },
+    "app.aiTeam.unassigned": {
+      "en": "unassigned",
+      "es": "sin asignar"
+    },
+    "app.aiTeam.source.thread": {
+      "en": "this thread",
+      "es": "este hilo"
     },
     "app.settings.section.aiTeam": {
       "en": "AI team",

@@ -849,6 +849,20 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 		],
 	};
 
+	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
+		route.fulfill({
+			json: {
+				roles: [
+					{ role: 'product_owner', required: true, configured: [], effective: ['claude_code_cli'], assigned: 'claude_code_cli', source: 'automatic', invalid: [], candidates: ['claude_code_cli'] },
+					{ role: 'developer', required: true, configured: ['claude_code_cli'], effective: ['claude_code_cli'], assigned: 'claude_code_cli', source: 'general', invalid: [], candidates: ['claude_code_cli'] },
+				],
+				allowedRuntimes: ['claude_code_cli'],
+				activeProviders: 1,
+				candidates: [],
+			},
+		}),
+	);
 	await page.route('**/api/v1/agent-profiles*', (route) =>
 		route.fulfill({ json: { agentProfiles: ROSTER } }),
 	);
@@ -867,6 +881,9 @@ test('Threads: the Team tab reads as a manager console — grouped by state, act
 
 	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
 	await expect(inspector.locator('.thread-inspector-loading')).toHaveCount(0, { timeout: 20_000 });
+	const effectiveTeam = inspector.getByRole('region', { name: 'Effective AI team' });
+	await expect(effectiveTeam).toContainText('Developer');
+	await expect(effectiveTeam).toContainText('general');
 
 	// The roster is grouped, not a flat wall: the state-group sections exist and the summary counts the
 	// whole bench (6) even though only the working rows are shown.

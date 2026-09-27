@@ -6,7 +6,7 @@
  * work against; other lanes stay audit-only. Per-lane copy lives in `statusCopy`.
  * @author Rodrigo Mason
  */
-import { FolderPlus, Settings } from 'lucide-react';
+import { FolderGit2, FolderPlus, GitBranch, ListChecks, Settings, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { Overview, Project } from '../../api/types';
@@ -20,6 +20,8 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
+import { compactPath } from '../home/homeModel';
+import { useRelativeTime } from '../home/useRelativeTime';
 
 export type ProjectStatusView = 'active' | 'finished' | 'error' | 'cancelled';
 export type Language = 'en' | 'es';
@@ -115,6 +117,90 @@ function matchesProjectStatus(status: string, view: ProjectStatusView) {
 }
 
 /**
+ * One project in a lane. Same anatomy as the Home project card (glyph, name over a tail-first path,
+ * counts, footer), but a static container: the only action is the footer's Select button, and
+ * non-active lanes show "Audit only" there instead.
+ */
+function ProjectLaneCard({
+	project,
+	selected,
+	pending,
+	jobCount,
+	workspaceCount,
+	operational,
+	onSelect,
+}: {
+	project: Project;
+	selected: boolean;
+	pending: boolean;
+	jobCount: number;
+	workspaceCount: number;
+	operational: boolean;
+	onSelect: () => void;
+}) {
+	const { t } = useI18n();
+	const relative = useRelativeTime(project.updatedAt);
+	return (
+		<article
+			className="card card--static project-lane-card"
+			data-selected={selected ? 'true' : undefined}
+		>
+			<div className="home-project-top">
+				<span className="home-project-glyph" aria-hidden="true">
+					<FolderGit2 size={16} />
+				</span>
+				<div className="home-project-heading">
+					<strong className="home-card-title home-project-name" title={project.name}>
+						{project.name}
+					</strong>
+					<span className="home-project-path mono" title={project.path}>
+						{compactPath(project.path)}
+					</span>
+				</div>
+				{/* Every card of the active lane is "active": the badge only earns its place in the
+				    audit lanes, where it tells completed, failed and cancelled apart. */}
+				{operational ? null : <Badge tone={toneForStatus(project.status)}>{project.status}</Badge>}
+			</div>
+			<div className="home-project-stats">
+				<span className="home-stat">
+					<ListChecks size={13} aria-hidden="true" />
+					{jobCount} {t('app.activeProjects.jobs', 'jobs')}
+				</span>
+				<span className="home-stat">
+					<GitBranch size={13} aria-hidden="true" />
+					{workspaceCount} {t('app.activeProjects.workspaces', 'workspaces')}
+				</span>
+				<span className="home-stat" data-tone={pending ? 'warn' : undefined}>
+					<ShieldCheck size={13} aria-hidden="true" />
+					{pending
+						? t('app.activeProjects.approval', 'approval')
+						: t('app.activeProjects.clear', 'clear')}
+				</span>
+			</div>
+			<div className="home-card-foot">
+				<span className="home-card-time">
+					{relative ? `${t('app.home.lastActivity', 'Active')} ${relative}` : null}
+				</span>
+				{operational ? (
+					<button
+						className="button project-lane-select"
+						type="button"
+						disabled={selected}
+						onClick={onSelect}
+					>
+						{selected
+							? t('app.activeProjects.selected', 'Selected')
+							: t('app.activeProjects.select', 'Select')}
+					</button>
+				) : (
+					<span className="home-card-time">{t('app.activeProjects.auditOnly', 'Audit only')}</span>
+				)}
+			</div>
+		</article>
+	);
+}
+
+/**
  * Projects surface. The SegmentedControl picks which lifecycle lane to render; the active
  * lane exposes Select buttons (operational), other lanes render as audit-only. The lane is
  * held in state and mirrored to the hash so deep links and back/forward stay consistent.
@@ -205,49 +291,19 @@ export function ProjectsPage({
 			</div>
 
 			{visibleProjects.length ? (
-				<div className="masonry-grid" data-motion-item>
-					{visibleProjects.map((project) => {
-						const selected = selectedProject?.id === project.id;
-						const pending = hasPendingApproval(project.id);
-						return (
-							<article
-								className="card"
-								data-selected={selected ? 'true' : undefined}
-								key={project.id}
-							>
-								<div className="card-header">
-									<strong className="card-title">{project.name}</strong>
-									<Badge tone={toneForStatus(project.status)}>{project.status}</Badge>
-								</div>
-								<span className="mono muted">{project.path}</span>
-								<div className="card-meta">
-									<span>
-										{projectJobCount(project.id)} {t('app.activeProjects.jobs', 'jobs')}
-									</span>
-									<span>{projectWorkspaceCount(project.id)} workspaces</span>
-									<Badge tone={pending ? 'warn' : 'ok'}>
-										{pending
-											? t('app.activeProjects.approval', 'approval')
-											: t('app.activeProjects.clear', 'clear')}
-									</Badge>
-								</div>
-								{isActiveView ? (
-									<button
-										className="button"
-										type="button"
-										disabled={selected}
-										onClick={() => onSelectProject(project.id)}
-									>
-										{selected
-											? t('app.activeProjects.selected', 'Selected')
-											: t('app.activeProjects.select', 'Select')}
-									</button>
-								) : (
-									<Badge>{t('app.activeProjects.auditOnly', 'Audit only')}</Badge>
-								)}
-							</article>
-						);
-					})}
+				<div className="masonry-grid home-projects" data-motion-item>
+					{visibleProjects.map((project) => (
+						<ProjectLaneCard
+							key={project.id}
+							project={project}
+							selected={selectedProject?.id === project.id}
+							pending={hasPendingApproval(project.id)}
+							jobCount={projectJobCount(project.id)}
+							workspaceCount={projectWorkspaceCount(project.id)}
+							operational={isActiveView}
+							onSelect={() => onSelectProject(project.id)}
+						/>
+					))}
 				</div>
 			) : (
 				<EmptyState
@@ -256,7 +312,7 @@ export function ProjectsPage({
 				/>
 			)}
 
-			<div className="grid two">
+			<div className="grid two projects-side">
 				<Surface title={t('app.activeProjects.recentApprovals', 'Recent approvals')}>
 					{pendingApprovals.length ? (
 						<div className="stack">

@@ -40,6 +40,88 @@ export function selectRecentRuns(workflows: Overview['workflows'], limit = 6): H
 	return [...workflows].sort((a, b) => compareNewest(a.updatedAt, b.updatedAt)).slice(0, limit);
 }
 
+/**
+ * Runtimes the landing surfaces, following the operator's rule "show only what is enabled":
+ * `attention` holds the providers the operator switched on (or a thread is using) that still cannot
+ * run, one card each; every other non-executable provider is merely not set up, which is not an
+ * error, so it only feeds the count of a single neutral "Set up runtimes" card, shown while no
+ * runtime can execute work at all. The manual operator is a switch, not a runtime: left out.
+ */
+export function summarizeRuntimeBlockers(runtimeProviders: RuntimeProviders | null): {
+	attention: HomeProvider[];
+	notSetUp: number;
+	executable: number;
+} {
+	const isRuntime = (provider: HomeProvider) => provider.kind !== 'manual';
+	const providers = (runtimeProviders?.providers ?? []).filter(isRuntime);
+	const blockers = selectRuntimeBlockers(runtimeProviders).filter(isRuntime);
+	const attention = blockers.filter(
+		(provider) => provider.enabled === true || provider.inUse === true,
+	);
+	return {
+		attention,
+		notSetUp: blockers.length - attention.length,
+		executable: providers.length - blockers.length,
+	};
+}
+
+/** Latest activity of a project: its own record or any of its jobs and runs, whichever is newest. */
+export function projectLastActivity(
+	project: HomeProject,
+	jobs: Overview['jobs'],
+	workflows: Overview['workflows'],
+): string {
+	let latest = project.updatedAt || project.createdAt || '';
+	for (const item of [...jobs, ...workflows]) {
+		if (item.projectId === project.id && compareNewest(item.updatedAt, latest) < 0) {
+			latest = item.updatedAt;
+		}
+	}
+	return latest;
+}
+
+/**
+ * Whole units between `iso` and `now` for Intl.RelativeTimeFormat (negative = past). Picks the
+ * largest unit that is at least one, so "3 hours ago" rather than "180 minutes ago". Null for an
+ * unparseable timestamp, so the card simply omits the line.
+ */
+export function relativeTimeParts(
+	iso: string,
+	now: number = Date.now(),
+): { value: number; unit: 'minute' | 'hour' | 'day' | 'month' | 'year' } | null {
+	const parsed = Date.parse(iso);
+	if (Number.isNaN(parsed)) return null;
+	const minutes = Math.round((parsed - now) / 60_000);
+	const steps: Array<[number, 'minute' | 'hour' | 'day' | 'month' | 'year']> = [
+		[525_600, 'year'],
+		[43_200, 'month'],
+		[1_440, 'day'],
+		[60, 'hour'],
+	];
+	for (const [size, unit] of steps) {
+		if (Math.abs(minutes) >= size) return { value: Math.round(minutes / size), unit };
+	}
+	return { value: minutes, unit: 'minute' };
+}
+
+/**
+ * Shortens a long project path to its last segments ("…/parent/name"): the tail is what tells two
+ * projects apart, and a CSS end-ellipsis would cut exactly that part. Short paths pass through.
+ */
+export function compactPath(path: string, maxLength = 30): string {
+	if (path.length <= maxLength) return path;
+	const separator = path.includes('\\') && !path.includes('/') ? '\\' : '/';
+	const segments = path.split(separator).filter(Boolean);
+	let tail = segments.pop() ?? path;
+	while (segments.length) {
+		const next = `${segments[segments.length - 1]}${separator}${tail}`;
+		if (next.length + 2 > maxLength) break;
+		tail = next;
+		segments.pop();
+	}
+	return `…${separator}${tail}`;
+}
+
 /** Count of a project's jobs that are still running or queued. */
 export function projectInProgressCount(jobs: Overview['jobs'], projectId: string): number {
 	return jobs.filter(
@@ -62,13 +144,14 @@ export type HomeCardItem =
 			pendingReviews: number;
 	  }
 	| { kind: 'blocker'; key: string; provider: HomeProvider }
+	| { kind: 'setup'; key: string; notSetUp: number }
 	| { kind: 'review'; key: string; request: HomeReview }
 	| { kind: 'run'; key: string; run: HomeRun };
 
 /**
  * Builds the ordered card list for the single masonry wall. Priority favours
- * the "continue work" goal: active projects first, then runtime blockers (they
- * stop execution), then pending reviews (need a decision), then recent runs.
+ * the "continue work" goal: active projects first, then the enabled runtimes that cannot run
+ * (and one "set up runtimes" card while nothing can run), then pending reviews, then recent runs.
  * Pure: takes plain control-plane arrays and returns plain card descriptors.
  */
 export function buildHomeGallery(input: {
@@ -93,8 +176,12 @@ export function buildHomeGallery(input: {
 		});
 	}
 
-	for (const provider of selectRuntimeBlockers(input.runtimeProviders)) {
+	const runtimes = summarizeRuntimeBlockers(input.runtimeProviders);
+	for (const provider of runtimes.attention) {
 		items.push({ kind: 'blocker', key: `blocker:${provider.id}`, provider });
+	}
+	if (runtimes.executable === 0 && runtimes.notSetUp > 0) {
+		items.push({ kind: 'setup', key: 'setup:runtimes', notSetUp: runtimes.notSetUp });
 	}
 
 	for (const request of pendingReviews.slice(0, input.reviewLimit ?? 8)) {

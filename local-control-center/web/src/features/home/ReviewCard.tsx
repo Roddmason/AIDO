@@ -36,7 +36,7 @@ export function ReviewCard({ request, onOpen }: { request: HomeReview; onOpen: (
 				badge={<Badge tone={riskTone(request.riskLevel)}>{request.riskLevel}</Badge>}
 			/>
 			<span className="home-card-title">{t('app.home.reviewNeeded', 'Pending review')}</span>
-			<span className="home-card-meta">
+			<span className="home-card-names">
 				<span className="home-chip mono">{request.actionType}</span>
 			</span>
 			{request.command ? <span className="home-card-path mono">{request.command}</span> : null}

@@ -1,6 +1,6 @@
 /**
- * Landing page of the control center: a Pinterest-style masonry wall that turns
- * the overview payload into a single scannable stream of actionable cards.
+ * Landing page of the control center: a compact hero, then the active projects as an even grid of
+ * cards, then one band for what needs attention (runtime blockers, pending reviews, recent runs).
  * Card-first by design (no tables, no jargon) and steers the user to open a
  * folder or continue work; all ordering/count logic is delegated to homeModel.
  * @author Rodrigo Mason
@@ -10,10 +10,10 @@ import { FolderOpen, Plus } from 'lucide-react';
 import type { Overview, Project, RuntimeProviders } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
 import { MotionList } from '../../motion/MotionList';
-import { buildHomeGallery } from './homeModel';
+import { buildHomeGallery, projectLastActivity } from './homeModel';
 import { ReviewCard } from './ReviewCard';
 import { RunCard } from './RunCard';
-import { RuntimeBlockerCard } from './RuntimeBlockerCard';
+import { RuntimeBlockerCard, SetupRuntimesCard } from './RuntimeBlockerCard';
 import { WorkspaceCard } from './WorkspaceCard';
 
 export type Language = 'en' | 'es';
@@ -51,7 +51,6 @@ export function HomePage({
 	onOpenRuntimes: () => void;
 }) {
 	const { t } = useI18n();
-	const hasProjects = overview.projects.length > 0;
 	const gallery = buildHomeGallery({
 		projects: overview.projects,
 		actionRequests: overview.actionRequests,
@@ -59,6 +58,9 @@ export function HomePage({
 		workflows: overview.workflows,
 		runtimeProviders,
 	});
+	const projectCards = gallery.filter((item) => item.kind === 'workspace');
+	const attentionCards = gallery.filter((item) => item.kind !== 'workspace');
+	const hasProjects = projectCards.length > 0;
 
 	return (
 		<div className="home">
@@ -108,6 +110,7 @@ export function HomePage({
 					<header className="home-band-head">
 						<h2 className="home-band-title">
 							{t('app.home.galleryTitle', 'Pick up where you left off')}
+							<span className="home-band-count tnum">{projectCards.length}</span>
 						</h2>
 						<div className="home-quick-links">
 							<button type="button" className="home-band-link" onClick={onOpenProjects}>
@@ -124,28 +127,56 @@ export function HomePage({
 							</button>
 						</div>
 					</header>
-					<MotionList className="masonry-grid">
-						{gallery.map((item) => {
+					{/* Projects share one even grid (every row lines up); attention items follow in
+					    their own band so a runtime or review card never breaks the project rhythm. */}
+					<MotionList className="masonry-grid home-projects">
+						{projectCards.map((item) =>
+							item.kind === 'workspace' ? (
+								<WorkspaceCard
+									key={item.key}
+									project={item.project}
+									inProgress={item.inProgress}
+									pendingReviews={item.pendingReviews}
+									lastActivity={projectLastActivity(
+										item.project,
+										overview.jobs,
+										overview.workflows,
+									)}
+									selected={selectedProject?.id === item.project.id}
+									onOpen={() => {
+										onSelectProject(item.project.id);
+										onOpenWorkbench();
+									}}
+								/>
+							) : null,
+						)}
+					</MotionList>
+				</section>
+			)}
+
+			{attentionCards.length ? (
+				<section className="home-band" data-motion-item>
+					<header className="home-band-head">
+						<h2 className="home-band-title">
+							{t('app.home.attentionTitle', 'Needs your attention')}
+						</h2>
+					</header>
+					<MotionList className="masonry-grid home-attention">
+						{attentionCards.map((item) => {
 							switch (item.kind) {
-								case 'workspace':
-									return (
-										<WorkspaceCard
-											key={item.key}
-											project={item.project}
-											inProgress={item.inProgress}
-											pendingReviews={item.pendingReviews}
-											selected={selectedProject?.id === item.project.id}
-											onOpen={() => {
-												onSelectProject(item.project.id);
-												onOpenWorkbench();
-											}}
-										/>
-									);
 								case 'blocker':
 									return (
 										<RuntimeBlockerCard
 											key={item.key}
 											provider={item.provider}
+											onOpen={onOpenRuntimes}
+										/>
+									);
+								case 'setup':
+									return (
+										<SetupRuntimesCard
+											key={item.key}
+											notSetUp={item.notSetUp}
 											onOpen={onOpenRuntimes}
 										/>
 									);
@@ -159,7 +190,7 @@ export function HomePage({
 						})}
 					</MotionList>
 				</section>
-			)}
+			) : null}
 		</div>
 	);
 }

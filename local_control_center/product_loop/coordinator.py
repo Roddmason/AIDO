@@ -76,9 +76,11 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.runtime_team.configuration import (
     assigned_runtime,
     discarded_role_runtime,
+    global_team_of,
     restrict_to_allowlist,
     role_allowlist,
     role_model_pins,
+    role_routing_preferences,
     runtime_team_of,
 )
 from local_control_center.runtime_team.roles import team_role_for
@@ -3263,6 +3265,10 @@ class ProductLoopCoordinator:
                 and not thread_has_team
                 and po_provider_id
                 and not decision.get("candidates")
+                # Con equipo global no se amplía a todo el catálogo: el orden automático ya trae a
+                # todos los elegibles activos y el explícito es la decisión del operador; el rol
+                # queda sin candidatos y el blocker de asignación lo dice.
+                and global_team_of(request_meta) is None
             ):
                 widened_request = self._team_resource_request(
                     project_id=project_id,
@@ -3362,6 +3368,14 @@ class ProductLoopCoordinator:
         team_role = team_role_for(
             role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
         )
+        order, order_wildcards = role_routing_preferences(request_meta, team_role)
+        # El orden del equipo global va delante de los pins de la política del rol: los pins solo
+        # eligen el modelo dentro del proveedor que el operador puso primero.
+        preferred_provider_ids = [
+            *order,
+            *(provider_id for provider_id in policy["preferredProviderIds"] if provider_id not in order),
+        ]
+        preferred_resources = [*order_wildcards, *policy["preferredResources"]]
         return AIResourceRequest(
             project_id=project_id,
             workflow_run_id=loop_id,
@@ -3383,8 +3397,8 @@ class ProductLoopCoordinator:
             privacy_level=self._resource_privacy_level(request_meta),
             budget_remaining_usd=role_plan.get("budgetUsd"),
             max_tokens=role_plan.get("maxTokens"),
-            preferred_provider_ids=policy["preferredProviderIds"],
-            preferred_resources=policy["preferredResources"],
+            preferred_provider_ids=preferred_provider_ids,
+            preferred_resources=preferred_resources,
             blocked_resources=policy["blockedResources"],
             context_token_limit=policy["maxTokensPerRun"],
             role_policy_id=policy["rolePolicyId"],
@@ -3704,6 +3718,8 @@ class ProductLoopCoordinator:
         allowed_provider_ids = restrict_to_allowlist(
             allowed_provider_ids, role_allowlist(request_meta, "product_owner")
         )
+        # Con equipo global el orden del PO manda sobre la preferencia persistida y la política.
+        po_order, po_wildcards = role_routing_preferences(request_meta, "product_owner")
         preferred_provider_ids: list[str] = []
         ordered_contract_providers: list[str] = []
         for runtime_family in PRODUCT_OWNER_AGENT_RUNTIME_ORDER:
@@ -3719,6 +3735,7 @@ class ProductLoopCoordinator:
         # La preferencia persistida va primero: es lo que escribe la remediación switch_runtime, que
         # hasta ahora reportaba éxito sobre un valor que nadie leía.
         for provider_id in [
+            *po_order,
             *self._persisted_runtime_order(),
             *resource_policy["preferredProviderIds"],
             *ordered_contract_providers,
@@ -3729,6 +3746,7 @@ class ProductLoopCoordinator:
         # primero, luego las entradas provider+model de la política del rol. El orden de contrato
         # sigue siendo solo desempate provider-level vía preferred_provider_ids.
         preferred_resources = [
+            *po_wildcards,
             *({"provider": provider_id, "model": ""} for provider_id in self._persisted_runtime_order()),
             *resource_policy["preferredResources"],
         ]
@@ -5439,6 +5457,10 @@ class ProductLoopCoordinator:
                     excluded_resources=excluded,
                 )
             else:
+                # Con equipo global el failover recorre el orden del rol (asignado ya excluido).
+                order, order_wildcards = role_routing_preferences(
+                    getattr(run, "request_meta", None), team_role_for(role)
+                )
                 decision = manager.select_resource(
                     AIResourceRequest(
                         project_id=run.project_id,
@@ -5453,8 +5475,11 @@ class ProductLoopCoordinator:
                         allowed_provider_ids=role_allowlist(
                             getattr(run, "request_meta", None), team_role_for(role)
                         ),
-                        preferred_provider_ids=policy["preferredProviderIds"],
-                        preferred_resources=policy["preferredResources"],
+                        preferred_provider_ids=[
+                            *order,
+                            *(item for item in policy["preferredProviderIds"] if item not in order),
+                        ],
+                        preferred_resources=[*order_wildcards, *policy["preferredResources"]],
                         blocked_resources=policy["blockedResources"],
                         excluded_resources=excluded,
                         context_token_limit=policy["maxTokensPerRun"],

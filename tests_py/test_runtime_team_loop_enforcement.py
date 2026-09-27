@@ -448,3 +448,114 @@ def test_architect_review_keeps_the_local_runtime_cause(coordinator, tmp_path, m
 
     assert reviews[-1]["architect"]["status"] == "failed"
     assert reviews[-1]["architect"]["localRuntimeCause"] == "model_loading"
+
+
+GLOBAL = {
+    "globalRuntimeTeam": {
+        "roleRuntimeOrder": {
+            "product_owner": ["codex_cli", "nvidia_nim"],
+            "developer": ["nvidia_nim", "codex_cli"],
+            "architect": [],
+            "security": ["nvidia_nim"],
+            "technical_lead": ["codex_cli", "nvidia_nim"],
+            "researcher": ["codex_cli", "nvidia_nim"],
+        },
+        "roleRuntimes": {
+            "product_owner": "codex_cli",
+            "developer": "nvidia_nim",
+            "architect": None,
+            "security": "nvidia_nim",
+            "technical_lead": "codex_cli",
+            "researcher": "codex_cli",
+        },
+        "source": {
+            "product_owner": "general",
+            "developer": "project",
+            "architect": "automatic",
+            "security": "automatic",
+            "technical_lead": "inherited",
+            "researcher": "inherited",
+        },
+        "allowedRuntimes": ["codex_cli", "nvidia_nim"],
+    }
+}
+
+
+def test_the_global_team_order_is_the_allowlist_and_the_routing_preference(coordinator):
+    build = {"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}
+    request = _team_request(coordinator, build, GLOBAL, product_owner_provider_id="codex_cli")
+    assert request.allowed_provider_ids == ["nvidia_nim", "codex_cli"]
+    assert request.preferred_provider_ids[:2] == ["nvidia_nim", "codex_cli"]
+    assert request.preferred_resources[:2] == [
+        {"provider": "nvidia_nim", "model": ""},
+        {"provider": "codex_cli", "model": ""},
+    ]
+    # Con equipo por hilo nada cambia: allowlist de un proveedor y las preferencias de la política.
+    thread_request = _team_request(coordinator, build, TEAM)
+    assert thread_request.allowed_provider_ids == ["codex_cli"]
+    policy = coordinator._resource_role_policy("backend_engineer")
+    assert thread_request.preferred_provider_ids == policy["preferredProviderIds"]
+    assert thread_request.preferred_resources == policy["preferredResources"]
+
+
+@pytest.mark.parametrize("developer_source", ["project", "automatic"])
+def test_with_a_global_team_a_role_without_candidates_is_never_widened_to_the_whole_catalog(
+    coordinator, monkeypatch, developer_source
+):
+    """El orden automático ya contiene a todos los elegibles activos y el explícito es del operador:
+    ampliar a todo el catálogo solo sumaría proveedores inactivos o no elegibles."""
+    meta = {
+        "globalRuntimeTeam": {
+            **GLOBAL["globalRuntimeTeam"],
+            "source": {**GLOBAL["globalRuntimeTeam"]["source"], "developer": developer_source},
+        }
+    }
+    calls, select = _fake_select_resource(
+        {
+            ("nvidia_nim", "codex_cli"): {"selected": None, "candidates": []},
+            None: {
+                "selected": {"providerId": "gemini", "model": "g"},
+                "candidates": [{"providerId": "gemini"}],
+            },
+        }
+    )
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    schedule = {
+        **SCHEDULE,
+        "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+    }
+    coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta=meta,
+        team_schedule=schedule,
+        agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
+        product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
+    )
+    assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("nvidia_nim", "codex_cli")]
+
+
+def test_without_a_global_snapshot_the_legacy_widening_still_applies(coordinator, monkeypatch):
+    calls, select = _fake_select_resource(
+        {
+            ("codex_cli",): {"selected": None, "candidates": []},
+            None: {
+                "selected": {"providerId": "gemini", "model": "g"},
+                "candidates": [{"providerId": "gemini"}],
+            },
+        }
+    )
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    schedule = {
+        **SCHEDULE,
+        "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+    }
+    coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta={},
+        team_schedule=schedule,
+        agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
+        product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
+    )
+    assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("codex_cli",), ()]

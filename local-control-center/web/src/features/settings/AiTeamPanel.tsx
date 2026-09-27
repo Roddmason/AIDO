@@ -2,7 +2,8 @@
  * Global AI team: per role, the ordered providers a thread uses (first = assigned, rest = fallback).
  * The backend resolves eligibility, the automatic split and the effective order; this panel only
  * edits the `team.role.<role>` string lists of the current scope (general or project) and shows
- * where the effective order comes from. "Automatic" clears the scope's override.
+ * where the effective order comes from. "Automatic" clears the scope's override. When every provider
+ * the operator chose is switched off, the role falls back to the automatic split and says so.
  * @author Rodrigo Mason
  */
 import { useState } from 'react';
@@ -27,6 +28,10 @@ export const AI_TEAM_SOURCE_LABEL: Record<string, { key: string; fallback: strin
 	general: { key: 'app.aiTeam.source.general', fallback: 'general' },
 	automatic: { key: 'app.aiTeam.source.automatic', fallback: 'automatic' },
 	inherited: { key: 'app.aiTeam.source.inherited', fallback: 'inherits the Product Owner' },
+	automatic_fallback: {
+		key: 'app.aiTeam.source.automatic_fallback',
+		fallback: 'automatic (your selection is off)',
+	},
 };
 
 export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
@@ -117,6 +122,9 @@ function RoleRow({
 		next.splice(index + delta, 0, item);
 		commit(next);
 	};
+	// `automatic_fallback`: every provider the operator chose is switched off or not eligible, so the
+	// backend assigns the role automatically instead of leaving it empty.
+	const fallback = role.source === 'automatic_fallback';
 	const automatic = role.source === 'automatic' || role.source === 'inherited';
 	// Last own entry that is actually rendered: ids dropped as invalid never show a row to swap with.
 	const lastVisibleOwn = own.reduce(
@@ -130,7 +138,7 @@ function RoleRow({
 				{role.required ? (
 					<StatusChip tone="info">{t('app.aiTeam.required', 'required')}</StatusChip>
 				) : null}
-				<StatusChip tone={automatic ? 'pending' : 'ok'}>
+				<StatusChip tone={fallback ? 'warn' : automatic ? 'pending' : 'ok'}>
 					{t(source.key, source.fallback)}
 				</StatusChip>
 			</legend>
@@ -176,6 +184,11 @@ function RoleRow({
 					</li>
 				) : null}
 			</ol>
+			{fallback ? (
+				<p className="field-help ai-team-fallback" role="status">
+					{t('app.aiTeam.fallbackNote', 'Your selection is switched off; using automatic.')}
+				</p>
+			) : null}
 			{invalid.length ? (
 				<p className="field-help" role="status">
 					{t('app.aiTeam.invalid', 'Ignored (inactive or not eligible): {ids}').replace(
@@ -206,7 +219,7 @@ function RoleRow({
 				>
 					{t('app.aiTeam.add', 'Add')}
 				</Button>
-				<Button disabled={own.length === 0} onClick={() => onWrite(null)}>
+				<Button disabled={own.length === 0 && !fallback} onClick={() => onWrite(null)}>
 					{t('app.aiTeam.automatic', 'Automatic')}
 				</Button>
 			</div>

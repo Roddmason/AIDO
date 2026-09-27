@@ -11647,6 +11647,14 @@
       "en": "inherits the Product Owner",
       "es": "hereda del Product Owner"
     },
+    "app.aiTeam.source.automatic_fallback": {
+      "en": "automatic (your selection is off)",
+      "es": "automático (tu selección está apagada)"
+    },
+    "app.aiTeam.fallbackNote": {
+      "en": "Your selection is switched off; using automatic.",
+      "es": "Los proveedores que elegiste están apagados; se usa la asignación automática."
+    },
     "app.providers.switch.label": {
       "en": "Use {provider} in threads",
       "es": "Usar {provider} en los hilos"

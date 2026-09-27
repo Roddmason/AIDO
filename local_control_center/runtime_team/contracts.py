@@ -104,7 +104,7 @@ class RuntimeTeamCandidatesResponse(BaseModel):
 GlobalTeamRole = Literal[
     "product_owner", "developer", "architect", "security", "technical_lead", "researcher"
 ]
-GlobalTeamSource = Literal["project", "general", "automatic", "inherited"]
+GlobalTeamSource = Literal["project", "general", "automatic", "automatic_fallback", "inherited"]
 
 
 class GlobalTeamRoleRecord(BaseModel):

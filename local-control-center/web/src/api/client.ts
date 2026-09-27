@@ -1022,6 +1022,129 @@ export function applyWorkspaceCleanup(
 	});
 }
 
+export type BranchInventory =
+	OperationResponse<'git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get'>;
+export type BranchInventoryRecord = NonNullable<BranchInventory['branches']>[number];
+export type BranchHealthIssue = NonNullable<BranchInventory['health']>['issues'] extends
+	| Array<infer TIssue>
+	| undefined
+	? TIssue
+	: never;
+export type BranchScanRequest =
+	MutationBody<'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post'>;
+export type BranchDeleteRequest =
+	MutationBody<'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post'>;
+export type BranchRenameRequest =
+	MutationBody<'rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post'>;
+export type BranchPruneRequest =
+	MutationBody<'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post'>;
+export type BranchWorktreeRemoveRequest =
+	MutationBody<'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post'>;
+export type BranchActionResponse =
+	OperationResponse<'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post'>;
+export type BranchActionResult = NonNullable<BranchActionResponse['results']>[number];
+export type ProjectOpenFolderResponse =
+	OperationResponse<'open_project_folder_api_v1_projects__project_id__open_folder_post'>;
+
+/** Last durable branch inventory (no git runs in the API process); a scan refreshes it. */
+export function getBranchInventory(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get',
+		BranchInventory
+	>('git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get', {
+		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Queues a brokered branch inventory scan and resolves with the fresh inventory. */
+export function scanBranches(
+	token: string,
+	projectId: string,
+	body: BranchScanRequest = {},
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post',
+		BranchInventory
+	>(
+		'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+/** Deletes the confirmed selection; the server re-validates protection and merge state per branch. */
+export function deleteBranches(
+	token: string,
+	projectId: string,
+	body: BranchDeleteRequest,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post',
+		BranchActionResponse
+	>(
+		'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+export function renameBranch(token: string, projectId: string, body: BranchRenameRequest) {
+	return requestGeneratedOperation<
+		'rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post',
+		BranchActionResponse
+	>('rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post', {
+		token,
+		pathParams: { project_id: projectId },
+		body,
+	});
+}
+
+export function pruneRemoteBranches(
+	token: string,
+	projectId: string,
+	body: BranchPruneRequest = {},
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post',
+		BranchActionResponse
+	>(
+		'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+export function removeMergedWorktrees(
+	token: string,
+	projectId: string,
+	body: BranchWorktreeRemoveRequest,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post',
+		BranchActionResponse
+	>(
+		'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+/** Opens the project's REGISTERED folder in the OS file manager (server resolves the path). */
+export function openProjectFolder(token: string, projectId: string) {
+	return requestGeneratedOperation<
+		'open_project_folder_api_v1_projects__project_id__open_folder_post',
+		ProjectOpenFolderResponse
+	>('open_project_folder_api_v1_projects__project_id__open_folder_post', {
+		token,
+		pathParams: { project_id: projectId },
+	});
+}
+
 export function listProjects(signal?: AbortSignal) {
 	return requestGeneratedOperation('projects_api_v1_projects_get', { signal });
 }

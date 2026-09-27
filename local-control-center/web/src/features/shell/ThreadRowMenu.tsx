@@ -61,11 +61,19 @@ export function ThreadRowMenu({ label, items, anchor, at, onClose }: ThreadRowMe
 			window.innerHeight - rect.height - VIEWPORT_MARGIN,
 		);
 		setPosition({ top, left });
+	}, [anchor, at]);
+
+	// Focus moves in only once the menu is positioned: while it is still `visibility: hidden` the
+	// browser silently ignores focus(), which left keyboard users on the trigger.
+	const positioned = position !== null;
+	useLayoutEffect(() => {
+		const menu = menuRef.current;
+		if (!positioned || !menu) return;
 		const firstEnabled = menu.querySelector<HTMLElement>(
 			'[role="menuitem"]:not([aria-disabled="true"])',
 		);
 		(firstEnabled ?? menu).focus();
-	}, [anchor, at]);
+	}, [positioned]);
 
 	// Keeps the listeners effect mount-once while `onClose` identity changes across renders.
 	const onCloseRef = useRef(onClose);

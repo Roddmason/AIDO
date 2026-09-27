@@ -59,6 +59,21 @@ export type AssignmentReviewRecord = { "assignmentId": string; "createdAt": stri
 export type AssignmentSummary = { "assignmentId": string; "assignmentStatus": string; "taskId": string; "taskTitle"?: null | string };
 export type AssumptionRecord = { "briefId"?: null | string; "confidence"?: null | string; "createdAt": string; "id": string; "initiativeId"?: null | string; "metadata": JsonObject; "owner"?: null | string; "projectId": string; "sourceQuestionId"?: null | string; "statement": string; "status": string; "updatedAt": string; "validation"?: null | string };
 export type AuditEventRecord = { "action": string; "actor": string; "createdAt": string; "id": string; "payload": JsonObject; "projectId"?: null | string; "target": string };
+export type BranchActionResponse = { "integrationBranch"?: string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "results"?: Array<BranchActionResult>; "status": "completed" | "blocked" | "configuration_required" | "failed"; "summary"?: BranchActionSummary; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId"?: string };
+export type BranchActionResult = { "action": string; "branch": string; "detail"?: Array<string>; "forced"?: boolean; "kind": "local" | "remote" | "worktree" | "remote_refs"; "reason"?: string; "status": "deleted" | "renamed" | "pruned" | "removed" | "skipped" | "failed" | "blocked" };
+export type BranchActionSummary = { "done"?: number; "failed"?: number; "skipped"?: number };
+export type BranchCommitRecord = { "author"?: string; "date"?: string; "hash"?: string; "subject"?: string };
+export type BranchDeleteRequest = { "branches"?: Array<string>; "deleteRemote"?: boolean; "forceBranches"?: Array<string>; "remoteBranches"?: Array<string> };
+export type BranchHealthIssue = { "branches"?: Array<string>; "kind": "merged_not_deleted" | "squash_probable" | "non_gitflow" | "stale" | "far_behind" | "based_on_main" | "upstream_gone" | "merged_worktree" | "integration_missing"; "severity": "info" | "warning"; "suggestedAction": "delete_merged" | "review_force_delete" | "rename" | "review" | "update_from_integration" | "recreate_from_integration" | "prune" | "remove_worktree" | "configure_integration" };
+export type BranchHealthSummary = { "basedOnMain"?: number; "farBehind"?: number; "issues"?: Array<BranchHealthIssue>; "local"?: number; "merged"?: number; "nonGitflow"?: number; "protected"?: number; "remote"?: number; "squashProbable"?: number; "stale"?: number; "total"?: number; "upstreamGone"?: number };
+export type BranchInventoryResponse = { "branches"?: Array<BranchRecord>; "currentBranch"?: string; "farBehindCommits"?: number; "health"?: BranchHealthSummary; "integrationBranch"?: string; "integrationExists"?: boolean; "mainlineBranch"?: null | string; "policyDecisionIds"?: Array<string>; "projectId": string; "reason": string; "refreshRequired"?: boolean; "remotes"?: Array<string>; "root"?: string; "snapshotAt"?: null | string; "squashDetection"?: "cherry+merge-tree" | "cherry"; "staleDays"?: number; "status": "completed" | "blocked" | "configuration_required" | "failed"; "toolCalls"?: Array<GitCommandTraceRecord>; "workspaceId"?: string };
+export type BranchPruneRequest = { "remote"?: null | string };
+export type BranchRecord = { "ageDays"?: null | number; "ahead"?: null | number; "aidoWorkspaces"?: Array<BranchWorkspaceRecord>; "basedOnMain"?: boolean; "behind"?: null | number; "current"?: boolean; "deletable"?: boolean; "farBehind"?: boolean; "kind": "local" | "remote"; "lastCommit": BranchCommitRecord; "mergeEvidence"?: null | string; "mergeState": "merged" | "squash_probable" | "not_merged" | "unknown"; "name": string; "protected"?: boolean; "protectedReason"?: null | string; "ref": string; "remote"?: null | string; "requiresForce"?: boolean; "shortName": string; "stale"?: boolean; "suggestedName"?: null | string; "type": "integration" | "feature" | "bugfix" | "release" | "hotfix" | "support" | "aido" | "other"; "upstream"?: BranchUpstreamRecord; "worktreePath"?: null | string };
+export type BranchRenameRequest = { "branch": string; "newName": string };
+export type BranchScanRequest = { "farBehindCommits"?: number; "staleDays"?: number };
+export type BranchUpstreamRecord = { "ahead"?: number; "behind"?: number; "name"?: string; "status"?: "none" | "tracking" | "gone" };
+export type BranchWorkspaceRecord = { "path": string; "status": string; "taskId"?: string; "workspaceId": string };
+export type BranchWorktreeRemoveRequest = { "workspaceIds"?: Array<string> };
 export type BudgetRulePatchRequest = { "actionOnExceed"?: string; "enabled"?: boolean; "id"?: null | string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period"?: string; "scopeId"?: null | string; "scopeType"?: null | string };
 export type BudgetRuleRecord = { "actionOnExceed": string; "createdAt": string; "enabled": boolean; "id": string; "maxCostUsd"?: null | number; "maxTokens"?: null | number; "period": string; "scopeId"?: null | string; "scopeType": string; "updatedAt": string };
 export type BudgetRuleResponse = { "budgetRule": BudgetRuleRecord };
@@ -341,6 +356,7 @@ export type ProjectFindingRecord = { "assessmentId": string; "category": string;
 export type ProjectFindingsListResponse = { "findings": Array<ProjectFindingRecord> };
 export type ProjectFunctionalityRecord = { "createdAt": string; "filePaths": Array<string>; "fingerprint": string; "id": string; "metadata": JsonObject; "name": string; "normalizedName": string; "performanceNotes": Array<JsonObject>; "projectId": string; "reason"?: null | string; "score"?: null | number; "sourceThreadId": string; "status": "open" | "queued" | "running" | "waiting_decision" | "awaiting_approval" | "blocked" | "resolved" | "archived" | "deleted"; "summary": string; "updatedAt": string };
 export type ProjectFunctionalityResponse = { "functionality": Array<ProjectFunctionalityRecord> };
+export type ProjectOpenFolderResponse = { "launcher": string; "path": string; "projectId": string; "status": "opened" };
 export type ProjectRecord = { "createdAt": string; "id": string; "metadata": JsonObject; "name": string; "path": string; "source": string; "status": string; "templateId": string; "updatedAt": string };
 export type ProjectResponse = { "auditEvent"?: AuditEventRecord | null; "project": ProjectRecord };
 export type ProjectTemplateRecord = { "id": string; "kind": string; "name": string };
@@ -804,6 +820,12 @@ export const API_ENDPOINTS = [
 	{"method": "PUT", "operationId": "put_project_constitution_api_v1_projects__project_id__constitution_put", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Put Project Constitution"},
 	{"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	{"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
+	{"method": "GET", "operationId": "git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get", "path": "/api/v1/projects/{project_id}/git/branch-manager", "summary": "Git Branch Inventory"},
+	{"method": "POST", "operationId": "delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/delete", "summary": "Delete Git Branches"},
+	{"method": "POST", "operationId": "prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/prune", "summary": "Prune Git Remote Refs"},
+	{"method": "POST", "operationId": "rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/rename", "summary": "Rename Git Branch"},
+	{"method": "POST", "operationId": "scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/scan", "summary": "Scan Git Branches"},
+	{"method": "POST", "operationId": "remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/worktrees/remove", "summary": "Remove Merged Git Worktrees"},
 	{"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},
 	{"method": "GET", "operationId": "git_branches_api_v1_projects__project_id__git_branches_get", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Git Branches"},
 	{"method": "POST", "operationId": "create_git_branch_api_v1_projects__project_id__git_branches_post", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Create Git Branch"},
@@ -815,6 +837,7 @@ export const API_ENDPOINTS = [
 	{"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
 	{"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	{"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
+	{"method": "POST", "operationId": "open_project_folder_api_v1_projects__project_id__open_folder_post", "path": "/api/v1/projects/{project_id}/open-folder", "summary": "Open Project Folder"},
 	{"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	{"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
 	{"method": "POST", "operationId": "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post", "path": "/api/v1/projects/{project_id}/product-loop/brief/{brief_id}/approve", "summary": "Approve Product Brief"},
@@ -988,6 +1011,7 @@ export type OperationRequestBodies = {
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointDeclareRequest,
 	"delete_credential_api_v1_credentials__credential_id__delete": never,
 	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
+	"delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post": BranchDeleteRequest,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryDeleteRequest,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1038,6 +1062,7 @@ export type OperationRequestBodies = {
 	"get_thread_board_api_v1_threads__thread_id__board_get": never,
 	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": never,
 	"get_workflow_api_v1_workflows__workflow_id__get": never,
+	"git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get": never,
 	"git_branches_api_v1_projects__project_id__git_branches_get": never,
 	"git_diff_api_v1_projects__project_id__git_diff_get": never,
 	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": unknown,
@@ -1103,6 +1128,7 @@ export type OperationRequestBodies = {
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrateRequest | null,
 	"model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get": never,
 	"open_design_api_v1_open_design_get": never,
+	"open_project_folder_api_v1_projects__project_id__open_folder_post": unknown,
 	"overview_api_v1_model_gateway_overview_get": never,
 	"overview_api_v1_overview_get": never,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRulePatchRequest,
@@ -1130,6 +1156,7 @@ export type OperationRequestBodies = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": unknown,
 	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": never,
 	"providers_api_v1_providers_get": never,
+	"prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post": BranchPruneRequest,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalog,
 	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionUpsertRequest,
 	"put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put": ProviderUsagePolicyRequest,
@@ -1143,6 +1170,8 @@ export type OperationRequestBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerRegisterRequest,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": unknown,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": unknown,
+	"remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post": BranchWorktreeRemoveRequest,
+	"rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post": BranchRenameRequest,
 	"report_api_v1_decision_engine_report_get": never,
 	"research_agent_status_api_v1_agents_research_status_get": never,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveRequest,
@@ -1171,6 +1200,7 @@ export type OperationRequestBodies = {
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunRequest,
 	"sample_resources_api_v1_operations_resources_sample_post": unknown,
 	"sandbox_status_api_v1_sandbox_status_get": never,
+	"scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post": BranchScanRequest,
 	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalRequest,
 	"security_agent_status_api_v1_agents_security_status_get": never,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerRequest,
@@ -1282,6 +1312,7 @@ export type OperationResponseBodies = {
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
+	"delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post": ExecutionAccepted,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1332,6 +1363,7 @@ export type OperationResponseBodies = {
 	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
 	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": ThreadSealedRuntimeTeamResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
+	"git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get": BranchInventoryResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
 	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": ExecutionAccepted,
@@ -1397,6 +1429,7 @@ export type OperationResponseBodies = {
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
 	"model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get": ModelValidationStatusResponse,
 	"open_design_api_v1_open_design_get": OpenDesignResponse,
+	"open_project_folder_api_v1_projects__project_id__open_folder_post": ProjectOpenFolderResponse,
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
@@ -1424,6 +1457,7 @@ export type OperationResponseBodies = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ExecutionAccepted,
 	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": ProviderLimitStatusResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
+	"prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post": ExecutionAccepted,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
 	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionResponse,
 	"put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put": ProviderUsageResponse,
@@ -1437,6 +1471,8 @@ export type OperationResponseBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
+	"remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post": ExecutionAccepted,
+	"rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post": ExecutionAccepted,
 	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
@@ -1465,6 +1501,7 @@ export type OperationResponseBodies = {
 	"run_security_agent_api_v1_agents_security_runs_post": ExecutionAccepted,
 	"sample_resources_api_v1_operations_resources_sample_post": ResourceSampleResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
+	"scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post": ExecutionAccepted,
 	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
@@ -1580,6 +1617,7 @@ export type OperationResultBodies = {
 	"declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put": LocalEndpointView,
 	"delete_credential_api_v1_credentials__credential_id__delete": CredentialDeleteResponse,
 	"delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete": never,
+	"delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post": BranchActionResponse,
 	"delete_local_endpoint_api_v1_local_endpoints__provider_id__delete": never,
 	"delete_memory_api_v1_memory__memory_id__delete": MemoryResponse,
 	"delete_setting_api_v1_settings__key__delete": never,
@@ -1630,6 +1668,7 @@ export type OperationResultBodies = {
 	"get_thread_board_api_v1_threads__thread_id__board_get": ThreadBoardResponse,
 	"get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get": ThreadSealedRuntimeTeamResponse,
 	"get_workflow_api_v1_workflows__workflow_id__get": WorkflowDetailResponse,
+	"git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get": BranchInventoryResponse,
 	"git_branches_api_v1_projects__project_id__git_branches_get": GitBranchesResponse,
 	"git_diff_api_v1_projects__project_id__git_diff_get": GitDiffResponse,
 	"git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": GitGitleaksScanResponse,
@@ -1695,6 +1734,7 @@ export type OperationResultBodies = {
 	"migrate_credentials_api_v1_credentials_migrate_post": CredentialMigrationResponse,
 	"model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get": ModelValidationStatusResponse,
 	"open_design_api_v1_open_design_get": OpenDesignResponse,
+	"open_project_folder_api_v1_projects__project_id__open_folder_post": ProjectOpenFolderResponse,
 	"overview_api_v1_model_gateway_overview_get": ModelGatewayOverviewResponse,
 	"overview_api_v1_overview_get": OverviewResponse,
 	"patch_budget_rule_api_v1_model_gateway_budget_rules__rule_id__patch": BudgetRuleResponse,
@@ -1722,6 +1762,7 @@ export type OperationResultBodies = {
 	"provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": ProviderHealthResponse,
 	"provider_limit_status_api_v1_model_gateway_provider_limits_status_get": ProviderLimitStatusResponse,
 	"providers_api_v1_providers_get": ProvidersListResponse,
+	"prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post": BranchActionResponse,
 	"put_i18n_catalog_api_v1_i18n_catalog_put": I18nCatalogResponse,
 	"put_project_constitution_api_v1_projects__project_id__constitution_put": ProjectConstitutionResponse,
 	"put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put": ProviderUsageResponse,
@@ -1735,6 +1776,8 @@ export type OperationResultBodies = {
 	"register_mcp_server_api_v1_integrations_mcp_register_post": McpServerResponse,
 	"reindex_thread_memory_api_v1_threads__thread_id__memory_reindex_post": ThreadMemoryReindexResponse,
 	"release_lease_api_v1_operations_resources_leases__lease_id__release_post": ResourceLeaseResponse,
+	"remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post": BranchActionResponse,
+	"rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post": BranchActionResponse,
 	"report_api_v1_decision_engine_report_get": DecisionReportResponse,
 	"research_agent_status_api_v1_agents_research_status_get": ResearchAgentStatusResponse,
 	"resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post": ThreadDecisionResolveResponse,
@@ -1763,6 +1806,7 @@ export type OperationResultBodies = {
 	"run_security_agent_api_v1_agents_security_runs_post": SecurityAgentRunResponse,
 	"sample_resources_api_v1_operations_resources_sample_post": ResourceSampleResponse,
 	"sandbox_status_api_v1_sandbox_status_get": SandboxStatusResponse,
+	"scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post": BranchInventoryResponse,
 	"scan_local_plugins_api_v1_plugins_scan_local_post": PluginScanLocalResponse,
 	"security_agent_status_api_v1_agents_security_status_get": SecurityAgentStatusResponse,
 	"select_directory_api_v1_local_paths_select_directory_post": DirectoryPickerResponse,
@@ -1810,7 +1854,7 @@ export type OperationResultBodies = {
 	"workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get": WorkspaceCleanupPlanResponse
 };
 export type OperationResult<T extends ApiOperationId> = OperationResultBodies[T];
-export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {"add_git_remote_api_v1_projects__project_id__git_remotes_post": "/api/v1/executions/{execution_id}", "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": "/api/v1/executions/{execution_id}", "aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": "/api/v1/executions/{execution_id}", "allocate_workspace_api_v1_workspaces_post": "/api/v1/executions/{execution_id}", "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": "/api/v1/executions/{execution_id}", "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": "/api/v1/executions/{execution_id}", "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": "/api/v1/executions/{execution_id}", "archive_workspace_api_v1_workspaces__workspace_id__archive_post": "/api/v1/executions/{execution_id}", "checkout_git_branch_api_v1_projects__project_id__git_checkout_post": "/api/v1/executions/{execution_id}", "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": "/api/v1/executions/{execution_id}", "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": "/api/v1/executions/{execution_id}", "create_agent_run_api_v1_agent_runs_post": "/api/v1/executions/{execution_id}", "create_git_branch_api_v1_projects__project_id__git_branches_post": "/api/v1/executions/{execution_id}", "create_project_api_v1_projects_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": "/api/v1/executions/{execution_id}", "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": "/api/v1/executions/{execution_id}", "discover_project_api_v1_projects_discover_post": "/api/v1/executions/{execution_id}", "discover_runtimes_api_v1_local_runtimes_discover_post": "/api/v1/executions/{execution_id}", "emit_n8n_api_v1_integrations_n8n_emit_post": "/api/v1/executions/{execution_id}", "emit_n8n_event_api_v1_integrations_n8n_emit_event_post": "/api/v1/executions/{execution_id}", "execute_ai_execution_api_v1_model_gateway_ai_executions_post": "/api/v1/executions/{execution_id}", "execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": "/api/v1/executions/{execution_id}", "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": "/api/v1/executions/{execution_id}", "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": "/api/v1/executions/{execution_id}", "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": "/api/v1/executions/{execution_id}", "execute_remediation_api_v1_remediations__remediation_id__execute_post": "/api/v1/executions/{execution_id}", "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": "/api/v1/executions/{execution_id}", "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": "/api/v1/executions/{execution_id}", "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": "/api/v1/executions/{execution_id}", "init_git_repository_api_v1_projects__project_id__git_init_post": "/api/v1/executions/{execution_id}", "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": "/api/v1/executions/{execution_id}", "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": "/api/v1/executions/{execution_id}", "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": "/api/v1/executions/{execution_id}", "refresh_git_api_v1_projects__project_id__git_refresh_post": "/api/v1/executions/{execution_id}", "retrieval_reindex_api_v1_retrieval_reindex_post": "/api/v1/executions/{execution_id}", "route_execute_api_v1_model_gateway_route_execute_post": "/api/v1/executions/{execution_id}", "run_architect_agent_api_v1_agents_architect_runs_post": "/api/v1/executions/{execution_id}", "run_assessment_api_v1_projects__project_id__assessment_post": "/api/v1/executions/{execution_id}", "run_developer_agent_api_v1_agents_developer_runs_post": "/api/v1/executions/{execution_id}", "run_devops_agent_api_v1_agents_devops_runs_post": "/api/v1/executions/{execution_id}", "run_issue_to_patch_api_v1_workflows_issue_to_patch_post": "/api/v1/executions/{execution_id}", "run_issue_to_pr_api_v1_workflows_issue_to_pr_post": "/api/v1/executions/{execution_id}", "run_product_owner_agent_api_v1_agents_product_owner_runs_post": "/api/v1/executions/{execution_id}", "run_qa_agent_api_v1_agents_qa_runs_post": "/api/v1/executions/{execution_id}", "run_research_agent_api_v1_agents_research_runs_post": "/api/v1/executions/{execution_id}", "run_security_agent_api_v1_agents_security_runs_post": "/api/v1/executions/{execution_id}", "start_product_loop_api_v1_projects__project_id__product_loop_post": "/api/v1/executions/{execution_id}", "start_session_api_v1_cli_sessions_post": "/api/v1/executions/{execution_id}", "start_workflow_api_v1_workflows__workflow_id__start_post": "/api/v1/executions/{execution_id}", "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_skills_api_v1_skills_sync_post": "/api/v1/executions/{execution_id}", "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": "/api/v1/executions/{execution_id}", "test_n8n_target_api_v1_integrations_n8n_test_post": "/api/v1/executions/{execution_id}", "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": "/api/v1/executions/{execution_id}", "validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post": "/api/v1/executions/{execution_id}", "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": "/api/v1/executions/{execution_id}", "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": "/api/v1/executions/{execution_id}", "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": "/api/v1/executions/{execution_id}"};
+export const EXECUTION_OPERATIONS: Partial<Record<ApiOperationId, string>> = {"add_git_remote_api_v1_projects__project_id__git_remotes_post": "/api/v1/executions/{execution_id}", "advance_workflow_gate_api_v1_workflows__workflow_id__steps__step_id__advance_post": "/api/v1/executions/{execution_id}", "aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post": "/api/v1/executions/{execution_id}", "allocate_workspace_api_v1_workspaces_post": "/api/v1/executions/{execution_id}", "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": "/api/v1/executions/{execution_id}", "apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post": "/api/v1/executions/{execution_id}", "approve_issue_to_patch_api_v1_workflows_issue_to_patch__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": "/api/v1/executions/{execution_id}", "approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post": "/api/v1/executions/{execution_id}", "archive_workspace_api_v1_workspaces__workspace_id__archive_post": "/api/v1/executions/{execution_id}", "checkout_git_branch_api_v1_projects__project_id__git_checkout_post": "/api/v1/executions/{execution_id}", "codex_capabilities_api_v1_model_gateway_cli_runtimes_codex_cli_capabilities_probe_post": "/api/v1/executions/{execution_id}", "codex_smoke_api_v1_model_gateway_cli_runtimes_codex_cli_compatibility_smoke_post": "/api/v1/executions/{execution_id}", "create_agent_run_api_v1_agent_runs_post": "/api/v1/executions/{execution_id}", "create_git_branch_api_v1_projects__project_id__git_branches_post": "/api/v1/executions/{execution_id}", "create_project_api_v1_projects_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_issue_to_pr_api_v1_workflows_issue_to_pr__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "create_pull_request_from_promoted_branch_api_v1_workflows_issue_to_patch__run_id__pull_request_post": "/api/v1/executions/{execution_id}", "delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post": "/api/v1/executions/{execution_id}", "detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post": "/api/v1/executions/{execution_id}", "discover_models_api_v1_model_gateway_providers__provider_id__discover_models_post": "/api/v1/executions/{execution_id}", "discover_project_api_v1_projects_discover_post": "/api/v1/executions/{execution_id}", "discover_runtimes_api_v1_local_runtimes_discover_post": "/api/v1/executions/{execution_id}", "emit_n8n_api_v1_integrations_n8n_emit_post": "/api/v1/executions/{execution_id}", "emit_n8n_event_api_v1_integrations_n8n_emit_event_post": "/api/v1/executions/{execution_id}", "execute_ai_execution_api_v1_model_gateway_ai_executions_post": "/api/v1/executions/{execution_id}", "execute_provider_embedding_api_v1_model_gateway_providers__provider_id__embeddings_post": "/api/v1/executions/{execution_id}", "execute_provider_image_editing_api_v1_model_gateway_providers__provider_id__images_edits_post": "/api/v1/executions/{execution_id}", "execute_provider_image_generation_api_v1_model_gateway_providers__provider_id__images_generations_post": "/api/v1/executions/{execution_id}", "execute_provider_rerank_api_v1_model_gateway_providers__provider_id__rerank_post": "/api/v1/executions/{execution_id}", "execute_remediation_api_v1_remediations__remediation_id__execute_post": "/api/v1/executions/{execution_id}", "git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post": "/api/v1/executions/{execution_id}", "health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post": "/api/v1/executions/{execution_id}", "health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post": "/api/v1/executions/{execution_id}", "init_git_repository_api_v1_projects__project_id__git_init_post": "/api/v1/executions/{execution_id}", "promote_issue_to_pr_branch_api_v1_workflows_issue_to_pr__run_id__promote_post": "/api/v1/executions/{execution_id}", "promote_patch_to_branch_api_v1_workflows_issue_to_patch__run_id__promote_post": "/api/v1/executions/{execution_id}", "provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post": "/api/v1/executions/{execution_id}", "prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post": "/api/v1/executions/{execution_id}", "refresh_git_api_v1_projects__project_id__git_refresh_post": "/api/v1/executions/{execution_id}", "remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post": "/api/v1/executions/{execution_id}", "rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post": "/api/v1/executions/{execution_id}", "retrieval_reindex_api_v1_retrieval_reindex_post": "/api/v1/executions/{execution_id}", "route_execute_api_v1_model_gateway_route_execute_post": "/api/v1/executions/{execution_id}", "run_architect_agent_api_v1_agents_architect_runs_post": "/api/v1/executions/{execution_id}", "run_assessment_api_v1_projects__project_id__assessment_post": "/api/v1/executions/{execution_id}", "run_developer_agent_api_v1_agents_developer_runs_post": "/api/v1/executions/{execution_id}", "run_devops_agent_api_v1_agents_devops_runs_post": "/api/v1/executions/{execution_id}", "run_issue_to_patch_api_v1_workflows_issue_to_patch_post": "/api/v1/executions/{execution_id}", "run_issue_to_pr_api_v1_workflows_issue_to_pr_post": "/api/v1/executions/{execution_id}", "run_product_owner_agent_api_v1_agents_product_owner_runs_post": "/api/v1/executions/{execution_id}", "run_qa_agent_api_v1_agents_qa_runs_post": "/api/v1/executions/{execution_id}", "run_research_agent_api_v1_agents_research_runs_post": "/api/v1/executions/{execution_id}", "run_security_agent_api_v1_agents_security_runs_post": "/api/v1/executions/{execution_id}", "scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post": "/api/v1/executions/{execution_id}", "start_product_loop_api_v1_projects__project_id__product_loop_post": "/api/v1/executions/{execution_id}", "start_session_api_v1_cli_sessions_post": "/api/v1/executions/{execution_id}", "start_workflow_api_v1_workflows__workflow_id__start_post": "/api/v1/executions/{execution_id}", "sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post": "/api/v1/executions/{execution_id}", "sync_skills_api_v1_skills_sync_post": "/api/v1/executions/{execution_id}", "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": "/api/v1/executions/{execution_id}", "test_n8n_target_api_v1_integrations_n8n_test_post": "/api/v1/executions/{execution_id}", "test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post": "/api/v1/executions/{execution_id}", "validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post": "/api/v1/executions/{execution_id}", "validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post": "/api/v1/executions/{execution_id}", "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post": "/api/v1/executions/{execution_id}", "workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post": "/api/v1/executions/{execution_id}"};
 
 export const OPERATIONS_BY_ID = {
 	"list_agent_profiles_api_v1_agent_profiles_get": {"method": "GET", "operationId": "list_agent_profiles_api_v1_agent_profiles_get", "path": "/api/v1/agent-profiles", "summary": "List Agent Profiles"},
@@ -1994,6 +2038,12 @@ export const OPERATIONS_BY_ID = {
 	"put_project_constitution_api_v1_projects__project_id__constitution_put": {"method": "PUT", "operationId": "put_project_constitution_api_v1_projects__project_id__constitution_put", "path": "/api/v1/projects/{project_id}/constitution", "summary": "Put Project Constitution"},
 	"list_findings_api_v1_projects__project_id__findings_get": {"method": "GET", "operationId": "list_findings_api_v1_projects__project_id__findings_get", "path": "/api/v1/projects/{project_id}/findings", "summary": "List Findings"},
 	"project_functionality_api_v1_projects__project_id__functionality_get": {"method": "GET", "operationId": "project_functionality_api_v1_projects__project_id__functionality_get", "path": "/api/v1/projects/{project_id}/functionality", "summary": "Project Functionality"},
+	"git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get": {"method": "GET", "operationId": "git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get", "path": "/api/v1/projects/{project_id}/git/branch-manager", "summary": "Git Branch Inventory"},
+	"delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post": {"method": "POST", "operationId": "delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/delete", "summary": "Delete Git Branches"},
+	"prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post": {"method": "POST", "operationId": "prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/prune", "summary": "Prune Git Remote Refs"},
+	"rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post": {"method": "POST", "operationId": "rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/rename", "summary": "Rename Git Branch"},
+	"scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post": {"method": "POST", "operationId": "scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/scan", "summary": "Scan Git Branches"},
+	"remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post": {"method": "POST", "operationId": "remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post", "path": "/api/v1/projects/{project_id}/git/branch-manager/worktrees/remove", "summary": "Remove Merged Git Worktrees"},
 	"apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post": {"method": "POST", "operationId": "apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post", "path": "/api/v1/projects/{project_id}/git/branch-policy/apply", "summary": "Apply Git Branch Policy"},
 	"git_branches_api_v1_projects__project_id__git_branches_get": {"method": "GET", "operationId": "git_branches_api_v1_projects__project_id__git_branches_get", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Git Branches"},
 	"create_git_branch_api_v1_projects__project_id__git_branches_post": {"method": "POST", "operationId": "create_git_branch_api_v1_projects__project_id__git_branches_post", "path": "/api/v1/projects/{project_id}/git/branches", "summary": "Create Git Branch"},
@@ -2005,6 +2055,7 @@ export const OPERATIONS_BY_ID = {
 	"add_git_remote_api_v1_projects__project_id__git_remotes_post": {"method": "POST", "operationId": "add_git_remote_api_v1_projects__project_id__git_remotes_post", "path": "/api/v1/projects/{project_id}/git/remotes", "summary": "Add Git Remote"},
 	"test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post": {"method": "POST", "operationId": "test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post", "path": "/api/v1/projects/{project_id}/git/remotes/{name}/test", "summary": "Test Git Remote"},
 	"git_status_api_v1_projects__project_id__git_status_get": {"method": "GET", "operationId": "git_status_api_v1_projects__project_id__git_status_get", "path": "/api/v1/projects/{project_id}/git/status", "summary": "Git Status"},
+	"open_project_folder_api_v1_projects__project_id__open_folder_post": {"method": "POST", "operationId": "open_project_folder_api_v1_projects__project_id__open_folder_post", "path": "/api/v1/projects/{project_id}/open-folder", "summary": "Open Project Folder"},
 	"get_product_loop_state_api_v1_projects__project_id__product_loop_get": {"method": "GET", "operationId": "get_product_loop_state_api_v1_projects__project_id__product_loop_get", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Get Product Loop State"},
 	"start_product_loop_api_v1_projects__project_id__product_loop_post": {"method": "POST", "operationId": "start_product_loop_api_v1_projects__project_id__product_loop_post", "path": "/api/v1/projects/{project_id}/product-loop", "summary": "Start Product Loop"},
 	"approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post": {"method": "POST", "operationId": "approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post", "path": "/api/v1/projects/{project_id}/product-loop/brief/{brief_id}/approve", "summary": "Approve Product Brief"},

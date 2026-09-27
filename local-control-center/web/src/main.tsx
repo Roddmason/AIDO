@@ -14,6 +14,7 @@ import './design-system/components.css';
 import './design-system/ui.css';
 import './design-system/settings.css';
 import './design-system/inspector.css';
+import './design-system/branches.css';
 import './design-system/motion.css';
 
 import React from 'react';

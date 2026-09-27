@@ -304,6 +304,7 @@ def plan_team_and_resources(
                 "resourceBlockers": resource_blockers,
                 "teamSchedule": team_schedule,
                 "agentTaskIds": [task["id"] for task in agent_tasks],
+                **_global_team_marker(request_meta),
             },
             durable_context={
                 "productOwner": product_owner_context,
@@ -449,3 +450,10 @@ def finish_team_planning(coordinator, run, *, agent_tasks, team_schedule, backlo
     run.agent_tasks = agent_tasks
     run.team_schedule = team_schedule
     return None
+
+
+def _global_team_marker(request_meta: dict[str, Any]) -> dict[str, bool]:
+    """Marca un bloqueo de asignación de un run con equipo de IA global: la remediación abre "team"."""
+    from local_control_center.runtime_team.configuration import global_team_of
+
+    return {"globalRuntimeTeam": True} if global_team_of(request_meta) is not None else {}

@@ -1277,7 +1277,21 @@ def _resource_manager_unconfigured_specs(context: BlockerPayloadContext) -> list
                 "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
             },
         ]
+    # Con equipo de IA global, un rol sin candidatos se arregla primero en el orden del rol ("team").
+    team_specs = (
+        [
+            {
+                "actionType": "open_settings_section",
+                "title": "Open team",
+                "description": "Assign an active provider to the blocked role in the AI team, or switch one on.",
+                "payload": {**resource_manager_settings_payload, "section": "team"},
+            }
+        ]
+        if context.details.get("globalRuntimeTeam") is True
+        else []
+    )
     return [
+        *team_specs,
         {
             "actionType": "open_settings_section",
             "title": "Open provider and model settings",

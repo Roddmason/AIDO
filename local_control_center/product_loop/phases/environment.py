@@ -207,6 +207,7 @@ def select_product_owner_resources(
             actor=actor,
             details={
                 "resourceBlockers": [resource_blocker],
+                **_global_team_marker(request_meta),
                 "agentRole": "product_owner",
                 "agentId": PRODUCT_OWNER_AGENT_ID,
             },
@@ -230,6 +231,7 @@ def select_product_owner_resources(
             actor=actor,
             details={
                 "resourceBlockers": [product_owner_resource_blocker],
+                **_global_team_marker(request_meta),
                 "agentRole": "product_owner",
                 "agentId": PRODUCT_OWNER_AGENT_ID,
             },
@@ -355,3 +357,10 @@ def run_project_assessment(
             )
     run.assessment_result = assessment_result
     return None
+
+
+def _global_team_marker(request_meta: dict[str, Any]) -> dict[str, bool]:
+    """Marca un bloqueo de asignación del PO con equipo de IA global: la remediación abre "team"."""
+    from local_control_center.runtime_team.configuration import global_team_of
+
+    return {"globalRuntimeTeam": True} if global_team_of(request_meta) is not None else {}

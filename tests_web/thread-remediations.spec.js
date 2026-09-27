@@ -929,3 +929,26 @@ test('Remediations: a failed remediation load offers Retry and recovers the real
 	).toBeVisible({ timeout: 20_000 });
 	await expect(loadError).toBeHidden();
 });
+
+test('Remediations: a role without candidates in the global AI team opens the team section', async ({ page }) => {
+	const reason = 'AIResourceManager could not select an approved AI resource for role backend_engineer.';
+	await mockRemediations(page, [
+		remediation({
+			stage: 'resource_manager',
+			blockerType: 'resource_manager_unconfigured',
+			actionType: 'open_settings_section',
+			title: 'Open team',
+			technicalReason: reason,
+			primary: true,
+			payload: { section: 'team', reason, blockedRoles: ['backend_engineer'] },
+		}),
+	]);
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, `Global team remediation ${Date.now()}`);
+	const card = blockerCard(page, /No eligible AI resource is available|No hay un recurso de IA elegible disponible/);
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	await expect(card.getByRole('button', { name: /Open routing|Abrir enrutamiento/ })).toHaveCount(0);
+	await card.getByRole('button', { name: /^(Open team|Abrir equipo)$/ }).click();
+	await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});

@@ -66,6 +66,8 @@ def lane(tmp_path, monkeypatch):
         for provider, name in [("codex_cli", "codex.exe"), ("claude_code_cli", "claude.exe")]:
             binary = tmp_path / name
             binary.write_bytes(b"FAKE test fixture; never execute")
+            # POSIX exige el bit de ejecución para detectar el comando; en Windows no cambia nada.
+            binary.chmod(0o755)
             repo.upsert_installation({"runtimeId": provider, "executablePath": str(binary), "enabled": True})
             connection.execute("UPDATE provider_accounts SET enabled=1 WHERE provider_id=?", (provider,))
             connection.execute("UPDATE runtime_accounts SET enabled=1 WHERE runtime_id=?", (provider,))

@@ -73,6 +73,10 @@ def write_scanner_cli(bin_dir: Path, name: str, script: str) -> None:
     impl.write_text(script, encoding="utf-8")
     command = bin_dir / f"{name}.cmd"
     command.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
+    # POSIX no ejecuta .cmd: el mismo escáner falso como script con bit de ejecución.
+    posix = bin_dir / name
+    posix.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{impl}" "$@"\n', encoding="utf-8")
+    posix.chmod(0o755)
 
 
 def configure_external_scanners(

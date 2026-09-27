@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import threading
 import time
@@ -844,6 +845,7 @@ def test_package_manager_is_pnpm_only() -> None:
     assert re.search(r"(?<!p)npm\s+run", start_script) is None
 
 
+@pytest.mark.skipif(os.name != "nt", reason="WindowsSelectorEventLoopPolicy solo existe en Windows.")
 def test_cli_configures_windows_selector_event_loop_policy() -> None:
     from local_control_center import cli
 

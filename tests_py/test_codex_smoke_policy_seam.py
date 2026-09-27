@@ -22,6 +22,7 @@ def test_authorized_smoke_reaches_transport_without_opening_generic_plan_shell(
     runtime.init()
     binary = tmp_path / "codex.exe"
     binary.write_bytes(b"test executable; never launched")
+    binary.chmod(0o755)  # POSIX exige el bit de ejecución; en Windows no cambia nada.
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     private_root = tmp_path / "private"

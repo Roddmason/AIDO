@@ -501,7 +501,7 @@ def test_env_override_warning_is_reported_without_becoming_execution_authority(
                 last_health_check_at = ?
             WHERE provider_id = 'openai_compatible'
             """,
-            ("https://example.invalid/v1", "env:OPENAI_API_KEY", "2026-06-27T12:00:00Z"),
+            ("https://example.invalid/v1", "env:OPENAI_API_KEY", utc_now()),
         )
         connection.execute(
             """
@@ -548,7 +548,7 @@ def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatc
                 last_health_check_at = ?
             WHERE provider_id = 'openai_compatible'
             """,
-            ("https://example.invalid/v1", "env:OPENAI_API_KEY", "2026-06-27T12:00:00Z"),
+            ("https://example.invalid/v1", "env:OPENAI_API_KEY", utc_now()),
         )
         connection.execute(
             """
@@ -569,7 +569,7 @@ def test_project_remote_disabled_blocks_api_execution(tmp_path: Path, monkeypatc
         )
         execution = ModelGateway(connection).execute_model_call(planned)
 
-    assert provider["available"] is True
+    assert provider["available"] is True, provider.get("blockingReasons")
     assert provider["executable"] is False
     assert "project.runtime.remote.enabled" in provider["reason"]
     assert execution["status"] == "blocked"
@@ -970,7 +970,7 @@ def test_invalid_api_credential_ref_blocks_runtime_with_configuration_reason(
                 last_health_check_at = ?
             WHERE provider_id = 'openai_compatible'
             """,
-            ("https://example.invalid/v1", "env:missing-lowercase", "2026-06-27T12:00:00Z"),
+            ("https://example.invalid/v1", "env:missing-lowercase", utc_now()),
         )
         provider = next(
             item

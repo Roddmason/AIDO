@@ -112,6 +112,7 @@ def test_probe_fingerprint_change_invalidates_previous_capabilities(tmp_path, mo
     runtime.init()
     binary = tmp_path / "codex.exe"
     binary.write_bytes(b"test binary not executed")
+    binary.chmod(0o755)  # POSIX exige el bit de ejecución; en Windows no cambia nada.
     monkeypatch.setattr(module.shutil, "which", lambda executable: str(binary))
     monkeypatch.setattr(
         module,
@@ -197,6 +198,7 @@ def test_smoke_receipt_requires_its_own_command_and_updates_compatibility(
     runtime.init()
     binary = tmp_path / "codex.exe"
     binary.write_bytes(b"test-only binary, never executed")
+    binary.chmod(0o755)  # POSIX exige el bit de ejecución; en Windows no cambia nada.
     try:
         connection = runtime.connection
         register_workspace(connection, "smoke-workspace", tmp_path)

@@ -14,6 +14,7 @@ import pytest
 from local_control_center.agents import codex_compatibility, runtime_provider_config
 from local_control_center.agents.product_owner_agent import ProductOwnerAgentRunner
 from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_registry import RuntimeRegistry
 from local_control_center.host_resources.models import ResourceSnapshot
 from local_control_center.host_resources.repository import ResourceRepository
@@ -71,6 +72,8 @@ def po_fixture(tmp_path):
         for runtime_id, name in (("codex_cli", "codex.exe"), ("claude_code_cli", "claude.exe")):
             binary = tmp_path / name
             binary.write_bytes(b"synthetic non-executable fixture: " + runtime_id.encode())
+            # POSIX exige el bit de ejecución para detectar el comando; en Windows no cambia nada.
+            binary.chmod(0o755)
             repo.upsert_installation(
                 {
                     "runtimeId": runtime_id,
@@ -90,6 +93,8 @@ def po_fixture(tmp_path):
                     "configurationSource": "test_fixture",
                 }
             )
+            # Desde 7e51db1 el switch del proveedor manda: un CLI con el switch apagado no es ejecutable.
+            ProviderAccountStore(connection).patch_provider_account(runtime_id, {"enabled": True})
         binary = tmp_path / "codex.exe"
         fingerprint = hashlib.sha256(binary.read_bytes()).hexdigest()
         connection.execute(
@@ -268,6 +273,7 @@ def test_environment_path_override_does_not_promote_receipt_or_mutate_preference
     override.mkdir()
     target = override / "codex.exe"
     target.write_bytes(b"another synthetic file, not a model")
+    target.chmod(0o755)
     monkeypatch.setenv("AIDO_CODEX_COMMAND", str(target))
     before = connection.total_changes
     result = runner.status(preferred_runtime="codex_cli")

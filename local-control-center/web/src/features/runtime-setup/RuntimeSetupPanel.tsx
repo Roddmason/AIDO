@@ -59,6 +59,7 @@ import {
 	isOllamaEndpoint,
 	type LocalRuntimeDraft,
 } from './localEndpoints';
+import { ModelValidationRun } from './ModelValidationRun';
 import { ProviderSwitch } from './ProviderSwitch';
 import { hasUsageToShow, ProviderUsageSection } from './ProviderUsageSection';
 import {
@@ -100,6 +101,17 @@ const GUIDED_SETUP_ACTIONS = [
 	},
 ] as const;
 const CLI_SETUP_PROVIDER_IDS = new Set(['codex_cli', 'claude_code_cli', 'openhands', 'swe_agent']);
+
+/** API and gateway accounts can validate their catalog model by model (local/CLI validate one model). */
+function canValidateAllModels(setup: ProviderSetupInfo | null): boolean {
+	const kind = setup?.account?.providerType;
+	return Boolean(
+		setup?.enabled &&
+			(setup.hasCredential || setup.credentialStatus === 'not_required') &&
+			setup.modelCount > 0 &&
+			(kind === 'api' || kind === 'gateway'),
+	);
+}
 
 type RuntimeSetupPanelProps = {
 	runtimeProviders: RuntimeProviders | null;
@@ -553,6 +565,17 @@ export function RuntimeSetupPanel({
 								onSync={() => runProviderTask(provider.id, 'sync')}
 								onToggleEnabled={(enabled) => void toggleProvider(provider.id, enabled)}
 								onConfigure={() => openWizard(provider.id)}
+								modelValidation={
+									canValidateAllModels(setup) ? (
+										<ModelValidationRun
+											token={token}
+											providerId={provider.id}
+											providerName={provider.displayName}
+											disabled={busyAction !== null}
+											onChanged={() => void loadGateway()}
+										/>
+									) : null
+								}
 								usage={
 									hasUsageToShow(usageById.get(provider.id)) ? (
 										<ProviderUsageSection
@@ -623,6 +646,7 @@ function ProviderCard({
 	onToggleEnabled,
 	onConfigure,
 	usage,
+	modelValidation,
 }: {
 	provider: MergedProvider;
 	/** The provider account behind the switch; null while the provider has none (not configured). */
@@ -637,6 +661,8 @@ function ProviderCard({
 	onConfigure: () => void;
 	/** Usage-quota section, rendered by the panel that owns the usage state. */
 	usage?: ReactNode;
+	/** "Validate all models" block of an API/gateway provider (progress, summary, results). */
+	modelValidation?: ReactNode;
 }) {
 	const { t } = useI18n();
 	const [open, setOpen] = useState(false);
@@ -902,6 +928,7 @@ function ProviderCard({
 					<ChevronDown aria-hidden="true" size={16} className="provider-card-disclosure-icon" />
 				</button>
 			</div>
+			{modelValidation}
 
 			<div
 				id={detailsId}

@@ -435,6 +435,170 @@
       "en": "Show {count} more",
       "es": "Mostrar {count} más"
     },
+    "app.providers.validateAll.title": {
+      "en": "Model validation",
+      "es": "Validación de modelos"
+    },
+    "app.providers.validateAll.region": {
+      "en": "Model validation",
+      "es": "Validación de modelos"
+    },
+    "app.providers.validateAll.action": {
+      "en": "Validate all models",
+      "es": "Validar todos los modelos"
+    },
+    "app.providers.validateAll.hint": {
+      "en": "Sends one short test prompt to every enabled model; each one uses a little quota.",
+      "es": "Envía un prompt de prueba corto a cada modelo habilitado; cada uno consume un poco de cuota."
+    },
+    "app.providers.validateAll.cancel": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.providers.validateAll.cancelFailed": {
+      "en": "Could not cancel the validation",
+      "es": "No se pudo cancelar la validación"
+    },
+    "app.providers.validateAll.continue": {
+      "en": "Test the {count} untested",
+      "es": "Probar los {count} sin probar"
+    },
+    "app.providers.validateAll.doneTitle": {
+      "en": "{ok} ok · {discarded} discarded",
+      "es": "{ok} operativos · {discarded} descartados"
+    },
+    "app.providers.validateAll.summary": {
+      "en": "{ok} ok · {discarded} discarded",
+      "es": "{ok} operativos · {discarded} descartados"
+    },
+    "app.providers.validateAll.summarySkipped": {
+      "en": "{count} not confirmed",
+      "es": "{count} sin confirmar"
+    },
+    "app.providers.validateAll.failed": {
+      "en": "Could not validate the models",
+      "es": "No se pudieron validar los modelos"
+    },
+    "app.providers.validateAll.filter.all": {
+      "en": "All ({count})",
+      "es": "Todos ({count})"
+    },
+    "app.providers.validateAll.filter.ok": {
+      "en": "OK ({count})",
+      "es": "Operativos ({count})"
+    },
+    "app.providers.validateAll.filter.failed": {
+      "en": "Failed ({count})",
+      "es": "Fallidos ({count})"
+    },
+    "app.providers.validateAll.filter.skipped": {
+      "en": "Not confirmed ({count})",
+      "es": "Sin confirmar ({count})"
+    },
+    "app.providers.validateAll.filterAria": {
+      "en": "Show results",
+      "es": "Mostrar resultados"
+    },
+    "app.providers.validateAll.showResults": {
+      "en": "Show results ({count})",
+      "es": "Ver resultados ({count})"
+    },
+    "app.providers.validateAll.hideResults": {
+      "en": "Hide results",
+      "es": "Ocultar resultados"
+    },
+    "app.providers.validateAll.noMatch": {
+      "en": "No result matches this filter.",
+      "es": "Ningún resultado coincide con este filtro."
+    },
+    "app.providers.validateAll.note.budget": {
+      "en": "Time budget reached: {count} model(s) were not tested yet.",
+      "es": "Se agotó el tiempo disponible: {count} modelo(s) quedaron sin probar."
+    },
+    "app.providers.validateAll.note.cancelled": {
+      "en": "Validation cancelled.",
+      "es": "Validación cancelada."
+    },
+    "app.providers.validateAll.note.interrupted": {
+      "en": "The last validation was interrupted.",
+      "es": "La última validación se interrumpió."
+    },
+    "app.providers.validateAll.note.noModelPassed": {
+      "en": "No model responded, so nothing was discarded: check the credential or the endpoint.",
+      "es": "Ningún modelo respondió, así que no se descartó ninguno: revisa la credencial o el endpoint."
+    },
+    "app.providers.validateAll.note.providerDisabled": {
+      "en": "Stopped: the provider was switched off.",
+      "es": "Detenida: el proveedor se desactivó."
+    },
+    "app.providers.validateAll.note.quota": {
+      "en": "Stopped: the provider is suspended by usage quota.",
+      "es": "Detenida: el proveedor está suspendido por cuota de uso."
+    },
+    "app.providers.validateAll.note.unreachable": {
+      "en": "Stopped: the endpoint did not answer; no model was discarded for it.",
+      "es": "Detenida: el endpoint no respondió; no se descartó ningún modelo por eso."
+    },
+    "app.providers.validateAll.progress": {
+      "en": "{done}/{total} tested · {ok} ok · {failed} failed",
+      "es": "{done}/{total} probados · {ok} operativos · {failed} fallidos"
+    },
+    "app.providers.validateAll.progressAria": {
+      "en": "Models tested",
+      "es": "Modelos probados"
+    },
+    "app.providers.validateAll.queued": {
+      "en": "Queued: {reason}",
+      "es": "En cola: {reason}"
+    },
+    "app.providers.validateAll.starting": {
+      "en": "Starting…",
+      "es": "Iniciando…"
+    },
+    "app.providers.validateAll.reenable": {
+      "en": "Re-enable",
+      "es": "Rehabilitar"
+    },
+    "app.providers.validateAll.reenableAria": {
+      "en": "Re-enable {model}",
+      "es": "Rehabilitar {model}"
+    },
+    "app.providers.validateAll.reenabled": {
+      "en": "Model enabled again",
+      "es": "Modelo habilitado de nuevo"
+    },
+    "app.providers.validateAll.retest": {
+      "en": "Retest",
+      "es": "Volver a probar"
+    },
+    "app.providers.validateAll.retestAria": {
+      "en": "Retest {model}",
+      "es": "Volver a probar {model}"
+    },
+    "app.providers.validateAll.retestOk": {
+      "en": "The model responded and is enabled again",
+      "es": "El modelo respondió y quedó habilitado de nuevo"
+    },
+    "app.providers.validateAll.retestFailed": {
+      "en": "The model still fails",
+      "es": "El modelo sigue fallando"
+    },
+    "app.providers.validateAll.status.ok": {
+      "en": "OK",
+      "es": "Operativo"
+    },
+    "app.providers.validateAll.status.skipped": {
+      "en": "Not confirmed",
+      "es": "Sin confirmar"
+    },
+    "app.providers.validateAll.status.discarded": {
+      "en": "Discarded by validation",
+      "es": "Descartado por validación"
+    },
+    "app.providers.validateAll.status.failed": {
+      "en": "Failed (kept)",
+      "es": "Fallido (se mantiene)"
+    },
     "app.providers.wizard.savingModels": {
       "en": "Saving model selection… {done}/{total}",
       "es": "Guardando la selección de modelos… {done}/{total}"

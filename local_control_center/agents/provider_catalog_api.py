@@ -590,6 +590,13 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "absentDisabled": len(absent),
             },
         )
-        return {"models": stored}
+        # La allowlist viaja con la respuesta: la UI ofrece "Seleccionar recomendados" sobre un
+        # catálogo de miles de modelos sin tener que preseleccionarlo entero.
+        recommended = (
+            None
+            if allowlist is None
+            else [str(row["model"]) for row in stored if row.get("model") in allowlist]
+        )
+        return {"models": stored, "recommendedModels": recommended}
 
     return router

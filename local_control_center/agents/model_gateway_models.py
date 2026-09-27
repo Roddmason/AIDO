@@ -283,6 +283,31 @@ class ModelCatalogListResponse(BaseModel):
     models: list[ModelCatalogRecord]
 
 
+#: Tope de ids por request masivo: cubre catálogos de gateway (OmniRoute anuncia >1000) con margen.
+MAX_BULK_MODEL_IDS = 10_000
+
+
+class ProviderModelsBulkPatchRequest(GatewayStrictModel):
+    """Habilita o deshabilita en bloque modelos de un proveedor (todos si ``models`` se omite)."""
+
+    enabled: bool
+    models: list[str] | None = Field(
+        default=None,
+        max_length=MAX_BULK_MODEL_IDS,
+        description="Ids del catálogo (``provider:model``) a actualizar; omitido = todo el catálogo del proveedor.",
+    )
+
+
+class ProviderModelsBulkPatchResponse(BaseModel):
+    """Resultado del cambio masivo: cuántas filas del catálogo quedaron con el flag pedido."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    provider_id: str = Field(alias="providerId")
+    enabled: bool
+    updated: int
+
+
 class PricingSnapshotRecord(BaseModel):
     """Snapshot de precios de un modelo en un momento dado, con su fuente."""
 
@@ -963,6 +988,11 @@ class DiscoverModelsResponse(BaseModel):
     """Respuesta con los modelos descubiertos en un proveedor."""
 
     models: list[ModelCatalogRecord]
+    #: Modelos de la allowlist curada del gateway (``None`` si el proveedor no tiene una): la UI
+    #: ofrece "Seleccionar recomendados" sin preseleccionar el catálogo completo.
+    recommended_models: list[str] | None = Field(default=None, alias="recommendedModels")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ProviderEmbeddingRequest(EmbeddingRequest):

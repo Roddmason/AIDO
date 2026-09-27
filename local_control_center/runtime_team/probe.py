@@ -6,7 +6,9 @@ aprobación: queda auditado como ``runtime.validation.operator_approved`` y cons
 suscripción. Toda falla deja evidencia (salvo una denegación de política del proyecto), así una
 prueba fallida invalida también la validación de 24 h; la causa sale del clasificador compartido.
 Sin modelo pedido, una cuenta de API/gateway prueba candidatos acotados (último validado, modelos de
-las políticas de rol, resto de habilitados) hasta que uno pase: un gateway anuncia upstreams sin cuenta.
+las políticas de rol, preferidos del operador, allowlist curada del gateway y una muestra repartida por
+upstream) hasta que uno pase, dentro de un presupuesto total de tiempo: un gateway con 1000+ modelos
+anuncia upstreams sin cuenta y probarlos en orden alfabético no representa lo que el operador usa.
 
 @author Rodrigo Mason
 """
@@ -25,9 +27,14 @@ from fastapi import HTTPException
 
 from local_control_center.agents import local_model_state
 from local_control_center.agents.ai_resource_manager import AIResourceRequest
+from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.endpoint_locality import (
     catalog_entry_for_account,
     credential_transport_allowed,
+)
+from local_control_center.agents.gateway_model_allowlist import (
+    GATEWAY_MODEL_ALLOWLIST_FILES,
+    load_model_allowlist,
 )
 from local_control_center.agents.local_model_selection import resolve_local_model
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
@@ -43,6 +50,7 @@ from local_control_center.agents.providers.base import ModelRequest
 from local_control_center.agents.providers.factory import (
     ProviderAdapterResolutionError,
     provider_account_policy_kind,
+    provider_account_requires_credential,
 )
 from local_control_center.agents.providers.http_transport import http_error_excerpt
 from local_control_center.agents.routing_profiles import RoutingProfileStore
@@ -59,6 +67,11 @@ from local_control_center.shared.redaction import redact_secrets
 
 OPERATOR_APPROVAL_AUDIT_ACTION = "runtime.validation.operator_approved"
 _STABLE_CODE = re.compile(r"[a-z0-9_.:-]+")
+_TIMEOUT_TEXT = re.compile(r"timed? ?out|timeout", re.IGNORECASE)
+#: Campos de cada intento que viajan en ``attempts``.
+_ATTEMPT_KEYS = ("model", "status", "reason", "evidence", "latencyMs", "httpStatus")
+#: Ventana en la que una falla de un modelo lo manda al final de los candidatos automáticos.
+RECENT_FAILURE_SECONDS = 30 * 60
 VALIDATION_MAX_TOKENS = 1024
 VALIDATION_JSON_PROMPT = 'Reply with exactly this JSON object and nothing else: {"ok": true}'
 VALIDATION_RESPONSE_FORMAT = {
@@ -77,8 +90,16 @@ VALIDATION_RESPONSE_FORMAT = {
 DEFERRED_VALIDATION_CAUSES = TRANSIENT_LOCAL_RUNTIME_CAUSES | frozenset({"insufficient_time_for_model_load"})
 HTTP_BAD_REQUEST = 400
 #: Tope de modelos que prueba una validación sin modelo pedido en una cuenta de API/gateway.
-MAX_AUTO_VALIDATION_ATTEMPTS = 3
-#: Causas a nivel de proveedor: probar otro modelo del mismo endpoint no cambiaría el resultado.
+MAX_AUTO_VALIDATION_ATTEMPTS = 5
+#: Presupuesto total de una validación remota: la cola del operador nunca espera más que esto.
+VALIDATION_TIME_BUDGET_SECONDS = 25.0
+#: Tope de cada intento: un upstream colgado no se come el presupuesto de los demás candidatos.
+VALIDATION_ATTEMPT_TIMEOUT_SECONDS = 12.0
+#: Por debajo de este margen no se lanza otro intento (no alcanzaría a responder).
+_MIN_ATTEMPT_SECONDS = 2.0
+#: Causas a nivel de proveedor: probar otro modelo del mismo endpoint no cambiaría el resultado. Solo
+#: cuentan cuando el endpoint no respondió HTTP: un gateway que contesta 504 "upstream timed out" sí
+#: es alcanzable y otro upstream puede andar.
 _PROVIDER_LEVEL_CAUSES = frozenset({"provider_unreachable"})
 
 
@@ -91,6 +112,7 @@ def _result(
     latency_ms: int | None = None,
     reason: str | None = None,
     evidence: str | None = None,
+    http_status: int | None = None,
 ) -> dict[str, Any]:
     return {
         "providerId": provider_id,
@@ -100,8 +122,74 @@ def _result(
         "latencyMs": latency_ms,
         "reason": str(redact_secrets(reason)) if reason else None,
         "evidence": str(redact_secrets(evidence))[:EVIDENCE_LIMIT] if evidence else None,
+        "httpStatus": http_status,
         "checkedAt": datetime.now(UTC).isoformat(timespec="seconds"),
     }
+
+
+def credential_failure(account: dict[str, Any], detail: str) -> tuple[str, str]:
+    """Causa estable y explicación legible de una credencial que no pasó el control previo a la red.
+
+    Dice qué referencia se revisó y por qué no sirve (variable ausente en el entorno de AIDO, entrada
+    del llavero vacía, almacén no soportado) sin resolver el secreto: una prueba que falla en 0 ms no
+    llegó a hacer ninguna petición y el operador tiene que saber qué corregir en su máquina. ``detail``
+    es el texto del control original y queda como respaldo.
+    """
+    provider_id = str(account.get("providerId") or "")
+    ref = str(account.get("credentialRef") or "").strip()
+    if not ref:
+        if provider_account_requires_credential(account):
+            return "credential_ref_required", (
+                f"Provider {provider_id} has no credential ref configured; add one (for example "
+                "env:NAME or keyring:service/account) in the provider settings."
+            )
+        return "credential_invalid", str(redact_secrets(detail))
+    resolution = CredentialResolver().resolve(ref, fetch=False)
+    public_ref = resolution.ref or ref
+    note = f" ({resolution.message})" if resolution.message else ""
+    if resolution.status == "missing" and resolution.source == "env":
+        message = (
+            f"Credential ref {public_ref} is not set in AIDO's environment{note}. Set the variable in "
+            "the environment AIDO starts from (or use a keyring ref) and restart AIDO."
+        )
+        return "credential_missing", str(redact_secrets(message))
+    if resolution.status == "missing":
+        return "credential_missing", str(
+            redact_secrets(f"Credential ref {public_ref} has no stored secret{note}.")
+        )
+    if resolution.status == "unsupported":
+        message = f"Credential ref {public_ref} uses a store AIDO cannot read here{note}."
+        return "credential_unsupported", str(redact_secrets(message))
+    if resolution.status == "invalid":
+        message = f"Credential ref {public_ref} is not a valid reference{note}."
+        return "credential_invalid", str(redact_secrets(message))
+    message = f"Credential ref {public_ref} is {resolution.status}{note}: {detail}"
+    return "credential_invalid", str(redact_secrets(message))
+
+
+def _stored_secret_missing(account: dict[str, Any]) -> tuple[str, str] | None:
+    """Causa y explicación de una ref que el control sin lectura dio por buena pero sin secreto legible.
+
+    Una ref de llavero o bóveda queda ``unverified`` sin leer el valor; si al leerlo no hay secreto el
+    adapter fallaría con un error genérico de configuración. Devuelve ``None`` si hay valor.
+    """
+    ref = str(account.get("credentialRef") or "").strip()
+    if not ref:
+        return None
+    resolver = CredentialResolver()
+    if resolver.resolve(ref, fetch=False).status != "unverified":
+        return None
+    resolution = resolver.resolve(ref)
+    if resolution.value:
+        return None
+    public_ref = resolution.ref or ref
+    note = f" ({resolution.message})" if resolution.message else ""
+    if resolution.status in {"unsupported", "unavailable"}:
+        message = f"Credential ref {public_ref} uses a store AIDO cannot read here{note}."
+        return "credential_unsupported", str(redact_secrets(message))
+    return "credential_missing", str(
+        redact_secrets(f"Credential ref {public_ref} has no stored secret{note}.")
+    )
 
 
 def _failure_cause(provider_id: str, detail: str, *, fallback: str) -> tuple[str, str]:
@@ -203,6 +291,45 @@ def _role_policy_models(connection: sqlite3.Connection, provider_id: str) -> lis
     return models
 
 
+def _endpoint_unreachable(result: dict[str, Any]) -> bool:
+    """Indica si la falla es del endpoint (no respondió) y no de un modelo: cortar la búsqueda.
+
+    Una respuesta HTTP (aunque sea un 504 "upstream timed out") prueba que el gateway es alcanzable, y un
+    timeout de lectura es de ese upstream: con 1000+ modelos, otro upstream puede responder.
+    """
+    if result.get("reason") not in _PROVIDER_LEVEL_CAUSES or result.get("httpStatus") is not None:
+        return False
+    return _TIMEOUT_TEXT.search(str(result.get("evidence") or "")) is None
+
+
+def _curated_gateway_models(account: dict[str, Any]) -> list[str]:
+    """Allowlist curada del gateway de la cuenta (OmniRoute), o vacía si no tiene o no se puede leer."""
+    entry = catalog_entry_for_account(account)
+    path = GATEWAY_MODEL_ALLOWLIST_FILES.get(entry.id) if entry is not None else None
+    if path is None:
+        return []
+    try:
+        return [str(item["model"]) for item in load_model_allowlist(path)]
+    except (OSError, ValueError):
+        return []
+
+
+def _spread_by_upstream(models: list[str]) -> list[str]:
+    """Reparte ``models`` por upstream (lo anterior a la primera ``/``): uno de cada uno antes de repetir.
+
+    Conserva el orden de los upstreams y, dentro de cada uno, el del catálogo; es determinista.
+    """
+    groups: dict[str, list[str]] = {}
+    for model in models:
+        groups.setdefault(model.split("/", 1)[0] if "/" in model else "", []).append(model)
+    spread: list[str] = []
+    depth = 0
+    while len(spread) < len(models):
+        spread.extend(group[depth] for group in groups.values() if depth < len(group))
+        depth += 1
+    return spread
+
+
 class RuntimeValidationService:
     """Ejecuta la prueba real de un runtime y deja la evidencia en ``model_execution_health``."""
 
@@ -261,17 +388,21 @@ class RuntimeValidationService:
         if not enabled:
             return []
         if str(account.get("providerType") or "") != "local":
-            return self._auto_validation_candidates(provider_id, enabled)
+            return self._auto_validation_candidates(account, enabled)
         resolved = self._resolve_local_chat_model(account, provider_id, enabled)
         return [resolved] if resolved else []
 
-    def _auto_validation_candidates(self, provider_id: str, enabled: list[str]) -> list[str]:
+    def _auto_validation_candidates(self, account: dict[str, Any], enabled: list[str]) -> list[str]:
         """Orden de prueba de una cuenta de API/gateway sin modelo pedido, acotado y sin repetidos.
 
         Primero los modelos habilitados con una validación exitosa (el más reciente antes), luego los
-        modelos concretos que las políticas de rol nombran para este proveedor y, al final, el resto de
-        los habilitados en el orden estable del catálogo.
+        modelos concretos que las políticas de rol nombran para este proveedor, los que el operador marcó
+        (por defecto u ordenados), la allowlist curada del gateway, los de tier gratuito y, al final, una
+        muestra que toma un modelo por upstream (prefijo ``upstream/``) antes de repetir: con 1000+
+        modelos, los primeros alfabéticos suelen ser del mismo upstream sin cuenta. Un modelo cuya última
+        evidencia con la configuración actual es una falla reciente pasa al final: repetirlo no ayuda.
         """
+        provider_id = str(account["providerId"])
         enabled_set = set(enabled)
         validated = [
             str(row["model"])
@@ -282,10 +413,52 @@ class RuntimeValidationService:
             ).fetchall()
             if str(row["model"]) in enabled_set
         ]
-        ordered = list(
-            dict.fromkeys([*validated, *_role_policy_models(self.connection, provider_id), *enabled])
+        free_tier = [
+            str(item["model"])
+            for item in self.accounts.list_models(provider_id)
+            if item.get("enabled") and item.get("freeTier")
+        ]
+        preferred = [
+            *validated,
+            *_role_policy_models(self.connection, provider_id),
+            *self._operator_preferred_models(provider_id),
+            *_curated_gateway_models(account),
+            *free_tier,
+            *_spread_by_upstream(enabled),
+        ]
+        ordered = [model for model in dict.fromkeys(preferred) if model in enabled_set]
+        failed = self._recently_failed_models(provider_id)
+        ordered = [model for model in ordered if model not in failed] + [
+            model for model in ordered if model in failed
+        ]
+        return ordered[:MAX_AUTO_VALIDATION_ATTEMPTS]
+
+    def _operator_preferred_models(self, provider_id: str) -> list[str]:
+        """Modelos que el operador marcó: el por defecto primero y luego los que ordenó a mano."""
+        settings = LocalModelSettingsRepository(self.connection).list_for_account(provider_id)
+        defaults = [item.model for item in settings if item.is_default]
+        ordered = [item.model for item in settings if item.operator_order > 0 and not item.is_default]
+        return [*defaults, *ordered]
+
+    def _recently_failed_models(self, provider_id: str) -> set[str]:
+        """Modelos cuya última evidencia con la configuración actual es una falla de la última media hora."""
+        fingerprint = provider_configuration_fingerprint(self.connection, provider_id)
+        cutoff = datetime.fromtimestamp(time.time() - RECENT_FAILURE_SECONDS, UTC).isoformat(
+            timespec="microseconds"
         )
-        return [model for model in ordered if model in enabled_set][:MAX_AUTO_VALIDATION_ATTEMPTS]
+        rows = self.connection.execute(
+            """SELECT model, success, configuration_fingerprint, started_at FROM model_execution_health
+               WHERE provider_id = ? AND started_at >= ? ORDER BY started_at DESC, id DESC""",
+            (provider_id, cutoff),
+        ).fetchall()
+        latest: dict[str, Any] = {}
+        for row in rows:
+            latest.setdefault(str(row["model"]), row)
+        return {
+            model
+            for model, row in latest.items()
+            if not row["success"] and row["configuration_fingerprint"] == fingerprint
+        }
 
     def _resolve_local_chat_model(
         self, account: dict[str, Any], provider_id: str, enabled: list[str]
@@ -390,8 +563,10 @@ class RuntimeValidationService:
         try:
             _validate_real_discovery_credentials(account)
         except HTTPException as error:
-            cause, evidence = _failure_cause(provider_id, str(error.detail), fallback="credential_invalid")
+            cause, evidence = credential_failure(account, str(error.detail))
             return self._failed(provider_id, kind, reason=cause, evidence=evidence)
+        if (unreadable := _stored_secret_missing(account)) is not None:
+            return self._failed(provider_id, kind, reason=unreadable[0], evidence=unreadable[1])
         models = self._models_to_validate(account, requested=model)
         if not models:
             return self._failed(provider_id, kind, reason="model_required")
@@ -408,7 +583,9 @@ class RuntimeValidationService:
                 )
             return self._validate_local_model(account, provider, models[0], profile)
         if model:
-            return self._probe_remote_model(provider_id, kind, models[0], provider)
+            return self._probe_remote_model(
+                provider_id, kind, models[0], provider, timeout_seconds=VALIDATION_TIME_BUDGET_SECONDS
+            )
         return self._probe_remote_candidates(provider_id, kind, models, provider)
 
     def _probe_remote_candidates(
@@ -419,32 +596,60 @@ class RuntimeValidationService:
         Una falla de un modelo (p. ej. un upstream del gateway sin cuenta) no corta la búsqueda; una causa
         a nivel de proveedor (endpoint inalcanzable) sí, porque otro modelo fallaría igual. El resultado
         es el del modelo validado, o el del último intento, con ``attempts`` para que el operador vea qué
-        modelo pasó o falló y por qué.
+        modelo pasó o falló y por qué (estado HTTP y extracto del cuerpo). Todos los intentos comparten
+        ``VALIDATION_TIME_BUDGET_SECONDS``: cada uno recibe lo que queda, con tope por intento.
         """
         attempts: list[dict[str, Any]] = []
         result: dict[str, Any] = {}
+        deadline = time.monotonic() + VALIDATION_TIME_BUDGET_SECONDS
         for candidate in models:
-            result = self._probe_remote_model(provider_id, kind, candidate, provider)
-            attempts.append(
-                {key: result[key] for key in ("model", "status", "reason", "evidence", "latencyMs")}
+            remaining = deadline - time.monotonic()
+            if attempts and remaining < _MIN_ATTEMPT_SECONDS:
+                break
+            result = self._probe_remote_model(
+                provider_id,
+                kind,
+                candidate,
+                provider,
+                timeout_seconds=max(min(VALIDATION_ATTEMPT_TIMEOUT_SECONDS, remaining), _MIN_ATTEMPT_SECONDS),
             )
-            if result["status"] == "validated" or result.get("reason") in _PROVIDER_LEVEL_CAUSES:
+            attempts.append({key: result.get(key) for key in _ATTEMPT_KEYS})
+            if result["status"] == "validated" or _endpoint_unreachable(result):
                 break
         return {**result, "attempts": attempts}
 
-    def _probe_remote_model(self, provider_id: str, kind: str, model: str, provider: Any) -> dict[str, Any]:
-        """Completion fija de test-prompt contra un modelo de API/gateway, con su evidencia por modelo."""
+    def _probe_remote_model(
+        self, provider_id: str, kind: str, model: str, provider: Any, *, timeout_seconds: float
+    ) -> dict[str, Any]:
+        """Completion fija de test-prompt contra un modelo de API/gateway, con su evidencia por modelo.
+
+        La evidencia lleva el estado HTTP y el extracto del cuerpo que devolvió el proveedor (o qué traía un
+        200 sin completion), así el operador distingue un upstream sin cuenta de un endpoint caído.
+        """
         from local_control_center.agents.model_gateway_api import _run_provider_test_prompt
 
         started_at = datetime.now(UTC).isoformat(timespec="microseconds")
         fingerprint = provider_configuration_fingerprint(self.connection, provider_id)
-        outcome = _run_provider_test_prompt(provider_id, model, connection=self.connection, provider=provider)
+        outcome = _run_provider_test_prompt(
+            provider_id,
+            model,
+            connection=self.connection,
+            provider=provider,
+            timeout_seconds=timeout_seconds,
+        )
         if outcome["ok"]:
             return _result(provider_id, kind, "validated", model=model, latency_ms=outcome["latencyMs"])
         error_text = str(outcome.get("error") or "")
+        http_status = outcome.get("httpStatus")
         fallback = error_text if _STABLE_CODE.fullmatch(error_text) else "runtime_validation_failed"
         cause, evidence = _failure_cause(provider_id, error_text, fallback=fallback)
-        return self._failed(
+        detail = str(outcome.get("detail") or "")
+        if detail:
+            evidence = str(redact_secrets(detail))[:EVIDENCE_LIMIT]
+        elif error_text and not _STABLE_CODE.fullmatch(error_text):
+            # El clasificador recorta a la línea que matcheó; el cuerpo completo del proveedor explica más.
+            evidence = str(redact_secrets(error_text))[:EVIDENCE_LIMIT]
+        result = self._failed(
             provider_id,
             kind,
             model=model,
@@ -454,6 +659,7 @@ class RuntimeValidationService:
             fingerprint=fingerprint,
             started_at=started_at,
         )
+        return {**result, "httpStatus": http_status if isinstance(http_status, int) else None}
 
     def _validate_local_model(
         self, account: dict[str, Any], provider: Any, model: str, profile: LocalRuntimeProfile

@@ -214,11 +214,18 @@ def _run_provider_test_prompt(
     *,
     connection: Any,
     provider: Any | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Ejecuta una completion corta contra el proveedor y devuelve un resultado redactado con latencia.
 
     Cualquier fallo del proveedor se captura y se reporta como ``ok=False`` con el error saneado, para
-    que la prueba nunca filtre el secreto ni propague la excepción cruda al cliente.
+    que la prueba nunca filtre el secreto ni propague la excepción cruda al cliente. Una completion vale
+    si el proveedor respondió con texto o solo con razonamiento (un modelo de razonamiento que gastó la
+    respuesta pensando igual hizo la ida y vuelta), siempre que la respuesta sea del proveedor y modelo
+    pedidos (el adapter OpenAI-compatible informa el modelo pedido aunque el gateway nombre el upstream
+    resuelto). ``httpStatus`` y ``detail`` explican una falla:
+    el estado HTTP que devolvió el proveedor y, para un 200 sin completion, qué traía la respuesta.
+    ``timeout_seconds`` acota la llamada (la validación del equipo reparte un presupuesto total).
     """
     from .providers.base import ModelRequest
 
@@ -235,6 +242,7 @@ def _run_provider_test_prompt(
                     "model": model,
                     "messages": [{"role": "user", "content": TEST_PROMPT_MESSAGE}],
                     "temperature": 0,
+                    **({"timeoutSeconds": timeout_seconds} if timeout_seconds else {}),
                 }
             )
         )
@@ -242,7 +250,10 @@ def _run_provider_test_prompt(
         raw_usage = getattr(usage, "raw_usage", None) or {}
         usage_reported = _provider_usage_reported(raw_usage)
         usage_source = str(raw_usage.get("usage_source") or "provider") if usage_reported else "unknown"
-        valid_response = bool(str(response.content or "").strip()) and (
+        answered = bool(str(response.content or "").strip()) or bool(
+            getattr(response, "reasoning_present", False)
+        )
+        valid_response = answered and (
             getattr(response, "provider_id", None) == provider_id
             and getattr(response, "model", None) == model
         )
@@ -264,6 +275,8 @@ def _run_provider_test_prompt(
             "totalTokens": int(getattr(usage, "total_tokens", 0) or 0) if usage_reported else None,
             "usageSource": usage_source,
             "error": None if valid_response else "model_validation_invalid_response",
+            "httpStatus": None,
+            "detail": None if valid_response else _invalid_response_detail(response, provider_id, model),
         }
     except UnsupportedProviderCapabilityError as error:
         return {
@@ -297,6 +310,8 @@ def _run_provider_test_prompt(
             "totalTokens": None,
             "usageSource": "unknown",
             "error": error.code,
+            "httpStatus": error.status_code,
+            "detail": f"HTTP {error.status_code}: {error.code}" if error.status_code is not None else None,
         }
     except Exception as error:
         # Any provider/network failure is surfaced as a redacted test result, never raised, so the
@@ -321,7 +336,35 @@ def _run_provider_test_prompt(
             "totalTokens": None,
             "usageSource": "unknown",
             "error": str(redact_secrets(_provider_error_detail(error))),
+            "httpStatus": error.code if isinstance(error, HTTPError) else None,
+            "detail": None,
         }
+
+
+def _invalid_response_detail(response: Any, provider_id: str, model: str) -> str:
+    """Explica por qué un 200 del proveedor no cuenta como completion, sin secretos.
+
+    Un gateway sin cuenta en el upstream suele responder 200 con un objeto ``error`` o ``choices`` vacío;
+    decirlo evita que el operador busque el problema en la red cuando la petición sí llegó.
+    """
+    reported = getattr(response, "provider_id", None)
+    if reported != provider_id:
+        return f"The response came from provider {reported!r}, not {provider_id!r}."
+    reported_model = getattr(response, "model", None)
+    if reported_model != model:
+        return f"The response is for model {reported_model!r}, not the requested {model!r}."
+    raw = getattr(response, "raw_response", None)
+    raw = raw if isinstance(raw, dict) else {}
+    error = raw.get("error")
+    if error:
+        message = error.get("message") if isinstance(error, dict) else error
+        return str(redact_secrets(f"HTTP 200 with an error object: {message}"))[:TEST_PROMPT_ERROR_BODY_LIMIT]
+    choices = raw.get("choices")
+    if isinstance(choices, list) and not choices:
+        return "HTTP 200 without choices: the gateway returned no completion."
+    finish = getattr(response, "finish_reason", None)
+    suffix = f" (finish_reason: {finish})" if finish else ""
+    return f"HTTP 200 with empty content and no reasoning{suffix}."
 
 
 def _provider_error_detail(error: Exception) -> str:

@@ -11,6 +11,7 @@ secretos antes de exponer payloads.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import time
@@ -66,6 +67,25 @@ def _provider_reported_usage(usage: Any) -> bool:
     return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
 
 
+def _message_text(message: dict[str, Any], choice: dict[str, Any]) -> str:
+    """Texto del mensaje en las formas que emiten los gateways compatibles.
+
+    Además del ``content`` string admite la lista de partes (``[{"type": "text", "text": ...}]``) que
+    reexponen algunos upstreams y el ``text`` del choice de completions legado. Un ``content`` null
+    queda vacío: la llamada decide si el razonamiento basta.
+    """
+    content = message.get("content")
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, dict) and part.get("type", "text") in {"text", "output_text"}
+        )
+    if content is None and isinstance(choice.get("text"), str):
+        return str(choice["text"])
+    return str(content or "")
+
+
 def _chat_choice(raw: Any) -> tuple[str, str | None, bool]:
     """Extrae (contenido sin razonamiento, finish_reason, hubo razonamiento no vacío) del primer choice."""
     choices = raw.get("choices") if isinstance(raw, dict) else None
@@ -73,7 +93,7 @@ def _chat_choice(raw: Any) -> tuple[str, str | None, bool]:
         return "", None, False
     choice = choices[0]
     message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
-    content, reasoning_chars = strip_reasoning_blocks(str(message.get("content") or ""))
+    content, reasoning_chars = strip_reasoning_blocks(_message_text(message, choice))
     reasoning_field = str(message.get("reasoning_content") or message.get("reasoning") or "").strip()
     finish_reason = choice.get("finish_reason")
     return (
@@ -323,8 +343,16 @@ class OpenAICompatibleProvider(ModelProvider):
             headers=self._request_headers({"Content-Type": "application/json"}),
             method="POST",
         )
+        deadline = time.monotonic() + timeout
         with urlopen_fail_closed(http_request, timeout=timeout) as response:
-            return json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+            headers = getattr(response, "headers", None)
+            content_type = str(headers.get("Content-Type") or "") if headers is not None else ""
+            payload = read_bounded(response, limit=self.max_response_bytes)
+        # Hay gateways (p. ej. OmniRoute con algunos upstreams) que responden SSE aunque el body pida
+        # ``stream: false``: se arma la misma forma que la ruta con stream en vez de fallar el JSON.
+        if "text/event-stream" in content_type or payload.lstrip().startswith(b"data:"):
+            return _read_chat_stream(io.BytesIO(payload), limit=self.max_response_bytes, deadline=deadline)
+        return json.loads(payload.decode("utf-8"))
 
     def _post_chat_stream(self, body: dict[str, Any], *, timeout: float) -> Any:
         """Como ``_post_chat`` pero con ``stream``: corta la generación si el modelo entra en bucle.

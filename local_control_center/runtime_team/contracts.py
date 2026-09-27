@@ -29,13 +29,15 @@ class RuntimeValidationAttemptRecord(BaseModel):
     reason: str | None = None
     evidence: str | None = None
     latency_ms: int | None = Field(default=None, alias="latencyMs")
+    http_status: int | None = Field(default=None, alias="httpStatus")
 
 
 class RuntimeValidationResultRecord(BaseModel):
     """Resultado redactado de una prueba de ida y vuelta de un runtime.
 
     ``attempts`` lista cada modelo probado cuando el runtime eligió los candidatos (API/gateway sin
-    modelo pedido); ``None`` cuando se probó un único modelo fijado.
+    modelo pedido); ``None`` cuando se probó un único modelo fijado. ``httpStatus`` es el estado HTTP con
+    que respondió el proveedor en una falla (``None`` si la petición no llegó o no hubo respuesta HTTP).
     """
 
     provider_id: str = Field(alias="providerId")
@@ -45,6 +47,7 @@ class RuntimeValidationResultRecord(BaseModel):
     latency_ms: int | None = Field(default=None, alias="latencyMs")
     reason: str | None = None
     evidence: str | None = None
+    http_status: int | None = Field(default=None, alias="httpStatus")
     checked_at: str = Field(alias="checkedAt")
     attempts: list[RuntimeValidationAttemptRecord] | None = None
 
@@ -61,13 +64,17 @@ RuntimeTeamKind = Literal["cli", "api", "gateway", "local"]
 
 
 class RuntimeTeamValidationRecord(BaseModel):
-    """Estado de validación reciente de un runtime; ``policy_denied`` si el proyecto lo veta."""
+    """Estado de validación reciente de un runtime; ``policy_denied`` si el proyecto lo veta.
+
+    ``httpStatus`` acompaña a una falla registrada con el estado HTTP que devolvió el proveedor.
+    """
 
     status: RuntimeValidationStatus
     checked_at: str | None = Field(default=None, alias="checkedAt")
     latency_ms: int | None = Field(default=None, alias="latencyMs")
     model: str | None = None
     reason: str | None = None
+    http_status: int | None = Field(default=None, alias="httpStatus")
 
 
 class RuntimeTeamCandidateRecord(BaseModel):

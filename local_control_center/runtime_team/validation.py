@@ -36,6 +36,7 @@ class RuntimeValidationState:
     latency_ms: int | None = None
     model: str | None = None
     reason: str | None = None
+    http_status: int | None = None
 
     def to_record(self) -> dict[str, Any]:
         """Serializa el estado con el contrato camelCase de la API."""
@@ -45,6 +46,7 @@ class RuntimeValidationState:
             "latencyMs": self.latency_ms,
             "model": self.model,
             "reason": self.reason,
+            "httpStatus": self.http_status,
         }
 
 
@@ -72,13 +74,25 @@ def runtime_validation_state(
     fallida, para que se vuelva a probar), en el mismo orden que ``model_validation_rejection``.
     """
     row = connection.execute(
-        """SELECT model, configuration_fingerprint, success, started_at, observed_at
+        """SELECT model, configuration_fingerprint, success, started_at, observed_at, http_status
            FROM model_execution_health WHERE provider_id = ? AND (? IS NULL OR model = ?)
            ORDER BY started_at DESC, id DESC LIMIT 1""",
         (provider_id, model, model),
     ).fetchone()
     if row is None:
         return RuntimeValidationState("never", model=model, reason="runtime_validation_required")
+    return _state_from_row(
+        row,
+        provider_configuration_fingerprint(connection, provider_id),
+        max_age_seconds=max_age_seconds,
+        now=now,
+    )
+
+
+def _state_from_row(
+    row: sqlite3.Row, fingerprint: str, *, max_age_seconds: int, now: datetime | None
+) -> RuntimeValidationState:
+    """Traduce la última fila de evidencia de un modelo al estado del selector."""
     started = _parse_timestamp(row["started_at"])
     observed = _parse_timestamp(row["observed_at"])
     latency = (
@@ -87,10 +101,12 @@ def runtime_validation_state(
         else None
     )
     evidence = {"checked_at": row["observed_at"], "latency_ms": latency, "model": row["model"]}
-    if row["configuration_fingerprint"] != provider_configuration_fingerprint(connection, provider_id):
+    if row["configuration_fingerprint"] != fingerprint:
         return RuntimeValidationState("stale", reason="runtime_validation_configuration_changed", **evidence)
     if not row["success"]:
-        return RuntimeValidationState("failed", reason="runtime_validation_failed", **evidence)
+        return RuntimeValidationState(
+            "failed", reason="runtime_validation_failed", http_status=row["http_status"], **evidence
+        )
     age = ((now or datetime.now(UTC)) - started).total_seconds() if started else -1.0
     if not 0 <= age < max_age_seconds:
         return RuntimeValidationState("stale", reason="runtime_validation_expired", **evidence)
@@ -110,13 +126,30 @@ def enabled_models_validation_state(
     Vale como validado si ALGÚN modelo habilitado tiene una validación vigente: la falla de un modelo
     (p. ej. un upstream del gateway sin cuenta) no oculta el éxito de otro. Sin ninguno validado devuelve
     la evidencia más reciente entre los habilitados, así la evidencia de un modelo ya deshabilitado no
-    cuenta; sin modelos habilitados o sin evidencia de ellos, ``never``.
+    cuenta; sin modelos habilitados o sin evidencia de ellos, ``never``. Lee la última fila de cada
+    modelo en una sola consulta: un gateway con 1000+ modelos habilitados no hace 1000 consultas.
     """
+    enabled = list(dict.fromkeys(enabled_models))
+    rows = (
+        connection.execute(
+            """SELECT model, configuration_fingerprint, success, started_at, observed_at, http_status
+               FROM (SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY model ORDER BY started_at DESC, id DESC) AS position
+                     FROM model_execution_health WHERE provider_id = ?)
+               WHERE position = 1""",
+            (provider_id,),
+        ).fetchall()
+        if enabled
+        else []
+    )
+    latest_rows = {str(row["model"]): row for row in rows}
+    fingerprint = provider_configuration_fingerprint(connection, provider_id) if latest_rows else ""
     latest: RuntimeValidationState | None = None
-    for model in dict.fromkeys(enabled_models):
-        state = runtime_validation_state(
-            connection, provider_id, max_age_seconds=max_age_seconds, model=model, now=now
-        )
+    for model in enabled:
+        row = latest_rows.get(model)
+        if row is None:
+            continue
+        state = _state_from_row(row, fingerprint, max_age_seconds=max_age_seconds, now=now)
         if state.status == "validated":
             return state
         if state.status != "never" and (

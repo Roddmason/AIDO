@@ -523,7 +523,10 @@ def _cli_provider_status(
     validation_expired = False
     if not configured and configuration is not None:
         # Código al frente: la web lo traduce ("Not detected yet: run Detect & check…").
-        reason = f"{CLI_NOT_DETECTED_REASON_CODE}: {configuration.reason} Run Detect & check to find it on this machine."
+        reason = (
+            f"{CLI_NOT_DETECTED_REASON_CODE}: CLI not detected on this machine ({configuration.reason}) "
+            "Run Detect & check to find it."
+        )
     elif not detected:
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:

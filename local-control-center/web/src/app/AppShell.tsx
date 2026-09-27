@@ -319,6 +319,7 @@ export function AppShell({
 			languages={languages}
 			onChangeLanguage={onChangeLanguage}
 			onOpenRuntimeHealth={onOpenRuntimeHealth}
+			token={token}
 			t={t}
 		/>
 	);

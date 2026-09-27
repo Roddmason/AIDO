@@ -18,6 +18,7 @@ import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
 import { deriveRuntimeAlerts } from './runtimeHealth';
 import { deriveShellStatus } from './shellStatus';
+import { WorkerStatusItem } from './WorkerStatusItem';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
@@ -34,6 +35,7 @@ export function StatusBar({
 	languages,
 	onChangeLanguage,
 	onOpenRuntimeHealth,
+	token,
 	t,
 }: {
 	overview: Overview;
@@ -44,6 +46,8 @@ export function StatusBar({
 	languages: LanguageOption[];
 	onChangeLanguage: (code: string) => void;
 	onOpenRuntimeHealth: () => void;
+	/** Local write token, for the worker Resume action. */
+	token: string;
 	t: (key: string, fallback?: string) => string;
 }) {
 	const [execution, setExecution] = useState<ExecutionResponse | null>(null);
@@ -89,6 +93,7 @@ export function StatusBar({
 				{t('app.operations.title', 'Operations')}
 				{execution ? ` · ${execution.status}` : ''}
 			</a>
+			<WorkerStatusItem token={token} t={t} />
 			<span className="status-bar-item">
 				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
 				<span className="tnum">{status.executableRuntimes}</span>{' '}

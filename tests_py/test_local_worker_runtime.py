@@ -344,7 +344,7 @@ def test_worker_run_once_executes_queued_thread_job(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: _executable_runtime_statuses(),
+        lambda _service, **_kwargs: _executable_runtime_statuses(),
     )
 
     captured: dict[str, str] = {}
@@ -399,7 +399,7 @@ def test_worker_run_once_preserves_product_loop_job_run_metadata(monkeypatch, tm
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: _executable_runtime_statuses(),
+        lambda _service, **_kwargs: _executable_runtime_statuses(),
     )
 
     captured: dict[str, Any] = {}
@@ -515,7 +515,7 @@ def test_worker_run_once_preserves_product_loop_job_run_metadata(monkeypatch, tm
 def test_worker_run_once_leaves_job_queued_when_preflight_fails(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: [],
+        lambda _service, **_kwargs: [],
     )
     runtime, client = _client(tmp_path)
     try:
@@ -563,7 +563,7 @@ def test_worker_defers_capacity_to_atomic_job_admission(monkeypatch, tmp_path, r
     }
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: [provider],
+        lambda _service, **_kwargs: [provider],
     )
     monkeypatch.setattr("local_control_center.workers.runtime._which_gitleaks", lambda: "gitleaks")
     worker = LocalWorkerRuntime(db_path=tmp_path / "worker.sqlite", cwd=tmp_path)
@@ -579,7 +579,7 @@ def test_worker_run_once_requires_gitleaks(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PATH", str(fake_bin))
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: _executable_runtime_statuses(),
+        lambda _service, **_kwargs: _executable_runtime_statuses(),
     )
     runtime, client = _client(tmp_path)
     try:
@@ -619,7 +619,7 @@ def test_worker_product_loop_exception_creates_worker_retry_remediation(
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: _executable_runtime_statuses(),
+        lambda _service, **_kwargs: _executable_runtime_statuses(),
     )
 
     calls = {"total": 0}
@@ -868,7 +868,7 @@ def test_worker_status_pause_and_resume_reflect_runtime_state(monkeypatch, tmp_p
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(
         "local_control_center.workers.runtime.RuntimeStatusService.list_provider_statuses",
-        lambda _service: _executable_runtime_statuses(),
+        lambda _service, **_kwargs: _executable_runtime_statuses(),
     )
     runtime, client = _client(tmp_path)
     try:

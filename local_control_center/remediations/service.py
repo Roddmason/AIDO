@@ -1430,8 +1430,13 @@ class BlockerRemediationService:
         *,
         project_id: str,
         source_message: dict[str, Any] | None,
+        refresh_global_team: bool = False,
     ) -> dict[str, Any]:
         """Re-sella teamMode/privacyLevel de un retry con la configuración vigente del proyecto.
+
+        ``refresh_global_team`` recalcula el equipo de IA global (solo el retry explícito del operador,
+        que es como aplica un cambio de equipo); los demás re-sellados conservan el snapshot del run para
+        que la revisión de riesgo y las continuaciones vean exactamente la misma metadata.
 
         Los valores sellados en el requestMeta original son indistinguibles de una elección del
         llamador, así que la intención se restaura desde la metadata del mensaje fuente (que nunca
@@ -1452,6 +1457,7 @@ class BlockerRemediationService:
             self.connection,
             project_id=project_id,
             metadata=resealed,
+            refresh_global_team=refresh_global_team,
             thread_id=str(caller_meta.get("threadId") or "")
             or (str(source_message.get("threadId") or "") if isinstance(source_message, dict) else "")
             or None,
@@ -2001,6 +2007,7 @@ class BlockerRemediationService:
                 retry_metadata,
                 project_id=loop["projectId"],
                 source_message=source_message,
+                refresh_global_team=True,
             )
 
             existing_job = self._existing_retry_job(

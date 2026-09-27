@@ -23,14 +23,20 @@ from .roles import RuntimeFacts, eligible_team_roles
 TEAM_RUNTIME_KINDS = frozenset({"cli", "api", "gateway", "local"})
 
 
-def load_runtime_facts(connection: sqlite3.Connection, *, project_id: str | None) -> dict[str, RuntimeFacts]:
+def load_runtime_facts(
+    connection: sqlite3.Connection, *, project_id: str | None, offline: bool = False
+) -> dict[str, RuntimeFacts]:
     """Devuelve los runtimes habilitados y no manuales con roles elegibles y veto de política, por id.
 
     Un runtime local suma a sus capacidades las opt-in de sus modelos habilitados (``chat`` mas modelos).
+    ``offline`` lee solo el estado persistido/cacheado, sin sondas de red: obligatorio dentro de una
+    transacción SQLite.
     """
     statuses = {
         str(status.get("id") or ""): status
-        for status in RuntimeStatusService(connection).list_provider_statuses(project_id=project_id)
+        for status in RuntimeStatusService(connection, offline=offline).list_provider_statuses(
+            project_id=project_id
+        )
     }
     policy = RuntimeConfigRepository(connection)
     local_settings = LocalModelSettingsRepository(connection)

@@ -757,13 +757,16 @@ class RuntimeStatusService:
         allow_probes: bool = False,
         probe_runtime_ids: set[str] | None = None,
         force_native_auth_refresh: bool = False,
+        offline: bool = False,
     ):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
         context = CURRENT_EXECUTION.get()
         # A request correlation scope is not a worker execution or permission to probe.
-        self.allow_probes = allow_probes or bool(context and context.in_job_runner)
+        # ``offline`` nunca sondea, ni en el job runner: lo usa quien lee el estado dentro de una
+        # transacción SQLite (p. ej. el sellado del equipo de IA global), donde el I/O externo está vetado.
+        self.allow_probes = not offline and (allow_probes or bool(context and context.in_job_runner))
         self.probe_runtime_ids = probe_runtime_ids
         self.force_native_auth_refresh = force_native_auth_refresh
 

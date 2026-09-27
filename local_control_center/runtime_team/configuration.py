@@ -401,7 +401,12 @@ def ensure_thread_runtime_team_ready(
 
 
 def seal_thread_runtime_team(
-    connection: sqlite3.Connection, *, project_id: str, thread_id: str | None, metadata: dict[str, Any]
+    connection: sqlite3.Connection,
+    *,
+    project_id: str,
+    thread_id: str | None,
+    metadata: dict[str, Any],
+    refresh_global_team: bool = True,
 ) -> dict[str, Any]:
     """Sella en la metadata del run el equipo efectivo del hilo; descarta cualquier valor entrante.
 
@@ -415,14 +420,23 @@ def seal_thread_runtime_team(
     stamped = dict(metadata)
     stamped.pop(RUNTIME_TEAM_METADATA_KEY, None)
     stamped.pop(RUNTIME_TEAM_DISCARDED_METADATA_KEY, None)
-    stamped.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY, None)
+    previous_global = stamped.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY, None)
     effective = _effective_thread_runtime_team(connection, project_id=project_id, thread_id=thread_id)
     if effective is None:
         # Import diferido: global_team importa facts/roles y podría llegar a importar este módulo.
         from .global_team import resolve_global_team
 
+        # Por defecto (envío, retry del operador) se recalcula y cualquier valor entrante se descarta.
+        # Los re-sellados internos (revisión de riesgo, continuación de investigación) piden
+        # ``refresh_global_team=False``: conservan el snapshot del run (o ninguno, si no lo tenía) sin
+        # leer el inventario de runtimes, para ver exactamente la misma metadata en cada paso.
+        if not refresh_global_team:
+            if global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: previous_global}) is not None:
+                stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = previous_global
+            return stamped
+        # offline: el envío también corre en una transacción; se lee el estado persistido, sin sondear.
         stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = resolve_global_team(
-            connection, project_id=project_id
+            connection, project_id=project_id, offline=True
         ).sealed()
         return stamped
     if effective.missing_roles:

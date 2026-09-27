@@ -564,3 +564,27 @@ def test_only_an_automatic_optional_role_borrows_the_team_runtimes():
     assert role_allowlist(explicit_empty, "security") == []
     # Opcional automático sin candidatos: puede usar cualquier runtime del equipo.
     assert role_allowlist(explicit_empty, "architect") == ["codex_cli", "ollama"]
+
+
+def test_internal_reseals_keep_the_run_snapshot_and_sends_recompute_it(lane):
+    """La revisión de riesgo firma la metadata re-sellada: un re-sellado interno no puede cambiarla."""
+    connection, project, thread = lane
+    previous = {GLOBAL_RUNTIME_TEAM_METADATA_KEY: GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]}
+    kept = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata=previous,
+        refresh_global_team=False,
+    )
+    assert kept[GLOBAL_RUNTIME_TEAM_METADATA_KEY] == GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    # Sin snapshot previo, un re-sellado interno no lo inventa (ni lee el inventario de runtimes).
+    assert GLOBAL_RUNTIME_TEAM_METADATA_KEY not in seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}, refresh_global_team=False
+    )
+    # El envío y el retry recalculan: un valor con forma válida que llegue igual se reemplaza.
+    SettingsRepository(connection).set_value("team.role.developer", "general", None, ["ollama"])
+    fresh = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata=previous
+    )
+    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["source"]["developer"] == "general"

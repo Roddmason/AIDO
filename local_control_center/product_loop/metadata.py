@@ -70,6 +70,7 @@ def seal_operator_cost_decision(
     project_id: str,
     metadata: dict[str, Any],
     thread_id: str | None = None,
+    refresh_global_team: bool = True,
 ) -> dict[str, Any]:
     """Sella la decisión de costo vigente del operador sobre la metadata del run.
 
@@ -107,4 +108,10 @@ def seal_operator_cost_decision(
         project_id=project_id,
     ):
         stamped["privacyLevel"] = "local_private"
-    return seal_thread_runtime_team(connection, project_id=project_id, thread_id=thread_id, metadata=stamped)
+    return seal_thread_runtime_team(
+        connection,
+        project_id=project_id,
+        thread_id=thread_id,
+        metadata=stamped,
+        refresh_global_team=refresh_global_team,
+    )

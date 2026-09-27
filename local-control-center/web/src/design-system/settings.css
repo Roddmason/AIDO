@@ -170,12 +170,13 @@
 	font-weight: var(--weight-regular);
 }
 
-/* Add row: the provider picker takes the free width; it mirrors .select (the panel renders a bare
+/* Add row: the provider picker takes its own full line in a half-width role card (squeezed beside
+ * Add and Automatic its placeholder was clipped mid-word); it mirrors .select (the panel renders a bare
  * <select>) so it matches every other field in Settings. */
 .ai-team-role > .inline:last-child > select {
-	flex: 1 1 9rem; /* fits select + Add + Automatic on one line in a half-width role card */
+	flex: 1 1 100%;
 	min-width: 0;
-	max-width: 22rem;
+	max-width: none;
 	min-height: var(--control-height);
 	padding: var(--space-2) var(--space-3);
 	border: 1px solid var(--color-border-default);
@@ -285,13 +286,8 @@
 		justify-content: flex-end;
 	}
 
-	/* The provider picker already fills its own row here; Add/Automatic then split the next row
-	 * evenly instead of leaving two small buttons and a ragged gap under a full-width select. */
-	.ai-team-role > .inline:last-child > select {
-		flex-basis: 100%;
-		max-width: none;
-	}
-
+	/* The provider picker fills its own row (base rule); on phones Add/Automatic then split the next
+	 * row evenly instead of leaving two small buttons and a ragged gap under a full-width select. */
 	.ai-team-role > .inline:last-child > .button {
 		flex: 1 1 0;
 	}

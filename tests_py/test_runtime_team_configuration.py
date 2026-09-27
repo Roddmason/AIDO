@@ -28,6 +28,7 @@ from local_control_center.runtime_team.configuration import (
     read_thread_runtime_team,
     restrict_to_allowlist,
     role_allowlist,
+    role_model_pins,
     role_routing_preferences,
     runtime_team_of,
     seal_thread_runtime_team,
@@ -484,7 +485,7 @@ def test_a_malformed_global_snapshot_is_ignored():
                 "allowedRuntimes": "x",
             }
         }
-    ) == {"roleRuntimeOrder": {}, "source": {}, "allowedRuntimes": []}
+    ) == {"roleRuntimeOrder": {}, "source": {}, "allowedRuntimes": [], "roleModels": {}}
     assert role_allowlist(
         {GLOBAL_RUNTIME_TEAM_METADATA_KEY: {}}, "developer", product_owner_provider_id="ollama"
     ) == ["ollama"]
@@ -588,3 +589,19 @@ def test_internal_reseals_keep_the_run_snapshot_and_sends_recompute_it(lane):
         connection, project_id=project["id"], thread_id=thread["id"], metadata=previous
     )
     assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["source"]["developer"] == "general"
+
+
+def test_the_global_team_seals_the_validated_local_model_of_each_assigned_role(lane):
+    """Como el equipo por hilo: un rol asignado a un runtime local sella su modelo validado y lo fija."""
+    connection, project, thread = lane
+    SettingsRepository(connection).set_value("team.role.product_owner", "general", None, ["ollama"])
+    _validate(connection, "ollama", "local_default")
+    stamped = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}
+    )
+    snapshot = stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    assert snapshot["roleRuntimes"]["product_owner"] == "ollama"
+    assert snapshot["roleModels"]["product_owner"] == "local_default"
+    assert role_model_pins(stamped, "product_owner") == {"ollama": "local_default"}
+    # Un rol sin modelo sellado (runtime no local) no se fija.
+    assert role_model_pins(stamped, "developer") == {}

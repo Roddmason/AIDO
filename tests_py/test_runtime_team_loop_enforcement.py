@@ -599,7 +599,14 @@ def test_every_global_team_request_carries_the_strict_provider_order(coordinator
 
 
 def _run_schedule(coordinator, monkeypatch, meta, responses, *, jev_selects: bool):
-    calls, select = _fake_select_resource(responses)
+    _calls, fake = _fake_select_resource(responses)
+    recorded: list = []
+
+    def select(self, request, *, record=True, **kwargs):
+        if record:
+            recorded.append(tuple(request.allowed_provider_ids or []))
+        return fake(self, request, record=record, **kwargs)
+
     monkeypatch.setattr(AIResourceManager, "select_resource", select)
     monkeypatch.setattr(
         coordinator_module,
@@ -617,7 +624,7 @@ def _run_schedule(coordinator, monkeypatch, meta, responses, *, jev_selects: boo
         agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
         product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
     )
-    return [tuple(call.allowed_provider_ids or []) for call in calls]
+    return recorded
 
 
 def _with_developer_source(source: str) -> dict:
@@ -637,7 +644,25 @@ def test_with_jev_selecting_an_automatic_order_is_tried_one_provider_at_a_time(c
         },
         jev_selects=True,
     )
-    assert calls == [("nvidia_nim",), ("codex_cli",)]
+    # Los sondeos no registran: una sola decisión de ruteo, la del proveedor elegido.
+    assert calls == [("codex_cli",)]
+
+
+def test_with_jev_selecting_a_walk_without_candidates_records_one_decision_over_the_order(
+    coordinator, monkeypatch
+):
+    calls = _run_schedule(
+        coordinator,
+        monkeypatch,
+        _with_developer_source("automatic"),
+        {
+            ("nvidia_nim",): {"selected": None, "candidates": []},
+            ("codex_cli",): {"selected": None, "candidates": []},
+            ("nvidia_nim", "codex_cli"): {"selected": None, "candidates": []},
+        },
+        jev_selects=True,
+    )
+    assert calls == [("nvidia_nim", "codex_cli")]
 
 
 def test_with_jev_selecting_an_explicit_order_keeps_the_whole_allowlist(coordinator, monkeypatch):

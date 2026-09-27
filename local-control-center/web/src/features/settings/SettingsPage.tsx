@@ -116,7 +116,7 @@ export function RuntimeBody({
 					inUseProviderIds={inUseProviderIds}
 				/>
 			</DeferredLocalRuntime>
-			<div className="settings-readouts">
+			<div className="settings-readouts providers-cli-section">
 				<div>
 					<strong>{t('ui.static.local.control.api.f1f86c0e', 'Local Control API')}</strong>
 					<span className="mono">/api/v1</span>

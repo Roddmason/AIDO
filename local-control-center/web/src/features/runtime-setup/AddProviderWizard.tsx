@@ -10,18 +10,20 @@
  * sync their catalog on entering the models step — the backend preselects only the curated allowlist,
  * since the gateway also announces upstreams the operator has no account for — and route roles to the
  * provider-level wildcard — the same `{provider, model: "*"}` candidate scripts/setup_omniroute.py
- * pins — because the gateway, not the role, picks the concrete model per request. The API key is
+ * pins — because the gateway, not the role, picks the concrete model per request. The models step
+ * uses ModelSelectionList (filter, bulk select, paged rows) so 1000+ model catalogs stay workable,
+ * and the selection is saved through the bulk models endpoint in batches with visible progress. The API key is
  * held in an uncontrolled masked input — never in React state, never serialized into the DOM — read
  * once to create the credential, and cleared the moment the provider is saved.
  * @author Rodrigo Mason
  */
 
 import {
+	ArrowLeft,
 	CheckCircle2,
 	CircleDollarSign,
 	CirclePause,
 	KeyRound,
-	Link2,
 	RefreshCw,
 	Send,
 	XCircle,
@@ -35,7 +37,7 @@ import {
 	getModelGatewayRolePolicies,
 	getSettings,
 	healthCheckModelGatewayProvider,
-	patchModelGatewayModel,
+	patchModelGatewayProviderModels,
 	patchModelGatewayRolePolicy,
 	putSetting,
 	type RuntimeValidationResponse,
@@ -53,6 +55,7 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
+import { ModelSelectionList, type SelectableModel } from './ModelSelectionList';
 import {
 	COST_META,
 	costForModels,
@@ -85,6 +88,8 @@ const GEMINI_MODEL_PRIORITY = [
 /** Gateways that pick the concrete model per request; roles route to their wildcard candidate. */
 const AUTO_ROUTING_GATEWAYS = new Set(['omniroute']);
 const AUTO_ROUTING_MODEL = '*';
+/** Ids per bulk request: a 1000+ model gateway saves in a few batches with visible progress. */
+const MODEL_SAVE_BATCH = 500;
 
 export function orderedRoleModels(providerId: string, models: string[]): string[] {
 	if (providerId !== 'gemini') return models;
@@ -266,6 +271,10 @@ export function AddProviderWizard({
 	const [backends, setBackends] = useState<CredentialBackend[]>([]);
 	const [discovered, setDiscovered] = useState<ModelGatewayModel[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
+	/** Catalog ids of the gateway's curated allowlist, as reported by the last sync (null: none). */
+	const [recommendedIds, setRecommendedIds] = useState<Set<string> | null>(null);
+	/** Bulk model save in flight: how many changed rows are confirmed out of the total. */
+	const [modelSave, setModelSave] = useState<{ done: number; total: number } | null>(null);
 	const [validation, setValidation] = useState<TestOutcome | null>(null);
 	const [runtimeValidation, setRuntimeValidation] = useState<RuntimeValidation | null>(null);
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
@@ -346,6 +355,16 @@ export function AddProviderWizard({
 			backends.find((backend) => backend.configured && !backend.readOnly)?.kind ??
 			'',
 		[backends],
+	);
+
+	const selectableModels = useMemo<SelectableModel[]>(
+		() =>
+			discovered.map((model) => ({
+				id: model.id,
+				label: model.model,
+				searchText: model.displayName ?? '',
+			})),
+		[discovered],
 	);
 
 	/** Model ids the operator kept — the only ones a role may be routed to. */
@@ -575,6 +594,15 @@ export function AddProviderWizard({
 			const result = await syncProviderAccountModels(token, entry.id);
 			const models = (result as { models?: ModelGatewayModel[] }).models ?? [];
 			const knownIds = new Set(discovered.map((model) => model.id));
+			// Recommended stays an offer, never a preselection: persisted enabled flags win.
+			const recommendedNames = new Set(result.recommendedModels ?? []);
+			setRecommendedIds(
+				result.recommendedModels
+					? new Set(
+							models.filter((model) => recommendedNames.has(model.model)).map((model) => model.id),
+						)
+					: null,
+			);
 			setDiscovered(models);
 			// Keep the operator's draft on re-sync; newly discovered rows start from persisted state.
 			setSelected(
@@ -610,17 +638,48 @@ export function AddProviderWizard({
 	};
 
 	/**
-	 * Persist the enabled flag of every model whose selection changed. Each confirmed delta is
-	 * committed locally so a partial failure retries only the unsaved rows.
+	 * Persist the enabled flag of every model whose selection changed, in bulk batches (one request
+	 * per {@link MODEL_SAVE_BATCH} ids instead of one PATCH per row). Each confirmed batch is
+	 * committed locally, so a partial failure retries only the rows still unsaved.
 	 */
 	const saveModelSelection = async () => {
+		const toEnable: string[] = [];
+		const toDisable: string[] = [];
 		for (const model of discovered) {
 			const enabled = selected.has(model.id);
 			if (enabled === model.enabled) continue;
-			await patchModelGatewayModel(token, model.id, { enabled });
-			setDiscovered((current) =>
-				current.map((entry) => (entry.id === model.id ? { ...entry, enabled } : entry)),
-			);
+			(enabled ? toEnable : toDisable).push(model.id);
+		}
+		const batches: Array<{ enabled: boolean; ids: string[] }> = [];
+		for (const [enabled, ids] of [
+			[true, toEnable],
+			[false, toDisable],
+		] as const) {
+			for (let start = 0; start < ids.length; start += MODEL_SAVE_BATCH) {
+				batches.push({ enabled, ids: ids.slice(start, start + MODEL_SAVE_BATCH) });
+			}
+		}
+		if (!batches.length) return;
+		const total = toEnable.length + toDisable.length;
+		let done = 0;
+		setModelSave({ done, total });
+		try {
+			for (const batch of batches) {
+				await patchModelGatewayProviderModels(token, entry.id, {
+					enabled: batch.enabled,
+					models: batch.ids,
+				});
+				const saved = new Set(batch.ids);
+				setDiscovered((current) =>
+					current.map((model) =>
+						saved.has(model.id) ? { ...model, enabled: batch.enabled } : model,
+					),
+				);
+				done += batch.ids.length;
+				setModelSave({ done, total });
+			}
+		} finally {
+			setModelSave(null);
 		}
 	};
 
@@ -740,15 +799,6 @@ export function AddProviderWizard({
 			return;
 		}
 		setStep(STEP_ORDER[Math.max(stepIndex - 1, 0)]);
-	};
-
-	const toggleModel = (id: string) => {
-		setSelected((current) => {
-			const next = new Set(current);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
 	};
 
 	const toggleRole = (role: string) => {
@@ -1031,11 +1081,11 @@ export function AddProviderWizard({
 					<>
 						<div className="surface-toolbar">
 							<div className="inline">
-								<span className="muted">
-									{discovered.length
-										? `${selected.size}/${discovered.length} ${t('app.providers.wizard.modelsSelected', 'selected')}`
-										: t('app.providers.wizard.modelsEmpty', 'No models synced yet.')}
-								</span>
+								{discovered.length ? null : (
+									<span className="muted">
+										{t('app.providers.wizard.modelsEmpty', 'No models synced yet.')}
+									</span>
+								)}
 								<Badge tone={cost.tone}>
 									<CircleDollarSign aria-hidden="true" size={12} />
 									<span>{t(cost.labelKey, cost.fallback)}</span>
@@ -1049,16 +1099,15 @@ export function AddProviderWizard({
 								{t('app.providers.wizard.syncModels', 'Sync models')}
 							</Button>
 						</div>
-						<div className="stack compact provider-model-list">
-							{discovered.map((model) => (
-								<Checkbox
-									key={model.id}
-									label={model.model}
-									checked={selected.has(model.id)}
-									onChange={() => toggleModel(model.id)}
-								/>
-							))}
-						</div>
+						{discovered.length ? (
+							<ModelSelectionList
+								models={selectableModels}
+								selected={selected}
+								onChange={setSelected}
+								recommended={recommendedIds}
+								disabled={busy}
+							/>
+						) : null}
 					</>
 				) : null}
 
@@ -1159,6 +1208,14 @@ export function AddProviderWizard({
 					)
 				) : null}
 
+				{modelSave ? (
+					<p className="field-help wizard-save-progress" role="status">
+						{t('app.providers.wizard.savingModels', 'Saving model selection… {done}/{total}')
+							.replace('{done}', String(modelSave.done))
+							.replace('{total}', String(modelSave.total))}
+					</p>
+				) : null}
+
 				{error ? (
 					<div className="form-error" role="alert">
 						{error}
@@ -1169,7 +1226,7 @@ export function AddProviderWizard({
 					<Button
 						onClick={goBack}
 						disabled={busy}
-						icon={stepIndex === 0 ? undefined : <Link2 size={14} />}
+						icon={stepIndex === 0 ? undefined : <ArrowLeft size={14} />}
 					>
 						{stepIndex === 0
 							? t('app.providers.wizard.cancel', 'Cancel')

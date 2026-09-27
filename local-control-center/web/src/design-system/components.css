@@ -907,8 +907,36 @@ kbd.command-kbd {
 	.credential-manager > form {
 		grid-template-columns: minmax(0, 1fr);
 	}
+	/* Phones: five labelled cells broke words mid-way ("Credenti…"). The stepper becomes one row of
+	 * equal step-number chips; only the current step's label shows, lifted (absolute, relative to
+	 * the list) into a caption line reserved under the row. The other labels stay for screen readers. */
 	.provider-setup-wizard .wizard-steps {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		position: relative;
+		grid-template-columns: none;
+		grid-auto-flow: column;
+		grid-auto-columns: minmax(0, 1fr);
+		padding-bottom: calc(var(--font-size-sm) * var(--line-snug) + var(--space-2));
+	}
+	.provider-setup-wizard .wizard-steps li {
+		justify-items: center;
+		overflow-wrap: normal;
+	}
+	.provider-setup-wizard .wizard-steps li > strong {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.provider-setup-wizard .wizard-steps li.current > strong {
+		inset-inline-start: 0;
+		bottom: 0;
+		width: auto;
+		height: auto;
+		clip-path: none;
+		font-size: var(--font-size-sm);
+		line-height: var(--line-snug);
 	}
 }
 

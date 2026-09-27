@@ -2391,6 +2391,25 @@ export function patchModelGatewayModel(
 	});
 }
 
+/**
+ * Enables or disables many catalog models of one provider in a single transaction (all of them when
+ * `models` is omitted). All or nothing: an id outside the provider's catalog rejects the whole batch.
+ */
+export function patchModelGatewayProviderModels(
+	token: string,
+	providerId: string,
+	body: MutationBody<'patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch'>,
+) {
+	return requestGeneratedOperation(
+		'patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch',
+		{
+			token,
+			pathParams: { provider_id: providerId },
+			body,
+		},
+	);
+}
+
 export type PluginListResponse = OperationResponse<'list_plugins_api_v1_plugins_get'>;
 export type PluginRecord = PluginListResponse['plugins'][number];
 export type PluginInstallLocalRequest =

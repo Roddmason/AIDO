@@ -257,7 +257,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		icon: Cpu,
 		kind: 'display',
 		render: (ctx) => (
-			<>
+			<div className="settings-providers-cli">
 				<RuntimeAccessPanel ctx={ctx} />
 				<RuntimeBody
 					overview={ctx.overview}
@@ -268,7 +268,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 					initialProviderId={ctx.initialProviderId}
 					onNavigate={ctx.closeSettings}
 				/>
-			</>
+			</div>
 		),
 	},
 	{

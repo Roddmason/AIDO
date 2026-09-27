@@ -74,6 +74,17 @@ export function RuntimeBody({
 }) {
 	const { t } = useI18n();
 	const [gatewayRevision, setGatewayRevision] = useState(0);
+	// Endpoint cards use the same switch as provider cards, so they also show "In use" while a running
+	// call holds the endpoint (the runtime snapshot is the only source of that lease state).
+	const inUseProviderIds = useMemo(
+		() =>
+			new Set(
+				(runtimeProviders?.providers ?? [])
+					.filter((provider) => provider.inUse)
+					.map((provider) => provider.id),
+			),
+		[runtimeProviders],
+	);
 	const refreshAfterEndpointMutation = async () => {
 		try {
 			return await onRefresh();
@@ -92,12 +103,17 @@ export function RuntimeBody({
 				gatewayRevision={gatewayRevision}
 				onLocalEndpointSaved={() => setGatewayRevision((revision) => revision + 1)}
 			/>
-			<OllamaEndpointsPanel token={token} onRefresh={refreshAfterEndpointMutation} />
+			<OllamaEndpointsPanel
+				token={token}
+				onRefresh={refreshAfterEndpointMutation}
+				inUseProviderIds={inUseProviderIds}
+			/>
 			<DeferredLocalRuntime>
 				<LocalEndpointsPanel
 					token={token}
 					revision={gatewayRevision}
 					onRefresh={refreshAfterEndpointMutation}
+					inUseProviderIds={inUseProviderIds}
 				/>
 			</DeferredLocalRuntime>
 			<div className="settings-readouts">

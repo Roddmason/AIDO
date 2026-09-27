@@ -216,7 +216,8 @@ test('Local endpoints: probing a synced server shows its health, loaded model an
 	await edit.getByLabel('Enable this endpoint').uncheck();
 	await edit.getByRole('button', { name: 'Save changes' }).click();
 	await expect(edit).toBeHidden();
-	await expect(card).toContainText('disabled');
+	await expect(card.getByRole('checkbox', { name: `Use ${PANEL_ID} in threads` })).not.toBeChecked();
+	await expect(card).toContainText('Inactive');
 	await expect(card).toContainText('not tracked');
 });
 

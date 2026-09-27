@@ -264,29 +264,6 @@ export function ProviderUsageSection({
 				>
 					{t('app.providers.usage.saveThreshold', 'Save')}
 				</button>
-				{entry.suspended ? (
-					<button
-						className="button"
-						type="button"
-						disabled={disabled}
-						aria-busy={saving === 'resume'}
-						onClick={() => void run('resume', () => resumeProviderUsage(token, entry.providerId))}
-					>
-						{t('app.providers.usage.resume', 'Resume until reset')}
-					</button>
-				) : null}
-				{entry.hasRemoteSource ? (
-					<button
-						className="button"
-						type="button"
-						disabled={disabled || !token}
-						aria-busy={saving === 'refresh'}
-						onClick={() => void refresh()}
-					>
-						<RefreshCw aria-hidden="true" size={14} />
-						{t('app.providers.usage.refresh', 'Read usage')}
-					</button>
-				) : null}
 			</div>
 			<span className="field-help" id={`${inputId}-help`}>
 				{draftValid
@@ -301,14 +278,40 @@ export function ProviderUsageSection({
 							).replace('{general}', String(Math.round(generalThresholdPercent)))
 					: t('app.providers.usage.thresholdInvalid', 'Enter a whole number from 1 to 100.')}
 			</span>
-			{entry.lastPollAt ? (
-				<span className="field-help">
-					{t('app.providers.usage.lastRead', 'Last read {time}').replace(
-						'{time}',
-						formatReset(entry.lastPollAt, ''),
-					)}
-				</span>
-			) : null}
+			{/* Secondary actions share one row under the threshold, apart from its Save. */}
+			<div className="provider-usage-footer">
+				{entry.suspended ? (
+					<button
+						className="button provider-usage-action"
+						type="button"
+						disabled={disabled}
+						aria-busy={saving === 'resume'}
+						onClick={() => void run('resume', () => resumeProviderUsage(token, entry.providerId))}
+					>
+						{t('app.providers.usage.resume', 'Resume until reset')}
+					</button>
+				) : null}
+				{entry.hasRemoteSource ? (
+					<button
+						className="button provider-usage-action"
+						type="button"
+						disabled={disabled || !token}
+						aria-busy={saving === 'refresh'}
+						onClick={() => void refresh()}
+					>
+						<RefreshCw aria-hidden="true" size={14} />
+						{t('app.providers.usage.refresh', 'Read usage')}
+					</button>
+				) : null}
+				{entry.lastPollAt ? (
+					<span className="field-help provider-usage-last-read">
+						{t('app.providers.usage.lastRead', 'Last read {time}').replace(
+							'{time}',
+							formatReset(entry.lastPollAt, ''),
+						)}
+					</span>
+				) : null}
+			</div>
 		</section>
 	);
 }

@@ -11367,6 +11367,66 @@
       "en": "The operator switched this provider off; no thread, agent or failover uses it until it is switched back on.",
       "es": "El operador apagó este proveedor; ningún hilo, agente ni failover lo usa hasta que se vuelva a encender."
     },
+    "app.runtime.health.reason.usage_threshold_reached": {
+      "en": "This provider reached the usage threshold of its quota; AIDO skips it and fails over until the quota window resets.",
+      "es": "Este proveedor alcanzó el umbral de uso de su cuota; AIDO lo omite y pasa al siguiente hasta que se reinicie la ventana de la cuota."
+    },
+    "app.providers.card.reason.provider_disabled": {
+      "en": "Switched off for AIDO. Turn it on to use it in threads.",
+      "es": "Apagado para AIDO. Enciéndelo para usarlo en los hilos."
+    },
+    "app.providers.card.reason.usage_threshold_reached": {
+      "en": "Paused by its usage quota. AIDO uses the next runtime until the window resets.",
+      "es": "En pausa por su cuota de uso. AIDO usa el siguiente runtime hasta que se reinicie la ventana."
+    },
+    "app.providers.card.reportedReason": {
+      "en": "Reported reason",
+      "es": "Motivo informado"
+    },
+    "app.providers.card.readiness": {
+      "en": "Readiness",
+      "es": "Preparación"
+    },
+    "app.providers.card.factYes": {
+      "en": ": yes",
+      "es": ": sí"
+    },
+    "app.providers.card.factNo": {
+      "en": ": no",
+      "es": ": no cumple"
+    },
+    "app.providers.card.factUnknown": {
+      "en": ": not checked",
+      "es": ": sin verificar"
+    },
+    "app.providers.health.healthy": {
+      "en": "healthy",
+      "es": "operativo"
+    },
+    "app.providers.health.degraded": {
+      "en": "degraded",
+      "es": "degradado"
+    },
+    "app.providers.health.unhealthy": {
+      "en": "unhealthy",
+      "es": "con fallas"
+    },
+    "app.providers.health.unknown": {
+      "en": "not checked",
+      "es": "sin verificar"
+    },
+    "app.providers.health.offline": {
+      "en": "offline",
+      "es": "sin conexión"
+    },
+    "app.providers.health.unavailable": {
+      "en": "unavailable",
+      "es": "no disponible"
+    },
+    "app.providers.health.misconfigured": {
+      "en": "misconfigured",
+      "es": "mal configurado"
+    },
     "app.ollama.card.delete": {
       "en": "Delete",
       "es": "Eliminar"

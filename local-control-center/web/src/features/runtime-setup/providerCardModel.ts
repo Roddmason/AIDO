@@ -29,6 +29,26 @@ export const COST_META: Record<
 	none: { tone: 'info', labelKey: 'app.providers.cost.none', fallback: 'no models yet' },
 };
 
+/** Plain-language health label; known statuses keep their English word so the card reads the same. */
+const HEALTH_LABEL: Record<string, { key: string; fallback: string }> = {
+	healthy: { key: 'app.providers.health.healthy', fallback: 'healthy' },
+	degraded: { key: 'app.providers.health.degraded', fallback: 'degraded' },
+	unhealthy: { key: 'app.providers.health.unhealthy', fallback: 'unhealthy' },
+	unknown: { key: 'app.providers.health.unknown', fallback: 'not checked' },
+	offline: { key: 'app.providers.health.offline', fallback: 'offline' },
+	unavailable: { key: 'app.providers.health.unavailable', fallback: 'unavailable' },
+	misconfigured: { key: 'app.providers.health.misconfigured', fallback: 'misconfigured' },
+};
+
+/** Translated health status for a card badge; an uncatalogued status shows verbatim. */
+export function healthStatusLabel(
+	status: string,
+	t: (key: string, fallback?: string) => string,
+): string {
+	const copy = HEALTH_LABEL[status];
+	return copy ? t(copy.key, copy.fallback) : status;
+}
+
 /** The modern setup facts a card shows on top of the runtime-diagnostic readiness. */
 export type ProviderSetupInfo = {
 	account: ModelGatewayProviderAccount | null;

@@ -168,7 +168,9 @@ test('Ollama endpoints: adding a remote server registers it as a remote endpoint
 	const card = endpointCard(settings, REMOTE_ID);
 	await expect(card).toBeVisible();
 	await expect(card).toContainText('remote server');
-	await expect(card).toContainText('enabled');
+	// Enablement is the card switch (Active/Inactive), not a separate badge.
+	await expect(card.getByRole('checkbox', { name: `Use ${REMOTE_ID} in threads` })).toBeChecked();
+	await expect(card).toContainText('Active');
 	await expect(card).toContainText(REMOTE_BASE_URL);
 	await expect(card).toContainText('not measured');
 });
@@ -255,7 +257,7 @@ test('Ollama endpoints: the card switch turns an endpoint off and Delete removes
 	await expect(toggle).toBeChecked();
 	await toggle.click();
 	await expect(toggle).not.toBeChecked();
-	await expect(card).toContainText('disabled');
+	await expect(card).toContainText('Inactive');
 	// The switch is the real account flag, not a local preference.
 	const listed = await (await page.request.get('/api/v1/ollama/endpoints')).json();
 	expect(listed.endpoints.find((endpoint) => endpoint.id === TOGGLE_ID)?.enabled).toBe(false);

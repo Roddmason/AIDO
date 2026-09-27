@@ -3,14 +3,17 @@
  * The backend resolves eligibility, the automatic split and the effective order; this panel only
  * edits the `team.role.<role>` string lists of the current scope (general or project) and shows
  * where the effective order comes from. "Automatic" clears the scope's override. When every provider
- * the operator chose is switched off, the role falls back to the automatic split and says so.
+ * the operator chose is switched off, the role falls back to the automatic split and says so. A
+ * provider without a fresh test shows it (a thread's own team only accepts validated runtimes).
  * @author Rodrigo Mason
  */
 import { useState } from 'react';
 
+import type { RuntimeTeamCandidate } from '../../api/client';
 import type { RuntimeTeamRole } from '../../api/types';
 import { Button, ErrorState, Skeleton, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import { notSelectableReason } from '../runtime-team/RuntimeValidationDetails';
 import { useRuntimeTeam } from '../runtime-team/useRuntimeTeam';
 import type { SectionContext } from './sections';
 
@@ -67,8 +70,9 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 	}
 	if (!data) return <Skeleton label={t('app.aiTeam.loading', 'Loading the AI team')} />;
 
-	const labelOf = (providerId: string) =>
-		data.candidates.find((candidate) => candidate.providerId === providerId)?.label ?? providerId;
+	const candidateOf = (providerId: string) =>
+		data.candidates.find((candidate) => candidate.providerId === providerId);
+	const labelOf = (providerId: string) => candidateOf(providerId)?.label ?? providerId;
 
 	return (
 		<section className="ai-team-panel" aria-label={t('app.aiTeam.title', 'AI team')}>
@@ -85,6 +89,7 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 					scope={ctx.scope}
 					busy={busyRoles.has(role.role)}
 					labelOf={labelOf}
+					candidateOf={candidateOf}
 					onWrite={(ids) => void write(role.role, ids)}
 				/>
 			))}
@@ -97,12 +102,14 @@ function RoleRow({
 	scope,
 	busy,
 	labelOf,
+	candidateOf,
 	onWrite,
 }: {
 	role: RuntimeTeamRole;
 	scope: 'general' | 'project';
 	busy: boolean;
 	labelOf: (providerId: string) => string;
+	candidateOf: (providerId: string) => RuntimeTeamCandidate | undefined;
 	onWrite: (ids: string[] | null) => void;
 }) {
 	const { t } = useI18n();
@@ -145,11 +152,20 @@ function RoleRow({
 			<ol className="ai-team-order">
 				{effective.map((id, index) => {
 					const ownIndex = own.indexOf(id);
+					const candidate = candidateOf(id);
+					const untested = candidate ? notSelectableReason(t, candidate) : null;
 					return (
 						<li key={id} className="inline" data-assigned={index === 0 ? 'true' : undefined}>
 							<span>{labelOf(id)}</span>
 							{index === 0 ? (
 								<StatusChip tone="ok">{t('app.aiTeam.assigned', 'assigned')}</StatusChip>
+							) : null}
+							{untested ? (
+								<StatusChip tone="warn" title={untested}>
+									{candidate?.validation.status === 'failed'
+										? t('app.aiTeam.testFailed', 'last test failed')
+										: t('app.aiTeam.notTested', 'not tested recently')}
+								</StatusChip>
 							) : null}
 							{ownIndex >= 0 ? (
 								<span className="inline">

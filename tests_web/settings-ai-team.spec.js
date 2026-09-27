@@ -12,11 +12,11 @@ test.afterEach(async ({ page }) => {
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
-const CANDIDATE = (providerId, label, kind, eligibleRoles) => ({
+const CANDIDATE = (providerId, label, kind, eligibleRoles, validation = null) => ({
 	providerId,
 	label,
 	kind,
-	validation: {
+	validation: validation ?? {
 		status: 'validated',
 		checkedAt: '2026-09-26T10:00:00+00:00',
 		latencyMs: 300,
@@ -27,7 +27,7 @@ const CANDIDATE = (providerId, label, kind, eligibleRoles) => ({
 	loadedModels: [],
 });
 
-function teamBody(developerOrder, source, developerInvalid = []) {
+function teamBody(developerOrder, source, developerInvalid = [], llamaValidation = null) {
 	const role = (name, required, effective, roleSource, candidates, invalid = []) => ({
 		role: name,
 		required,
@@ -58,7 +58,7 @@ function teamBody(developerOrder, source, developerInvalid = []) {
 		candidates: [
 			CANDIDATE('claude_code_cli', 'Claude Code CLI', 'cli', ['product_owner', 'developer', 'architect']),
 			CANDIDATE('codex_cli', 'Codex CLI', 'cli', ['product_owner', 'developer']),
-			CANDIDATE('llama_cpp', 'llama.cpp', 'local', ['product_owner', 'developer', 'security']),
+			CANDIDATE('llama_cpp', 'llama.cpp', 'local', ['product_owner', 'developer', 'security'], llamaValidation),
 		],
 	};
 }
@@ -66,7 +66,9 @@ function teamBody(developerOrder, source, developerInvalid = []) {
 async function openGeneralAiTeam(page, state) {
 	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
 	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
-		route.fulfill({ json: teamBody(state.developer, state.source, state.invalid ?? []) }),
+		route.fulfill({
+			json: teamBody(state.developer, state.source, state.invalid ?? [], state.llamaValidation ?? null),
+		}),
 	);
 	await page.route('**/api/v1/settings/team.role.*', async (route) => {
 		const key = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
@@ -140,4 +142,29 @@ test('a role whose chosen providers are all switched off says it fell back to au
 		.poll(() => state.writes)
 		.toEqual([{ key: 'team.role.developer', scope: 'general', value: null }]);
 	await expect(developer.getByText('Your selection is switched off; using automatic.')).toBeHidden();
+});
+
+test('a provider whose last test failed is flagged with the reason it cannot join a thread team', async ({
+	page,
+}) => {
+	const state = {
+		developer: ['claude_code_cli', 'codex_cli', 'llama_cpp'],
+		source: 'automatic',
+		writes: [],
+		llamaValidation: {
+			status: 'failed',
+			checkedAt: '2026-09-26T10:00:00+00:00',
+			latencyMs: 2039,
+			model: 'qwen',
+			reason: 'runtime_validation_failed',
+			httpStatus: 503,
+		},
+	};
+	const panel = await openGeneralAiTeam(page, state);
+	const security = panel.getByRole('group', { name: 'Security' });
+	const flag = security.getByText('last test failed', { exact: true });
+	await expect(flag).toBeVisible();
+	await expect(flag).toHaveAttribute('title', /its last test failed.*\(qwen, HTTP 503\)/);
+	// Validated providers carry no flag.
+	await expect(panel.getByRole('group', { name: 'Architect' }).getByText('last test failed')).toHaveCount(0);
 });

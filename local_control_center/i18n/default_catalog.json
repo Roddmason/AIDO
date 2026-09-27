@@ -1571,6 +1571,146 @@
       "en": "Test",
       "es": "Probar"
     },
+    "app.runtimeTeam.attemptFailed": {
+      "en": "failed",
+      "es": "falló"
+    },
+    "app.runtimeTeam.attemptPassed": {
+      "en": "passed",
+      "es": "pasó"
+    },
+    "app.runtimeTeam.noModelPassed": {
+      "en": "None of the {count} models tried passed.",
+      "es": "Ninguno de los {count} modelos probados pasó."
+    },
+    "app.runtimeTeam.attempts": {
+      "en": "Models tested",
+      "es": "Modelos probados"
+    },
+    "app.runtimeTeam.noHttpAnswer": {
+      "en": "no HTTP answer",
+      "es": "sin respuesta HTTP"
+    },
+    "app.runtimeTeam.testModel": {
+      "en": "Test a model…",
+      "es": "Probar un modelo…"
+    },
+    "app.runtimeTeam.modelPicker": {
+      "en": "Model to test",
+      "es": "Modelo a probar"
+    },
+    "app.runtimeTeam.searchModels": {
+      "en": "Search enabled models",
+      "es": "Buscar modelos habilitados"
+    },
+    "app.runtimeTeam.modelsLoading": {
+      "en": "Loading models…",
+      "es": "Cargando modelos…"
+    },
+    "app.runtimeTeam.modelsLoadFailed": {
+      "en": "Could not load the models. Try again.",
+      "es": "No se pudieron cargar los modelos. Inténtalo de nuevo."
+    },
+    "app.runtimeTeam.modelsShown": {
+      "en": "Showing {shown} of {total} matches · {count} enabled models",
+      "es": "Se muestran {shown} de {total} coincidencias · {count} modelos habilitados"
+    },
+    "app.runtimeTeam.testThisModel": {
+      "en": "Test this model",
+      "es": "Probar este modelo"
+    },
+    "app.runtimeTeam.cancelModelTest": {
+      "en": "Cancel",
+      "es": "Cancelar"
+    },
+    "app.runtimeTeam.whyPolicy": {
+      "en": "Blocked by this project policy.",
+      "es": "Bloqueado por la política de este proyecto."
+    },
+    "app.runtimeTeam.whyFailed": {
+      "en": "Cannot join: its last test failed. Test it again to see the cause per model.",
+      "es": "No se puede sumar: su última prueba falló. Pruébalo de nuevo para ver la causa por modelo."
+    },
+    "app.runtimeTeam.whyStale": {
+      "en": "Cannot join until it is tested again.",
+      "es": "No se puede sumar hasta que se pruebe de nuevo."
+    },
+    "app.runtimeTeam.whyNever": {
+      "en": "Cannot join until it passes a test: press Test.",
+      "es": "No se puede sumar hasta que pase una prueba: presiona Probar."
+    },
+    "app.runtimeTeam.reason.runtime_validation_failed": {
+      "en": "The provider answered, but not with a usable completion.",
+      "es": "El proveedor respondió, pero no con una respuesta utilizable."
+    },
+    "app.runtimeTeam.reason.runtime_validation_required": {
+      "en": "Not tested yet.",
+      "es": "Todavía no se ha probado."
+    },
+    "app.runtimeTeam.reason.runtime_validation_expired": {
+      "en": "The last successful test is older than 30 minutes.",
+      "es": "La última prueba exitosa tiene más de 30 minutos."
+    },
+    "app.runtimeTeam.reason.runtime_validation_configuration_changed": {
+      "en": "The provider settings changed after the last test.",
+      "es": "La configuración del proveedor cambió después de la última prueba."
+    },
+    "app.runtimeTeam.reason.model_validation_invalid_response": {
+      "en": "The request reached the provider, but the reply had no completion.",
+      "es": "La solicitud llegó al proveedor, pero la respuesta no traía contenido."
+    },
+    "app.runtimeTeam.reason.credential_missing": {
+      "en": "The API key reference has no value on this machine; no request was sent.",
+      "es": "La referencia de la API key no tiene valor en este equipo; no se envió ninguna solicitud."
+    },
+    "app.runtimeTeam.reason.credential_invalid": {
+      "en": "The API key reference is not valid; no request was sent.",
+      "es": "La referencia de la API key no es válida; no se envió ninguna solicitud."
+    },
+    "app.runtimeTeam.reason.credential_unsupported": {
+      "en": "AIDO cannot read the store of this API key reference here; no request was sent.",
+      "es": "AIDO no puede leer aquí el almacén de esta referencia de API key; no se envió ninguna solicitud."
+    },
+    "app.runtimeTeam.reason.credential_ref_required": {
+      "en": "This provider needs an API key reference; no request was sent.",
+      "es": "Este proveedor necesita una referencia de API key; no se envió ninguna solicitud."
+    },
+    "app.runtimeTeam.reason.auth_missing": {
+      "en": "The provider rejected the request as unauthenticated. Through a gateway this usually means it has no account for that upstream.",
+      "es": "El proveedor rechazó la solicitud por falta de autenticación. A través de un gateway, esto suele indicar que no tiene cuenta para ese upstream."
+    },
+    "app.runtimeTeam.reason.auth_expired": {
+      "en": "The provider rejected the credentials (invalid or expired).",
+      "es": "El proveedor rechazó las credenciales (inválidas o vencidas)."
+    },
+    "app.runtimeTeam.reason.rate_limited": {
+      "en": "The provider is rate limiting requests; try again later or pick another model.",
+      "es": "El proveedor está limitando las solicitudes; inténtalo más tarde o elige otro modelo."
+    },
+    "app.runtimeTeam.reason.quota_exhausted": {
+      "en": "The provider quota for this model is used up.",
+      "es": "Se agotó la cuota del proveedor para este modelo."
+    },
+    "app.runtimeTeam.reason.provider_unreachable": {
+      "en": "AIDO could not reach the provider endpoint, or it did not answer in time.",
+      "es": "AIDO no pudo conectarse al endpoint del proveedor, o este no respondió a tiempo."
+    },
+    "app.runtimeTeam.reason.model_not_found": {
+      "en": "The provider does not serve this model.",
+      "es": "El proveedor no ofrece este modelo."
+    },
+    "app.runtimeTeam.reason.model_required": {
+      "en": "This provider has no enabled model to test.",
+      "es": "Este proveedor no tiene ningún modelo habilitado para probar."
+    },
+    "app.aiTeam.testFailed": {
+      "en": "last test failed",
+      "es": "última prueba fallida"
+    },
+    "app.aiTeam.notTested": {
+      "en": "not tested recently",
+      "es": "sin prueba reciente"
+    },
     "app.runtimeTeam.status.validated": {
       "en": "Validated",
       "es": "Validado"

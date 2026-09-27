@@ -2701,6 +2701,63 @@
 	grid-column: 1 / -1;
 }
 
+/* Cause of a failed test: one line per model tried; provider text wraps and expands in place. */
+.runtime-team-reason-text {
+	margin: 0;
+}
+
+.runtime-team-attempts {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 0;
+	padding-left: var(--space-4);
+}
+
+.runtime-team-attempt {
+	display: grid;
+	gap: 2px;
+}
+
+.runtime-team-attempt-model,
+.runtime-team-evidence {
+	overflow-wrap: anywhere;
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+}
+
+.runtime-team-attempt-model {
+	color: var(--color-text-primary);
+}
+
+.runtime-team-evidence summary {
+	cursor: pointer;
+}
+
+.runtime-team-evidence-full {
+	margin: var(--space-1) 0 0;
+	white-space: pre-wrap;
+}
+
+.runtime-team-why {
+	display: block;
+}
+
+.runtime-team-model-picker {
+	grid-column: 1 / -1;
+	display: grid;
+	gap: var(--space-2);
+}
+
+.runtime-team-model-picker .runtime-team-model-list {
+	width: 100%;
+	height: auto;
+}
+
+.runtime-team-model-actions {
+	display: flex;
+	gap: var(--space-2);
+}
+
 .runtime-team-latency {
 	color: var(--color-text-muted);
 	font-family: var(--font-data);

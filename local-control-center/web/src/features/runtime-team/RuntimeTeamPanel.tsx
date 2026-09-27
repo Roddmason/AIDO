@@ -4,7 +4,9 @@
  * Expired runtimes are re-tested when the panel opens; CLI rows warn that a test spends quota. Each
  * row keeps its last test outcome (failed or deferred with the cause, including the resource
  * governor's reason while the queued test waits), and roles the operator edited stay pinned while
- * the automatic ones follow the backend split for the current selection.
+ * the automatic ones follow the backend split for the current selection. A failed test shows each
+ * model tried with its HTTP status and body; a row that cannot be ticked says why; API and gateway
+ * rows can test one chosen model (a gateway may expose 1000+).
  * @author Rodrigo Mason
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
@@ -12,6 +14,13 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { type RuntimeTeamCandidate, validateRuntime } from '../../api/client';
 import { Button, Checkbox, SelectField, StatusChip } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import { describeValidationReason } from '../runtime-setup/reasonCopy';
+import { RuntimeModelPicker } from './RuntimeModelPicker';
+import {
+	notSelectableReason,
+	RuntimeValidationDetails,
+	type RuntimeValidationResult,
+} from './RuntimeValidationDetails';
 import {
 	isEligible,
 	loadedModelsOf,
@@ -101,7 +110,17 @@ function rowHelp(t: Translate, candidate: RuntimeTeamCandidate): ReactNode {
 }
 
 /** Outcome of the last test this panel ran for a row, kept until the next test of that row. */
-type ProbeOutcome = { status: ValidationView; reason: string | null; inFlight: boolean };
+type ProbeOutcome = {
+	status: ValidationView;
+	reason: string | null;
+	inFlight: boolean;
+	result?: RuntimeValidationResult;
+};
+
+/** API and gateway runtimes serve several models: the operator can test one of them. */
+function testsOneModel(candidate: RuntimeTeamCandidate): boolean {
+	return candidate.kind === 'api' || candidate.kind === 'gateway';
+}
 
 function latencyText(latencyMs: number | null | undefined): string {
 	return latencyMs === null || latencyMs === undefined ? '—' : `${latencyMs} ms`;
@@ -153,7 +172,7 @@ export function RuntimeTeamPanel({
 	}, []);
 
 	const probe = useCallback(
-		async (providerId: string) => {
+		async (providerId: string, model?: string) => {
 			const signal = unmounted.current?.signal;
 			setProbe(providerId, { status: 'running', reason: null, inFlight: true });
 			try {
@@ -171,12 +190,18 @@ export function RuntimeTeamPanel({
 							});
 						}
 					},
+					model,
 				);
 				setProbe(
 					providerId,
 					validation.status === 'validated'
 						? null
-						: { status: validation.status, reason: validation.reason ?? null, inFlight: false },
+						: {
+								status: validation.status,
+								reason: validation.reason ?? null,
+								inFlight: false,
+								result: validation,
+							},
 				);
 			} catch (error) {
 				if (signal?.aborted) return;
@@ -282,18 +307,29 @@ export function RuntimeTeamPanel({
 						: outcome
 							? outcome.status
 							: candidate.validation.status;
-					const reason = denied
-						? candidate.validation.reason
-						: (outcome?.reason ??
-							(candidate.validation.status === 'failed' ? candidate.validation.reason : null));
+					// The persisted failure only knows "failed" (and its HTTP status): the cause per model comes
+					// from the test this panel ran, so a stored generic code is not repeated as the reason.
+					const reason = denied ? candidate.validation.reason : (outcome?.reason ?? null);
 					const checked = allowed.includes(candidate.providerId);
 					const selectable =
 						candidate.validation.status === 'validated' && candidate.eligibleRoles.length > 0;
+					const why =
+						!checked && !selectable && !outcome ? notSelectableReason(t, candidate) : null;
+					const help = rowHelp(t, candidate);
 					return (
 						<li key={candidate.providerId} className="runtime-team-row">
 							<Checkbox
 								label={candidate.label}
-								help={rowHelp(t, candidate)}
+								help={
+									why ? (
+										<>
+											{help ? <span className="runtime-team-help">{help}</span> : null}
+											<span className="runtime-team-why">{why}</span>
+										</>
+									) : (
+										help
+									)
+								}
 								checked={checked}
 								disabled={!checked && !selectable}
 								onChange={(event) => toggle(candidate.providerId, event.currentTarget.checked)}
@@ -310,9 +346,21 @@ export function RuntimeTeamPanel({
 							>
 								{t('app.runtimeTeam.test', 'Test')}
 							</Button>
-							{reason &&
-							(status === 'failed' || status === 'deferred' || status === 'policy_denied') ? (
-								<span className="field-help runtime-team-reason">{reason}</span>
+							{outcome?.result && (status === 'failed' || status === 'deferred') ? (
+								<RuntimeValidationDetails result={outcome.result} />
+							) : reason &&
+								(status === 'failed' || status === 'deferred' || status === 'policy_denied') ? (
+								<span className="field-help runtime-team-reason">
+									{denied ? reason : describeValidationReason(reason, t)}
+								</span>
+							) : null}
+							{testsOneModel(candidate) && !denied ? (
+								<RuntimeModelPicker
+									providerId={candidate.providerId}
+									runtimeLabel={candidate.label}
+									disabled={running}
+									onTest={(model) => void probe(candidate.providerId, model)}
+								/>
 							) : null}
 						</li>
 					);

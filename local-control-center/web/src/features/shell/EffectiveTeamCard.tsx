@@ -17,8 +17,10 @@ export function EffectiveTeamCard({
 }) {
 	const { t } = useI18n();
 	const { data } = useRuntimeTeam(projectId, true);
-	const threadRoles: Record<string, string | undefined> =
-		readRuntimeTeam(threadMetadata)?.roleRuntimes ?? {};
+	// A thread with its own team overrides every role: a role it does not assign follows the thread's
+	// own Product Owner (`role_allowlist`), never the global team.
+	const threadTeam = readRuntimeTeam(threadMetadata);
+	const threadRoles: Record<string, string | undefined> = threadTeam?.roleRuntimes ?? {};
 	if (!data) return null;
 	const labelOf = (id: string | null | undefined) =>
 		id
@@ -30,17 +32,20 @@ export function EffectiveTeamCard({
 			<h4 className="card-title">{title}</h4>
 			<dl className="provider-facts">
 				{data.roles.map((role) => {
-					const own = threadRoles[role.role];
+					const own = threadTeam
+						? (threadRoles[role.role] ?? threadRoles.product_owner ?? null)
+						: undefined;
 					const roleLabel = AI_TEAM_ROLE_LABEL[role.role];
 					const sourceLabel = AI_TEAM_SOURCE_LABEL[role.source] ?? AI_TEAM_SOURCE_LABEL.automatic;
-					const source = own
+					const source = threadTeam
 						? t('app.aiTeam.source.thread', 'this thread')
 						: t(sourceLabel.key, sourceLabel.fallback);
 					return (
 						<div key={role.role}>
 							<dt>{roleLabel ? t(roleLabel.key, roleLabel.fallback) : role.role}</dt>
 							<dd>
-								{labelOf(own ?? role.assigned)} <span className="muted">· {source}</span>
+								{labelOf(threadTeam ? own : role.assigned)}{' '}
+								<span className="muted">· {source}</span>
 							</dd>
 						</div>
 					);

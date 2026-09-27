@@ -59,6 +59,7 @@ from local_control_center.agents.runtime_failover import (
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
+from local_control_center.decision_engine.config import resolve_config
 from local_control_center.decision_engine.observers import observe_resource_decision, record_resource_outcome
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
@@ -76,6 +77,8 @@ from local_control_center.runtime_integrations.repository import RuntimeConfigRe
 from local_control_center.runtime_team.configuration import (
     assigned_runtime,
     discarded_role_runtime,
+    global_role_order,
+    global_role_order_is_explicit,
     global_team_of,
     restrict_to_allowlist,
     role_allowlist,
@@ -3242,8 +3245,18 @@ class ProductLoopCoordinator:
                 "allow_decision_inference": runtime_risk_review_id is None,
                 **({"runtime_risk_review_id": runtime_risk_review_id} if runtime_risk_review_id else {}),
             }
-            decision = manager.select_resource(
-                self._team_resource_request(
+            team_role = team_role_for(
+                role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
+            )
+            # La continuación de un riesgo revisado reproduce el request aprobado: nunca recorre.
+            walk = (
+                self._jev_provider_walk(project_id, request_meta, team_role)
+                if runtime_risk_review_id is None
+                else []
+            )
+            decision = self._select_walking_providers(
+                manager,
+                lambda allowed, role_plan=role_plan: self._team_resource_request(
                     project_id=project_id,
                     loop_id=loop_id,
                     request_meta=request_meta,
@@ -3252,7 +3265,10 @@ class ProductLoopCoordinator:
                     agent_tasks=agent_tasks,
                     local_model_affinity=local_affinity,
                     product_owner_provider_id=po_provider_id,
+                    allowed_override=allowed,
                 ),
+                None,
+                walk,
                 **select_kwargs,
             )
             # Herencia BLANDA: si el proveedor del PO no cubre las capacidades/política del rol, el
@@ -3349,6 +3365,47 @@ class ProductLoopCoordinator:
         }
         return enriched, blockers
 
+    def _jev_provider_walk(
+        self, project_id: str, request_meta: dict[str, Any], team_role: str | None
+    ) -> list[str]:
+        """Orden a recorrer de a un proveedor cuando Jev elige el runtime y el orden es automático.
+
+        Con Jev en ``runtime_selection`` las preferencias de ruteo no aplican y un allowlist con varios
+        proveedores reabre la ambigüedad (``confidence_below_threshold``) que la herencia del PO evitaba.
+        El orden automático trae a todos los elegibles activos sin que el operador los haya elegido, así
+        que se prueba cada proveedor en orden. Un orden explícito del operador no recorre: el spec
+        acepta la ambigüedad si el operador deja varios proveedores. Vacío si no aplica.
+        """
+        if runtime_team_of(request_meta) is not None or global_team_of(request_meta) is None:
+            return []
+        if global_role_order_is_explicit(request_meta, team_role):
+            return []
+        if not resolve_config(self.connection, project_id).selects_runtime:
+            return []
+        return global_role_order(request_meta, team_role)
+
+    @staticmethod
+    def _select_walking_providers(
+        manager: AIResourceManager,
+        build_request: Any,
+        allowed: list[str] | None,
+        walk: list[str],
+        **select_kwargs: Any,
+    ) -> dict[str, Any]:
+        """Selecciona con ``allowed``; con ``walk`` de 2+ proveedores prueba de a uno, en orden.
+
+        Se queda con el primer proveedor que tiene candidatos (seleccionado o no: su veredicto es el
+        de la elección determinista); si ninguno tiene, devuelve la última decisión.
+        """
+        if len(walk) < 2:
+            return manager.select_resource(build_request(allowed), **select_kwargs)
+        decision: dict[str, Any] = {}
+        for provider_id in walk:
+            decision = manager.select_resource(build_request([provider_id]), **select_kwargs)
+            if decision.get("selected") is not None or decision.get("candidates"):
+                break
+        return decision
+
     def _team_resource_request(
         self,
         *,
@@ -3360,6 +3417,7 @@ class ProductLoopCoordinator:
         agent_tasks: list[dict[str, Any]],
         local_model_affinity: dict[str, str] | None = None,
         product_owner_provider_id: str | None = None,
+        allowed_override: list[str] | None = None,
     ) -> AIResourceRequest:
         role = str(role_plan["role"])
         profile = self._profile_by_role(project_id).get(role) or {}
@@ -3369,8 +3427,8 @@ class ProductLoopCoordinator:
             role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
         )
         order, order_wildcards = role_routing_preferences(request_meta, team_role)
-        # El orden del equipo global va delante de los pins de la política del rol: los pins solo
-        # eligen el modelo dentro del proveedor que el operador puso primero.
+        # El orden del equipo global rankea antes que los pins de la política del rol
+        # (``provider_order``): los pins solo eligen el modelo dentro del proveedor que va primero.
         preferred_provider_ids = [
             *order,
             *(provider_id for provider_id in policy["preferredProviderIds"] if provider_id not in order),
@@ -3389,9 +3447,9 @@ class ProductLoopCoordinator:
             else str(team_schedule.get("mode") or "balanced"),
             context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
             required_capabilities=self._resource_required_capabilities(role_plan),
-            allowed_provider_ids=role_allowlist(
-                request_meta, team_role, product_owner_provider_id=product_owner_provider_id
-            ),
+            allowed_provider_ids=allowed_override
+            if allowed_override is not None
+            else role_allowlist(request_meta, team_role, product_owner_provider_id=product_owner_provider_id),
             local_model_pins=role_model_pins(request_meta, team_role),
             local_model_affinity=dict(local_model_affinity or {}),
             privacy_level=self._resource_privacy_level(request_meta),
@@ -3399,6 +3457,7 @@ class ProductLoopCoordinator:
             max_tokens=role_plan.get("maxTokens"),
             preferred_provider_ids=preferred_provider_ids,
             preferred_resources=preferred_resources,
+            provider_order=order,
             blocked_resources=policy["blockedResources"],
             context_token_limit=policy["maxTokensPerRun"],
             role_policy_id=policy["rolePolicyId"],
@@ -3750,9 +3809,9 @@ class ProductLoopCoordinator:
             *({"provider": provider_id, "model": ""} for provider_id in self._persisted_runtime_order()),
             *resource_policy["preferredResources"],
         ]
-        routing_started = time.perf_counter()
-        decision = manager.select_resource(
-            AIResourceRequest(
+
+        def product_owner_request(allowed: list[str] | None) -> AIResourceRequest:
+            return AIResourceRequest(
                 project_id=project_id,
                 workflow_run_id=loop_id,
                 agent_id=PRODUCT_OWNER_AGENT_ID,
@@ -3765,7 +3824,7 @@ class ProductLoopCoordinator:
                 ),
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
-                allowed_provider_ids=allowed_provider_ids,
+                allowed_provider_ids=allowed,
                 # Un failover (con exclusiones) busca alternativas: el pin descartaría los demás
                 # modelos del mismo runtime y dejaría sin reintento al PO.
                 local_model_pins=(
@@ -3774,6 +3833,7 @@ class ProductLoopCoordinator:
                 excluded_resources=excluded_resources or [],
                 preferred_provider_ids=preferred_provider_ids,
                 preferred_resources=preferred_resources,
+                provider_order=po_order,
                 blocked_resources=resource_policy["blockedResources"],
                 context_token_limit=resource_policy["maxTokensPerRun"],
                 role_policy_id=resource_policy["rolePolicyId"],
@@ -3786,7 +3846,21 @@ class ProductLoopCoordinator:
                 allow_unknown_cost=resource_policy["allowUnknownCost"],
                 require_approval_for_unknown_cost=resource_policy["requireApprovalForUnknownCost"],
                 require_approval_over_usd=resource_policy["requiresApprovalOverUsd"],
-            ),
+            )
+
+        routing_started = time.perf_counter()
+        # Con Jev en runtime_selection y un orden automático, se prueba de a un proveedor del orden
+        # (``_select_walking_providers``) para que Jev no desempate proveedores que nadie eligió.
+        walk = [
+            provider_id
+            for provider_id in self._jev_provider_walk(project_id, request_meta, "product_owner")
+            if provider_id in allowed_provider_ids
+        ]
+        decision = self._select_walking_providers(
+            manager,
+            product_owner_request,
+            allowed_provider_ids,
+            walk,
             record=True,
             allow_decision_inference=True,
         )
@@ -5480,6 +5554,7 @@ class ProductLoopCoordinator:
                             *(item for item in policy["preferredProviderIds"] if item not in order),
                         ],
                         preferred_resources=[*order_wildcards, *policy["preferredResources"]],
+                        provider_order=order,
                         blocked_resources=policy["blockedResources"],
                         excluded_resources=excluded,
                         context_token_limit=policy["maxTokensPerRun"],

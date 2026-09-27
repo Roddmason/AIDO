@@ -89,6 +89,11 @@ class AIResourceRequest:
     #: concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*"
     #: prefiere cualquier modelo del provider. Rankean ANTES que el score; el orden es la prioridad.
     preferred_resources: list[dict[str, Any]] = field(default_factory=list)
+    #: Orden estricto de proveedores del equipo de IA global (asignado primero, luego fallbacks).
+    #: Rankea ANTES que ``preferred_resources``: los pins de la política del rol solo eligen el
+    #: modelo dentro del proveedor que el operador puso primero. Vacío = sin orden estricto. Como las
+    #: demás preferencias, no aplica cuando Jev selecciona el runtime (``runtime_selection``).
+    provider_order: list[str] = field(default_factory=list)
     context_token_limit: int | None = None
     role_policy_id: str | None = None
     allow_remote: bool = True
@@ -565,9 +570,12 @@ class AIResourceManager:
         preferred_resources = (
             [] if runtime_selection else self._normalized_preferred_resources(request.preferred_resources)
         )
+        provider_order = [] if runtime_selection else self._provider_preference(request.provider_order)
         selected = min(
             candidates,
-            key=lambda item: self._selection_sort_key(item, provider_preference, preferred_resources),
+            key=lambda item: self._selection_sort_key(
+                item, provider_preference, preferred_resources, provider_order
+            ),
             default=None,
         )
         if runtime_selection:
@@ -709,6 +717,7 @@ class AIResourceManager:
                     "contextTokenLimit": request.context_token_limit,
                 },
                 "providerPreferenceOrder": provider_preference,
+                "providerOrder": provider_order,
                 "preferredResourceOrder": preferred_resources,
                 "selectionOrder": (
                     "preferred_resource_rank_asc_score_desc_provider_preference_asc_identity_asc"
@@ -1482,13 +1491,18 @@ class AIResourceManager:
         candidate: dict[str, Any],
         provider_preference: list[str],
         preferred_resources: list[dict[str, str]],
-    ) -> tuple[tuple[int, int], float, int, str, str, str]:
+        provider_order: list[str] | None = None,
+    ) -> tuple[int, tuple[int, int], float, int, str, str, str]:
         provider_id = str(candidate.get("providerId") or "")
         try:
             preference_rank = provider_preference.index(provider_id)
         except ValueError:
             preference_rank = len(provider_preference)
+        order = provider_order or []
+        # Sin orden estricto todos empatan en 0 y el rank queda como antes.
+        order_rank = order.index(provider_id) if provider_id in order else len(order)
         return (
+            order_rank,
             AIResourceManager._preferred_resource_rank(candidate, preferred_resources),
             -float(candidate["score"]),
             preference_rank,

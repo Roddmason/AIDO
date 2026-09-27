@@ -559,3 +559,114 @@ def test_without_a_global_snapshot_the_legacy_widening_still_applies(coordinator
         product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
     )
     assert [tuple(call.allowed_provider_ids or []) for call in calls] == [("codex_cli",), ()]
+
+
+def test_the_global_order_outranks_the_role_policy_pins_in_the_real_ranking():
+    """Los pins exactos de la política (tier 0) ganaban al comodín del orden (tier 1): el orden del
+    operador no mandaba. Con ``provider_order`` los pins solo eligen el modelo dentro del proveedor."""
+    codex = {"providerId": "codex_cli", "model": "gpt-5.5", "score": 0.9, "runtime": "codex_cli"}
+    claude = {"providerId": "claude_code_cli", "model": "sonnet", "score": 0.5, "runtime": "claude_code_cli"}
+    claude_other = {
+        "providerId": "claude_code_cli",
+        "model": "opus",
+        "score": 0.95,
+        "runtime": "claude_code_cli",
+    }
+    order = ["claude_code_cli", "codex_cli"]
+    preferred = [
+        {"provider": "claude_code_cli", "model": ""},
+        {"provider": "codex_cli", "model": ""},
+        {"provider": "codex_cli", "model": "gpt-5.5"},
+        {"provider": "claude_code_cli", "model": "sonnet"},
+    ]
+
+    def pick(provider_order):
+        return min(
+            [codex, claude, claude_other],
+            key=lambda item: AIResourceManager._selection_sort_key(item, order, preferred, provider_order),
+        )
+
+    assert pick([]) is codex  # comportamiento previo: el pin exacto de codex ganaba
+    # Con orden estricto gana el proveedor primero y el pin elige su modelo (sonnet, no opus).
+    assert pick(order) is claude
+
+
+def test_every_global_team_request_carries_the_strict_provider_order(coordinator):
+    build = {"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}
+    assert _team_request(coordinator, build, GLOBAL).provider_order == ["nvidia_nim", "codex_cli"]
+    assert _team_request(coordinator, build, TEAM).provider_order == []
+    assert _team_request(coordinator, build, {}).provider_order == []
+
+
+def _run_schedule(coordinator, monkeypatch, meta, responses, *, jev_selects: bool):
+    calls, select = _fake_select_resource(responses)
+    monkeypatch.setattr(AIResourceManager, "select_resource", select)
+    monkeypatch.setattr(
+        coordinator_module,
+        "resolve_config",
+        lambda connection, project_id: SimpleNamespace(selects_runtime=jev_selects),
+    )
+    coordinator._team_schedule_with_resource_decisions(
+        project_id="project-team",
+        loop_id="loop-1",
+        request_meta=meta,
+        team_schedule={
+            **SCHEDULE,
+            "roles": [{"role": "backend_engineer", "kind": "build", "capabilities": ["code_edit"]}],
+        },
+        agent_tasks=[{"id": "task-1", "role": "backend_engineer"}],
+        product_owner_selected_resource={"providerId": "codex_cli", "model": "gpt-5.5"},
+    )
+    return [tuple(call.allowed_provider_ids or []) for call in calls]
+
+
+def _with_developer_source(source: str) -> dict:
+    team = GLOBAL["globalRuntimeTeam"]
+    return {"globalRuntimeTeam": {**team, "source": {**team["source"], "developer": source}}}
+
+
+def test_with_jev_selecting_an_automatic_order_is_tried_one_provider_at_a_time(coordinator, monkeypatch):
+    """Jev ignora las preferencias; con varios proveedores que nadie eligió reabriría la ambigüedad."""
+    calls = _run_schedule(
+        coordinator,
+        monkeypatch,
+        _with_developer_source("automatic"),
+        {
+            ("nvidia_nim",): {"selected": None, "candidates": []},
+            ("codex_cli",): {"selected": {"providerId": "codex_cli", "model": "m"}, "candidates": [{}]},
+        },
+        jev_selects=True,
+    )
+    assert calls == [("nvidia_nim",), ("codex_cli",)]
+
+
+def test_with_jev_selecting_an_explicit_order_keeps_the_whole_allowlist(coordinator, monkeypatch):
+    calls = _run_schedule(
+        coordinator,
+        monkeypatch,
+        _with_developer_source("project"),
+        {
+            ("nvidia_nim", "codex_cli"): {
+                "selected": {"providerId": "nvidia_nim", "model": "m"},
+                "candidates": [{}],
+            }
+        },
+        jev_selects=True,
+    )
+    assert calls == [("nvidia_nim", "codex_cli")]
+
+
+def test_in_shadow_mode_the_automatic_order_is_one_request_ranked_by_order(coordinator, monkeypatch):
+    calls = _run_schedule(
+        coordinator,
+        monkeypatch,
+        _with_developer_source("automatic"),
+        {
+            ("nvidia_nim", "codex_cli"): {
+                "selected": {"providerId": "nvidia_nim", "model": "m"},
+                "candidates": [{}],
+            }
+        },
+        jev_selects=False,
+    )
+    assert calls == [("nvidia_nim", "codex_cli")]

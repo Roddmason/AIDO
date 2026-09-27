@@ -556,6 +556,29 @@ def global_role_order(request_meta: Mapping[str, Any] | None, team_role: str | N
     return list(orders.get("product_owner") or team["allowedRuntimes"])
 
 
+def global_role_order_is_explicit(request_meta: Mapping[str, Any] | None, team_role: str | None) -> bool:
+    """Verdadero si el orden que usa el rol lo escribió el operador (scope ``project``/``general``).
+
+    Un rol heredado mira la procedencia del PO; un rol sin asignación propia (``None``) sigue el orden
+    del PO; un rol del equipo sin candidatos usa ``allowedRuntimes``, que nunca es explícito. Falso sin
+    snapshot global.
+    """
+    team = global_team_of(request_meta)
+    if team is None:
+        return False
+    orders, sources = team["roleRuntimeOrder"], team["source"]
+    if team_role and orders.get(team_role):
+        key = team_role
+    elif team_role and team_role in orders:
+        return False
+    else:
+        key = "product_owner"
+    source = sources.get(key)
+    if source == "inherited":
+        source = sources.get("product_owner")
+    return source in {"project", "general"}
+
+
 def role_routing_preferences(
     request_meta: Mapping[str, Any] | None, team_role: str | None
 ) -> tuple[list[str], list[dict[str, str]]]:

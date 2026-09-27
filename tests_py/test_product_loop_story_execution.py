@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from local_control_center.host_resources.repository import ResourceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_loop import coordinator as coordinator_module
 from local_control_center.product_loop.coordinator import DEFAULT_AUTO_REWORK_ROUNDS, ProductLoopCoordinator
+from local_control_center.product_loop.phases import story_loop
 from local_control_center.product_loop.phases.story_loop import match_carried_over
 from local_control_center.remediations.repository import RemediationActionsRepository
 from local_control_center.security_policy.git_command_runner import git_available
@@ -899,3 +901,25 @@ def test_a_story_without_changes_is_noop_with_the_verdict_the_real_developer_rep
         assert result["status"] == "awaiting_approval", result.get("reason")
         story = BacklogRepository(connection).get_user_story(_story_order_from_result(result)[0])
         assert story["metadata"]["outcome"] == "noop"
+
+
+@pytest.mark.parametrize(
+    ("runtime_result", "resource", "expected"),
+    [
+        ({"runtime": {"id": "codex_cli"}, "model": "gpt-5.5"}, {}, "gpt-5.5"),
+        ({"runtime": {"id": "codex_cli"}}, {"model": "gpt-5.5", "preferredRuntime": "codex_cli"}, "gpt-5.5"),
+        ({"runtime": {"id": "claude_code"}}, {"model": "gpt-5.5", "preferredRuntime": "codex_cli"}, None),
+        ({}, {}, None),
+    ],
+)
+def test_story_cursor_model_follows_the_runtime_that_ran(
+    runtime_result: dict[str, Any], resource: dict[str, Any], expected: str | None
+) -> None:
+    run = SimpleNamespace(
+        runtime_result=runtime_result,
+        execution_resource=resource,
+        readiness={},
+        effective_preferred_runtime=None,
+    )
+
+    assert story_loop._runtime_model(run) == expected

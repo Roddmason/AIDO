@@ -454,8 +454,34 @@ class ThreadBoardTask(BaseModel):
     status: str
 
 
+class ThreadBoardCriterion(BaseModel):
+    """Criterio de aceptación de una tarjeta: texto, estado persistido y si cuenta como cumplido.
+
+    ``met`` es verdadero si el estado persistido lo marca cumplido o si la historia quedó ``done``
+    (el loop solo cierra una historia tras su gate QA).
+    """
+
+    id: str | None = None
+    text: str
+    status: str
+    met: bool
+
+
+class ThreadBoardAssignee(BaseModel):
+    """Quién trabaja la historia: rol del loop, runtime y modelo del cursor, y si está corriendo."""
+
+    role: str | None = None
+    runtime: str | None = None
+    model: str | None = None
+    active: bool = False
+    planned_roles: list[str] = Field(default_factory=list, alias="plannedRoles")
+
+
 class ThreadBoardCard(BaseModel):
-    """Tarjeta del tablero: una historia con su estado, marca de bloqueo, runtime y tareas."""
+    """Tarjeta del tablero: una historia con su estado, marca de bloqueo, runtime y tareas.
+
+    ``progressPercent`` es la media del peso de etapa de sus tareas (ver ``backlog.board``).
+    """
 
     story_id: str = Field(alias="storyId")
     index: int
@@ -473,6 +499,13 @@ class ThreadBoardCard(BaseModel):
     runtime: str | None = None
     acceptance_criteria: list[str] = Field(alias="acceptanceCriteria")
     tasks: list[ThreadBoardTask]
+    description: str = ""
+    criteria: list[ThreadBoardCriterion] = Field(default_factory=list)
+    progress_percent: int = Field(default=0, alias="progressPercent")
+    assignee: ThreadBoardAssignee | None = None
+    qa_verdict: str | None = Field(default=None, alias="qaVerdict")
+    commit: str | None = None
+    runs: int = 0
 
 
 class ThreadBoardColumn(BaseModel):
@@ -483,10 +516,11 @@ class ThreadBoardColumn(BaseModel):
 
 
 class ThreadBoardProgress(BaseModel):
-    """Progreso del loop del hilo: historias terminadas sobre el total."""
+    """Progreso del loop del hilo: historias terminadas sobre el total y avance medio 0-100."""
 
     done: int
     total: int
+    percent: int = 0
 
 
 class ThreadBoardResponse(BaseModel):

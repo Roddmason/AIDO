@@ -155,7 +155,15 @@ def test_thread_board_projects_story_statuses_into_columns(
     assert blocked["blockedReason"] == "QA failed after 2 rework rounds."
     assert blocked["runtime"] == "codex_cli"
     assert blocked["index"] == 4
-    assert body["progress"] == {"done": 1, "total": 5}
+    assert body["progress"] == {"done": 1, "total": 5, "percent": 40}
+    readiness = body["columns"][3]["cards"][0]
+    assert readiness["progressPercent"] == 100
+    assert readiness["criteria"][0]["text"] == "Readiness checklist works."
+    assert readiness["criteria"][0]["met"] is True
+    assert readiness["criteria"][0]["id"]
+    assert blocked["assignee"]["runtime"] == "codex_cli"
+    assert blocked["assignee"]["plannedRoles"] == ["backend_engineer"]
+    assert blocked["progressPercent"] == 33
     assert "Other thread story" not in json.dumps(body)
 
 
@@ -271,7 +279,7 @@ def test_thread_board_without_a_planned_loop_is_an_empty_planning_board(
 
     assert body["loopId"] is None
     assert body["stage"] == "planning"
-    assert body["progress"] == {"done": 0, "total": 0}
+    assert body["progress"] == {"done": 0, "total": 0, "percent": 0}
     assert [column["id"] for column in body["columns"]] == ["todo", "in_progress", "qa", "done"]
 
 

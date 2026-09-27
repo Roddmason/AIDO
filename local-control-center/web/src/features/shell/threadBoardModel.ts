@@ -1,10 +1,11 @@
 /**
  * Presentation model of the thread story board: the lane and stage vocabulary (i18n keys, English
- * fallbacks and tones), the thread event types that make the board stale, and the view mode of the
- * thread layout (chat-first or board-first).
+ * fallbacks and tones), the thread event types that make the board stale, the view mode of the
+ * thread layout (chat-first or board-first), the per-story activity filter and the loop states in
+ * which the operator can send a story back for changes.
  * @author Rodrigo Mason
  */
-import type { ThreadBoardResponse } from '../../api/client';
+import type { ThreadBoardCard, ThreadBoardResponse } from '../../api/client';
 import type { ThreadAgentEvent } from '../../api/types';
 import type { StatusTone } from '../../components/ui';
 
@@ -85,3 +86,36 @@ export const BOARD_REFRESH_EVENT_TYPES: ReadonlySet<string> = new Set([
 export function latestBoardRefreshSequence(events: ThreadAgentEvent[]): number {
 	return events.findLast((event) => BOARD_REFRESH_EVENT_TYPES.has(event.type))?.sequence ?? 0;
 }
+
+/** Newest-first thread events that belong to one user story (their payload names its `storyId`). */
+export function storyActivity(events: ThreadAgentEvent[], storyId: string): ThreadAgentEvent[] {
+	return events
+		.filter((event) => (event.payload as { storyId?: unknown } | null)?.storyId === storyId)
+		.sort((left, right) => right.sequence - left.sequence);
+}
+
+/** Loop states whose FSM accepts `request_changes` on a task (the edge to `reworking`); outside them
+ *  the story drawer is read-only. `qa_running` is left out: there the QA gate decides the rework. */
+export const REVIEWABLE_LOOP_STATES: ReadonlySet<string> = new Set([
+	'review_ready',
+	'quality_review',
+	'awaiting_approval',
+	'awaiting_feedback',
+]);
+
+/** Task that a story-level "request changes" targets: the first non-QA task, else the first one. */
+export function reworkTargetTask(card: ThreadBoardCard): ThreadBoardCard['tasks'][number] | null {
+	return (
+		card.tasks.find((task) => task.id && !/qa|review/i.test(task.role)) ??
+		card.tasks.find((task) => task.id) ??
+		null
+	);
+}
+
+type RoleCopy = { key: string; fallback: string };
+
+/** Human label of the loop role working a story; unknown roles fall back to their id. */
+export const ASSIGNEE_ROLE_COPY: Record<string, RoleCopy> = {
+	developer: { key: 'app.threads.board.role.developer', fallback: 'DeveloperAgent' },
+	qa: { key: 'app.threads.board.role.qa', fallback: 'QA gate' },
+};

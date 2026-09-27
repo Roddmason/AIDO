@@ -14,7 +14,9 @@
  * Once the thread reaches execution with a planned backlog the live body switches to the development
  * layout (`data-mode="board"`): the story board ({@link ThreadBoard}) takes the main area, the
  * execution panel becomes a strip above it and the transcript + composer move to a side column; a
- * Chat | Board toggle overrides the automatic choice per thread.
+ * Chat | Board toggle overrides the automatic choice per thread. The choice and a folded chat column
+ * are remembered per thread ({@link readThreadLayout}); while the chat is folded its dock button
+ * counts the transcript messages that arrived unseen. A board card opens {@link ThreadStoryDrawer}.
  * @author Rodrigo Mason
  */
 import {
@@ -22,6 +24,8 @@ import {
 	Ban,
 	BookOpen,
 	CalendarClock,
+	ChevronsLeft,
+	ChevronsRight,
 	Hash,
 	History,
 	Laptop,
@@ -43,6 +47,7 @@ import {
 	useState,
 } from 'react';
 import {
+	applyProductLoopFeedback,
 	cancelThreadExecution,
 	createThread,
 	findSimilarThreads,
@@ -99,7 +104,13 @@ import { GitBranchBar } from './GitBranchBar';
 import { ThreadBoard } from './ThreadBoard';
 import type { DecisionAnswer } from './ThreadDecisionAnswers';
 import { ThreadExecutionPanel } from './ThreadExecutionPanel';
-import { type BoardMode, latestBoardRefreshSequence } from './threadBoardModel';
+import { ThreadStoryDrawer } from './ThreadStoryDrawer';
+import { type BoardMode, latestBoardRefreshSequence, storyActivity } from './threadBoardModel';
+import {
+	readThreadLayout,
+	type ThreadLayoutPreference,
+	writeThreadLayout,
+} from './threadLayoutPreference';
 import { ownerIdForProject } from './threadOwner';
 import {
 	arrayValue,
@@ -225,16 +236,75 @@ export function ThreadConversation({
 		eventStream.threadStatus ?? detail?.thread.status ?? '',
 	);
 	const board = useThreadBoard(activeThreadId, latestBoardRefreshSequence(stageEvents));
-	const [manualBoardModes, setManualBoardModes] = useState<Record<string, BoardMode>>({});
-	const manualBoardMode = activeThreadId ? manualBoardModes[activeThreadId] : undefined;
+	// The operator's layout choice per thread, seeded from localStorage and kept in state so a toggle
+	// re-renders at once; the storage write is best-effort (private windows fall back to automatic).
+	const [layoutPrefs, setLayoutPrefs] = useState<Record<string, ThreadLayoutPreference>>({});
+	const layoutPref = useMemo<ThreadLayoutPreference>(
+		() => (activeThreadId ? (layoutPrefs[activeThreadId] ?? readThreadLayout(activeThreadId)) : {}),
+		[activeThreadId, layoutPrefs],
+	);
+	const manualBoardMode = layoutPref.mode;
 	const boardAvailable = (board.data?.progress.total ?? 0) > 0;
 	const boardMode: BoardMode = boardAvailable
 		? (manualBoardMode ?? (stage.inDevelopment ? 'board' : 'chat'))
 		: 'chat';
-	const selectBoardMode = useCallback(
-		(mode: BoardMode) => {
+	const updateLayout = useCallback(
+		(patch: ThreadLayoutPreference) => {
 			if (!activeThreadId) return;
-			setManualBoardModes((current) => ({ ...current, [activeThreadId]: mode }));
+			writeThreadLayout(activeThreadId, patch);
+			setLayoutPrefs((current) => ({
+				...current,
+				[activeThreadId]: {
+					...(current[activeThreadId] ?? readThreadLayout(activeThreadId)),
+					...patch,
+				},
+			}));
+		},
+		[activeThreadId],
+	);
+	const selectBoardMode = useCallback((mode: BoardMode) => updateLayout({ mode }), [updateLayout]);
+	const chatCollapsed = boardMode === 'board' && Boolean(layoutPref.chatCollapsed);
+	const toggleChatCollapsed = useCallback(
+		() => updateLayout({ chatCollapsed: !chatCollapsed }),
+		[updateLayout, chatCollapsed],
+	);
+	// Unread transcript messages while the chat is folded: the count seen when it was last visible
+	// is the baseline, so a message that lands behind the board still gets noticed.
+	const transcriptCount = useMemo(
+		() =>
+			detail && detail.thread.id === activeThreadId
+				? detail.messages.filter((message) => TRANSCRIPT_KINDS.has(message.kind)).length
+				: null,
+		[detail, activeThreadId],
+	);
+	const [seenCounts, setSeenCounts] = useState<Record<string, number>>({});
+	useEffect(() => {
+		if (!activeThreadId || transcriptCount === null) return;
+		setSeenCounts((current) => {
+			if (current[activeThreadId] !== undefined && chatCollapsed) return current;
+			if (current[activeThreadId] === transcriptCount) return current;
+			return { ...current, [activeThreadId]: transcriptCount };
+		});
+	}, [activeThreadId, transcriptCount, chatCollapsed]);
+	const unreadCount =
+		chatCollapsed && activeThreadId && transcriptCount !== null
+			? Math.max(0, transcriptCount - (seenCounts[activeThreadId] ?? transcriptCount))
+			: 0;
+	// Story drawer: the card is re-read from every board refetch so the drawer follows the loop.
+	const [openStory, setOpenStory] = useState<{ threadId: string; storyId: string } | null>(null);
+	const openStoryCard =
+		openStory && openStory.threadId === activeThreadId
+			? (board.data?.columns
+					.flatMap((column) => column.cards)
+					.find((card) => card.storyId === openStory.storyId) ?? null)
+			: null;
+	const openStoryActivity = useMemo(
+		() => (openStory ? storyActivity(stageEvents, openStory.storyId) : []),
+		[openStory, stageEvents],
+	);
+	const openStoryDrawer = useCallback(
+		(storyId: string) => {
+			if (activeThreadId) setOpenStory({ threadId: activeThreadId, storyId });
 		},
 		[activeThreadId],
 	);
@@ -259,6 +329,28 @@ export function ThreadConversation({
 		if (!activeThreadId || eventStream.threadStatus === null) return;
 		reload();
 	}, [activeThreadId, latestEventSequence, eventStream.threadStatus, eventStream.running, reload]);
+
+	// Story review: `request_changes` feedback on one of the story's tasks sends the loop to rework.
+	const boardLoopId = board.data?.loopId ?? null;
+	const selectedProjectId = selectedProject?.id ?? null;
+	const requestStoryChanges = useCallback(
+		async (taskId: string, feedback: string) => {
+			if (!selectedProjectId || !boardLoopId) throw new Error('No product loop to review.');
+			await mutate(
+				(writeToken) =>
+					applyProductLoopFeedback(writeToken, selectedProjectId, boardLoopId, {
+						action: 'request_changes',
+						feedback,
+						targetType: 'task',
+						targetId: taskId,
+					}),
+				{ awaitRefresh: false },
+			);
+			reload();
+			setStreamRefreshKey((value) => value + 1);
+		},
+		[selectedProjectId, boardLoopId, mutate, reload],
+	);
 
 	const sendMessage = useCallback(
 		async (content: string) => {
@@ -582,9 +674,44 @@ export function ThreadConversation({
 					</div>
 				</header>
 
-				<div className="thread-live-body" data-mode={boardMode}>
-					<div className="thread-transcript-pane">
+				<div
+					className="thread-live-body"
+					data-mode={boardMode}
+					data-chat={chatCollapsed ? 'collapsed' : undefined}
+				>
+					<div
+						className="thread-transcript-pane"
+						data-collapsed={chatCollapsed ? 'true' : undefined}
+					>
+						{boardMode === 'board' ? (
+							<button
+								type="button"
+								className="thread-chat-dock-toggle"
+								aria-expanded={!chatCollapsed}
+								aria-controls="thread-live-chat"
+								onClick={toggleChatCollapsed}
+							>
+								<MessageSquare aria-hidden="true" size={15} />
+								<span className="thread-chat-dock-label">
+									{chatCollapsed
+										? t('app.threads.board.showChat', 'Show chat')
+										: t('app.threads.board.hideChat', 'Hide chat')}
+								</span>
+								{unreadCount > 0 ? (
+									<span className="thread-chat-unread tnum">
+										{unreadCount}
+										<span className="sr-only">{t('app.threads.board.unread', 'new messages')}</span>
+									</span>
+								) : null}
+								{chatCollapsed ? (
+									<ChevronsLeft aria-hidden="true" size={15} />
+								) : (
+									<ChevronsRight aria-hidden="true" size={15} />
+								)}
+							</button>
+						) : null}
 						<section
+							id="thread-live-chat"
 							className="thread-live-scroll"
 							aria-label={t('app.threads.chatRegion', 'Thread chat')}
 						>
@@ -669,9 +796,18 @@ export function ThreadConversation({
 						presentation={boardMode === 'board' ? 'strip' : 'column'}
 					/>
 					{boardMode === 'board' && board.data ? (
-						<ThreadBoard board={board.data} error={board.error} />
+						<ThreadBoard board={board.data} error={board.error} onOpenStory={openStoryDrawer} />
 					) : null}
 				</div>
+
+				<ThreadStoryDrawer
+					card={openStoryCard}
+					loopState={board.data?.loopState ?? null}
+					activity={openStoryActivity}
+					onClose={() => setOpenStory(null)}
+					onRequestChanges={requestStoryChanges}
+					onOpenApprovals={onOpenApprovals}
+				/>
 
 				<ThreadNewObjectiveDialog
 					open={objectiveDraft !== null}

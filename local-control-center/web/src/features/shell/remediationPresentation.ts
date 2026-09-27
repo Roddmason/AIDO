@@ -653,6 +653,10 @@ const SETTINGS_SECTION_ACTION_COPY: Record<
 		labelKey: 'app.threads.remediation.action.openRouting',
 		labelFallback: 'Open routing',
 	},
+	team: {
+		labelKey: 'app.threads.remediation.action.openTeam',
+		labelFallback: 'Open team',
+	},
 };
 
 /** One rendered action button on a blocker card. */
@@ -762,21 +766,37 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 					record.actionType === 'open_settings_section' &&
 					payloadString(record.payload, 'section') === 'routing',
 			);
-		const copy = routingPolicyRepair
+		// A role without candidates in the global AI team is fixed in its provider order ("team").
+		const globalTeamRepair =
+			first.blockerType === 'resource_manager_unconfigured' &&
+			records.some(
+				(record) =>
+					record.actionType === 'open_settings_section' &&
+					payloadString(record.payload, 'section') === 'team',
+			);
+		const copy = globalTeamRepair
 			? {
 					...baseCopy,
-					titleKey: 'app.threads.remediation.blocker.resource_policy_selection.title',
-					titleFallback: 'No eligible AI resource is available',
-					explanationKey: 'app.threads.remediation.blocker.resource_policy_selection.explanation',
-					explanationFallback:
-						'Review the recorded role restrictions and validation requirements for this run.',
-					impactKey: 'app.threads.remediation.blocker.resource_policy_selection.impact',
-					impactFallback: 'Execution is waiting for an explicit retry under the current policies.',
-					settingsSection: 'routing',
-					settingsLabelKey: SETTINGS_SECTION_ACTION_COPY.routing.labelKey,
-					settingsLabelFallback: SETTINGS_SECTION_ACTION_COPY.routing.labelFallback,
+					settingsSection: 'team',
+					settingsLabelKey: SETTINGS_SECTION_ACTION_COPY.team.labelKey,
+					settingsLabelFallback: SETTINGS_SECTION_ACTION_COPY.team.labelFallback,
 				}
-			: baseCopy;
+			: routingPolicyRepair
+				? {
+						...baseCopy,
+						titleKey: 'app.threads.remediation.blocker.resource_policy_selection.title',
+						titleFallback: 'No eligible AI resource is available',
+						explanationKey: 'app.threads.remediation.blocker.resource_policy_selection.explanation',
+						explanationFallback:
+							'Review the recorded role restrictions and validation requirements for this run.',
+						impactKey: 'app.threads.remediation.blocker.resource_policy_selection.impact',
+						impactFallback:
+							'Execution is waiting for an explicit retry under the current policies.',
+						settingsSection: 'routing',
+						settingsLabelKey: SETTINGS_SECTION_ACTION_COPY.routing.labelKey,
+						settingsLabelFallback: SETTINGS_SECTION_ACTION_COPY.routing.labelFallback,
+					}
+				: baseCopy;
 		const actions: DraftAction[] = [];
 		const coveredSections = new Set<string>();
 		const seenActionKeys = new Set<string>();

@@ -2542,3 +2542,54 @@ def test_blocked_thread_without_a_blocked_loop_still_gets_a_retry_action(tmp_pat
         actions = service.list_for_thread(thread_id=thread["id"])
 
         assert any(action["actionType"] == "retry_loop" for action in actions)
+
+
+def test_a_role_without_candidates_in_the_global_team_offers_open_team_first(tmp_path: Path) -> None:
+    """Spec del equipo de IA global §4.8: con equipo global, el arreglo es el orden del rol ("team")."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project, thread = _project_and_thread(connection, tmp_path, "global-team-open-team")
+        service = BlockerRemediationService(connection, root=tmp_path)
+        details = {
+            "resourceBlockers": [
+                {
+                    "role": "backend_engineer",
+                    "taskId": "agent_task_1",
+                    "reason": "No selectable candidates.",
+                    "decision": {
+                        "selected": None,
+                        "decisionReason": "No selectable candidates.",
+                        "rejected": [],
+                    },
+                }
+            ],
+            "agentTaskIds": ["agent_task_1"],
+        }
+        created = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="loop-global-team",
+            stage="resource_manager",
+            reason="AIResourceManager could not select an approved AI resource for role backend_engineer.",
+            details={**details, "globalRuntimeTeam": True},
+        )
+        sections = [
+            action["payload"]["section"]
+            for action in created
+            if action["actionType"] == "open_settings_section"
+        ]
+        assert sections[:2] == ["team", "providers-cli"]
+
+        legacy = service.create_for_blocked_run(
+            project_id=project["id"],
+            thread_id=thread["id"],
+            loop_id="loop-legacy",
+            stage="resource_manager",
+            reason="AIResourceManager could not select an approved AI resource for role backend_engineer.",
+            details=details,
+        )
+        assert "team" not in [
+            action["payload"]["section"]
+            for action in legacy
+            if action["actionType"] == "open_settings_section"
+        ]

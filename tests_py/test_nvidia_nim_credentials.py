@@ -81,10 +81,9 @@ def test_the_account_ref_wins_over_a_stale_environment_variable(monkeypatch) -> 
     monkeypatch.setitem(sys.modules, "keyring", SimpleNamespace(get_password=lambda *_: "x"))
     monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "nvapi-STALE")
     assert preferred_credential_ref(KEYRING_REF, "env:AIDO_NVIDIA_API_KEY") == KEYRING_REF
-    # Un placeholder heredado que no resuelve cede al entorno; sin ref en el account también.
-    assert (
-        preferred_credential_ref("NVIDIA_NIM_API_KEY", "env:AIDO_NVIDIA_API_KEY") == "env:AIDO_NVIDIA_API_KEY"
-    )
+    # El placeholder heredado ahora resuelve por su alias (AIDO_NVIDIA_API_KEY): da el mismo valor.
+    chosen = preferred_credential_ref("NVIDIA_NIM_API_KEY", "env:AIDO_NVIDIA_API_KEY")
+    assert CredentialResolver().resolve(chosen, fetch=True).value == "nvapi-STALE"
     assert preferred_credential_ref("", "env:AIDO_NVIDIA_API_KEY") == "env:AIDO_NVIDIA_API_KEY"
     assert preferred_credential_ref("", None) == ""
 
@@ -111,6 +110,37 @@ def test_nvidia_documentation_names_are_accepted_for_the_runtime_key(connection,
     )
     provider = ProviderAdapterFactory(connection).resolve("nvidia_nim")
     assert provider.credential_ref == "env:NVIDIA_API_KEY"
+
+
+def test_an_env_ref_finds_the_key_under_any_equivalent_nvidia_name(monkeypatch) -> None:
+    """El operador define NVIDIA_API_KEY (nombre de la doc de NVIDIA) y referencia NVIDIA_NIM_API_KEY."""
+    _clear_nvidia_env(monkeypatch)
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-DOC-NAME")
+    resolution = CredentialResolver().resolve("env:NVIDIA_NIM_API_KEY", fetch=True)
+    assert resolution.status == "configured" and resolution.value == "nvapi-DOC-NAME"
+
+
+def test_a_missing_env_ref_tells_the_operator_how_to_fix_it(monkeypatch) -> None:
+    _clear_nvidia_env(monkeypatch)
+    resolution = CredentialResolver().resolve("env:NVIDIA_NIM_API_KEY", fetch=False)
+    assert resolution.status == "missing"
+    assert "restart AIDO" in (resolution.message or "") and "API key directly" in (resolution.message or "")
+
+
+def test_windows_persisted_variables_are_read_when_the_process_lacks_them(monkeypatch) -> None:
+    """setx/"Variables de entorno" no llega a un proceso ya abierto: se lee del registro de Windows."""
+    from local_control_center.shared import user_environment
+
+    _clear_nvidia_env(monkeypatch)
+    monkeypatch.setattr(
+        user_environment,
+        "_windows_persisted_value",
+        lambda name: "nvapi-FROM-REGISTRY" if name == "NVIDIA_NIM_API_KEY" else None,
+    )
+    resolution = CredentialResolver().resolve("env:NVIDIA_NIM_API_KEY", fetch=True)
+    assert resolution.value == "nvapi-FROM-REGISTRY"
+    # Un environ explícito (tests, overrides) nunca consulta el registro.
+    assert user_environment.lookup_environment_variable("NVIDIA_NIM_API_KEY", {}) is None
 
 
 def test_status_reports_the_credential_the_request_will_use(connection, monkeypatch) -> None:

@@ -52,6 +52,7 @@ import {
 	TextField,
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import { redactVisibleSecret } from '../../lib/format';
 import {
 	COST_META,
 	costForModels,
@@ -121,6 +122,9 @@ const AUTH_META: Record<
 		fallback: 'No credential needed',
 	},
 };
+
+/** Credential states a request can use (`agents/credentials.py` USABLE_CREDENTIAL_STATUSES). */
+const USABLE_CREDENTIAL_STATUSES = new Set(['configured', 'unverified']);
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -504,7 +508,7 @@ export function AddProviderWizard({
 				await putSetting('runtime.remote.enabled', { scope: 'general', value: true }, token);
 				setRemoteRuntimeDisabled(false);
 			}
-			await createProviderAccountFromCatalog(token, {
+			const saved = await createProviderAccountFromCatalog(token, {
 				providerId: entry.id,
 				enabled: true,
 				...(entry.id === 'gemini'
@@ -527,13 +531,34 @@ export function AddProviderWizard({
 				...(ref ? { credentialRef: ref } : {}),
 			});
 			clearApiKey();
+			// A reference AIDO cannot resolve (an env var its process does not see) used to pass this
+			// step and fail later at "Sync models" with "Credential ref … is missing". Stop here instead.
+			const credentialStatus = saved?.provider?.credentialStatus;
+			if (
+				credMode === 'ref' &&
+				ref &&
+				credentialStatus &&
+				!USABLE_CREDENTIAL_STATUSES.has(credentialStatus)
+			) {
+				setError(
+					t(
+						'app.providers.wizard.errorCredentialUnresolved',
+						'AIDO cannot read {ref} ({status}). If it is an environment variable you just created, restart AIDO from a new terminal; or switch to "API key" and paste the key.',
+					)
+						.replace('{ref}', ref)
+						.replace('{status}', credentialStatus),
+				);
+				return false;
+			}
 			return true;
-		} catch {
+		} catch (saveError) {
+			// Keep the backend's reason (redacted): a generic "could not be saved" hid why a pasted key failed.
+			const detail = redactVisibleSecret(errorMessage(saveError), '');
 			setError(
-				t(
+				`${t(
 					'app.providers.wizard.saveFailedSafe',
 					'Configuration could not be saved. Check the credential backend and endpoint. Secret input was cleared; no inference was run.',
-				),
+				)}${detail ? ` (${detail})` : ''}`,
 			);
 			return false;
 		} finally {

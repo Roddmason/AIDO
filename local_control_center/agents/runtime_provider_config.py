@@ -11,10 +11,11 @@ truncated SHA-256 fingerprint instead of the raw value.
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from local_control_center.shared.user_environment import process_environment
 
 
 @dataclass(frozen=True)
@@ -371,7 +372,7 @@ def runtime_provider_configuration(
     spec = _CONFIG_SPECS_BY_PROVIDER.get(provider_id)
     if spec is None:
         return None
-    source = os.environ if environ is None else environ
+    source = process_environment() if environ is None else environ
     try:
         variables = tuple(
             _resolve_runtime_variable(
@@ -420,7 +421,7 @@ def list_runtime_provider_configurations(
     environ: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve and serialize every known provider's configuration to client-safe dicts."""
-    source = os.environ if environ is None else environ
+    source = process_environment() if environ is None else environ
     configurations: list[dict[str, Any]] = []
     for spec in RUNTIME_PROVIDER_CONFIG_SPECS:
         configuration = runtime_provider_configuration(spec.provider_id, environ=source)

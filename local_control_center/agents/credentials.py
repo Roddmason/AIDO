@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 
 from local_control_center.process_supervision.context import assert_external_boundary
+from local_control_center.shared.user_environment import lookup_environment_variable
 
 ENV_REF_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEGACY_ENV_REF_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+_(API_KEY|TOKEN|SECRET|CREDENTIAL|PASSWORD)$")
@@ -166,22 +167,21 @@ class CredentialResolver:
                 source="env",
                 message="Environment credential refs must use uppercase variable names",
             )
-        value = os.environ.get(name)
-        resolved_name = name
-        if not value and not name.startswith("AIDO_"):
-            alias = f"AIDO_{name}"
-            value = os.environ.get(alias)
-            resolved_name = alias if value else name
-        value = clean_secret_value(value)
-        if value:
-            return CredentialResolution(
-                ref=public_ref, status="configured", source="env", value=value if fetch else None
-            )
+        for candidate in equivalent_environment_names(name):
+            value = clean_secret_value(lookup_environment_variable(candidate))
+            if value:
+                return CredentialResolution(
+                    ref=public_ref, status="configured", source="env", value=value if fetch else None
+                )
+        where = "AIDO's process, user or system environment" if os.name == "nt" else "AIDO's environment"
         return CredentialResolution(
             ref=public_ref,
             status="missing",
             source="env",
-            message=f"Environment variable {resolved_name} is not set",
+            message=(
+                f"Environment variable {name} is not set in {where}; if you just created it, restart AIDO "
+                "from a new terminal, or enter the API key directly"
+            ),
         )
 
     @staticmethod
@@ -622,6 +622,25 @@ class CredentialResolver:
         with opener.open(request, timeout=timeout) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
         return response_payload if isinstance(response_payload, dict) else {}
+
+
+def equivalent_environment_names(name: str) -> list[str]:
+    """``name``, su forma ``AIDO_`` y los alias que el catálogo declara para la misma variable.
+
+    NVIDIA documenta ``NVIDIA_API_KEY``, el catálogo sembró ``NVIDIA_NIM_API_KEY`` y AIDO lee
+    ``AIDO_NVIDIA_API_KEY``: una ref a cualquiera de ellas encuentra la key definida con otro nombre.
+    """
+    from local_control_center.agents.runtime_provider_config import RUNTIME_PROVIDER_CONFIG_SPECS
+
+    names = [name]
+    if not name.startswith("AIDO_"):
+        names.append(f"AIDO_{name}")
+    for spec in RUNTIME_PROVIDER_CONFIG_SPECS:
+        for variable in spec.variables:
+            group = (variable.name, *variable.aliases)
+            if name in group or f"AIDO_{name}" in group:
+                names.extend(group)
+    return list(dict.fromkeys(names))
 
 
 USABLE_CREDENTIAL_STATUSES = frozenset({"configured", "unverified"})

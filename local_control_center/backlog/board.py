@@ -8,6 +8,14 @@ cursor durable ``durableRun.storyProgress`` y cómo se proyectan historias, tare
 columnas del tablero (``todo``/``in_progress``/``qa``/``done``). Diseño:
 docs/superpowers/specs/2026-09-22-per-story-execution-board-design.md §3.1, §3.4 y §4.
 
+Cada tarjeta expone además quién trabaja la historia (``assignee``: rol del loop, runtime y modelo
+del cursor), su avance (``progressPercent``) y sus criterios con marca de cumplimiento. El avance es
+la media, sobre las tareas de la historia, del peso de la etapa de cada tarea (``STAGE_WEIGHT``:
+``todo``/``reopened`` 0, ``in_progress``/``blocked`` 1/3, ``qa`` 2/3, ``done`` 1); una historia sin
+tareas usa su propio estado. El avance del tablero es la media simple de las tarjetas. Un criterio
+cuenta como cumplido si su estado persistido lo dice o si la historia quedó ``done``: el loop solo
+cierra una historia tras pasar su gate QA (o sin cambios que verificar).
+
 @author Rodrigo Mason
 """
 
@@ -32,6 +40,17 @@ _COLUMN_BY_STATUS = {
     STORY_STATUS_DONE: "done",
     STORY_STATUS_BLOCKED: "in_progress",
 }
+STAGE_WEIGHT = {
+    "todo": 0.0,
+    "reopened": 0.0,
+    STORY_STATUS_IN_PROGRESS: 1 / 3,
+    STORY_STATUS_BLOCKED: 1 / 3,
+    STORY_STATUS_QA: 2 / 3,
+    STORY_STATUS_DONE: 1.0,
+}
+_MET_CRITERION_STATUSES = frozenset({"met", "passed", "verified", "done", "accepted"})
+_ACTIVE_ROLE_BY_STATUS = {STORY_STATUS_IN_PROGRESS: "developer", STORY_STATUS_QA: "qa"}
+_WORKING_LOOP_STATES = frozenset({"executing", "qa_running", "reworking"})
 _STAGE_BY_LOOP_STATE = {
     "executing": "executing",
     "qa_running": "executing",
@@ -176,7 +195,7 @@ def empty_board() -> dict[str, Any]:
         "loopState": None,
         "stage": "planning",
         "columns": [{"id": column, "cards": []} for column in BOARD_COLUMNS],
-        "progress": {"done": 0, "total": 0},
+        "progress": {"done": 0, "total": 0, "percent": 0},
     }
 
 
@@ -186,14 +205,15 @@ def build_board(
     loop_state: str,
     agent_tasks: list[dict[str, Any]],
     stories_by_id: dict[str, dict[str, Any]],
-    criteria_by_story: dict[str, list[str]],
+    criteria_by_story: dict[str, list[Any]],
     progress_by_story: dict[str, dict[str, Any]],
     story_order: list[str] | None = None,
 ) -> dict[str, Any]:
     """Proyecta historias, tareas y cursor del loop a las cuatro columnas y el progreso del tablero.
 
     ``story_order`` (historias del output del PO en orden de emisión) fija el desempate y hace
-    visibles las historias sin tareas planificadas.
+    visibles las historias sin tareas planificadas. ``criteria_by_story`` admite textos o registros
+    de ``acceptance_criteria`` (``{"id", "criterion", "status"}``).
     """
     columns: dict[str, list[dict[str, Any]]] = {column: [] for column in BOARD_COLUMNS}
     batches = order_story_batches(agent_tasks, stories_by_id, story_order=story_order)
@@ -203,14 +223,64 @@ def build_board(
             index=index,
             criteria=criteria_by_story.get(batch["storyId"]) or [],
             progress=progress_by_story.get(batch["storyId"]) or {},
+            loop_state=loop_state,
         )
         columns[card["column"]].append(card)
+    percents = [card["progressPercent"] for column in columns.values() for card in column]
     return {
         "loopId": loop_id,
         "loopState": loop_state,
         "stage": stage_for_loop_state(loop_state),
         "columns": [{"id": column, "cards": columns[column]} for column in BOARD_COLUMNS],
-        "progress": {"done": len(columns["done"]), "total": len(batches)},
+        "progress": {
+            "done": len(columns["done"]),
+            "total": len(batches),
+            "percent": round(sum(percents) / len(percents)) if percents else 0,
+        },
+    }
+
+
+def story_progress_percent(status: str, tasks: list[dict[str, Any]]) -> int:
+    """Avance 0-100 de una historia: media del peso de etapa de sus tareas (o de su estado)."""
+    statuses = [str(task.get("status") or "") for task in tasks] or [status]
+    weights = [STAGE_WEIGHT.get(value.strip().lower(), 0.0) for value in statuses]
+    return round(100 * sum(weights) / len(weights))
+
+
+def _criterion(item: Any, *, story_done: bool) -> dict[str, Any]:
+    record = item if isinstance(item, dict) else {"criterion": item}
+    status = str(record.get("status") or "pending")
+    return {
+        "id": str(record.get("id") or "") or None,
+        "text": str(record.get("criterion") or ""),
+        "status": status,
+        "met": status.strip().lower() in _MET_CRITERION_STATUSES or story_done,
+    }
+
+
+def _assignee(
+    status: str, loop_state: str, tasks: list[dict[str, Any]], progress: dict[str, Any]
+) -> dict[str, Any]:
+    """Quién trabaja la historia: el rol que el loop tiene corriendo sobre ella y su runtime/modelo.
+
+    El loop ejecuta una historia a la vez con el DeveloperAgent y luego su gate QA sobre el mismo
+    runtime; ``active`` solo es verdadero mientras la historia está en esas etapas y el loop corre.
+    Sin trabajo en curso, el rol es el último que la tocó (``developer`` si ya hay corridas) y
+    ``plannedRoles`` lista los roles que el Technical Lead planificó en sus tareas.
+    """
+    role = _ACTIVE_ROLE_BY_STATUS.get(status)
+    active = role is not None and loop_state in _WORKING_LOOP_STATES
+    if role is None and (
+        int(progress.get("runs") or 0) > 0 or status in {STORY_STATUS_DONE, STORY_STATUS_BLOCKED}
+    ):
+        role = "developer"
+    planned = list(dict.fromkeys(str(task.get("role") or "") for task in tasks if task.get("role")))
+    return {
+        "role": role,
+        "runtime": progress.get("runtime") or None,
+        "model": progress.get("model") or None,
+        "active": active,
+        "plannedRoles": planned,
     }
 
 
@@ -236,12 +306,20 @@ def _batch_status(batch: dict[str, Any]) -> str:
 
 
 def _board_card(
-    batch: dict[str, Any], *, index: int, criteria: list[str], progress: dict[str, Any]
+    batch: dict[str, Any],
+    *,
+    index: int,
+    criteria: list[Any],
+    progress: dict[str, Any],
+    loop_state: str = "",
 ) -> dict[str, Any]:
     story = batch.get("story") or {}
     status = _batch_status(batch)
     blocked = status == STORY_STATUS_BLOCKED
     metadata = story.get("metadata") if isinstance(story.get("metadata"), dict) else {}
+    tasks = batch.get("tasks") or []
+    story_done = status == STORY_STATUS_DONE
+    criteria_records = [_criterion(item, story_done=story_done) for item in criteria]
     return {
         "storyId": batch["storyId"],
         "index": index,
@@ -259,7 +337,14 @@ def _board_card(
         else None,
         "outcome": metadata.get("outcome") or progress.get("outcome") or None,
         "runtime": progress.get("runtime") or None,
-        "acceptanceCriteria": [str(criterion) for criterion in criteria],
+        "description": str(story.get("description") or ""),
+        "acceptanceCriteria": [record["text"] for record in criteria_records],
+        "criteria": criteria_records,
+        "progressPercent": story_progress_percent(status, tasks),
+        "assignee": _assignee(status, loop_state, tasks, progress),
+        "qaVerdict": progress.get("qaVerdict") or None,
+        "commit": progress.get("commit") or None,
+        "runs": int(progress.get("runs") or 0),
         "tasks": [
             {
                 "id": str(task.get("id") or ""),
@@ -267,6 +352,6 @@ def _board_card(
                 "role": str(task.get("role") or ""),
                 "status": str(task.get("status") or ""),
             }
-            for task in batch.get("tasks") or []
+            for task in tasks
         ],
     }

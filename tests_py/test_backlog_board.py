@@ -20,6 +20,7 @@ from local_control_center.backlog.board import (
     story_batch_is_done,
     story_fingerprint,
     story_progress_entry,
+    story_progress_percent,
 )
 from local_control_center.backlog.repository import BacklogRepository
 from tests_py.test_workspace_isolation_contract import make_app as make_app
@@ -224,7 +225,7 @@ def test_build_board_places_cards_and_counts_progress() -> None:
     assert done_card["tasks"] == [
         {"id": "t1", "title": "Task t1", "role": "backend_engineer", "status": "done"}
     ]
-    assert board["progress"] == {"done": 1, "total": 3}
+    assert board["progress"] == {"done": 1, "total": 3, "percent": 67}
 
 
 def test_build_board_does_not_place_a_done_story_with_a_pending_task_in_done() -> None:
@@ -242,7 +243,7 @@ def test_build_board_does_not_place_a_done_story_with_a_pending_task_in_done() -
 
     by_column = {column["id"]: [card["storyId"] for card in column["cards"]] for column in board["columns"]}
     assert by_column == {"todo": ["s1"], "in_progress": [], "qa": [], "done": []}
-    assert board["progress"] == {"done": 0, "total": 1}
+    assert board["progress"] == {"done": 0, "total": 1, "percent": 0}
 
 
 def test_empty_board_has_four_empty_columns() -> None:
@@ -251,7 +252,7 @@ def test_empty_board_has_four_empty_columns() -> None:
     assert board["loopId"] is None
     assert board["loopState"] is None
     assert board["stage"] == "planning"
-    assert board["progress"] == {"done": 0, "total": 0}
+    assert board["progress"] == {"done": 0, "total": 0, "percent": 0}
     assert [column["id"] for column in board["columns"]] == list(BOARD_COLUMNS)
     assert all(not column["cards"] for column in board["columns"])
 
@@ -282,3 +283,96 @@ def test_story_progress_entry_has_a_stable_shape() -> None:
         "reason": None,
         "outcome": None,
     }
+
+
+@pytest.mark.parametrize(
+    ("status", "task_statuses", "percent"),
+    [
+        ("todo", ["todo", "todo"], 0),
+        ("in_progress", ["in_progress"], 33),
+        ("qa", ["qa", "qa"], 67),
+        ("done", ["done"], 100),
+        ("blocked", ["blocked"], 33),
+        ("todo", ["done", "todo"], 50),
+        ("reopened", [], 0),
+        ("qa", [], 67),
+        ("draft", [], 0),
+    ],
+)
+def test_story_progress_percent_weights_each_task_stage(
+    status: str, task_statuses: list[str], percent: int
+) -> None:
+    tasks = [_task(f"t{index}", "s1", status=value) for index, value in enumerate(task_statuses)]
+
+    assert story_progress_percent(status, tasks) == percent
+
+
+def test_build_board_cards_carry_assignee_progress_and_criteria() -> None:
+    stories = {
+        "s1": {**_story("s1", status="in_progress"), "description": "Checklist for day one."},
+        "s2": _story("s2", status="done"),
+        "s3": _story("s3", status="todo"),
+    }
+    tasks = [
+        _task("t1", "s1", status="in_progress", role="frontend_engineer"),
+        _task("t2", "s2", status="done"),
+        _task("t3", "s3", role="qa_engineer"),
+    ]
+
+    board = build_board(
+        loop_id="loop-1",
+        loop_state="executing",
+        agent_tasks=tasks,
+        stories_by_id=stories,
+        criteria_by_story={
+            "s1": [{"id": "c1", "criterion": "Shows the list", "status": "pending"}, "Plain text"],
+            "s2": [{"id": "c2", "criterion": "Saves", "status": "pending"}],
+        },
+        progress_by_story={
+            "s1": {"runtime": "codex_cli", "model": "gpt-5.5", "runs": 1},
+            "s2": {"runtime": "claude_code", "runs": 2, "qaVerdict": "passed", "commit": "abc123"},
+        },
+    )
+
+    cards = {card["storyId"]: card for column in board["columns"] for card in column["cards"]}
+    working = cards["s1"]
+    assert working["assignee"] == {
+        "role": "developer",
+        "runtime": "codex_cli",
+        "model": "gpt-5.5",
+        "active": True,
+        "plannedRoles": ["frontend_engineer"],
+    }
+    assert working["progressPercent"] == 33
+    assert working["description"] == "Checklist for day one."
+    assert working["criteria"] == [
+        {"id": "c1", "text": "Shows the list", "status": "pending", "met": False},
+        {"id": None, "text": "Plain text", "status": "pending", "met": False},
+    ]
+    assert working["acceptanceCriteria"] == ["Shows the list", "Plain text"]
+    done = cards["s2"]
+    assert done["criteria"][0]["met"] is True
+    assert done["assignee"]["active"] is False
+    assert done["assignee"]["role"] == "developer"
+    assert (done["qaVerdict"], done["commit"], done["runs"]) == ("passed", "abc123", 2)
+    waiting = cards["s3"]
+    assert waiting["assignee"]["role"] is None
+    assert waiting["assignee"]["plannedRoles"] == ["qa_engineer"]
+    assert board["progress"]["percent"] == round((33 + 100 + 0) / 3)
+
+
+def test_a_story_under_qa_is_not_active_once_the_loop_stops() -> None:
+    stories = {"s1": _story("s1", status="qa")}
+
+    board = build_board(
+        loop_id="loop-1",
+        loop_state="blocked",
+        agent_tasks=[_task("t1", "s1", status="qa")],
+        stories_by_id=stories,
+        criteria_by_story={},
+        progress_by_story={"s1": {"runtime": "codex_cli"}},
+    )
+
+    assignee = board["columns"][2]["cards"][0]["assignee"]
+    assert assignee["role"] == "qa"
+    assert assignee["active"] is False

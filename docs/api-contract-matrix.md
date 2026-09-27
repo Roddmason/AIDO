@@ -105,6 +105,7 @@ packages, artifacts, test results, and workflow events.
 | `PATCH` | `/api/v1/threads/{thread_id}` | Update Thread |
 | `DELETE` | `/api/v1/threads/{thread_id}` | Delete Thread |
 | `POST` | `/api/v1/threads/{thread_id}/archive` | Archive Thread |
+| `GET` | `/api/v1/threads/{thread_id}/board` | Get Thread Board |
 | `POST` | `/api/v1/threads/{thread_id}/cancel` | Cancel Execution |
 | `GET` | `/api/v1/threads/{thread_id}/cost-performance` | Thread Cost Performance |
 | `POST` | `/api/v1/threads/{thread_id}/decisions/{decision_id}/resolve` | Resolve Decision |
@@ -117,6 +118,16 @@ packages, artifacts, test results, and workflow events.
 | `GET` | `/api/v1/threads/{thread_id}/similar` | Find Similar To Thread |
 | `POST` | `/api/v1/threads/{thread_id}/similar/{candidate_id}/mark` | Mark Similar Thread |
 | `POST` | `/api/v1/threads/{thread_id}/unarchive` | Unarchive Thread |
+
+`GET /api/v1/threads/{thread_id}/board` is read-only: it projects the user
+stories (HU) of the thread's latest planned product loop into the `todo`,
+`in_progress`, `qa` and `done` columns (`blocked` stays in `in_progress` with
+`blocked: true`). Each card carries `assignee` (loop role, runtime and model
+from `durableRun.storyProgress`, `active` while the loop runs it, and the
+Technical Lead's `plannedRoles`), `criteria` (`met` when the persisted
+criterion says so or the story is `done`), `progressPercent` (mean stage weight
+of its agent tasks: todo 0, in progress/blocked 1/3, QA 2/3, done 1), `qaVerdict`,
+`commit` and `runs`; `progress.percent` is the mean of the cards.
 
 ## Jobs And Approvals (jobs_approvals)
 

@@ -259,6 +259,7 @@ def _mark_story(
             "status": status,
             "runs": runs,
             "runtime": _runtime_id(run),
+            "model": _runtime_model(run),
             "outcome": outcome,
             "reason": clean_reason,
             "qaVerdict": qa_verdict,
@@ -483,6 +484,19 @@ def _runtime_id(run: _UserMessageRun) -> str | None:
         or str((run.readiness or {}).get("selectedRuntimeId") or run.effective_preferred_runtime or "")
         or None
     )
+
+
+def _runtime_model(run: _UserMessageRun) -> str | None:
+    """Modelo con el que corre el developer: el del recurso asignado si apunta al runtime usado."""
+    used = (run.runtime_result or {}).get("model")
+    if isinstance(used, str) and used.strip():
+        return used.strip()
+    resource = run.execution_resource or {}
+    model = str(resource.get("model") or "").strip()
+    runtime_id = _runtime_id(run)
+    if model and (not runtime_id or resource.get("preferredRuntime") in {None, "", runtime_id}):
+        return model
+    return None
 
 
 def _review_commit(review: dict[str, Any]) -> str | None:

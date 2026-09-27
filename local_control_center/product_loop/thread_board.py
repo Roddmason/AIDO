@@ -48,7 +48,11 @@ class ThreadBoardService:
         stories = self._stories(tasks, {story["id"]: story for story in emitted})
         criteria = {
             story_id: [
-                str(item.get("criterion") or "")
+                {
+                    "id": item.get("id"),
+                    "criterion": str(item.get("criterion") or ""),
+                    "status": item.get("status"),
+                }
                 for item in self.backlog.list_acceptance_criteria(story_id=story_id)
             ]
             for story_id in stories

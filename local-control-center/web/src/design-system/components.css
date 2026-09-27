@@ -91,9 +91,13 @@
 	color: color-mix(in oklch, var(--color-status-success) 82%, var(--color-text-primary));
 }
 
+/* Warning mixes run in oklab, never oklch: the oklch hue path from amber (82) to the blue-grey text
+ * and borders (255) crosses green and turned every warning olive. 78% warning toward the primary
+ * text keeps amber at >= 5.2:1 (light) and >= 8.3:1 (dark) on every card/inset surface. The same
+ * space is used for every warning mix in the design system. */
 .badge[data-tone="warn"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 48%, var(--color-border-default));
-	color: color-mix(in oklch, var(--color-status-warning) 78%, var(--color-text-primary));
+	border-color: color-mix(in oklab, var(--color-status-warning) 48%, var(--color-border-default));
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 .badge[data-tone="danger"] {
@@ -126,7 +130,7 @@
 
 .status-dot[data-tone="warn"] {
 	background: var(--color-status-warning);
-	box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-status-warning) 20%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-status-warning) 20%, transparent);
 }
 
 .status-dot[data-tone="danger"] {
@@ -1668,9 +1672,9 @@ kbd.command-kbd {
 }
 
 .run-flow-node[data-status="blocked"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 55%, var(--color-border-default));
-	background: color-mix(in oklch, var(--color-status-warning) 14%, var(--color-surface-inset));
-	color: color-mix(in oklch, var(--color-status-warning) 82%, var(--color-text-primary));
+	border-color: color-mix(in oklab, var(--color-status-warning) 55%, var(--color-border-default));
+	background: color-mix(in oklab, var(--color-status-warning) 14%, var(--color-surface-inset));
+	color: color-mix(in oklab, var(--color-status-warning) 82%, var(--color-text-primary));
 }
 
 .run-flow-step[aria-current="step"] .run-flow-node {
@@ -1860,7 +1864,7 @@ kbd.command-kbd {
 }
 
 .run-flow-rail-current[data-status="blocked"] .run-flow-rail-state {
-	color: color-mix(in oklch, var(--color-status-warning) 82%, var(--color-text-primary));
+	color: color-mix(in oklab, var(--color-status-warning) 82%, var(--color-text-primary));
 }
 
 .tnum {

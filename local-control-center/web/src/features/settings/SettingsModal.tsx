@@ -86,6 +86,7 @@ export function SettingsModalBody({
 	const [activeSection, setActiveSection] = useState(initialSection ?? DEFAULT_SECTION);
 	const [searchQuery, setSearchQuery] = useState('');
 	const titleRef = useRef<HTMLHeadingElement>(null);
+	const navRef = useRef<HTMLElement>(null);
 	const previousSectionRef = useRef(activeSection);
 
 	useEffect(() => {
@@ -104,6 +105,18 @@ export function SettingsModalBody({
 			titleRef.current?.focus();
 		}
 	}, [activeSection]);
+
+	// On phones the nav is a sideways strip (layout.css): keep the active section's chip in view when
+	// the dialog opens on a deep-linked section or the section changes. `nearest` is a no-op when the
+	// chip is already visible (always the case in the desktop column), and the default instant scroll
+	// needs no reduced-motion branch.
+	useEffect(() => {
+		if (!open) return;
+		const active = navRef.current?.querySelector<HTMLElement>(
+			`[data-section="${CSS.escape(activeSection)}"]`,
+		);
+		active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+	}, [open, activeSection]);
 
 	const { general, project, loading, error, setValue, clearValue } = useSettings(
 		projectId,
@@ -208,7 +221,11 @@ export function SettingsModalBody({
 	return (
 		<div className="settings-modal-body">
 			{/* Left: section navigator */}
-			<nav className="settings-nav" aria-label={t('app.settings.nav.label', 'Settings sections')}>
+			<nav
+				ref={navRef}
+				className="settings-nav"
+				aria-label={t('app.settings.nav.label', 'Settings sections')}
+			>
 				<div className="settings-nav-search">
 					<input
 						type="search"
@@ -231,6 +248,7 @@ export function SettingsModalBody({
 									<button
 										type="button"
 										className="settings-nav-item"
+										data-section={section.id}
 										aria-current={activeSection === section.id ? 'true' : undefined}
 										onClick={() => {
 											setActiveSection(section.id);
@@ -257,6 +275,7 @@ export function SettingsModalBody({
 									<button
 										type="button"
 										className="settings-nav-item"
+										data-section={section.id}
 										aria-current={activeSection === section.id ? 'true' : undefined}
 										onClick={() => {
 											setActiveSection(section.id);

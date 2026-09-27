@@ -13,7 +13,9 @@ Fuentes del porcentaje (best effort; sin dato, el proveedor no se suspende por u
 - Claude Code CLI: ``GET https://api.anthropic.com/api/oauth/usage`` con el token OAuth local del CLI
   (``~/.claude/.credentials.json`` o ``CLAUDE_CODE_OAUTH_TOKEN``); ventanas ``five_hour``/``seven_day``
   con ``utilization`` 0-100 y ``resets_at`` ISO. No consume cuota; se consulta como mucho cada 3 min.
-- Codex CLI: ``GET https://chatgpt.com/backend-api/wham/usage`` con el token de ``~/.codex/auth.json``;
+- Codex CLI: primero el app-server oficial (``codex app-server``, JSON-RPC por stdio,
+  ``account/rateLimits/read``; ver ``codex_app_server.py``); ante cualquier falla, ``GET
+  https://chatgpt.com/backend-api/wham/usage`` (no documentado) con el token de ``~/.codex/auth.json``;
   ventanas ``primary_window``/``secondary_window`` con ``used_percent`` y ``reset_at`` (epoch).
 - Proveedores con límites configurados en AIDO (``provider_limits``): la contabilidad propia de AIDO
   (``QuotaManager.status``) como uso sobre el límite diario/mensual.
@@ -36,6 +38,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.codex_app_server import CodexAppServerError, read_codex_rate_limits
 from local_control_center.settings.resolver import resolve_setting_value
 from local_control_center.shared.time import utc_now
 
@@ -61,6 +64,8 @@ WINDOW_LABELS = {
 }
 
 Fetch = Callable[[urllib.request.Request], Any]
+AppServerRead = Callable[..., dict[str, Any]]
+"""Lector de ``account/rateLimits/read``: recibe ``env=`` y devuelve el ``result`` del app-server."""
 
 
 @dataclass(frozen=True)
@@ -393,10 +398,35 @@ def _codex_tokens(env: Mapping[str, str]) -> tuple[str, str]:
 
 
 def collect_codex_usage(
-    *, provider_id: str = "codex_cli", env: Mapping[str, str] | None = None, fetch: Fetch | None = None
+    *,
+    provider_id: str = "codex_cli",
+    env: Mapping[str, str] | None = None,
+    fetch: Fetch | None = None,
+    app_server: AppServerRead | None = None,
 ) -> list[UsageWindow]:
-    """Ventanas de uso de la cuenta de ChatGPT que usa Codex (5 h y semanal)."""
-    token, account_id = _codex_tokens(env if env is not None else os.environ)
+    """Ventanas de uso de la cuenta de ChatGPT que usa Codex (5 h y semanal).
+
+    Fuente primaria: el app-server oficial (``app_server``, por defecto ``read_codex_rate_limits``).
+    Si falla por cualquier causa se usa ``wham/usage``; si ambas fallan, la causa lleva las dos. Dentro
+    de una transacción SQLite el app-server levanta ``RuntimeError`` y no se intenta la otra fuente.
+    """
+    environment = env if env is not None else os.environ
+    try:
+        payload = (app_server or read_codex_rate_limits)(env=environment)
+        return parse_codex_usage(payload, provider_id=provider_id, source="codex_app_server")
+    except (CodexAppServerError, UsageUnavailableError) as error:
+        app_server_cause = str(error)
+    try:
+        return _collect_codex_wham_usage(provider_id=provider_id, env=environment, fetch=fetch)
+    except UsageUnavailableError as error:
+        raise UsageUnavailableError(f"{error} (app-server: {app_server_cause})") from error
+
+
+def _collect_codex_wham_usage(
+    *, provider_id: str, env: Mapping[str, str], fetch: Fetch | None
+) -> list[UsageWindow]:
+    """Fuente HTTP de respaldo: ``wham/usage`` con el login local de Codex."""
+    token, account_id = _codex_tokens(env)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -430,13 +460,20 @@ def _codex_window_kind(name: str, window: Mapping[str, Any]) -> str:
     return "primary" if "primary" in name else "secondary"
 
 
-def parse_codex_usage(payload: Any, *, provider_id: str = "codex_cli") -> list[UsageWindow]:
-    """Interpreta ``wham/usage`` (``rate_limit.primary_window``…) o la forma del app-server (``rateLimits``)."""
+def parse_codex_usage(
+    payload: Any, *, provider_id: str = "codex_cli", source: str = "codex_usage"
+) -> list[UsageWindow]:
+    """Interpreta ``wham/usage`` (``rate_limit.primary_window``…) o la forma del app-server (``rateLimits``).
+
+    En el app-server un ``rateLimitReachedType`` presente marca la ventana como rechazada, igual que
+    ``limit_reached`` en ``wham/usage``.
+    """
     if not isinstance(payload, dict):
         raise UsageUnavailableError("Codex usage response is not an object")
     limits = payload.get("rate_limit") or payload.get("rateLimits") or payload.get("rate_limits") or {}
     if not isinstance(limits, dict):
         raise UsageUnavailableError("Codex usage response has no rate limits")
+    reached = bool(limits.get("rateLimitReachedType"))
     windows: list[UsageWindow] = []
     for name in ("primary_window", "secondary_window", "primary", "secondary"):
         window = limits.get(name)
@@ -457,8 +494,8 @@ def parse_codex_usage(payload: Any, *, provider_id: str = "codex_cli") -> list[U
                 window_kind=_codex_window_kind(name, window),
                 used_percent=_percent(used),
                 resets_at=_iso(_parse_time(reset)),
-                source="codex_usage",
-                status="rejected" if limits.get("limit_reached") is True else "ok",
+                source=source,
+                status="rejected" if limits.get("limit_reached") is True or reached else "ok",
             )
         )
     if not windows:

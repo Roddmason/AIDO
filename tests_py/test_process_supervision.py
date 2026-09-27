@@ -823,6 +823,9 @@ def test_restricted_sandbox_exposes_managed_process_evidence(
 def test_productive_process_creation_is_architecturally_centralized() -> None:
     root = Path(__file__).parents[1] / "local_control_center"
     allowed_files = {
+        # Lectura de cuota de Codex por su app-server (autorizada por el operador): argv fijo, sin shell,
+        # plazo de 10 s con kill del árbol y veto en transacciones; ver test_codex_app_server_usage.py.
+        Path("agents/codex_app_server.py"),
         Path("nvidia_nim/system_probe.py"),
     }
     violations: list[str] = []

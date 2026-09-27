@@ -1,0 +1,325 @@
+/*
+ * Branch manager dialog (gitflow cleanup): toolbar, health summary, grouped branch list,
+ * confirmation steps and per-branch results. Tokens only; wraps down to phone width.
+ * @author Rodrigo Mason
+ */
+
+.branch-manager.modal-panel {
+	width: min(60rem, 100vw);
+	max-height: 90dvh;
+}
+
+.branch-manager-body {
+	display: grid;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.branch-manager-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.branch-manager-context {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.branch-manager-context code,
+.branch-row-name,
+.branch-step-list li {
+	font-family: var(--font-data);
+	overflow-wrap: anywhere;
+}
+
+.branch-manager-toolbar-actions,
+.branch-step-actions,
+.branch-manager-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.branch-manager-progress:empty {
+	display: none;
+}
+
+.branch-manager-progress,
+.branch-manager-note,
+.branch-step-hint {
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.branch-manager-error {
+	margin: 0;
+	color: var(--color-status-danger);
+	font-size: var(--font-size-sm);
+}
+
+.branch-health {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+}
+
+.branch-health h3,
+.branch-group h3,
+.branch-step h3 {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+.branch-health ul,
+.branch-list,
+.branch-step-list,
+.branch-results {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.branch-health li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.branch-health li[data-severity="warning"] svg {
+	color: var(--color-status-warning);
+}
+
+.branch-health li[data-severity="info"] svg {
+	color: var(--color-status-info);
+}
+
+.branch-health-text {
+	flex: 1 1 16rem;
+	min-width: 0;
+}
+
+.branch-health-action.button {
+	min-height: var(--control-height-sm);
+}
+
+.branch-manager-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.branch-manager-search.input {
+	flex: 1 1 12rem;
+	min-width: 0;
+	max-width: 20rem;
+}
+
+.branch-groups {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.branch-group {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.branch-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-card);
+}
+
+.branch-row[data-protected="true"] {
+	background: var(--color-surface-panel);
+}
+
+.branch-row-check {
+	flex: 0 0 auto;
+	width: 1.1rem;
+	height: 1.1rem;
+	margin-top: 2px;
+	accent-color: var(--color-accent);
+}
+
+.branch-row-main {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: grid;
+	gap: var(--space-1);
+}
+
+.branch-row-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+}
+
+.branch-row-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	min-width: 0;
+}
+
+.branch-row-subject {
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.branch-row-counts,
+.branch-row-upstream {
+	font-family: var(--font-data);
+}
+
+.branch-row-actions {
+	flex: 0 0 auto;
+	display: flex;
+	gap: var(--space-1);
+}
+
+.branch-step {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.branch-step h3:focus {
+	outline: none;
+}
+
+.branch-step h3:focus-visible {
+	box-shadow: var(--shadow-focus);
+}
+
+.branch-step section {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.branch-step-label {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.branch-step-list li {
+	padding: var(--space-1) var(--space-2);
+	background: var(--color-surface-inset);
+	border-radius: var(--radius-sm);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+}
+
+.branch-step-danger {
+	padding: var(--space-3);
+	border: 1px solid var(--color-status-danger);
+	border-radius: var(--radius-md);
+}
+
+.branch-step-actions {
+	justify-content: flex-end;
+}
+
+.branch-results li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border-bottom: 1px solid var(--color-border-subtle);
+	font-size: var(--font-size-sm);
+}
+
+.branch-results-reason {
+	flex: 1 1 14rem;
+	min-width: 0;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.branch-manager-footer {
+	justify-content: flex-end;
+	position: sticky;
+	bottom: calc(-1 * var(--space-5));
+	padding: var(--space-3) 0;
+	background: var(--color-surface-overlay);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.branch-manager-footer .branch-manager-note {
+	margin-right: auto;
+}
+
+@media (max-width: 640px) {
+	.branch-manager.modal-panel {
+		max-height: 100dvh;
+		padding: var(--space-4);
+	}
+
+	.branch-row {
+		flex-wrap: wrap;
+	}
+
+	.branch-row-actions {
+		width: 100%;
+		justify-content: flex-end;
+	}
+
+	.branch-row-actions .icon-button {
+		width: 2.5rem;
+		height: 2.5rem;
+	}
+
+	.branch-manager-search.input {
+		max-width: none;
+	}
+
+	.branch-health li {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.branch-health li svg {
+		margin-top: 3px;
+	}
+
+	.branch-health-action.button {
+		grid-column: 2;
+		justify-self: start;
+	}
+
+	.branch-manager-footer {
+		position: static;
+	}
+}

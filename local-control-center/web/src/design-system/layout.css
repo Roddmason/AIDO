@@ -525,6 +525,49 @@
 	}
 }
 
+/* Workspace head row: disclosure toggle + project "⋯" menu, same affordance as the thread rows. */
+.thread-workspace-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	border-radius: var(--radius-sm);
+}
+
+.thread-workspace-row .thread-workspace-head {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.thread-workspace-row .thread-menu-trigger {
+	flex: 0 0 auto;
+	width: 1.6rem;
+	height: 1.6rem;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	border-radius: var(--radius-sm);
+	opacity: 0.35;
+}
+
+.thread-workspace-row:hover .thread-menu-trigger,
+.thread-workspace-row:focus-within .thread-menu-trigger,
+.thread-workspace-row .thread-menu-trigger[aria-expanded="true"] {
+	opacity: 1;
+}
+
+.thread-workspace-row .thread-menu-trigger:hover {
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+}
+
+@media (hover: none) {
+	.thread-workspace-row .thread-menu-trigger {
+		width: 2.25rem;
+		height: 2.25rem;
+		opacity: 1;
+	}
+}
+
 /* Contextual menu popover (portalled; positioned via inline top/left). */
 .thread-menu {
 	position: fixed;

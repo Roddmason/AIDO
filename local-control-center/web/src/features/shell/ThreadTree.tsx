@@ -7,7 +7,9 @@
  * fabricated sub-threads. Collapsible per workspace with honest empty states; accessible via a
  * disclosure pattern (button headers with aria-expanded). Each thread row carries a contextual menu
  * (rename inline, archive, duplicate as a new loop, copy id, open artifacts, delete) and, when the
- * parent enables it, an "Archived" section with the project's archived threads.
+ * parent enables it, an "Archived" section with the project's archived threads. Each workspace head
+ * carries its own "⋯" menu (new thread, open folder in the OS file manager, copy path, manage
+ * branches, project settings) using the same keyboard-accessible menu pattern as the thread rows.
  * @author Rodrigo Mason
  */
 import {
@@ -18,10 +20,13 @@ import {
 	CopyPlus,
 	FileStack,
 	FolderKanban,
+	FolderOpen,
+	GitBranch,
 	MessageSquare,
 	MoreHorizontal,
 	Pencil,
 	Plus,
+	Settings as SettingsIcon,
 	Trash2,
 } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -46,6 +51,15 @@ export type ThreadRowActions = {
 	openArtifacts: (thread: Thread) => void;
 };
 
+/** Project-level actions reachable from the workspace head "⋯" menu; the sidebar owns them. */
+export type ProjectRowActions = {
+	newThread: (project: Project) => void;
+	openFolder: (project: Project) => void;
+	copyPath: (project: Project) => void;
+	manageBranches: (project: Project) => void;
+	openSettings: (project: Project) => void;
+};
+
 type ThreadTreeProps = {
 	projects: Project[];
 	threads: Overview['threads'];
@@ -58,6 +72,7 @@ type ThreadTreeProps = {
 	onSelectProject: (projectId: string) => void;
 	onSelectSession: (threadId: string) => void;
 	actions: ThreadRowActions;
+	projectActions: ProjectRowActions;
 };
 
 /** Statuses where the run must stop before a delete or archive is allowed (mirrors the server 409 rule). */
@@ -81,6 +96,7 @@ export function ThreadTree({
 	onSelectProject,
 	onSelectSession,
 	actions,
+	projectActions,
 }: ThreadTreeProps) {
 	const { t } = useI18n();
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -121,26 +137,16 @@ export function ThreadTree({
 				}
 				return (
 					<section className="thread-workspace" key={project.id}>
-						<button
-							type="button"
-							className="thread-workspace-head"
-							title={project.name}
-							aria-expanded={open}
-							aria-controls={`thread-children-${project.id}`}
-							onClick={() => {
+						<ProjectHead
+							project={project}
+							open={open}
+							threadCount={projectThreads.length}
+							actions={projectActions}
+							onToggle={() => {
 								onSelectProject(project.id);
 								setCollapsed((prev) => ({ ...prev, [project.id]: open }));
 							}}
-						>
-							<ChevronRight
-								aria-hidden="true"
-								size={14}
-								className={open ? 'thread-caret is-open' : 'thread-caret'}
-							/>
-							<FolderKanban aria-hidden="true" size={15} />
-							<span className="thread-workspace-name">{project.name}</span>
-							<span className="thread-count">{projectThreads.length}</span>
-						</button>
+						/>
 						{open ? (
 							// biome-ignore lint/a11y/useSemanticElements: <fieldset> carries form-control semantics plus UA chrome (border, margin-inline:2px, min-inline-size:min-content) that .thread-children — a single-use flex column — does not reset, regressing the disclosure layout; role="group" keeps the aria-controls grouping target intact.
 							<div className="thread-children" role="group" id={`thread-children-${project.id}`}>
@@ -204,6 +210,100 @@ export function ThreadTree({
 					</section>
 				);
 			})}
+		</div>
+	);
+}
+
+type ProjectHeadProps = {
+	project: Project;
+	open: boolean;
+	threadCount: number;
+	actions: ProjectRowActions;
+	onToggle: () => void;
+};
+
+/** Workspace head: the disclosure toggle plus its project actions menu (same pattern as threads). */
+function ProjectHead({ project, open, threadCount, actions, onToggle }: ProjectHeadProps) {
+	const { t } = useI18n();
+	const [menu, setMenu] = useState<{ at: { x: number; y: number } | null } | null>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const menuLabel = t('app.shell.projects.menu.label', 'Project actions');
+	const items: ThreadMenuItem[] = [
+		{
+			id: 'new-thread',
+			label: t('app.shell.threads.newThread', 'New thread'),
+			icon: Plus,
+			onSelect: () => actions.newThread(project),
+		},
+		{
+			id: 'open-folder',
+			label: t('app.shell.projects.menu.openFolder', 'Open folder'),
+			icon: FolderOpen,
+			separated: true,
+			onSelect: () => actions.openFolder(project),
+		},
+		{
+			id: 'copy-path',
+			label: t('app.shell.projects.menu.copyPath', 'Copy path'),
+			icon: Copy,
+			onSelect: () => actions.copyPath(project),
+		},
+		{
+			id: 'branches',
+			label: t('app.shell.projects.menu.manageBranches', 'Manage branches…'),
+			icon: GitBranch,
+			onSelect: () => actions.manageBranches(project),
+		},
+		{
+			id: 'settings',
+			label: t('app.shell.projects.menu.settings', 'Project settings'),
+			icon: SettingsIcon,
+			separated: true,
+			onSelect: () => actions.openSettings(project),
+		},
+	];
+	return (
+		<div className="thread-workspace-row">
+			<button
+				type="button"
+				className="thread-workspace-head"
+				title={project.name}
+				aria-expanded={open}
+				aria-controls={`thread-children-${project.id}`}
+				onClick={onToggle}
+				onContextMenu={(event) => {
+					event.preventDefault();
+					setMenu({ at: { x: event.clientX, y: event.clientY } });
+				}}
+			>
+				<ChevronRight
+					aria-hidden="true"
+					size={14}
+					className={open ? 'thread-caret is-open' : 'thread-caret'}
+				/>
+				<FolderKanban aria-hidden="true" size={15} />
+				<span className="thread-workspace-name">{project.name}</span>
+				<span className="thread-count">{threadCount}</span>
+			</button>
+			<IconButton
+				ref={triggerRef}
+				className="thread-menu-trigger"
+				aria-label={`${menuLabel}: ${project.name}`}
+				aria-haspopup="menu"
+				aria-expanded={menu ? true : undefined}
+				onClick={() => setMenu((current) => (current ? null : { at: null }))}
+			>
+				<MoreHorizontal aria-hidden="true" size={14} />
+			</IconButton>
+			{menu && triggerRef.current ? (
+				<ThreadRowMenu
+					label={menuLabel}
+					items={items}
+					anchor={triggerRef.current}
+					at={menu.at}
+					onClose={() => setMenu(null)}
+				/>
+			) : null}
 		</div>
 	);
 }

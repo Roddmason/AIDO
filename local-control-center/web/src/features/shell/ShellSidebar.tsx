@@ -7,6 +7,8 @@
  * real thread lifecycle mutations its rows trigger — rename (PATCH), archive/unarchive with an undo
  * toast, confirm-then-delete (the server rejects running threads with 409), duplicate as a new loop
  * and copy-id — while selection flows up via callbacks so the center (the Workbench) stays in sync.
+ * Project heads add their own actions: open the registered folder in the OS file manager (a token-
+ * guarded backend call — the browser cannot), copy its path, and the gitflow branch manager dialog.
  * @author Rodrigo Mason
  */
 import { Archive, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
@@ -17,17 +19,19 @@ import {
 	deleteThread,
 	getThread,
 	listThreads,
+	openProjectFolder,
 	postThreadMessage,
 	renameThread,
 	unarchiveThread,
 } from '../../api/client';
-import type { Overview, Thread } from '../../api/types';
+import type { Overview, Project, Thread } from '../../api/types';
 import type { Mutate } from '../../app/routes';
 import { Button, Dialog, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { NEW_SESSION_ID } from '../workbench/useWorkbenchData';
+import { BranchManagerDialog } from './BranchManagerDialog';
 import { ThreadArtifactsDialog } from './ThreadArtifactsDialog';
-import type { ThreadRowActions } from './ThreadTree';
+import type { ProjectRowActions, ThreadRowActions } from './ThreadTree';
 import { ThreadTree } from './ThreadTree';
 
 type ShellSidebarProps = {
@@ -71,6 +75,7 @@ export function ShellSidebar({
 	const [deleteTarget, setDeleteTarget] = useState<Thread | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [artifactsTarget, setArtifactsTarget] = useState<Thread | null>(null);
+	const [branchesTarget, setBranchesTarget] = useState<Project | null>(null);
 	const projects = overview.projects.filter((project) => project.status === 'active');
 
 	// Archived headers live outside the overview (its list excludes them), so the toggle drives its own
@@ -223,6 +228,55 @@ export function ShellSidebar({
 		openArtifacts: (thread) => setArtifactsTarget(thread),
 	};
 
+	const projectActions: ProjectRowActions = {
+		newThread: (project) => {
+			onSelectProject(project.id);
+			onSelectSession(NEW_SESSION_ID);
+		},
+		openFolder: async (project) => {
+			try {
+				await mutate((token) => openProjectFolder(token, project.id), { awaitRefresh: false });
+				notify({
+					title: t('app.shell.projects.folderOpened', 'Folder opened in the file manager'),
+					body: project.path,
+					tone: 'ok',
+				});
+			} catch (error) {
+				notify({
+					title: t('app.shell.projects.folderOpenError', 'Could not open the project folder.'),
+					body: errorMessage(error, project.path),
+					tone: 'danger',
+					durationMs: 0,
+				});
+			}
+		},
+		copyPath: async (project) => {
+			try {
+				await navigator.clipboard.writeText(project.path);
+				notify({
+					title: t('app.shell.projects.pathCopied', 'Project path copied'),
+					body: project.path,
+					tone: 'ok',
+				});
+			} catch {
+				notify({
+					title: t('app.shell.projects.pathCopyError', 'Could not copy the project path.'),
+					body: project.path,
+					tone: 'danger',
+					durationMs: 0,
+				});
+			}
+		},
+		manageBranches: (project) => {
+			onSelectProject(project.id);
+			setBranchesTarget(project);
+		},
+		openSettings: (project) => {
+			onSelectProject(project.id);
+			onOpenSettings('git');
+		},
+	};
+
 	const confirmDelete = async () => {
 		if (!deleteTarget) return;
 		setDeleting(true);
@@ -286,6 +340,7 @@ export function ShellSidebar({
 					onSelectProject={onSelectProject}
 					onSelectSession={onSelectSession}
 					actions={actions}
+					projectActions={projectActions}
 				/>
 				<button
 					type="button"
@@ -346,6 +401,12 @@ export function ShellSidebar({
 				</div>
 			</Dialog>
 			<ThreadArtifactsDialog thread={artifactsTarget} onClose={() => setArtifactsTarget(null)} />
+			<BranchManagerDialog
+				project={branchesTarget}
+				mutate={mutate}
+				onClose={() => setBranchesTarget(null)}
+				onOpenSettings={onOpenSettings}
+			/>
 		</aside>
 	);
 }

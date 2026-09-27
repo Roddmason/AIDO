@@ -767,6 +767,490 @@
       "en": "Open folder",
       "es": "Abrir carpeta"
     },
+    "app.branches.progress.queued": {
+      "en": "Queued — waiting for the worker…",
+      "es": "En cola: esperando al worker…"
+    },
+    "app.branches.progress.waiting": {
+      "en": "Waiting for host resources…",
+      "es": "Esperando recursos del equipo…"
+    },
+    "app.branches.progress.running": {
+      "en": "Running git through the policy broker…",
+      "es": "Ejecutando git a través del broker de políticas…"
+    },
+    "app.branches.error.generic": {
+      "en": "The branch operation could not be completed.",
+      "es": "No se pudo completar la operación sobre las ramas."
+    },
+    "app.branches.type.integration": {
+      "en": "Integration",
+      "es": "Integración"
+    },
+    "app.branches.type.feature": {
+      "en": "Features",
+      "es": "Funcionalidades"
+    },
+    "app.branches.type.bugfix": {
+      "en": "Bugfixes",
+      "es": "Correcciones"
+    },
+    "app.branches.type.release": {
+      "en": "Releases",
+      "es": "Versiones"
+    },
+    "app.branches.type.hotfix": {
+      "en": "Hotfixes",
+      "es": "Hotfixes urgentes"
+    },
+    "app.branches.type.support": {
+      "en": "Support",
+      "es": "Soporte"
+    },
+    "app.branches.type.aido": {
+      "en": "AIDO work branches",
+      "es": "Ramas de trabajo de AIDO"
+    },
+    "app.branches.type.other": {
+      "en": "Without gitflow prefix",
+      "es": "Sin prefijo gitflow"
+    },
+    "app.branches.reason.notFound": {
+      "en": "Branch no longer exists.",
+      "es": "La rama ya no existe."
+    },
+    "app.branches.reason.protectedIntegration": {
+      "en": "Protected: integration branch.",
+      "es": "Protegida: rama de integración."
+    },
+    "app.branches.reason.protectedMainline": {
+      "en": "Protected: gitflow mainline (dev/develop/main/master).",
+      "es": "Protegida: rama principal de gitflow (dev/develop/main/master)."
+    },
+    "app.branches.reason.protectedCurrent": {
+      "en": "Protected: currently checked out.",
+      "es": "Protegida: es la rama activa."
+    },
+    "app.branches.reason.protectedWorktree": {
+      "en": "Protected: checked out in a worktree. Remove the worktree first.",
+      "es": "Protegida: está activa en un worktree. Primero quita el worktree."
+    },
+    "app.branches.reason.aidoWorkspace": {
+      "en": "An AIDO workspace still uses this branch.",
+      "es": "Un workspace de AIDO todavía usa esta rama."
+    },
+    "app.branches.reason.requiresForce": {
+      "en": "Not merged into the integration branch; force delete was not confirmed.",
+      "es": "No está integrada en la rama de integración; no se confirmó el borrado forzado."
+    },
+    "app.branches.reason.squashRequiresForce": {
+      "en": "Probably squash-merged, but not certain; force delete was not confirmed.",
+      "es": "Probablemente integrada con squash, pero no es seguro; no se confirmó el borrado forzado."
+    },
+    "app.branches.reason.remoteDisabled": {
+      "en": "Remote deletion was not enabled.",
+      "es": "No se habilitó el borrado en el remoto."
+    },
+    "app.branches.reason.protectedRemote": {
+      "en": "Protected or unsafe remote branch.",
+      "es": "Rama remota protegida o insegura."
+    },
+    "app.branches.reason.hasUpstream": {
+      "en": "Has an upstream; rename only local branches without upstream.",
+      "es": "Tiene upstream; solo se renombran ramas locales sin upstream."
+    },
+    "app.branches.reason.aidoManaged": {
+      "en": "AIDO-managed branch; it is not renamed.",
+      "es": "Rama gestionada por AIDO; no se renombra."
+    },
+    "app.branches.reason.invalidName": {
+      "en": "The new name must start with a gitflow prefix.",
+      "es": "El nuevo nombre debe comenzar con un prefijo gitflow."
+    },
+    "app.branches.reason.targetExists": {
+      "en": "A branch with that name already exists.",
+      "es": "Ya existe una rama con ese nombre."
+    },
+    "app.branches.reason.branchNotMerged": {
+      "en": "Its branch is not merged; the worktree was kept.",
+      "es": "Su rama no está integrada; se conservó el worktree."
+    },
+    "app.branches.reason.noRemote": {
+      "en": "The repository has no remote.",
+      "es": "El repositorio no tiene remoto."
+    },
+    "app.branches.reason.unknownRemote": {
+      "en": "Unknown remote.",
+      "es": "Remoto desconocido."
+    },
+    "app.branches.status.deleted": {
+      "en": "Deleted",
+      "es": "Eliminada"
+    },
+    "app.branches.status.renamed": {
+      "en": "Renamed",
+      "es": "Renombrada"
+    },
+    "app.branches.status.pruned": {
+      "en": "Pruned",
+      "es": "Depurado"
+    },
+    "app.branches.status.removed": {
+      "en": "Removed",
+      "es": "Quitado"
+    },
+    "app.branches.status.skipped": {
+      "en": "Skipped",
+      "es": "Omitida"
+    },
+    "app.branches.status.failed": {
+      "en": "Failed",
+      "es": "Falló"
+    },
+    "app.branches.status.blocked": {
+      "en": "Blocked by policy",
+      "es": "Bloqueada por política"
+    },
+    "app.branches.health.merged": {
+      "en": "{count} branch(es) already merged into {base} but not deleted.",
+      "es": "{count} rama(s) ya integradas en {base} pero sin eliminar."
+    },
+    "app.branches.health.squash": {
+      "en": "{count} branch(es) probably squash-merged into {base} (not certain; review before force delete).",
+      "es": "{count} rama(s) probablemente integradas con squash en {base} (no es seguro; revísalas antes de forzar el borrado)."
+    },
+    "app.branches.health.mergedWorktree": {
+      "en": "{count} AIDO worktree(s) whose branch is already integrated.",
+      "es": "{count} worktree(s) de AIDO cuya rama ya está integrada."
+    },
+    "app.branches.health.upstreamGone": {
+      "en": "{count} branch(es) whose upstream was deleted on the remote.",
+      "es": "{count} rama(s) cuyo upstream se eliminó en el remoto."
+    },
+    "app.branches.health.nonGitflow": {
+      "en": "{count} local branch(es) without a gitflow prefix.",
+      "es": "{count} rama(s) locales sin prefijo gitflow."
+    },
+    "app.branches.health.stale": {
+      "en": "{count} unmerged branch(es) older than {days} days.",
+      "es": "{count} rama(s) sin integrar con más de {days} días de antigüedad."
+    },
+    "app.branches.health.farBehind": {
+      "en": "{count} branch(es) far behind {base}; merge {base} into them manually (AIDO never rebases).",
+      "es": "{count} rama(s) muy atrasadas respecto de {base}; integra {base} en ellas manualmente (AIDO nunca hace rebase)."
+    },
+    "app.branches.health.basedOnMain": {
+      "en": "{count} feature branch(es) seem based on main instead of {base}; consider recreating them from {base}.",
+      "es": "{count} rama(s) de funcionalidad parecen basadas en main en vez de {base}; considera recrearlas desde {base}."
+    },
+    "app.branches.health.integrationMissing": {
+      "en": "The integration branch {base} does not exist in this repository.",
+      "es": "La rama de integración {base} no existe en este repositorio."
+    },
+    "app.branches.action.reviewDelete": {
+      "en": "Review and delete",
+      "es": "Revisar y eliminar"
+    },
+    "app.branches.action.showCleanup": {
+      "en": "Show cleanup candidates",
+      "es": "Ver candidatas a limpieza"
+    },
+    "app.branches.action.removeWorktrees": {
+      "en": "Remove worktrees…",
+      "es": "Quitar worktrees…"
+    },
+    "app.branches.action.prune": {
+      "en": "Prune remote refs",
+      "es": "Depurar refs remotas"
+    },
+    "app.branches.action.showNonGitflow": {
+      "en": "Show and rename",
+      "es": "Ver y renombrar"
+    },
+    "app.branches.action.showStale": {
+      "en": "Show stale",
+      "es": "Ver antiguas"
+    },
+    "app.branches.action.gitSettings": {
+      "en": "Open Git settings",
+      "es": "Abrir configuración de Git"
+    },
+    "app.branches.title": {
+      "en": "Branches — {project}",
+      "es": "Ramas — {project}"
+    },
+    "app.branches.titleEmpty": {
+      "en": "Branches",
+      "es": "Ramas"
+    },
+    "app.branches.loading": {
+      "en": "Loading branch inventory…",
+      "es": "Cargando inventario de ramas…"
+    },
+    "app.branches.unavailableTitle": {
+      "en": "No branch inventory yet",
+      "es": "Aún no hay inventario de ramas"
+    },
+    "app.branches.healthTitle": {
+      "en": "Gitflow health",
+      "es": "Salud de gitflow"
+    },
+    "app.branches.healthy": {
+      "en": "Gitflow looks tidy: nothing to clean up.",
+      "es": "El gitflow está ordenado: no hay nada que limpiar."
+    },
+    "app.branches.filter.label": {
+      "en": "Filter branches",
+      "es": "Filtrar ramas"
+    },
+    "app.branches.filter.all": {
+      "en": "All",
+      "es": "Todas"
+    },
+    "app.branches.filter.cleanup": {
+      "en": "Merged",
+      "es": "Integradas"
+    },
+    "app.branches.filter.stale": {
+      "en": "Stale",
+      "es": "Antiguas"
+    },
+    "app.branches.filter.nonGitflow": {
+      "en": "No prefix",
+      "es": "Sin prefijo"
+    },
+    "app.branches.filter.protected": {
+      "en": "Protected",
+      "es": "Protegidas"
+    },
+    "app.branches.searchLabel": {
+      "en": "Search branches",
+      "es": "Buscar ramas"
+    },
+    "app.branches.searchPlaceholder": {
+      "en": "Search branches…",
+      "es": "Buscar ramas…"
+    },
+    "app.branches.showRemote": {
+      "en": "Show remote branches",
+      "es": "Mostrar ramas remotas"
+    },
+    "app.branches.noMatches": {
+      "en": "No branches match this filter.",
+      "es": "Ninguna rama coincide con este filtro."
+    },
+    "app.branches.selectBranch": {
+      "en": "Select {branch}",
+      "es": "Seleccionar {branch}"
+    },
+    "app.branches.chip.current": {
+      "en": "HEAD",
+      "es": "HEAD actual"
+    },
+    "app.branches.chip.merged": {
+      "en": "Merged into {base}",
+      "es": "Integrada en {base}"
+    },
+    "app.branches.chip.squash": {
+      "en": "Probably merged (squash)",
+      "es": "Probablemente integrada (squash)"
+    },
+    "app.branches.chip.protected": {
+      "en": "Protected",
+      "es": "Protegida"
+    },
+    "app.branches.chip.gone": {
+      "en": "Upstream gone",
+      "es": "Upstream eliminado"
+    },
+    "app.branches.chip.stale": {
+      "en": "Stale {days}d",
+      "es": "Antigua: {days} d"
+    },
+    "app.branches.chip.worktree": {
+      "en": "AIDO worktree",
+      "es": "Worktree de AIDO"
+    },
+    "app.branches.chip.basedOnMain": {
+      "en": "Based on main",
+      "es": "Basada en main"
+    },
+    "app.branches.aheadBehind": {
+      "en": "↑{ahead} ↓{behind} vs {base}",
+      "es": "↑{ahead} ↓{behind} respecto de {base}"
+    },
+    "app.branches.tracking": {
+      "en": "tracks {upstream}",
+      "es": "sigue a {upstream}"
+    },
+    "app.branches.removeWorktreeFor": {
+      "en": "Remove worktree of {branch}",
+      "es": "Quitar el worktree de {branch}"
+    },
+    "app.branches.renameBranch": {
+      "en": "Rename {branch}",
+      "es": "Renombrar {branch}"
+    },
+    "app.branches.deleteBranch": {
+      "en": "Delete {branch}",
+      "es": "Eliminar {branch}"
+    },
+    "app.branches.confirm.title": {
+      "en": "Confirm branch deletion",
+      "es": "Confirmar eliminación de ramas"
+    },
+    "app.branches.confirm.safe": {
+      "en": "Merged into {base} — safe delete (git branch -d):",
+      "es": "Integradas en {base}: borrado seguro (git branch -d):"
+    },
+    "app.branches.confirm.force": {
+      "en": "NOT certainly merged into {base} — force delete (git branch -D):",
+      "es": "NO integradas con certeza en {base}: borrado forzado (git branch -D):"
+    },
+    "app.branches.confirm.unmerged": {
+      "en": "has commits not in {base}",
+      "es": "tiene commits que no están en {base}"
+    },
+    "app.branches.confirm.forceAck": {
+      "en": "I understand these commits may be lost and want to force delete them.",
+      "es": "Entiendo que estos commits podrían perderse y quiero forzar su eliminación."
+    },
+    "app.branches.confirm.remote": {
+      "en": "Also delete the branch on the remote (git push <remote> --delete)",
+      "es": "Eliminar también la rama en el remoto (git push <remoto> --delete)"
+    },
+    "app.branches.confirm.remoteHelp": {
+      "en": "Off by default. Protected branches are never deleted on the remote.",
+      "es": "Desactivado por defecto. Las ramas protegidas nunca se eliminan en el remoto."
+    },
+    "app.branches.confirm.remoteSkipped": {
+      "en": "Selected remote branches will be skipped unless remote deletion is enabled.",
+      "es": "Las ramas remotas seleccionadas se omitirán salvo que habilites el borrado en el remoto."
+    },
+    "app.branches.confirm.submit": {
+      "en": "Delete {count} branch(es)",
+      "es": "Eliminar {count} rama(s)"
+    },
+    "app.branches.rename.title": {
+      "en": "Rename {branch}",
+      "es": "Renombrar {branch}"
+    },
+    "app.branches.rename.label": {
+      "en": "New gitflow name",
+      "es": "Nuevo nombre gitflow"
+    },
+    "app.branches.rename.help": {
+      "en": "Must start with feature/, bugfix/, release/, hotfix/ or support/. Only local branches without upstream are renamed.",
+      "es": "Debe comenzar con feature/, bugfix/, release/, hotfix/ o support/. Solo se renombran ramas locales sin upstream."
+    },
+    "app.branches.rename.invalid": {
+      "en": "Use a gitflow prefix and a valid branch name.",
+      "es": "Usa un prefijo gitflow y un nombre de rama válido."
+    },
+    "app.branches.rename.submit": {
+      "en": "Rename branch",
+      "es": "Renombrar rama"
+    },
+    "app.branches.worktrees.title": {
+      "en": "Remove integrated AIDO worktrees",
+      "es": "Quitar worktrees de AIDO ya integrados"
+    },
+    "app.branches.worktrees.body": {
+      "en": "The workspace is archived and its worktree folder removed; the branch itself is kept until you delete it.",
+      "es": "El workspace se archiva y se elimina la carpeta del worktree; la rama se conserva hasta que la elimines."
+    },
+    "app.branches.worktrees.submit": {
+      "en": "Remove {count} worktree(s)",
+      "es": "Quitar {count} worktree(s)"
+    },
+    "app.branches.results.title": {
+      "en": "Result",
+      "es": "Resultado"
+    },
+    "app.branches.results.summary": {
+      "en": "{done} done · {skipped} skipped · {failed} failed",
+      "es": "{done} listas · {skipped} omitidas · {failed} con error"
+    },
+    "app.branches.results.forced": {
+      "en": "forced",
+      "es": "forzado"
+    },
+    "app.branches.results.back": {
+      "en": "Back to branches",
+      "es": "Volver a las ramas"
+    },
+    "app.branches.back": {
+      "en": "Back",
+      "es": "Volver"
+    },
+    "app.branches.integration": {
+      "en": "Integration branch",
+      "es": "Rama de integración"
+    },
+    "app.branches.current": {
+      "en": "HEAD",
+      "es": "HEAD actual"
+    },
+    "app.branches.rescan": {
+      "en": "Rescan",
+      "es": "Volver a escanear"
+    },
+    "app.branches.scanning": {
+      "en": "Scanning branches…",
+      "es": "Escaneando ramas…"
+    },
+    "app.branches.applying": {
+      "en": "Applying changes…",
+      "es": "Aplicando cambios…"
+    },
+    "app.branches.selectedCount": {
+      "en": "{count} selected",
+      "es": "{count} seleccionadas"
+    },
+    "app.branches.deleteMerged": {
+      "en": "Delete merged branches ({count})…",
+      "es": "Eliminar ramas integradas ({count})…"
+    },
+    "app.branches.deleteSelected": {
+      "en": "Delete selected…",
+      "es": "Eliminar seleccionadas…"
+    },
+    "app.shell.projects.menu.label": {
+      "en": "Project actions",
+      "es": "Acciones del proyecto"
+    },
+    "app.shell.projects.menu.openFolder": {
+      "en": "Open folder",
+      "es": "Abrir carpeta"
+    },
+    "app.shell.projects.menu.copyPath": {
+      "en": "Copy path",
+      "es": "Copiar ruta"
+    },
+    "app.shell.projects.menu.manageBranches": {
+      "en": "Manage branches…",
+      "es": "Gestionar ramas…"
+    },
+    "app.shell.projects.menu.settings": {
+      "en": "Project settings",
+      "es": "Configuración del proyecto"
+    },
+    "app.shell.projects.folderOpened": {
+      "en": "Folder opened in the file manager",
+      "es": "Carpeta abierta en el explorador de archivos"
+    },
+    "app.shell.projects.folderOpenError": {
+      "en": "Could not open the project folder.",
+      "es": "No se pudo abrir la carpeta del proyecto."
+    },
+    "app.shell.projects.pathCopied": {
+      "en": "Project path copied",
+      "es": "Ruta del proyecto copiada"
+    },
+    "app.shell.projects.pathCopyError": {
+      "en": "Could not copy the project path.",
+      "es": "No se pudo copiar la ruta del proyecto."
+    },
     "app.shell.threads.menu.label": {
       "en": "Thread actions",
       "es": "Acciones del hilo"

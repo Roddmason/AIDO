@@ -260,9 +260,11 @@ the API.
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/health-check` | Provider Health Check |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/images/edits` | Execute Provider Image Editing |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/images/generations` | Execute Provider Image Generation |
+| `GET` | `/api/v1/model-gateway/providers/{provider_id}/model-validation` | Model Validation Status |
 | `PATCH` | `/api/v1/model-gateway/providers/{provider_id}/models` | Patch Provider Models |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/rerank` | Execute Provider Rerank |
 | `POST` | `/api/v1/model-gateway/providers/{provider_id}/test-prompt` | Test Prompt |
+| `POST` | `/api/v1/model-gateway/providers/{provider_id}/validate-all-models` | Validate All Models |
 | `GET` | `/api/v1/model-gateway/role-policies` | List Role Policies |
 | `POST` | `/api/v1/model-gateway/role-policies` | Create Role Policy |
 | `PATCH` | `/api/v1/model-gateway/role-policies/{policy_id}` | Patch Role Policy |

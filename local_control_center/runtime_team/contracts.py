@@ -77,6 +77,94 @@ class RuntimeTeamValidationRecord(BaseModel):
     http_status: int | None = Field(default=None, alias="httpStatus")
 
 
+#: Tope de ids por corrida explícita (mismo margen que el bulk PATCH de modelos).
+MAX_CATALOG_VALIDATION_MODELS = 10_000
+ModelValidationOutcomeStatus = Literal["ok", "failed", "skipped"]
+ModelValidationRunStatus = Literal[
+    "running", "completed", "cancelled", "budget_exhausted", "aborted", "interrupted"
+]
+
+
+class CatalogValidationRequest(BaseModel):
+    """Cuerpo de ``models.validate_all_models``: qué modelos probar y con qué límites.
+
+    Sin ``models`` prueba todos los modelos habilitados (o solo los que no tienen un resultado de las
+    últimas 24 h con ``onlyUntested``); ``models`` son ids del catálogo (``provider:model``) y puede
+    incluir modelos descartados para volver a probarlos. La concurrencia, el tope por modelo y el
+    presupuesto total quedan acotados para no pasar el sobre de 900 s de una ejecución.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    models: list[str] | None = Field(default=None, max_length=MAX_CATALOG_VALIDATION_MODELS)
+    only_untested: bool = Field(default=False, alias="onlyUntested")
+    concurrency: int = Field(default=4, ge=1, le=8)
+    model_timeout_seconds: float = Field(default=20.0, ge=3, le=60, alias="modelTimeoutSeconds")
+    budget_seconds: float = Field(default=600.0, ge=10, le=840, alias="budgetSeconds")
+
+
+class ModelValidationOutcomeRecord(BaseModel):
+    """Último resultado de un modelo con su causa breve y si quedó descartado.
+
+    ``ok``: validado. ``failed``: falla definitiva, descartado si el proveedor tiene otro modelo que pasó.
+    ``skipped``: falla transitoria o del endpoint, ni validado ni descartado.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    model_id: str = Field(alias="modelId")
+    model: str
+    status: ModelValidationOutcomeStatus
+    http_status: int | None = Field(default=None, alias="httpStatus")
+    reason: str | None = None
+    detail: str | None = None
+    latency_ms: int | None = Field(default=None, alias="latencyMs")
+    run_id: str | None = Field(default=None, alias="runId")
+    tested_at: str = Field(alias="testedAt")
+    enabled: bool
+    discarded: bool
+
+
+class ModelValidationRunRecord(BaseModel):
+    """Avance de una corrida: hechos/total, ok, fallidos, omitidos y descartados."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    run_id: str = Field(alias="runId")
+    provider_id: str = Field(alias="providerId")
+    status: ModelValidationRunStatus
+    reason: str = ""
+    total: int
+    done: int
+    ok: int
+    failed: int
+    skipped: int
+    discarded: int
+    concurrency: int
+    model_timeout_seconds: float = Field(alias="modelTimeoutSeconds")
+    budget_seconds: float = Field(alias="budgetSeconds")
+    started_at: str = Field(alias="startedAt")
+    updated_at: str = Field(alias="updatedAt")
+    finished_at: str | None = Field(default=None, alias="finishedAt")
+
+
+class CatalogValidationResponse(BaseModel):
+    """Resultado de ``models.validate_all_models``: la corrida, sus modelos y el estado del proveedor."""
+
+    run: ModelValidationRunRecord
+    outcomes: list[ModelValidationOutcomeRecord]
+    provider_validation: RuntimeTeamValidationRecord = Field(alias="providerValidation")
+
+
+class ModelValidationStatusResponse(BaseModel):
+    """Lectura sin red del avance: última corrida del proveedor y último resultado por modelo."""
+
+    run: ModelValidationRunRecord | None = None
+    outcomes: list[ModelValidationOutcomeRecord]
+    untested: int
+    provider_validation: RuntimeTeamValidationRecord = Field(alias="providerValidation")
+
+
 class RuntimeTeamCandidateRecord(BaseModel):
     """Runtime configurado y habilitado que el operador puede sumar al equipo del hilo."""
 

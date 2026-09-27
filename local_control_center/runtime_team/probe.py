@@ -167,7 +167,7 @@ def credential_failure(account: dict[str, Any], detail: str) -> tuple[str, str]:
     return "credential_invalid", str(redact_secrets(message))
 
 
-def _stored_secret_missing(account: dict[str, Any]) -> tuple[str, str] | None:
+def stored_secret_missing(account: dict[str, Any]) -> tuple[str, str] | None:
     """Causa y explicación de una ref que el control sin lectura dio por buena pero sin secreto legible.
 
     Una ref de llavero o bóveda queda ``unverified`` sin leer el valor; si al leerlo no hay secreto el
@@ -291,7 +291,7 @@ def _role_policy_models(connection: sqlite3.Connection, provider_id: str) -> lis
     return models
 
 
-def _endpoint_unreachable(result: dict[str, Any]) -> bool:
+def endpoint_unreachable(result: dict[str, Any]) -> bool:
     """Indica si la falla es del endpoint (no respondió) y no de un modelo: cortar la búsqueda.
 
     Una respuesta HTTP (aunque sea un 504 "upstream timed out") prueba que el gateway es alcanzable, y un
@@ -565,7 +565,7 @@ class RuntimeValidationService:
         except HTTPException as error:
             cause, evidence = credential_failure(account, str(error.detail))
             return self._failed(provider_id, kind, reason=cause, evidence=evidence)
-        if (unreadable := _stored_secret_missing(account)) is not None:
+        if (unreadable := stored_secret_missing(account)) is not None:
             return self._failed(provider_id, kind, reason=unreadable[0], evidence=unreadable[1])
         models = self._models_to_validate(account, requested=model)
         if not models:
@@ -614,9 +614,19 @@ class RuntimeValidationService:
                 timeout_seconds=max(min(VALIDATION_ATTEMPT_TIMEOUT_SECONDS, remaining), _MIN_ATTEMPT_SECONDS),
             )
             attempts.append({key: result.get(key) for key in _ATTEMPT_KEYS})
-            if result["status"] == "validated" or _endpoint_unreachable(result):
+            if result["status"] == "validated" or endpoint_unreachable(result):
                 break
         return {**result, "attempts": attempts}
+
+    def probe_model(
+        self, provider_id: str, kind: str, model: str, provider: Any, *, timeout_seconds: float
+    ) -> dict[str, Any]:
+        """Prueba un modelo de API/gateway con la completion de test-prompt y deja su evidencia.
+
+        Es el mismo camino que usa ``models.validate_runtime`` para un modelo fijado; la validación de
+        todo el catálogo (``catalog_validation``) lo llama por modelo desde sus hilos de red.
+        """
+        return self._probe_remote_model(provider_id, kind, model, provider, timeout_seconds=timeout_seconds)
 
     def _probe_remote_model(
         self, provider_id: str, kind: str, model: str, provider: Any, *, timeout_seconds: float

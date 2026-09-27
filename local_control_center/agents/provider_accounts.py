@@ -159,8 +159,11 @@ MODEL_CATALOG_COLUMNS = """
     supports_embeddings, supports_rerank, supports_reasoning, supports_thinking,
     supports_image_generation, supports_image_editing, effort_levels_json,
     input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
-    reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at
+    reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at,
+    disabled_reason, disabled_detail
 """
+#: ``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó.
+VALIDATION_FAILED_REASON = "validation_failed"
 PRICING_SNAPSHOT_COLUMNS = """
     id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
     output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,
@@ -264,6 +267,8 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "source": row["source"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+        "disabledReason": _optional_column(row, "disabled_reason"),
+        "disabledDetail": _optional_column(row, "disabled_detail"),
     }
 
 
@@ -625,10 +630,13 @@ class ProviderAccountStore:
                 free_tier = excluded.free_tier,
                 free_tier_notes = excluded.free_tier_notes,
                 enabled = CASE
+                    WHEN ? AND model_catalog.disabled_reason = 'validation_failed' THEN 0
                     WHEN ? AND model_catalog.source = 'operator_override' THEN model_catalog.enabled
                     ELSE excluded.enabled END,
                 source = CASE
-                    WHEN ? AND model_catalog.source = 'operator_override' THEN model_catalog.source
+                    WHEN ? AND (model_catalog.source = 'operator_override'
+                                OR model_catalog.disabled_reason = 'validation_failed')
+                        THEN model_catalog.source
                     ELSE excluded.source END,
                 updated_at = excluded.updated_at
             """,
@@ -664,7 +672,14 @@ class ProviderAccountStore:
                 now,
                 preserve_operator_enabled,
                 preserve_operator_enabled,
+                preserve_operator_enabled,
             ),
+        )
+        # Un modelo que queda habilitado ya no está descartado: la marca de validación se retira.
+        self.connection.execute(
+            """UPDATE model_catalog SET disabled_reason = NULL, disabled_detail = NULL
+               WHERE provider_id = ? AND model = ? AND enabled = 1 AND disabled_reason IS NOT NULL""",
+            (body["providerId"], body["model"]),
         )
         row = self.connection.execute(
             f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog WHERE provider_id = ? AND model = ?",
@@ -701,10 +716,12 @@ class ProviderAccountStore:
         if model_ids is None:
             cursor = self.connection.execute(
                 """
-                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?,
+                    disabled_reason = CASE WHEN ? THEN NULL ELSE disabled_reason END,
+                    disabled_detail = CASE WHEN ? THEN NULL ELSE disabled_detail END
                 WHERE provider_id = ?
                 """,
-                (1 if enabled else 0, now, provider_id),
+                (1 if enabled else 0, now, enabled, enabled, provider_id),
             )
             return int(cursor.rowcount or 0)
         unique_ids = list(dict.fromkeys(model_ids))
@@ -715,14 +732,54 @@ class ProviderAccountStore:
             placeholders = ",".join("?" for _ in chunk)
             cursor = self.connection.execute(
                 f"""
-                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?,
+                    disabled_reason = CASE WHEN ? THEN NULL ELSE disabled_reason END,
+                    disabled_detail = CASE WHEN ? THEN NULL ELSE disabled_detail END
                 WHERE provider_id = ? AND id IN ({placeholders})
                 """,
-                (1 if enabled else 0, now, provider_id, *chunk),
+                (1 if enabled else 0, now, enabled, enabled, provider_id, *chunk),
             )
             updated += int(cursor.rowcount or 0)
         if updated != len(unique_ids):
             raise KeyError(f"{len(unique_ids) - updated} model(s) not found for provider {provider_id}")
+        return updated
+
+    def discard_failed_models(self, provider_id: str, details: Mapping[str, str]) -> int:
+        """Deshabilita los modelos que fallaron la validación y los marca ``validation_failed``.
+
+        ``details`` va de nombre de modelo a la causa breve y redactada. Queda como elección del operador
+        (``operator_override``) para que un resync no los vuelva a habilitar; la fila nunca se borra y
+        re-habilitarla (bulk PATCH o una nueva prueba que pase) retira la marca. Corre en la transacción
+        del llamador y devuelve cuántas filas tocó.
+        """
+        now = utc_now()
+        updated = 0
+        for model, detail in details.items():
+            cursor = self.connection.execute(
+                """UPDATE model_catalog SET enabled = 0, source = 'operator_override', updated_at = ?,
+                       disabled_reason = ?, disabled_detail = ?
+                   WHERE provider_id = ? AND model = ?""",
+                (now, VALIDATION_FAILED_REASON, str(redact_secrets(detail))[:500], provider_id, model),
+            )
+            updated += int(cursor.rowcount or 0)
+        return updated
+
+    def restore_validated_models(self, provider_id: str, models: list[str]) -> int:
+        """Vuelve a habilitar los modelos descartados por validación que ahora pasaron la prueba.
+
+        Solo toca filas con ``disabled_reason = 'validation_failed'``: un modelo que el operador apagó a
+        mano sigue apagado aunque responda. Corre en la transacción del llamador.
+        """
+        now = utc_now()
+        updated = 0
+        for model in models:
+            cursor = self.connection.execute(
+                """UPDATE model_catalog SET enabled = 1, updated_at = ?, disabled_reason = NULL,
+                       disabled_detail = NULL
+                   WHERE provider_id = ? AND model = ? AND disabled_reason = ?""",
+                (now, provider_id, model, VALIDATION_FAILED_REASON),
+            )
+            updated += int(cursor.rowcount or 0)
         return updated
 
     def list_pricing_snapshots(

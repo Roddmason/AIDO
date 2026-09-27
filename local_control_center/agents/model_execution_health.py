@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from .credentials import CredentialResolver
 
@@ -20,9 +20,16 @@ AUTHENTICATION_COOLDOWN_SECONDS = 300
 
 
 def provider_authentication_failure(connection, provider_id, fingerprint):
-    """Apply account failures even when its other models retain successful receipts."""
+    """Apply account failures even when its other models retain successful receipts.
+
+    On a gateway a 401/403 is an account failure unless a *different* model of the same configuration
+    succeeded within the cooldown window around it: the gateway answers 401 for an upstream it holds no
+    account for while its own credential demonstrably works, and one such model must not cool down the
+    whole provider (per-model evidence already keeps that model out of routing). On a direct API, or when
+    the same model fails after its own success, the account still cools down.
+    """
     row = connection.execute(
-        """SELECT success,http_status,started_at FROM model_execution_health
+        """SELECT model,success,http_status,started_at FROM model_execution_health
            WHERE provider_id=? AND configuration_fingerprint=?
            AND (success=1 OR http_status IN (401,403))
            ORDER BY started_at DESC,id DESC LIMIT 1""",
@@ -31,12 +38,28 @@ def provider_authentication_failure(connection, provider_id, fingerprint):
     if row is None or row["success"]:
         return None
     try:
-        age = (
-            datetime.now(UTC) - datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
-        ).total_seconds()
+        failed_at = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+        age = (datetime.now(UTC) - failed_at).total_seconds()
     except (ValueError, TypeError):
         return None
-    return row["http_status"] if 0 <= age < AUTHENTICATION_COOLDOWN_SECONDS else None
+    if not 0 <= age < AUTHENTICATION_COOLDOWN_SECONDS:
+        return None
+    kind = connection.execute(
+        "SELECT provider_type FROM provider_accounts WHERE provider_id = ? OR id = ?",
+        (provider_id, provider_id),
+    ).fetchone()
+    if kind is None or kind["provider_type"] != "gateway":
+        return row["http_status"]
+    window_start = (failed_at - timedelta(seconds=AUTHENTICATION_COOLDOWN_SECONDS)).isoformat(
+        timespec="microseconds"
+    )
+    other_success = connection.execute(
+        """SELECT 1 FROM model_execution_health
+           WHERE provider_id=? AND configuration_fingerprint=? AND success=1 AND model<>?
+           AND started_at>=? LIMIT 1""",
+        (provider_id, fingerprint, row["model"], window_start),
+    ).fetchone()
+    return None if other_success else row["http_status"]
 
 
 def provider_configuration_fingerprint(connection: sqlite3.Connection, provider_id: str) -> str:

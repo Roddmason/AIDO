@@ -1220,3 +1220,59 @@ test('Threads: an all-unwired roster never unfolds into a wall of unknown profil
 
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
+
+test('Threads: with its own AI team, the effective team card follows the thread PO for unassigned roles', async ({
+	page,
+}) => {
+	// Regex, not a glob: `**/runtime/team**` would also swallow `/runtime/team-candidates`.
+	await page.route(/\/api\/v1\/runtime\/team(\?.*)?$/, (route) =>
+		route.fulfill({
+			json: {
+				roles: [
+					{ role: 'product_owner', required: true, configured: [], effective: ['llama_cpp'], assigned: 'llama_cpp', source: 'automatic', invalid: [], candidates: ['llama_cpp'] },
+					{ role: 'technical_lead', required: false, configured: [], effective: ['llama_cpp'], assigned: 'llama_cpp', source: 'inherited', invalid: [], candidates: ['llama_cpp'] },
+				],
+				allowedRuntimes: ['llama_cpp'],
+				activeProviders: 1,
+				candidates: [],
+			},
+		}),
+	);
+	const firstMessage = `Thread team overrides the global team ${Date.now()}`;
+	await page.route('**/api/v1/threads/*', async (route) => {
+		const response = await route.fetch();
+		const detail = await response.json();
+		if (!detail.thread || detail.thread.title !== firstMessage.slice(0, 80)) {
+			await route.fulfill({ response });
+			return;
+		}
+		await route.fulfill({
+			response,
+			json: {
+				...detail,
+				thread: {
+					...detail.thread,
+					metadata: {
+						...(detail.thread.metadata ?? {}),
+						runConfiguration: {
+							allowedRuntimes: ['codex_cli'],
+							roleRuntimes: { product_owner: 'codex_cli', developer: 'codex_cli' },
+						},
+					},
+				},
+			},
+		});
+	});
+	await page.goto('/#threads');
+	await expectControlPlaneLoaded(page);
+	await createLiveThread(page, firstMessage);
+	const inspector = page.locator('.inspector-panel');
+	await expect(inspector.locator('.thread-inspector')).toBeVisible({ timeout: 20_000 });
+	await inspector.getByRole('tablist').getByRole('tab', { name: /Team|Equipo/ }).click();
+	const card = inspector.getByRole('region', { name: 'Effective AI team' });
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	const techLead = card.locator('div').filter({ hasText: 'Technical Lead' });
+	await expect(techLead).toContainText('codex_cli');
+	await expect(techLead).toContainText('this thread');
+	await expect(card).not.toContainText('llama_cpp');
+});

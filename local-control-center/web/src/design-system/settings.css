@@ -714,7 +714,7 @@
 /* ---- AI health modal (RuntimeHealthModal) ----
  * It borrows the thread remediation card; these hooks size it for a dialog. The tone follows the
  * blocker: an expired validation is a warning (revalidate, no new sign-in), everything else danger.
- * Borders mix in oklab: the oklch hue path from red (28) to the blue-grey border ran through purple. */
+ * Borders mix in oklab: the oklch hue path from red (28) to the blue-grey border picked up a violet cast. */
 .runtime-health-card {
 	gap: var(--space-3);
 	padding: var(--space-4);

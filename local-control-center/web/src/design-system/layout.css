@@ -936,7 +936,12 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-4);
+	/* With the worker item the bar holds nine slots plus the display controls and must still fit one
+	 * line at 1280px: a step tighter gap and gutter, small controls (language, theme, density, the
+	 * Resume / "need attention" buttons) and compact labels in StatusBar. */
+	--control-height: var(--control-height-sm);
+	gap: var(--space-3);
+	padding-inline: var(--space-4);
 	border-top: 1px solid var(--color-border-subtle);
 	border-bottom: 0;
 }
@@ -3557,6 +3562,37 @@
 
 .status-bar-label {
 	color: var(--color-text-muted);
+}
+
+/* A long project name truncates (full path in the item's tooltip) instead of pushing items down. */
+.status-bar-project {
+	display: inline-block;
+	max-width: 14rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+}
+
+/* The Operations link (also in Settings > Advanced) is the first slot to go when the bar is short
+ * of room: below 1440px it would push the display controls onto a second line. */
+@media (max-width: 1439px) {
+	.status-bar .status-bar-item--wide {
+		display: none;
+	}
+}
+
+/* Phones: the bar keeps what needs action (API, project, worker, runtimes, providers, approvals)
+ * and drops the Operations link, QA ratio and cost, which live in Settings and the run views; it
+ * wrapped to five lines of status before. */
+@media (max-width: 720px) {
+	.status-bar .status-bar-item--minor {
+		display: none;
+	}
+
+	.app-shell-ide .status-bar {
+		gap: var(--space-2) var(--space-3);
+		padding-inline: var(--space-3);
+	}
 }
 
 @media (max-width: 980px) {

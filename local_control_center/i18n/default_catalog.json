@@ -3415,6 +3415,10 @@
       "en": "executable runtimes",
       "es": "runtimes ejecutables"
     },
+    "app.statusBar.runtimes": {
+      "en": "runtimes",
+      "es": "entornos"
+    },
     "app.statusBar.approvals": {
       "en": "approvals",
       "es": "aprobaciones"

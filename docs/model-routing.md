@@ -74,6 +74,33 @@ the provider-level wildcard `{"provider": "...", "model": "*"}` when the intent 
 this provider", which is what the provider wizard and `scripts/setup_omniroute.py` write for
 auto-routed gateways.
 
+## Global AI team: which provider serves each role, for every thread
+
+`team.role.<role>` (`string_list`, general scope with a project override) lists the providers a role
+may use, in order: the first is the assigned one, the rest are fallbacks. Roles: `product_owner`,
+`developer` (required), `architect`, `security` (optional), `technical_lead`, `researcher` (empty ⇒
+they inherit the Product Owner's order). An empty list means "automatic": `auto_assign_roles`
+(`runtime_team/roles.py`) over the enabled, policy-allowed providers, ranked CLI first, then the
+operator `runtimeOrder`, then id, with the remaining eligible providers as fallbacks. Ids that are not
+active or not eligible for the role are reported (`invalid`) and ignored. `GET
+/api/v1/runtime/team?projectId=` returns the effective team (`runtime_team/global_team.py`).
+
+At send time, a thread without its own team seals the resolved team as `globalRuntimeTeam` in the
+run metadata (`runtime_team/configuration.py:seal_thread_runtime_team`); a client-sent value is
+always discarded. `role_allowlist` then returns the role's order. `AIResourceRequest.provider_order`
+carries the same order and ranks before `preferred_resources`, so the role policy pins only pick the
+model inside the provider the operator put first. `_run_with_failover` walks the fallbacks when the
+assigned provider fails. A role is never widened to the whole catalog while a global snapshot exists:
+if none of its providers can serve, the role blocks with the existing assignment blocker.
+
+When Jev selects the runtime (`decision_engine.mode = runtime_selection`) the routing preferences do
+not apply. An automatic order (every eligible active provider) is then tried one provider at a time
+(`_jev_provider_walk`, probes without recording), so Jev never breaks a tie between providers nobody
+chose. An order the operator wrote keeps the whole allowlist and may reach
+`confidence_below_threshold` by design. A thread's own team (`runtimeTeam`, the composer chip) keeps
+priority and its single-provider allowlist. Runs sealed before the global team (no snapshot) keep the
+legacy inheritance of the Product Owner's provider.
+
 ## Risks
 
 - The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can

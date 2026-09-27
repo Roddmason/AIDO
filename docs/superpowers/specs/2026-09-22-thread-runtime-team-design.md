@@ -4,6 +4,11 @@
 **Estado:** Diseño aprobado (sub-proyecto 1 de 3). Pendiente de plan de implementación.
 **Autor:** Rodrigo Mason (diseño asistido)
 
+> **Nota de estado (2026-09-27):** el equipo por hilo pasa a ser un override opcional del equipo de IA
+> global (`team.role.<rol>`, general > proyecto > automático). Sin equipo en el hilo, el run sella
+> `globalRuntimeTeam` y cada rol rutea por su orden. Ver
+> `docs/superpowers/specs/2026-09-26-global-ai-team-and-provider-sessions-design.md`.
+
 ## 1. Objetivo
 
 Que el operador elija, **por hilo**, qué runtimes de IA participan (Claude Code CLI, Codex CLI, NVIDIA NIM,

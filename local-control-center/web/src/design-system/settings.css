@@ -206,6 +206,26 @@
 	flex-wrap: nowrap;
 }
 
+/* "Use for roles": up to six role ids per card. Inline with the label the first chip rode beside it
+ * and the rest wrapped under it, a ragged wall (~5 rows in a 23rem column) as heavy as the status
+ * badges. The label takes its own line and the ids become a denser, lighter list: tighter gap and
+ * xs text, still >= 24px tall. */
+.card--static > .inline:has(> .field-label) {
+	gap: var(--space-1);
+}
+
+.card--static > .inline:has(> .field-label) > .field-label {
+	flex-basis: 100%;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.card--static > .inline:has(> .field-label) > .badge {
+	min-height: 1.5rem;
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+}
+
 /* Reserve the longer "Inactive" word so toggling the provider never nudges the badge beside it. */
 .provider-switch .setting-switch-state {
 	min-inline-size: 8ch;
@@ -254,5 +274,27 @@
 
 	.setting-row > .setting-control[data-type="boolean"]:not([data-editing]) {
 		justify-content: flex-end;
+	}
+
+	/* The provider picker already fills its own row here; Add/Automatic then split the next row
+	 * evenly instead of leaving two small buttons and a ragged gap under a full-width select. */
+	.ai-team-role > .inline:last-child > select {
+		flex-basis: 100%;
+		max-width: none;
+	}
+
+	.ai-team-role > .inline:last-child > .button {
+		flex: 1 1 0;
+	}
+
+	/* Two short columns instead of one long one: the 12rem nav strip showed ~3 of its 24 sections
+	 * (the active one often cut in half at the edge); two columns show about twice as many. */
+	.settings-nav-list {
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+	}
+
+	/* Half-width cells: a step less inline padding keeps "Providers & CLI" on one line. */
+	.settings-nav-item {
+		padding-inline: var(--space-2);
 	}
 }

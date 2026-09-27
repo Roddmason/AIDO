@@ -4587,7 +4587,10 @@
 	overflow-y: auto;
 }
 
+/* The card is the positioning box of its title button's stretched hit area (see
+   .thread-board-card-open::after), so a click anywhere on the card opens the story drawer. */
 .thread-board-card {
+	position: relative;
 	display: grid;
 	gap: var(--space-2);
 	min-width: 0;
@@ -4609,8 +4612,7 @@
 }
 
 .thread-board-card-index,
-.thread-board-task-role,
-.thread-board-card-runtime {
+.thread-board-task-role {
 	color: var(--color-text-muted);
 	font-size: var(--font-size-xs);
 }
@@ -4675,6 +4677,126 @@
 	overflow-wrap: anywhere;
 }
 
+.thread-board-heading {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--font-size-md);
+	line-height: var(--line-tight);
+	color: var(--color-text-primary);
+}
+
+/* Overall backlog progress sits at the end of the header row and grows into the free space. */
+.thread-board-overall {
+	flex: 1 1 10rem;
+	max-width: 18rem;
+	margin-left: auto;
+}
+
+/* Shared progress bar: a thin inset track, the accent fill and the numeric value beside it. */
+.thread-progress {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.thread-progress-track {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 3rem;
+	height: 0.375rem;
+	overflow: hidden;
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+}
+
+.thread-progress-fill {
+	display: block;
+	height: 100%;
+	background: var(--color-accent);
+	border-radius: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.thread-progress-fill {
+		transition: inline-size var(--duration-slow) var(--ease-emphasized);
+	}
+}
+
+.thread-progress-value {
+	flex: none;
+	min-width: 2.5rem;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	text-align: right;
+}
+
+/* The story currently worked by the loop gets an accent edge so "who is on what" reads at a glance. */
+.thread-board-card[data-active="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 55%, var(--color-border-subtle));
+}
+
+/* Title button: reads as the card heading, not as a control; its ::after covers the whole card. */
+.thread-board-card-open {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.thread-board-card-open::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: var(--radius-md);
+}
+
+.thread-board-card-open:hover {
+	text-decoration: underline;
+}
+
+.thread-board-card-open:focus-visible {
+	outline: none;
+}
+
+.thread-board-card-open:focus-visible::after {
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-board-card-assignee {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+}
+
+.thread-board-card-assignee-text {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.thread-board-card-live {
+	margin-right: var(--space-1);
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+}
+
+.thread-board-card-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.thread-board-card-badges:empty {
+	display: none;
+}
+
 /* Four lanes need ~14rem each to show a card's task rows; below that the board goes to two lanes
    (a 1440 px desktop with the chat column leaves the board ~50rem wide). */
 @container thread-board (max-width: 60rem) {
@@ -4731,6 +4853,79 @@
 	min-height: 0;
 }
 
+/* Folded chat: the side column shrinks to its dock button; the transcript and composer stay mounted
+   (a typed draft survives) but are not rendered until the operator unfolds it. */
+.thread-live-body[data-mode="board"][data-chat="collapsed"] {
+	grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.thread-live-body[data-mode="board"] {
+		transition: grid-template-columns var(--duration-slow) var(--ease-emphasized);
+	}
+}
+
+.thread-transcript-pane[data-collapsed="true"] > .thread-live-scroll,
+.thread-transcript-pane[data-collapsed="true"] > .thread-composer-dock {
+	display: none;
+}
+
+.thread-chat-dock-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 2.5rem;
+	padding: var(--space-2) var(--space-3);
+	border: 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-inset);
+	color: var(--color-text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	cursor: pointer;
+}
+
+.thread-chat-dock-toggle:hover {
+	color: var(--color-text-primary);
+}
+
+.thread-chat-dock-toggle:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* The label takes the free width so the unread count and chevron sit at the far edge. */
+.thread-chat-dock-label {
+	flex: 1 1 auto;
+	text-align: left;
+}
+
+/* Folded on a wide center: a vertical rail with the label running top to bottom. */
+.thread-transcript-pane[data-collapsed="true"] > .thread-chat-dock-toggle {
+	flex-direction: column;
+	height: 100%;
+	padding: var(--space-3) var(--space-2);
+	border-bottom: 0;
+}
+
+.thread-transcript-pane[data-collapsed="true"] .thread-chat-dock-label {
+	flex: none;
+	writing-mode: vertical-rl;
+}
+
+.thread-chat-unread {
+	display: inline-grid;
+	place-items: center;
+	min-width: 1.25rem;
+	height: 1.25rem;
+	padding: 0 var(--space-1);
+	border-radius: var(--radius-pill);
+	background: var(--color-accent-strong);
+	color: var(--color-text-inverse);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+}
+
 /* The chat column is narrow: tighter side padding keeps the composer's controls and context row on
    fewer lines, so the dock does not eat the transcript. */
 .thread-live-body[data-mode="board"] .thread-live-scroll,
@@ -4774,6 +4969,26 @@
 	.thread-live-body[data-mode="board"] .thread-board-column-scroll {
 		max-height: 50dvh;
 	}
+
+	/* Stacked (phone): a folded chat is a full-width tab bar under the board, not a vertical rail. */
+	.thread-live-body[data-mode="board"][data-chat="collapsed"] {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.thread-live-body[data-mode="board"] > .thread-transcript-pane[data-collapsed="true"] {
+		min-height: 0;
+	}
+
+	.thread-transcript-pane[data-collapsed="true"] > .thread-chat-dock-toggle {
+		flex-direction: row;
+		height: auto;
+		padding: var(--space-2) var(--space-3);
+	}
+
+	.thread-transcript-pane[data-collapsed="true"] .thread-chat-dock-label {
+		flex: 1 1 auto;
+		writing-mode: horizontal-tb;
+	}
 }
 
 /* Chat rows reserve up to 9rem for the author chip; in a narrow transcript that starves the message
@@ -4798,4 +5013,171 @@
 	.thread-live-body[data-mode="chat"] .thread-row-content {
 		grid-column: 1 / -1;
 	}
+}
+
+/* ---- Story drawer: one user story's detail, criteria, activity and review ---- */
+.thread-story-body {
+	display: grid;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.thread-story-head {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-story-title {
+	margin: 0;
+	font-size: var(--font-size-md);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-story-priority {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-story-section {
+	display: grid;
+	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.thread-story-section-title {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.thread-story-text,
+.thread-story-muted,
+.thread-story-assignee,
+.thread-story-blocked,
+.thread-story-error {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-text,
+.thread-story-assignee {
+	color: var(--color-text-primary);
+}
+
+.thread-story-muted {
+	color: var(--color-text-secondary);
+}
+
+.thread-story-blocked,
+.thread-story-error {
+	color: var(--color-status-danger);
+}
+
+.thread-story-assignee {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-story-criteria {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Icon column + text: a met criterion takes the success color on its check only; the text stays
+   primary so contrast does not depend on the status hue. */
+.thread-story-criterion {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: start;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.thread-story-criterion-text {
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-criterion[data-met="true"] {
+	color: var(--color-status-success);
+}
+
+.thread-story-facts {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	font-size: var(--font-size-sm);
+}
+
+.thread-story-fact-label {
+	color: var(--color-text-secondary);
+}
+
+.thread-story-fact-value {
+	margin: 0;
+	color: var(--color-text-primary);
+}
+
+.thread-story-commit {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.thread-story-timeline {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.thread-story-event {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+}
+
+.thread-story-event-role,
+.thread-story-event-time {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-story-event-time {
+	margin-left: auto;
+}
+
+.thread-story-review {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-story-review-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
 }

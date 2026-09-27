@@ -1339,6 +1339,174 @@
       "en": "Board",
       "es": "Tablero"
     },
+    "app.threads.board.heading": {
+      "en": "User stories",
+      "es": "HU"
+    },
+    "app.threads.board.overallProgress": {
+      "en": "Backlog progress",
+      "es": "Avance del backlog"
+    },
+    "app.threads.board.percentComplete": {
+      "en": "{percent}% complete",
+      "es": "{percent} % completado"
+    },
+    "app.threads.board.storyProgress": {
+      "en": "Story progress",
+      "es": "Avance de la HU"
+    },
+    "app.threads.board.criteriaMet": {
+      "en": "{met}/{count} criteria",
+      "es": "{met}/{count} criterios"
+    },
+    "app.threads.board.qaVerdict": {
+      "en": "QA {verdict}",
+      "es": "QA: {verdict}"
+    },
+    "app.threads.board.awaitingReview": {
+      "en": "Awaiting your review",
+      "es": "Esperando tu revisión"
+    },
+    "app.threads.board.workingNow": {
+      "en": "Working now",
+      "es": "Trabajando ahora"
+    },
+    "app.threads.board.assigneeNone": {
+      "en": "Unassigned",
+      "es": "Sin asignar"
+    },
+    "app.threads.board.assigneePlanned": {
+      "en": "Unassigned · planned: {roles}",
+      "es": "Sin asignar · planificada para: {roles}"
+    },
+    "app.threads.board.role.developer": {
+      "en": "DeveloperAgent",
+      "es": "Agente desarrollador"
+    },
+    "app.threads.board.role.qa": {
+      "en": "QA gate",
+      "es": "Control de QA"
+    },
+    "app.threads.board.showChat": {
+      "en": "Show chat",
+      "es": "Mostrar conversación"
+    },
+    "app.threads.board.hideChat": {
+      "en": "Hide chat",
+      "es": "Ocultar conversación"
+    },
+    "app.threads.board.unread": {
+      "en": "new messages",
+      "es": "mensajes nuevos"
+    },
+    "app.threads.board.status.todo": {
+      "en": "Moved to To do",
+      "es": "Movida a Por hacer"
+    },
+    "app.threads.board.status.inProgress": {
+      "en": "Development started",
+      "es": "Desarrollo iniciado"
+    },
+    "app.threads.board.status.qa": {
+      "en": "Moved to QA",
+      "es": "Movida a QA"
+    },
+    "app.threads.board.status.done": {
+      "en": "Marked done",
+      "es": "Marcada como lista"
+    },
+    "app.threads.board.status.blocked": {
+      "en": "Blocked",
+      "es": "Bloqueada"
+    },
+    "app.threads.board.status.reopened": {
+      "en": "Reopened",
+      "es": "Reabierta"
+    },
+    "app.threads.story.drawerTitle": {
+      "en": "User story #{index}",
+      "es": "HU #{index}"
+    },
+    "app.threads.story.assignee": {
+      "en": "Who is working it",
+      "es": "Quién la está trabajando"
+    },
+    "app.threads.story.description": {
+      "en": "Description",
+      "es": "Descripción"
+    },
+    "app.threads.story.criterionMet": {
+      "en": "Met",
+      "es": "Cumplido"
+    },
+    "app.threads.story.criterionPending": {
+      "en": "Pending",
+      "es": "Pendiente"
+    },
+    "app.threads.story.noCriteria": {
+      "en": "This story has no acceptance criteria.",
+      "es": "Esta HU no tiene criterios de aceptación."
+    },
+    "app.threads.story.criteriaHelp": {
+      "en": "A criterion counts as met once the story passes its QA gate.",
+      "es": "Un criterio se da por cumplido cuando la HU supera su control de QA."
+    },
+    "app.threads.story.evidence": {
+      "en": "Evidence",
+      "es": "Evidencia"
+    },
+    "app.threads.story.commit": {
+      "en": "Commit",
+      "es": "Commit registrado"
+    },
+    "app.threads.story.noCommit": {
+      "en": "No commit yet",
+      "es": "Aún sin commit"
+    },
+    "app.threads.story.runs": {
+      "en": "Developer runs",
+      "es": "Ejecuciones del desarrollador"
+    },
+    "app.threads.story.activity": {
+      "en": "Activity",
+      "es": "Actividad"
+    },
+    "app.threads.story.noActivity": {
+      "en": "No agent activity recorded for this story yet.",
+      "es": "Aún no hay actividad de agentes registrada para esta HU."
+    },
+    "app.threads.story.review": {
+      "en": "Review",
+      "es": "Revisión"
+    },
+    "app.threads.story.reviewTask": {
+      "en": "Task to rework",
+      "es": "Tarea por rehacer"
+    },
+    "app.threads.story.reviewFeedback": {
+      "en": "What should change",
+      "es": "Qué debe cambiar"
+    },
+    "app.threads.story.requestChanges": {
+      "en": "Request changes",
+      "es": "Solicitar cambios"
+    },
+    "app.threads.story.openApprovals": {
+      "en": "Approve delivery in Approvals",
+      "es": "Aprobar la entrega en Aprobaciones"
+    },
+    "app.threads.story.changesSent": {
+      "en": "Changes requested: the loop reworks this story next.",
+      "es": "Cambios solicitados: el loop rehará esta HU a continuación."
+    },
+    "app.threads.story.changesFailed": {
+      "en": "Could not request changes. The loop may have moved on; try again.",
+      "es": "No se pudieron solicitar los cambios. Es posible que el loop haya avanzado; inténtalo de nuevo."
+    },
+    "app.threads.story.reviewReadOnly": {
+      "en": "Read-only while the loop works. You can request changes on a story once the loop awaits review or approval; the delivery is approved as a whole in Approvals.",
+      "es": "Solo lectura mientras el loop trabaja. Podrás solicitar cambios en una HU cuando el loop espere revisión o aprobación; la entrega se aprueba completa en Aprobaciones."
+    },
     "app.threads.eta.minutesRemaining": {
       "en": "≈ {minutes} min left",
       "es": "≈ {minutes} min restantes"

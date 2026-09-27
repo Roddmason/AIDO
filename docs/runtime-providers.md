@@ -296,6 +296,11 @@ or unknown answer reads as `unknown`):
   (`PATCH /api/v1/model-gateway/providers/{id}`, reported as `enabled` by
   `GET /api/v1/runtime/providers`). A disabled provider is excluded from every thread's team, from
   failover and from the status bar's active-provider count.
+- While a call holds a provider (an `active`/`dispatched`, unexpired row in
+  `provider_execution_leases`), `GET /api/v1/runtime/providers` reports `inUse: true` and the switch stays
+  locked as "In use" until the run finishes. The status bar counts a provider as active when it is
+  enabled, allowed by the runtime policy and of a kind a role can use (`cli`, `api`, `gateway`,
+  `local`), the same rule as `activeProviders` of `GET /api/v1/runtime/team`.
 
 ### Resources and concurrency
 

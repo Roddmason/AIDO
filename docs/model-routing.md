@@ -110,6 +110,14 @@ never `None`); only an optional role in automatic mode borrows `allowedRuntimes`
 candidates blocks with `resource_manager_unconfigured`, whose remediation opens the *team* section first
 ("Open team") when the run carried a global snapshot.
 
+Roles assigned to a local runtime also seal `roleModels` in the snapshot (enabled model validated in
+the last 30 minutes with the role's capabilities); `role_model_pins` pins it only on the role's
+assigned provider. When selection lands on a provider other than the role's assigned one (inactive,
+not validated or without candidates), the thread records `runtime_failover` with
+`failureClass: "assigned_unavailable"`. `GET /api/v1/threads/{id}/runtime-team` returns the team sealed
+in the thread's latest run (`source`: `thread`, `global` or `none`); the inspector shows it next to the
+current team when they differ.
+
 ## Risks
 
 - The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can

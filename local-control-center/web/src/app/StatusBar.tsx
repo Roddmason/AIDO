@@ -105,6 +105,11 @@ export function StatusBar({
 				) : null}
 			</span>
 			<span className="status-bar-item">
+				<StatusDot tone={status.activeProviders ? 'ok' : 'warn'} />
+				<span className="tnum">{status.activeProviders}</span>{' '}
+				{t('app.statusBar.activeProviders', 'active providers')}
+			</span>
+			<span className="status-bar-item">
 				<StatusDot tone={status.pendingApprovals ? 'warn' : 'ok'} />
 				<span className="tnum">{status.pendingApprovals}</span>{' '}
 				{t('app.statusBar.approvals', 'approvals')}

@@ -11191,6 +11191,34 @@
       "en": "Researcher runtimes (in order; empty inherits the Product Owner)",
       "es": "Runtimes del Researcher (en orden; vacío hereda del Product Owner)"
     },
+    "app.providers.switch.label": {
+      "en": "Use {provider} in threads",
+      "es": "Usar {provider} en los hilos"
+    },
+    "app.providers.switch.on": {
+      "en": "Active",
+      "es": "Activo"
+    },
+    "app.providers.switch.off": {
+      "en": "Inactive",
+      "es": "Inactivo"
+    },
+    "app.providers.action.enabled": {
+      "en": "Provider enabled for threads",
+      "es": "Proveedor activado para los hilos"
+    },
+    "app.providers.action.disabled": {
+      "en": "Provider disabled for threads",
+      "es": "Proveedor desactivado para los hilos"
+    },
+    "app.providers.action.toggleFailed": {
+      "en": "Could not update the provider",
+      "es": "No se pudo actualizar el proveedor"
+    },
+    "app.statusBar.activeProviders": {
+      "en": "active providers",
+      "es": "proveedores activos"
+    },
     "app.settings.plugins.loading": {
       "en": "Loading plugins...",
       "es": "Cargando plugins..."

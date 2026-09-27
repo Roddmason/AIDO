@@ -552,3 +552,29 @@ test('Configure provider: switching to another provider drops the stored credent
 		});
 	}
 });
+
+test('Providers & CLI: each provider card has a switch that patches enabled and the status bar counts active providers', async ({
+	page,
+}) => {
+	const patches = [];
+	await page.route('**/api/v1/model-gateway/providers/*', async (route) => {
+		if (route.request().method() !== 'PATCH') return route.continue();
+		const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+		const body = route.request().postDataJSON();
+		patches.push({ id, ...body });
+		await route.fulfill({ json: { provider: { providerId: id, enabled: body.enabled } } });
+	});
+	try {
+		const settings = await openSettings(page);
+		const card = settings.locator('.card').filter({ hasText: 'Gemini' }).first();
+		await expect(card).toBeVisible({ timeout: 30_000 });
+		const toggle = card.getByRole('checkbox', { name: 'Use Google Gemini in threads' });
+		await expect(toggle).toBeVisible();
+		const wasChecked = await toggle.isChecked();
+		await toggle.click();
+		await expect.poll(() => patches).toEqual([{ id: 'gemini', enabled: !wasChecked }]);
+		await expect(page.getByText(/\d+ active providers/)).toBeVisible();
+	} finally {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	}
+});

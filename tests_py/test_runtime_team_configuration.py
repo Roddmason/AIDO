@@ -15,6 +15,7 @@ from local_control_center.agents.model_execution_health import record_model_exec
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.runtime_team.configuration import (
+    GLOBAL_RUNTIME_TEAM_METADATA_KEY,
     RUNTIME_TEAM_DISCARDED_METADATA_KEY,
     RUNTIME_TEAM_METADATA_KEY,
     RuntimeTeamNotReadyError,
@@ -22,9 +23,12 @@ from local_control_center.runtime_team.configuration import (
     assigned_runtime,
     discarded_role_runtime,
     ensure_thread_runtime_team_ready,
+    global_role_order,
+    global_team_of,
     read_thread_runtime_team,
     restrict_to_allowlist,
     role_allowlist,
+    role_routing_preferences,
     runtime_team_of,
     seal_thread_runtime_team,
     write_thread_runtime_team,
@@ -176,10 +180,14 @@ def test_sealing_without_a_team_drops_any_forged_value(lane):
         metadata={
             RUNTIME_TEAM_METADATA_KEY: {"allowedRuntimes": ["claude_code_cli"]},
             RUNTIME_TEAM_DISCARDED_METADATA_KEY: [{"providerId": "codex_cli"}],
+            GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"roleRuntimeOrder": {"developer": ["claude_code_cli"]}},
             "teamMode": "economy",
         },
     )
+    # Sin equipo en el hilo el servidor sella el equipo global; el valor forjado nunca sobrevive.
+    snapshot = sealed.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY)
     assert sealed == {"teamMode": "economy"}
+    assert "claude_code_cli" not in snapshot["roleRuntimeOrder"]["developer"]
 
 
 def test_the_send_gate_requires_a_fresh_runtime_for_po_and_developer(lane):
@@ -401,3 +409,113 @@ def test_threads_with_a_team_ignore_the_product_owner_inheritance_override():
     }
     assert role_allowlist(meta, "architect", product_owner_provider_id="llama_cpp") == ["codex_cli"]
     assert role_allowlist(meta, "developer", product_owner_provider_id="llama_cpp") == ["claude_code_cli"]
+
+
+GLOBAL = {
+    GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+        "roleRuntimeOrder": {
+            "product_owner": ["codex_cli", "ollama"],
+            "developer": ["codex_cli"],
+            "architect": [],
+            "security": ["ollama"],
+            "technical_lead": ["codex_cli", "ollama"],
+            "researcher": ["codex_cli", "ollama"],
+        },
+        "roleRuntimes": {
+            "product_owner": "codex_cli",
+            "developer": "codex_cli",
+            "architect": None,
+            "security": "ollama",
+            "technical_lead": "codex_cli",
+            "researcher": "codex_cli",
+        },
+        "source": {
+            "product_owner": "general",
+            "developer": "project",
+            "architect": "automatic",
+            "security": "automatic",
+            "technical_lead": "inherited",
+            "researcher": "inherited",
+        },
+        "allowedRuntimes": ["codex_cli", "ollama"],
+    }
+}
+
+
+def test_the_global_team_gives_each_role_its_order_with_fallbacks():
+    assert role_allowlist(GLOBAL, "developer") == ["codex_cli"]
+    assert role_allowlist(GLOBAL, "product_owner") == ["codex_cli", "ollama"]
+    assert role_allowlist(GLOBAL, "security") == ["ollama"]
+    # Sin candidatos propios (arquitecto vacío) el rol puede usar cualquier runtime del equipo.
+    assert role_allowlist(GLOBAL, "architect") == ["codex_cli", "ollama"]
+    # Roles sin asignación propia (aido_lead, qa_engineer) siguen el orden del PO.
+    assert role_allowlist(GLOBAL, None) == ["codex_cli", "ollama"]
+    # La herencia del proveedor del PO del loop ya no confina al rol cuando hay equipo global.
+    assert role_allowlist(GLOBAL, "developer", product_owner_provider_id="ollama") == ["codex_cli"]
+    assert global_role_order(GLOBAL, "technical_lead") == ["codex_cli", "ollama"]
+
+
+def test_the_thread_team_keeps_priority_over_the_global_snapshot():
+    meta = {
+        **GLOBAL,
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["ollama"],
+            "roleRuntimes": {"product_owner": "ollama", "developer": "ollama"},
+        },
+    }
+    assert role_allowlist(meta, "developer") == ["ollama"]
+    assert role_routing_preferences(meta, "developer") == ([], [])
+
+
+def test_routing_preferences_follow_the_global_order_as_provider_wildcards():
+    order, wildcards = role_routing_preferences(GLOBAL, "product_owner")
+    assert order == ["codex_cli", "ollama"]
+    assert wildcards == [{"provider": "codex_cli", "model": ""}, {"provider": "ollama", "model": ""}]
+    assert role_routing_preferences({}, "developer") == ([], [])
+
+
+def test_a_malformed_global_snapshot_is_ignored():
+    assert global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"roleRuntimeOrder": "nope"}}) is None
+    assert global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: []}) is None
+    assert global_team_of(
+        {
+            GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+                "roleRuntimeOrder": {"developer": "codex_cli"},
+                "allowedRuntimes": "x",
+            }
+        }
+    ) == {"roleRuntimeOrder": {}, "source": {}, "allowedRuntimes": []}
+    assert role_allowlist(
+        {GLOBAL_RUNTIME_TEAM_METADATA_KEY: {}}, "developer", product_owner_provider_id="ollama"
+    ) == ["ollama"]
+
+
+def test_sealing_a_thread_without_override_snapshots_the_global_team(lane):
+    connection, project, thread = lane
+    SettingsRepository(connection).set_value("team.role.developer", "general", None, ["codex_cli"])
+    stamped = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"forged": True}},
+    )
+    snapshot = stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    assert "forged" not in snapshot
+    assert snapshot["roleRuntimeOrder"]["developer"] == ["codex_cli"]
+    assert snapshot["source"]["developer"] == "general"
+    assert RUNTIME_TEAM_METADATA_KEY not in stamped
+
+
+def test_sealing_a_thread_with_override_drops_the_global_snapshot(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "llama3")
+    stamped = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"stale": True}},
+    )
+    assert GLOBAL_RUNTIME_TEAM_METADATA_KEY not in stamped
+    assert stamped[RUNTIME_TEAM_METADATA_KEY]["roleRuntimes"]["developer"] == "codex_cli"

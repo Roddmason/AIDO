@@ -264,10 +264,26 @@ def test_clearing_the_team_restores_automatic_routing(tmp_path: Path) -> None:
         response = client.post(
             f"/api/v1/threads/{thread['id']}/messages",
             headers=headers,
-            json={"content": OBJECTIVE, "metadata": {"runtimeTeam": TEAM}},
+            json={
+                "content": OBJECTIVE,
+                "metadata": {
+                    "runtimeTeam": TEAM,
+                    "globalRuntimeTeam": {"roleRuntimeOrder": {"developer": ["forged_runtime"]}},
+                },
+            },
         )
         assert response.status_code == 200, response.text
         job = JobsRepository(runtime.connection).get_job(response.json()["run"]["jobId"])
-        assert "runtimeTeam" not in job["payload"]["runMetadata"]
+        run_metadata = job["payload"]["runMetadata"]
+        assert "runtimeTeam" not in run_metadata
+        # Sin equipo en el hilo el servidor sella el equipo global; el valor del cliente se descarta.
+        sealed_orders = run_metadata["globalRuntimeTeam"]["roleRuntimeOrder"]
+        assert "forged_runtime" not in sealed_orders.get("developer", [])
+        assert set(run_metadata["globalRuntimeTeam"]) == {
+            "roleRuntimeOrder",
+            "roleRuntimes",
+            "source",
+            "allowedRuntimes",
+        }
     finally:
         runtime.close()

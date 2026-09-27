@@ -186,3 +186,45 @@
 	cursor: not-allowed;
 	opacity: 0.55;
 }
+
+/* Provider card header: glyph + title on the left, state badge + "Use in threads" switch on the
+ * right. In the narrow grid columns (and on phones) both groups cannot share one line; instead of
+ * squeezing the title into a stacked glyph/two-word column, the header wraps as whole groups: the
+ * title keeps its line and the badge + switch drop together to the next one. */
+.card--static > .card-header {
+	flex-wrap: wrap;
+	align-items: center;
+	row-gap: var(--space-2);
+}
+
+.card--static > .card-header > .inline {
+	min-width: 0;
+}
+
+.card--static > .card-header > .inline:first-child {
+	flex: 1 1 auto;
+	flex-wrap: nowrap;
+}
+
+/* Reserve the longer "Inactive" word so toggling the provider never nudges the badge beside it. */
+.provider-switch .setting-switch-state {
+	min-inline-size: 8ch;
+}
+
+/* Phones stack every setting row (label -> control -> actions, layout.css). A general-scope boolean
+ * is a single switch, so stacking only doubled each row's height and parked the switch far from
+ * its label; it keeps the label/value columns instead. Project-scope editing (`data-editing`)
+ * still stacks, since it adds Save/Cancel beside the control. */
+@media (max-width: 640px) {
+	.setting-row:has(> .setting-control[data-type="boolean"]:not([data-editing])) {
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas:
+			"meta control"
+			"help control"
+			"actions actions";
+	}
+
+	.setting-row > .setting-control[data-type="boolean"]:not([data-editing]) {
+		justify-content: flex-end;
+	}
+}

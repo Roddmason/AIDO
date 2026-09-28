@@ -450,7 +450,7 @@ export function BranchManagerDialog({
 								const action = issueAction(issue);
 								return (
 									<li key={issue.kind} data-severity={issue.severity}>
-										<AlertTriangle aria-hidden="true" size={14} />
+										<AlertTriangle aria-hidden="true" size={14} className="branch-health-icon" />
 										<span className="branch-health-text">{issueCopy(issue)}</span>
 										{action ? (
 											<Button

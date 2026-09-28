@@ -10,7 +10,7 @@ The matrix below is regenerated from the generated frontend client
 `pnpm run openapi:generate`
 (`local-control-center/scripts/generate_openapi_client.py`). Do not edit the
 route tables by hand: re-parse `API_ENDPOINTS` after backend changes. Current
-total: 296 operations (295 under `/api/v1` plus `GET /healthz`), counted from
+total: 298 operations (297 under `/api/v1` plus `GET /healthz`), counted from
 `API_ENDPOINTS` in the regenerated client. No test asserts this count, so it can
 drift silently between edits.
 

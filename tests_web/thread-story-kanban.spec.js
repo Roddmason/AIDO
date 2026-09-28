@@ -323,8 +323,11 @@ test('Threads kanban: awaiting approval, the drawer requests changes on the stor
 		await expect(page.locator('.thread-live-body')).toHaveAttribute('data-mode', 'board', { timeout: 20_000 });
 		const done = page.locator('.thread-board-card[data-story-id="story-2"]');
 		await expect(done).toContainText('Awaiting your review');
-		await done.click();
+		// The title button is the card's real control (its hit area covers the card); clicking the
+		// card's geometric centre could land while the polled board re-rendered the card.
+		await done.locator('.thread-board-card-open').click();
 		const drawer = page.getByRole('dialog', { name: 'User story #2' });
+		await expect(drawer).toBeVisible();
 		await drawer.getByLabel('What should change').fill('Send the reminder one day earlier.');
 		await drawer.getByRole('button', { name: 'Request changes' }).click();
 		await expect(drawer.getByRole('status')).toContainText('Changes requested');

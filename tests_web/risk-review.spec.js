@@ -148,7 +148,7 @@ test('Runtime risk requires a reason and unchecked consent for all exact proposa
 		await expect(execution.getByRole('region', { name: /Waiting for worker|Esperando worker/ })).toBeVisible({ timeout: 20_000 });
 		await expect(execution.locator('.thread-remediation-card')).toHaveCount(0);
 		await expect(execution.locator('.thread-pipeline-step[data-state="blocked"]')).toHaveCount(0);
-		await expect(execution.locator('.thread-console-row[data-type="blocked"] .thread-console-body > p')).toHaveText('Runtime risk requires explicit review.');
+		await expect(execution.locator('.thread-console-row[data-type="failure-group"] .thread-console-body > p')).toHaveText('Runtime risk requires explicit review.');
 		expect(state.executions).toHaveLength(1);
 	} finally {
 		release();

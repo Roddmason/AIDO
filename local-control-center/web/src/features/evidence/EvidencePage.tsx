@@ -6,12 +6,8 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload, EvidenceDetailResponse } from '../../api/client';
-import {
-	downloadEvidenceArtifact,
-	fetchEvidenceArtifact,
-	getEvidenceDetail,
-} from '../../api/client';
-import type { Artifact, Overview } from '../../api/types';
+import { fetchEvidenceArtifact, getEvidenceDetail } from '../../api/client';
+import type { Overview } from '../../api/types';
 import {
 	StatusChip as Badge,
 	Button,
@@ -33,6 +29,7 @@ import {
 } from '../../lib/diff';
 import { toneForStatus } from '../../lib/format';
 import { redactVisibleText } from '../../lib/redaction';
+import { useArtifactPreview } from '../review/useArtifactPreview';
 
 function redactedJson(value: unknown, fallback = '[]') {
 	return redactVisibleText(value, fallback);
@@ -67,11 +64,16 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 	const [securityPayload, setSecurityPayload] = useState<ArtifactPayload | null>(null);
 	const [securityLoading, setSecurityLoading] = useState(false);
 	const [securityError, setSecurityError] = useState<AsyncError | null>(null);
-	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
-	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
-	const [previewLoadingId, setPreviewLoadingId] = useState('');
-	const [downloadLoadingId, setDownloadLoadingId] = useState('');
-	const [previewError, setPreviewError] = useState('');
+	const {
+		artifact: previewArtifact,
+		payload: previewPayload,
+		loadingId: previewLoadingId,
+		downloadingId: downloadLoadingId,
+		error: previewError,
+		openPreview,
+		download: downloadArtifact,
+		clear: clearPreview,
+	} = useArtifactPreview(token);
 	const [refreshController, setRefreshController] = useState(() => new AbortController());
 	const reload = () => {
 		refreshController.abort();
@@ -174,51 +176,6 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 			controller.abort();
 		};
 	}, [securityArtifact, selectedEvidenceId, token]);
-	const openPreview = async (artifact: Artifact) => {
-		const artifactId = String(artifact.id ?? '');
-		const evidenceId = String(artifact.evidencePackageId ?? '');
-		if (!artifactId || !evidenceId) {
-			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
-			return;
-		}
-		setPreviewArtifact(artifact);
-		setPreviewPayload(null);
-		setPreviewError('');
-		setPreviewLoadingId(artifactId);
-		try {
-			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
-			setPreviewPayload(payload);
-		} catch (error) {
-			setPreviewError(
-				error instanceof Error
-					? error.message
-					: t('app.pages.errArtifactPreview', 'Artifact preview failed.'),
-			);
-		} finally {
-			setPreviewLoadingId('');
-		}
-	};
-	const downloadArtifact = async (artifact: Artifact) => {
-		const artifactId = String(artifact.id ?? '');
-		const evidenceId = String(artifact.evidencePackageId ?? '');
-		if (!artifactId || !evidenceId) {
-			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
-			return;
-		}
-		setPreviewError('');
-		setDownloadLoadingId(artifactId);
-		try {
-			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
-		} catch (error) {
-			setPreviewError(
-				error instanceof Error
-					? error.message
-					: t('app.workbench.evidence.downloadError', 'Artifact download failed.'),
-			);
-		} finally {
-			setDownloadLoadingId('');
-		}
-	};
 	const diffText = redactVisibleText(diffPayload?.text ?? '', '');
 	const patchHasChanges = hasRealPatchChanges(diffPayload?.text ?? '');
 	const changedFiles = evidenceDiffChangedFiles(selectedPackage);
@@ -854,9 +811,7 @@ export function EvidencePage({ overview, token }: { overview: Overview; token: s
 				label={t('ui.static.artifact.preview.acbf276e', 'Artifact preview')}
 				open={Boolean(previewArtifact)}
 				onClose={() => {
-					setPreviewArtifact(null);
-					setPreviewPayload(null);
-					setPreviewError('');
+					clearPreview();
 				}}
 			>
 				<div className="drawer-body">

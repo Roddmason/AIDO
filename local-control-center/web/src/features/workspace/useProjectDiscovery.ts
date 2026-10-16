@@ -38,7 +38,7 @@ export type DetectionMarker = {
 };
 
 /** Markers shown as detection cards, in display order. Filenames must match discovery output. */
-export const DETECTION_MARKER_FILES = [
+const DETECTION_MARKER_FILES = [
 	'.git',
 	'package.json',
 	'pyproject.toml',

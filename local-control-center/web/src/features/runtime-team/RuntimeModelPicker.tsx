@@ -12,14 +12,10 @@ import { Button, TextField } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 /** Matches rendered at once; the search narrows the rest. */
-export const MODEL_PICKER_LIMIT = 50;
+const MODEL_PICKER_LIMIT = 50;
 
 /** Enabled models of `providerId` whose id contains every word of `query` (case-insensitive). */
-export function matchingModels(
-	models: readonly string[],
-	query: string,
-	limit = MODEL_PICKER_LIMIT,
-) {
+function matchingModels(models: readonly string[], query: string, limit = MODEL_PICKER_LIMIT) {
 	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 	const matches = models.filter((model) => {
 		const id = model.toLowerCase();

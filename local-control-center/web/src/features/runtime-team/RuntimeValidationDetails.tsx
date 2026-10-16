@@ -18,7 +18,7 @@ type Translate = (key: string, fallback?: string) => string;
 export const EVIDENCE_EXCERPT_CHARS = 160;
 
 /** One-line excerpt of `text`, cut at `limit` characters with an ellipsis. */
-export function evidenceExcerpt(text: string, limit = EVIDENCE_EXCERPT_CHARS): string {
+function evidenceExcerpt(text: string, limit = EVIDENCE_EXCERPT_CHARS): string {
 	const single = text.replace(/\s+/g, ' ').trim();
 	return single.length > limit ? `${single.slice(0, limit - 1)}…` : single;
 }

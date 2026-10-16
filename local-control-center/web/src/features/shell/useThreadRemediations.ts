@@ -60,6 +60,8 @@ export function useThreadRemediations(
 	const [attempt, setAttempt] = useState(0);
 	const loadedKeyRef = useRef<string | null>(null);
 	const fetchedRef = useRef<string | null>(null);
+	const currentThreadRef = useRef<string | null>(threadId);
+	currentThreadRef.current = threadId;
 
 	useEffect(() => {
 		if (!threadId) {
@@ -105,6 +107,7 @@ export function useThreadRemediations(
 		if (!threadId) return;
 		try {
 			const response = await getThreadRemediations(threadId);
+			if (currentThreadRef.current !== threadId) return;
 			setRemediations(response.remediations);
 			setError(false);
 		} catch {

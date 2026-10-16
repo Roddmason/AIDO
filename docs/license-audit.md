@@ -60,7 +60,7 @@ Current status:
   `@xyflow/react` are compatible with the MIT project.
 - `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu` and
   `@radix-ui/react-tooltip` were **removed**: zero imports in `web/src` (the
-  Dialog/Drawer/Tooltip UI is hand-rolled in `components/primitives.tsx`).
+  Dialog/Drawer/Tooltip UI is hand-rolled in `components/ui/`).
 - New justified dependencies — added at **exact** versions, all **MIT**, with
   peer ranges compatible with React 18.3.1 and Vite 6:
   - `motion@12.40.0` — shell/UI animations (planned consumer: replaces the

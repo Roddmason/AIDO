@@ -12,7 +12,7 @@ export type TimelineStatus = 'pending' | 'done' | 'active' | 'blocked' | 'failed
 export type IssueTimelineEntry = { id: string; status: TimelineStatus; detail: string };
 export type Blocker = { id: string; label: string; detail: string; tone: 'warn' | 'danger' };
 
-export const codeEditRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
+const codeEditRuntimeCapabilities = new Set(['issue_to_patch', 'code_edit']);
 export const issueTimelineOrder = [
 	'created',
 	'workspace_allocated',

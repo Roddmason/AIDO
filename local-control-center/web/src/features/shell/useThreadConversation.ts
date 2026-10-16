@@ -7,7 +7,7 @@
  * thread detail so the transcript reflects the coordinator's response or block immediately.
  * @author Rodrigo Mason
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getThread, postThreadMessage, resolveThreadDecisionsBatch } from '../../api/client';
 import type { ThreadDetail } from '../../api/types';
 import type { Mutate } from '../../app/routes';
@@ -37,28 +37,33 @@ export function useThreadConversation(
 	const [error, setError] = useState(false);
 	const [busy, setBusy] = useState(false);
 
-	const load = useCallback(
-		(signal?: AbortSignal) => {
-			if (!threadId) {
-				setDetail(null);
-				setError(false);
-				return;
-			}
-			setLoading(true);
+	const controllerRef = useRef<AbortController | null>(null);
+
+	const load = useCallback(() => {
+		controllerRef.current?.abort();
+		if (!threadId) {
+			controllerRef.current = null;
+			setDetail(null);
 			setError(false);
-			getThread(threadId, signal)
-				.then((data) => {
-					if (!signal?.aborted) setDetail(data);
-				})
-				.catch(() => {
-					if (!signal?.aborted) setError(true);
-				})
-				.finally(() => {
-					if (!signal?.aborted) setLoading(false);
-				});
-		},
-		[threadId],
-	);
+			setLoading(false);
+			return;
+		}
+		const controller = new AbortController();
+		const { signal } = controller;
+		controllerRef.current = controller;
+		setLoading(true);
+		setError(false);
+		getThread(threadId, signal)
+			.then((data) => {
+				if (!signal.aborted) setDetail(data);
+			})
+			.catch(() => {
+				if (!signal.aborted) setError(true);
+			})
+			.finally(() => {
+				if (!signal.aborted) setLoading(false);
+			});
+	}, [threadId]);
 
 	const reload = useCallback(() => {
 		load();
@@ -66,9 +71,8 @@ export function useThreadConversation(
 	}, [load, threadId, invalidate]);
 
 	useEffect(() => {
-		const controller = new AbortController();
-		load(controller.signal);
-		return () => controller.abort();
+		load();
+		return () => controllerRef.current?.abort();
 	}, [load]);
 
 	const send = useCallback(

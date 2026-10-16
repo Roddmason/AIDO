@@ -26,11 +26,17 @@ export function useRuntimeTeam(projectId: string | null, enabled: boolean) {
 	const [data, setData] = useState<RuntimeTeam | null>(() => cache.get(scope)?.data ?? null);
 	const [failed, setFailed] = useState(false);
 	const latestRequest = useRef<AbortController | null>(null);
+	const loadedScope = useRef(scope);
 
 	const load = useCallback(
 		async (force: boolean) => {
 			const cached = cache.get(scope);
 			if (cached) setData(cached.data);
+			else if (loadedScope.current !== scope) {
+				setData(null);
+				setFailed(false);
+			}
+			loadedScope.current = scope;
 			if (!force && cached && Date.now() - cached.at < FRESH_MS) return;
 			latestRequest.current?.abort();
 			const controller = new AbortController();

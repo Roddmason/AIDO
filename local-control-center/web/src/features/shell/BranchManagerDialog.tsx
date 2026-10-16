@@ -105,6 +105,8 @@ export function BranchManagerDialog({
 	const [renameValue, setRenameValue] = useState('');
 	const stepHeadingRef = useRef<HTMLHeadingElement>(null);
 	const projectId = project?.id ?? '';
+	const activeProjectRef = useRef(projectId);
+	activeProjectRef.current = projectId;
 	const integration = inventory?.integrationBranch || 'dev';
 
 	const observer: ExecutionObserver = useCallback(
@@ -135,13 +137,17 @@ export function BranchManagerDialog({
 			const next = await mutate((token) => scanBranches(token, projectId, {}, observer), {
 				awaitRefresh: false,
 			});
+			if (activeProjectRef.current !== projectId) return;
 			setInventory(next);
 			setSelected(new Set());
 		} catch (caught) {
+			if (activeProjectRef.current !== projectId) return;
 			setError(errorText(caught));
 		} finally {
-			setBusy('');
-			setProgress('');
+			if (activeProjectRef.current === projectId) {
+				setBusy('');
+				setProgress('');
+			}
 		}
 	}, [projectId, mutate, observer, errorText]);
 

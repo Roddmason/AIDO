@@ -545,11 +545,6 @@ export type CliSessionEventsResponse =
 	OperationResponse<'session_events_api_v1_cli_sessions__session_id__events_get'>;
 export type CliSessionEvent = CliSessionEventsResponse['events'][number];
 
-/** Starts a streaming CLI session (runs a command in a workspace, emitting live events); a write. */
-export function startCliSession(token: string, body: CliSessionStartRequest) {
-	return requestGeneratedOperation('start_session_api_v1_cli_sessions_post', { token, body });
-}
-
 /** Reads the bounded CLI-session event log incrementally (events with seq > afterSeq); a read. */
 export function getCliSessionEvents(sessionId: string, afterSeq = 0, signal?: AbortSignal) {
 	return requestGeneratedOperation<
@@ -939,21 +934,6 @@ export function createProjectGitBranch(
 	});
 }
 
-export function applyProjectGitBranchPolicy(
-	token: string,
-	projectId: string,
-	body: ProjectGitBranchPolicyApplyRequest,
-) {
-	return requestGeneratedOperation<
-		'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post',
-		ProjectGitBranchPolicyApplyResponse
-	>('apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post', {
-		pathParams: { project_id: projectId },
-		token,
-		body,
-	});
-}
-
 export function checkoutProjectGitBranch(
 	token: string,
 	projectId: string,
@@ -1145,14 +1125,6 @@ export function openProjectFolder(token: string, projectId: string) {
 	});
 }
 
-export function listProjects(signal?: AbortSignal) {
-	return requestGeneratedOperation('projects_api_v1_projects_get', { signal });
-}
-
-export function listProjectTemplates(signal?: AbortSignal) {
-	return requestGeneratedOperation('project_templates_api_v1_project_templates_get', { signal });
-}
-
 export function createProject(
 	token: string,
 	body: MutationBody<'create_project_api_v1_projects_post'>,
@@ -1183,24 +1155,6 @@ export function selectLocalDirectory(
 	});
 }
 
-export function listProviders(signal?: AbortSignal) {
-	return requestGeneratedOperation('providers_api_v1_providers_get', { signal });
-}
-
-export function listTeams(projectId?: string, signal?: AbortSignal) {
-	return requestGeneratedOperation('teams_api_v1_teams_get', {
-		query: projectId ? { projectId } : undefined,
-		signal,
-	});
-}
-
-export function listAgents(teamId?: string, signal?: AbortSignal) {
-	return requestGeneratedOperation('agents_api_v1_agents_get', {
-		query: teamId ? { teamId } : undefined,
-		signal,
-	});
-}
-
 /** Extracts the download filename from a Content-Disposition header, preferring RFC 5987 UTF-8. */
 function filenameFromContentDisposition(header: string | null): string {
 	if (!header) return '';
@@ -1218,7 +1172,7 @@ function downloadBlob(blob: Blob, filename: string) {
 	document.body.appendChild(link);
 	link.click();
 	link.remove();
-	URL.revokeObjectURL(url);
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
@@ -1244,8 +1198,7 @@ export async function fetchEvidenceArtifact(
 	);
 	const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
 	if (!response.ok) {
-		const detail = await response.text();
-		throw new Error(detail || response.statusText);
+		throw new Error(extractErrorDetail(await response.text(), response.statusText));
 	}
 	const blob = await response.blob();
 	const textLike =
@@ -1602,25 +1555,6 @@ export function cancelThreadExecution(
 	});
 }
 
-/** Resolves a pending decision request and reopens the thread; requires the write token. */
-export function resolveThreadDecision(
-	token: string,
-	threadId: string,
-	decisionId: string,
-	body: ThreadDecisionResolveRequest,
-	signal?: AbortSignal,
-) {
-	return requestGeneratedOperation<
-		'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post',
-		ThreadDecisionResolveResponse
-	>('resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post', {
-		token,
-		pathParams: { thread_id: threadId, decision_id: decisionId },
-		body,
-		signal,
-	});
-}
-
 /** Resolves several pending decisions together, in one chat message; requires the write token. */
 export function resolveThreadDecisionsBatch(
 	token: string,
@@ -1655,14 +1589,6 @@ export function resumeWorker(token: string) {
 	>('worker_resume_api_v1_workers_resume_post', { token });
 }
 
-/** Stops the worker from claiming new jobs until it is resumed; write token. */
-export function pauseWorker(token: string) {
-	return requestGeneratedOperation<'worker_pause_api_v1_workers_pause_post', WorkerStatusResponse>(
-		'worker_pause_api_v1_workers_pause_post',
-		{ token },
-	);
-}
-
 /** Runs one bounded batch of queued local jobs now; requires the write token. */
 export function runWorkerOnce(token: string) {
 	return requestGeneratedOperation<
@@ -1670,13 +1596,6 @@ export function runWorkerOnce(token: string) {
 		WorkerRunOnceResponse
 	>('worker_run_once_api_v1_workers_run_once_post', {
 		token,
-	});
-}
-
-export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
-	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
-		token,
-		body,
 	});
 }
 
@@ -1773,13 +1692,6 @@ export function createPullRequestFromIssueToPr(
 			body,
 		},
 	);
-}
-
-export function runDeveloperAgent(token: string, body: DeveloperAgentRunRequest) {
-	return requestGeneratedOperation('run_developer_agent_api_v1_agents_developer_runs_post', {
-		token,
-		body,
-	});
 }
 
 export function runDevOpsAgent(token: string, body: DevOpsAgentRunRequest) {
@@ -1947,13 +1859,6 @@ export function getModelGatewayOverview(signal?: AbortSignal) {
 
 export function getModelGatewayProviders(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_providers_api_v1_model_gateway_providers_get', { signal });
-}
-
-export function getProviderCatalog(signal?: AbortSignal) {
-	return requestGeneratedOperation<
-		'list_catalog_api_v1_providers_catalog_get',
-		ProviderCatalogResponse
-	>('list_catalog_api_v1_providers_catalog_get', { signal });
 }
 
 export function getModelGatewayModels(signal?: AbortSignal) {
@@ -2550,18 +2455,6 @@ export function updateThreadRunConfiguration(
 		pathParams: { thread_id: threadId },
 		body,
 		signal,
-	});
-}
-
-export function patchModelGatewayModel(
-	token: string,
-	modelId: string,
-	body: MutationBody<'patch_model_api_v1_model_gateway_models__model_id__patch'>,
-) {
-	return requestGeneratedOperation('patch_model_api_v1_model_gateway_models__model_id__patch', {
-		token,
-		pathParams: { model_id: modelId },
-		body,
 	});
 }
 

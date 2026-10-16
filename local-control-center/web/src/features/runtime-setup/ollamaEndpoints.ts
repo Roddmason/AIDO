@@ -49,7 +49,7 @@ export type EndpointCardModel = {
 type PreferredCandidates = ModelGatewayRolePolicy['preferred'];
 
 /** Roles that route to this endpoint first (its `preferred` list contains the provider id). */
-export function preferredRolesForEndpoint(
+function preferredRolesForEndpoint(
 	providerId: string,
 	policies: readonly ModelGatewayRolePolicy[],
 ): string[] {

@@ -8,7 +8,7 @@
 
 type Translate = (key: string, fallback?: string) => string;
 
-export const REASON_COPY = new Map<string, { key: string; fallback: string }>([
+const REASON_COPY = new Map<string, { key: string; fallback: string }>([
 	[
 		'cli_not_detected',
 		{

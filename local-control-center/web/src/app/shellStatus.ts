@@ -59,7 +59,7 @@ const TEAM_RUNTIME_KINDS = new Set(['cli', 'api', 'gateway', 'local']);
  * role can use (the manual operator never counts). Mirrors `load_runtime_facts` + the policy veto, so
  * the status bar and `GET /api/v1/runtime/team` report the same number.
  */
-export function isActiveTeamProvider(provider: {
+function isActiveTeamProvider(provider: {
 	enabled?: boolean;
 	policyAllowed?: boolean;
 	kind: string;

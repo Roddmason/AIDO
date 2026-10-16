@@ -70,7 +70,7 @@ export const BOARD_STAGE_META: Record<BoardStage, CopyMeta> = {
 
 /** Thread events after which the board can have moved (story transitions, delivery stages and the
  *  stops — block, cancel, rework — that do not always emit a `story_progress`). */
-export const BOARD_REFRESH_EVENT_TYPES: ReadonlySet<string> = new Set([
+const BOARD_REFRESH_EVENT_TYPES: ReadonlySet<string> = new Set([
 	'story_progress',
 	'executing',
 	'reworking',

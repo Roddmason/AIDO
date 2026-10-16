@@ -191,7 +191,7 @@ test('Research adoption supersedes an auxiliary job blocker and a later failure 
 	await expect(execution.getByRole('region', { name: /Waiting for worker|Esperando worker/ })).toBeVisible();
 	await expect(execution.locator('.thread-remediation-card')).toHaveCount(0);
 	await expect(execution.locator('.thread-pipeline-step[data-state="blocked"]')).toHaveCount(0);
-	await expect(execution.locator('.thread-console-row[data-type="blocked"]').last().locator('.thread-console-body > p')).toHaveText(historicalReason);
+	await expect(execution.locator('.thread-console-row[data-type="failure-group"]').last().locator('.thread-console-body > p')).toHaveText(historicalReason);
 	// Lifecycle events have progressed while the thread status snapshot remains stale.
 	state.threadStatus = 'blocked';
 	state.running = true;

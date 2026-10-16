@@ -24,7 +24,6 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +93,7 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import iso_after_seconds, utc_now
-from local_control_center.team_scheduler.scheduler import MODES, RISKS, schedule_team
+from local_control_center.team_scheduler.scheduler import schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import SIMILARITY_ACTIONS, ThreadMemoryService
 
@@ -107,6 +106,34 @@ from .delivery import (
     LANDING_QUEUED,
     LANDING_WAITING_CAPACITY,
     ProductLoopDeliveryService,
+)
+from .fsm import (
+    ALLOWED_TRANSITIONS,
+    AWAITING_FEEDBACK_STATE,
+    BLOCKED_STATE,
+    CANCELLED_STATE,
+    DELIVERED_STATE,
+    INITIAL_STATE,
+    RESUMABLE_STATES,
+    REWORK_STATE,
+    TERMINAL_STATES,
+    ProductLoopStopConditionError,
+    ProductLoopTransitionError,
+    deep_merge_fsm,
+    empty_fsm,
+    evaluate_stop_conditions,
+    fsm_of,
+    is_terminal,
+    status_for,
+)
+from .fsm import (
+    DEFAULT_AUTO_REWORK_ROUNDS as DEFAULT_AUTO_REWORK_ROUNDS,
+)
+from .fsm import (
+    PRODUCT_LOOP_STATES as PRODUCT_LOOP_STATES,
+)
+from .fsm import (
+    allowed_next_states as allowed_next_states,
 )
 from .models import FEEDBACK_ACTION_VALUES, FEEDBACK_CLASSIFICATION_VALUES
 from .phases import approval as approval_phase
@@ -121,85 +148,75 @@ from .phases import team_planning as team_planning_phase
 from .phases.analysis import analyze_run_consistency
 from .phases.plan import PLANNED, SKIPPED_LOW_RISK, plan_phase_decision, technical_plan_view
 from .repository import ProductLoopRepository, stable_task_suffix
-from .spec_artifacts import exclude_aido_artifacts, write_spec_artifacts
+from .resource_approval_markers import (
+    approved_resource_selection_for,
+    public_resource_decision,
+    resource_context_tokens_estimate,
+    resource_decision_has_pending_approval,
+    resource_privacy_level,
+    resource_required_capabilities,
+    resource_role_matches,
+    resource_selection_matches,
+    same_resource_selection,
+    select_walking_providers,
+    source_resource_approval_loop_id,
+    unscheduled_agent_task_roles,
+)
+from .review_views import (
+    changed_files_from_diff,
+    compact_runtime_result,
+    diff_ref_from_review,
+    diff_summary_from_review,
+    review_from_diff,
+    review_from_runtime,
+    runtime_changed_files,
+)
+from .run_context import UserMessageRun
+from .run_instructions import (
+    CHANGE_REQUEST_HEADER,
+    bounded_instruction,
+    continuation_run_message,
+)
+from .run_instructions import (
+    EARLIER_CHANGE_REQUEST_HEADER as EARLIER_CHANGE_REQUEST_HEADER,
+)
+from .run_instructions import (
+    INSTRUCTION_PROMPT_LIMIT_CHARS as INSTRUCTION_PROMPT_LIMIT_CHARS,
+)
+from .runtime_metrics import (
+    runtime_actual_cost_usd,
+    runtime_bool_metric,
+    runtime_latency_ms,
+    runtime_provider_usage,
+    runtime_quality_score_metric,
+    runtime_resource_usage_entries,
+)
+from .spec_artifacts import write_spec_artifacts
+from .team_shape import failed_team_schedule, team_mode, team_risk, team_scope
 
-PRODUCT_LOOP_STATES = [
-    "goal_received",
-    "workspace_check",
-    "runtime_check",
-    "git_check",
-    "discovery",
-    "discovering",
-    "awaiting_user",
-    "planning",
-    "brief_ready",
-    "architecture_review",
-    "backlog_ready",
-    "iteration_planning",
-    "branch_ready",
-    "executing",
-    "qa_running",
-    "security_running",
-    "quality_review",
-    "review_ready",
-    "awaiting_approval",
-    "awaiting_feedback",
-    "reworking",
-    "delivered",
-    "blocked",
-    "cancelled",
-]
-INITIAL_STATE = "goal_received"
-DELIVERED_STATE = "delivered"
-CANCELLED_STATE = "cancelled"
-BLOCKED_STATE = "blocked"
-REWORK_STATE = "reworking"
-DEFAULT_AUTO_REWORK_ROUNDS = 2
+_RESUMABLE_STATES = RESUMABLE_STATES
+_UserMessageRun = UserMessageRun
+_status_for = status_for
+_empty_fsm = empty_fsm
+_fsm_of = fsm_of
+_deep_merge_fsm = deep_merge_fsm
+_changed_files_from_diff = changed_files_from_diff
+_runtime_changed_files = runtime_changed_files
+_review_from_diff = review_from_diff
+_review_from_runtime = review_from_runtime
+_compact_runtime_result = compact_runtime_result
+_diff_ref_from_review = diff_ref_from_review
+_diff_summary_from_review = diff_summary_from_review
+_bounded_instruction = bounded_instruction
+
 # Tope de comandos QA fallidos detallados en el feedback de rework; el resto se reporta como conteo.
 REWORK_FEEDBACK_COMMAND_LIMIT = 8
-# Tope del texto de instrucción del developer (se reenvía por ronda de rework y por failover).
-INSTRUCTION_PROMPT_LIMIT_CHARS = 20_000
-AWAITING_FEEDBACK_STATE = "awaiting_feedback"
-TERMINAL_STATES = {DELIVERED_STATE, CANCELLED_STATE}
 # Estados donde el loop entrego control al operador y espera su accion: nunca se supersedan como
 # runs interrumpidos, aunque su marcador runActive haya quedado colgado (defensa del re-entry
 # durable frente a un _clear_run_active best-effort fallido).
 _OPERATOR_WAIT_STATES = {"awaiting_user", "awaiting_approval", AWAITING_FEEDBACK_STATE, BLOCKED_STATE}
 # Landing states of an abort itself: checking for cancellation again here would recurse forever.
 _ABORT_EXEMPT_STATES = {BLOCKED_STATE, CANCELLED_STATE}
-_RESUMABLE_STATES = {state for state in PRODUCT_LOOP_STATES if state not in TERMINAL_STATES | {BLOCKED_STATE}}
-_TRUSTED_RESOURCE_APPROVAL_METADATA_KEYS = frozenset(
-    {"retryOfLoopId", "planOnlyOfLoopId", "continueOfLoopId", "remediationActionId"}
-)
-
-ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "goal_received": {"workspace_check", "discovery", "discovering", "blocked", "cancelled"},
-    "workspace_check": {"runtime_check", "git_check", "blocked", "cancelled"},
-    "runtime_check": {"git_check", "discovery", "blocked", "cancelled"},
-    "git_check": {"runtime_check", "discovery", "blocked", "cancelled"},
-    "discovery": {"awaiting_user", "planning", "brief_ready", "backlog_ready", "blocked", "cancelled"},
-    "discovering": {"awaiting_user", "brief_ready", "blocked", "cancelled"},
-    "awaiting_user": {"discovering", "brief_ready", "blocked", "cancelled"},
-    "planning": {"architecture_review", "backlog_ready", "blocked", "cancelled"},
-    "brief_ready": {"architecture_review", "backlog_ready", "blocked", "cancelled"},
-    "architecture_review": {"backlog_ready", "brief_ready", "blocked", "cancelled"},
-    "backlog_ready": {"branch_ready", "iteration_planning", "blocked", "cancelled"},
-    "branch_ready": {"executing", "blocked", "cancelled"},
-    "iteration_planning": {"branch_ready", "executing", "blocked", "cancelled"},
-    "executing": {"qa_running", "blocked", "cancelled"},
-    "qa_running": {"security_running", "reworking", "executing", "blocked", "cancelled"},
-    "security_running": {"quality_review", "review_ready", "blocked", "cancelled"},
-    "review_ready": {"awaiting_approval", "reworking", "blocked", "cancelled"},
-    "quality_review": {"review_ready", "awaiting_approval", "reworking", "blocked", "cancelled"},
-    "awaiting_approval": {"delivered", "reworking", "awaiting_feedback", "blocked", "cancelled"},
-    "awaiting_feedback": {"reworking", "executing", "blocked", "cancelled"},
-    "reworking": {"executing", "blocked", "cancelled"},
-    "delivered": set(),
-    "cancelled": set(),
-    "blocked": set(_RESUMABLE_STATES) | {CANCELLED_STATE},
-}
-
-STOP_CONDITIONS = ("budget_exhausted", "deadline_exceeded", "state_timeout", "max_rework_reached")
 # Contrato de salida de _run_user_message: todo status que un run puede retornar. El worker y los
 # gates de taxonomía (test_product_loop_result_taxonomy.py) enumeran contra esta tupla, así que un
 # status nuevo obliga a decidir su ruteo (hilo/evento/veredicto) en el mismo commit.
@@ -239,49 +256,6 @@ TARGET_CLASSIFICATIONS = {
     "architecture": "architecture_revision",
 }
 
-_ROLE_TO_SCOPE = {
-    "developer": "backend",
-    "implementer": "backend",
-    "backend_engineer": "backend",
-    "frontend_engineer": "frontend",
-    "mobile_engineer": "mobile",
-    "database_engineer": "database",
-    "data_engineer": "data",
-    "devops": "infra",
-    "devops_engineer": "infra",
-    "security_reviewer": "security",
-    "security_engineer": "security",
-    "pentester": "security",
-    "qa": "tests",
-    "qa_reviewer": "tests",
-    "qa_engineer": "tests",
-    "researcher": "research",
-    "release_manager": "release",
-    "architect": "architecture",
-    "software_architect": "architecture",
-}
-_TECHNICAL_TEAM_SCOPES = {
-    "api",
-    "auth",
-    "backend",
-    "ci",
-    "data",
-    "database",
-    "deploy",
-    "devops",
-    "external",
-    "frontend",
-    "infra",
-    "migration",
-    "ml",
-    "mobile",
-    "payments",
-    "pii",
-    "schema",
-    "security",
-    "ui",
-    "web",
-}
 TARGET_REQUIRED_ACTIONS = {"request_changes", "reprioritize", "reject_decision", "reopen_story"}
 THREAD_RESEARCH_JOB_KIND = "thread.research.run"
 HIGH_IMPACT_RESEARCH_VALUES = {"high", "critical"}
@@ -298,46 +272,6 @@ TECHNICAL_DECISION_CATEGORIES = {
 }
 
 
-def _bounded_instruction(text: str, limit: int = INSTRUCTION_PROMPT_LIMIT_CHARS) -> str:
-    """Acota la instrucción del developer cortando el MEDIO del texto con marcador.
-
-    El inicio (qué se pide) y el final (últimos matices del operador) son las partes con más señal;
-    un mensaje desbordado se re-paga por cada ronda de rework y por cada failover de runtime.
-    """
-    if len(text) <= limit:
-        return text
-    half = (limit - 40) // 2
-    return f"{text[:half]}\n[... instruction truncated ...]\n{text[-half:]}"
-
-
-CHANGE_REQUEST_HEADER = "[Operator change request after delivery review]"
-EARLIER_CHANGE_REQUEST_HEADER = (
-    "[Earlier change request - handled in a previous review round; "
-    "the latest change request takes precedence]"
-)
-
-
-def continuation_run_message(message: str, change_request: str) -> str:
-    """Mensaje del run de continuación: el pedido nuevo al final y los anteriores marcados como revisados.
-
-    Los pedidos se acumulan ronda a ronda en el mensaje del hilo. Con el mismo encabezado, el
-    developer volvía a aplicar uno ya resuelto (visto en vivo: seguía razonando sobre una línea muerta
-    que la ronda anterior ya había quitado). Sin pedido nuevo el mensaje queda igual.
-    """
-    if not change_request:
-        return message
-    earlier = message.replace(CHANGE_REQUEST_HEADER, EARLIER_CHANGE_REQUEST_HEADER)
-    return f"{earlier}\n\n{change_request}"
-
-
-class ProductLoopTransitionError(ValueError):
-    """Se lanza ante un estado desconocido, una transición no permitida o un desfase de versión."""
-
-
-class ProductLoopStopConditionError(ValueError):
-    """Se lanza cuando una política de parada impide la transición (p. ej. máximo de rework alcanzado)."""
-
-
 class _ProductLoopCancelled(RuntimeError):
     """Control de flujo interno: el operador canceló el run y el loop debe abortar en el límite de etapa.
 
@@ -348,155 +282,6 @@ class _ProductLoopCancelled(RuntimeError):
         super().__init__(f"Product Loop {loop_id} was cancelled by the operator.")
         self.loop_id = loop_id
         self.thread_id = thread_id
-
-
-@dataclass
-class _UserMessageRun:
-    """Estado mutable compartido entre las fases privadas de ``_run_user_message``.
-
-    Los primeros campos son los argumentos del run; el resto lo llena cada fase en orden y lo
-    consumen las siguientes. No es contrato público: existe solo para que las fases puedan
-    cortar el pipeline con retornos señalizados sin arrastrar firmas gigantes.
-    """
-
-    project_id: str
-    message: str
-    actor: str
-    root: str | Path | None = None
-    title: str | None = None
-    preferred_runtime: str | None = None
-    qa_commands: list[Any] | None = None
-    run_metadata: dict[str, Any] | None = None
-    session_id: str | None = None
-    thread_id: str | None = None
-    runtime_runner: Any | None = None
-    git_service: Any | None = None
-    product_owner_runner: Any | None = None
-    assessment_runner: Any | None = None
-    technical_lead_runner: Any | None = None
-    security_runner: Any | None = None
-
-    message_text: str = ""
-    effective_root: Path | None = None
-    resolved_title: str = ""
-    request_meta: dict[str, Any] = field(default_factory=dict)
-    plan_only: bool = False
-    thread: dict[str, Any] = field(default_factory=dict)
-    loop: dict[str, Any] = field(default_factory=dict)
-    git: Any = None
-    git_state: dict[str, Any] = field(default_factory=dict)
-    product_owner: Any = None
-    product_owner_task_id: str = ""
-    product_owner_resource_decision: dict[str, Any] = field(default_factory=dict)
-    product_owner_selected_resource: dict[str, Any] = field(default_factory=dict)
-    product_owner_preferred_runtime: str | None = None
-    assessment_result: dict[str, Any] | None = None
-    product_owner_workspace: dict[str, Any] = field(default_factory=dict)
-    product_owner_result: dict[str, Any] = field(default_factory=dict)
-    output: dict[str, Any] = field(default_factory=dict)
-    product_owner_status: str = ""
-    brief: dict[str, Any] = field(default_factory=dict)
-    product_owner_output_record: dict[str, Any] = field(default_factory=dict)
-    research_resolution: dict[str, Any] = field(default_factory=dict)
-    runtime_risk_review: dict[str, Any] = field(default_factory=dict)
-    pending_thread_decisions: list[dict[str, Any]] = field(default_factory=list)
-    po_artifact_ids: list[str] = field(default_factory=list)
-    po_evidence: dict[str, Any] = field(default_factory=dict)
-    product_owner_context: dict[str, Any] = field(default_factory=dict)
-    evidence_ids: list[str] = field(default_factory=list)
-    backlog_artifact: dict[str, Any] = field(default_factory=dict)
-    agent_tasks: list[dict[str, Any]] = field(default_factory=list)
-    team_schedule: dict[str, Any] = field(default_factory=dict)
-    runtime: Any = None
-    execution_resource: dict[str, Any] = field(default_factory=dict)
-    effective_preferred_runtime: str | None = None
-    readiness: dict[str, Any] = field(default_factory=dict)
-    task_id: str = ""
-    workspace: dict[str, Any] = field(default_factory=dict)
-    runtime_result: dict[str, Any] = field(default_factory=dict)
-    runtime_status: str = ""
-    review: dict[str, Any] = field(default_factory=dict)
-    qa_results: list[Any] = field(default_factory=list)
-    qa_verdict: str = ""
-    rework_round: int = 0
-    rework_feedback: str | None = None
-    base_task_id: str = ""
-    gitleaks: dict[str, Any] = field(default_factory=dict)
-    security_summary: dict[str, Any] = field(default_factory=dict)
-    should_rework: bool = False
-    constitution: dict[str, Any] = field(default_factory=dict)
-    technical_plan: dict[str, Any] = field(default_factory=dict)
-    diff_ref: dict[str, Any] = field(default_factory=dict)
-    security_evidence: dict[str, Any] = field(default_factory=dict)
-    resource_learning: dict[str, Any] = field(default_factory=dict)
-    active_story_tasks: list[dict[str, Any]] | None = None
-    story_noop: bool = False
-    story_reviews: list[dict[str, Any]] = field(default_factory=list)
-    story_qa_results: list[Any] = field(default_factory=list)
-    story_evidence_ids: list[str] = field(default_factory=list)
-    cumulative_patch_artifact_id: str = ""
-
-
-def is_terminal(state: str) -> bool:
-    """Indica si un estado es terminal (no admite más transiciones)."""
-    return state in TERMINAL_STATES
-
-
-def allowed_next_states(state: str) -> set[str]:
-    """Devuelve el conjunto de estados a los que se puede transicionar desde ``state``.
-
-    Raises:
-        ProductLoopTransitionError: si ``state`` no es un estado válido del product loop.
-    """
-    if state not in ALLOWED_TRANSITIONS:
-        raise ProductLoopTransitionError(f"Unknown product loop state: {state}")
-    return set(ALLOWED_TRANSITIONS[state])
-
-
-def _status_for(state: str) -> str:
-    if state == DELIVERED_STATE:
-        return "delivered"
-    if state == CANCELLED_STATE:
-        return "cancelled"
-    if state == BLOCKED_STATE:
-        return "blocked"
-    return "active"
-
-
-def _empty_fsm() -> dict[str, Any]:
-    return {
-        "correlationId": None,
-        "policy": {"budget": {}, "timeouts": {}, "maxReworkRounds": None, "deadline": None},
-        "usage": {
-            "consumed": {},
-            "reworkRounds": 0,
-            "stateDeadline": None,
-            "stoppedReason": None,
-            "usageSeq": 0,
-        },
-    }
-
-
-def _fsm_of(loop: dict[str, Any]) -> dict[str, Any]:
-    """Proyecta el bloque ``context['fsm']`` del loop con todos sus defaults (copia segura de mutar)."""
-    raw = (loop.get("context") or {}).get("fsm") or {}
-    base = _empty_fsm()
-    return {
-        "correlationId": raw.get("correlationId"),
-        "policy": {**base["policy"], **(raw.get("policy") or {})},
-        "usage": {**base["usage"], **(raw.get("usage") or {})},
-    }
-
-
-def _deep_merge_fsm(fsm: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
-    """Mezcla ``patch`` sobre ``fsm`` con un nivel de profundidad en los sub-dicts (policy/usage)."""
-    result = {**fsm}
-    for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = {**result[key], **value}
-        else:
-            result[key] = value
-    return result
 
 
 def _normalize_key(value: str | None) -> str:
@@ -512,101 +297,6 @@ def _append_feedback_id(metadata: dict[str, Any] | None, feedback_id: str) -> di
     return result
 
 
-def _changed_files_from_diff(diff: dict[str, Any]) -> list[str]:
-    names = [str(item) for item in diff.get("nameOnly") or [] if str(item).strip()]
-    if names:
-        return exclude_aido_artifacts(names)
-    changed: list[str] = []
-    for item in diff.get("status") or []:
-        if not isinstance(item, dict):
-            continue
-        path = str(item.get("path") or "").strip()
-        if path and path not in changed:
-            changed.append(path)
-    return exclude_aido_artifacts(changed)
-
-
-def _runtime_changed_files(runtime_result: dict[str, Any]) -> list[str]:
-    summary = runtime_result.get("diffSummary") if isinstance(runtime_result.get("diffSummary"), dict) else {}
-    return exclude_aido_artifacts(
-        [str(item) for item in summary.get("changedFiles") or [] if str(item).strip()]
-    )
-
-
-def _review_from_diff(diff: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "state": diff.get("state"),
-        "changedFiles": _changed_files_from_diff(diff),
-        "branch": diff.get("branch"),
-        "headCommit": diff.get("headCommit"),
-        "diffStat": diff.get("diffStat") or "",
-        "patch": diff.get("patch") or "",
-        "patchSizeBytes": diff.get("patchSizeBytes") or 0,
-        "truncated": bool(diff.get("truncated", False)),
-        "toolCalls": diff.get("toolCalls") or [],
-        "policyDecisionIds": diff.get("policyDecisionIds") or [],
-    }
-
-
-def _review_from_runtime(runtime_result: dict[str, Any]) -> dict[str, Any]:
-    summary = runtime_result.get("diffSummary") if isinstance(runtime_result.get("diffSummary"), dict) else {}
-    return {
-        "state": summary.get("state") or "runtime_reported",
-        "changedFiles": _runtime_changed_files(runtime_result),
-        "branch": summary.get("branch"),
-        "headCommit": summary.get("headCommit"),
-        "diffStat": summary.get("diffStat") or "",
-        "patch": summary.get("patch") or "",
-        "patchSizeBytes": summary.get("patchSizeBytes") or 0,
-        "truncated": bool(summary.get("truncated", False)),
-        "toolCalls": [],
-        "policyDecisionIds": [],
-    }
-
-
-def _compact_runtime_result(runtime_result: dict[str, Any] | None) -> dict[str, Any]:
-    """Compacta ``runtimeResult`` del DeveloperAgent antes de guardarlo en ``durableRun``.
-
-    ``runtimeResult["agentRun"]`` es la fila completa de ``agent_runs``: repite el payload de entrada
-    del developer (``input``, varios MB con ``teamSchedule``/``agentAssignments``/``agentTasks``) y su
-    espejo en ``output``, ambos ya persistidos en ``agent_runs`` (``agents/repository.py``). Nadie lee
-    ``agentRun.input``/``agentRun.output`` desde el contexto del loop, así que aquí queda solo la
-    referencia (``id``/``status``) que un lector eventual necesitaría. Es la única función de
-    compactación: todo escritor de ``runtimeResult`` en ``durableRun`` pasa por ella. No muta
-    ``runtime_result``; devuelve una copia superficial.
-    """
-    if not isinstance(runtime_result, dict):
-        return {}
-    agent_run = runtime_result.get("agentRun")
-    if not isinstance(agent_run, dict):
-        return runtime_result
-    reference = {key: agent_run[key] for key in ("id", "status") if key in agent_run}
-    return {**runtime_result, "agentRun": reference}
-
-
-def _diff_ref_from_review(review: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "git_diff",
-        "state": review.get("state"),
-        "files": review.get("changedFiles") or [],
-        "branch": review.get("branch"),
-        "headCommit": review.get("headCommit"),
-        "diffStat": review.get("diffStat") or "",
-        "patchSizeBytes": review.get("patchSizeBytes") or 0,
-        "truncated": bool(review.get("truncated", False)),
-    }
-
-
-def _diff_summary_from_review(review: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "state": review.get("state"),
-        "changedFiles": review.get("changedFiles") or [],
-        "diffStat": review.get("diffStat") or "",
-        "patchSizeBytes": review.get("patchSizeBytes") or 0,
-        "truncated": bool(review.get("truncated", False)),
-    }
-
-
 def _thread_agent_role_for_state(state: str) -> str:
     if state == "executing":
         return "developer"
@@ -617,33 +307,6 @@ def _thread_agent_role_for_state(state: str) -> str:
     return "aido_lead"
 
 
-def evaluate_stop_conditions(loop: dict[str, Any], *, now: str | None = None) -> list[dict[str, Any]]:
-    """Evalúa de forma pura qué condiciones de parada están activas para ``loop`` en el instante ``now``.
-
-    Una condición solo se dispara si su límite está configurado y se excedió: presupuesto agotado (algún
-    consumido ≥ su límite), deadline global vencido, timeout del estado actual vencido, o máximo de rondas
-    de rework alcanzado. Devuelve una lista de ``{condition, detail}`` (vacía si ninguna).
-    """
-    now = now or utc_now()
-    fsm = _fsm_of(loop)
-    policy, usage = fsm["policy"], fsm["usage"]
-    fired: list[dict[str, Any]] = []
-    consumed = usage.get("consumed") or {}
-    for key, limit in (policy.get("budget") or {}).items():
-        if isinstance(limit, (int, float)) and float(consumed.get(key, 0)) >= float(limit):
-            fired.append({"condition": "budget_exhausted", "detail": f"{key} reached its budget ({limit})."})
-    deadline = policy.get("deadline")
-    if deadline and now > deadline:
-        fired.append({"condition": "deadline_exceeded", "detail": f"Loop deadline {deadline} passed."})
-    state_deadline = usage.get("stateDeadline")
-    if state_deadline and now > state_deadline:
-        fired.append({"condition": "state_timeout", "detail": f"State deadline {state_deadline} passed."})
-    max_rework = policy.get("maxReworkRounds")
-    if max_rework is not None and int(usage.get("reworkRounds", 0)) >= int(max_rework):
-        fired.append({"condition": "max_rework_reached", "detail": f"Reached {max_rework} rework round(s)."})
-    return fired
-
-
 class ProductLoopCoordinator:
     """Coordina un product loop como FSM durable con gobierno (presupuesto/timeouts/rework/stop).
 
@@ -651,6 +314,29 @@ class ProductLoopCoordinator:
     nuevo (tras reiniciar AIDO) reanuda el loop tal como quedó. Aplica las políticas de parada como parte
     de la lógica determinista, evaluándolas bajo demanda con un ``now`` inyectable.
     """
+
+    _runtime_provider_usage = staticmethod(runtime_provider_usage)
+    _runtime_actual_cost_usd = staticmethod(runtime_actual_cost_usd)
+    _runtime_latency_ms = staticmethod(runtime_latency_ms)
+    _runtime_bool_metric = staticmethod(runtime_bool_metric)
+    _runtime_quality_score_metric = staticmethod(runtime_quality_score_metric)
+    _runtime_resource_usage_entries = staticmethod(runtime_resource_usage_entries)
+    _public_resource_decision = staticmethod(public_resource_decision)
+    _approved_resource_selection_for = staticmethod(approved_resource_selection_for)
+    _same_resource_selection = staticmethod(same_resource_selection)
+    _source_resource_approval_loop_id = staticmethod(source_resource_approval_loop_id)
+    _resource_decision_has_pending_approval = staticmethod(resource_decision_has_pending_approval)
+    _resource_required_capabilities = staticmethod(resource_required_capabilities)
+    _resource_context_tokens_estimate = staticmethod(resource_context_tokens_estimate)
+    _resource_privacy_level = staticmethod(resource_privacy_level)
+    _resource_role_matches = staticmethod(resource_role_matches)
+    _resource_selection_matches = staticmethod(resource_selection_matches)
+    _select_walking_providers = staticmethod(select_walking_providers)
+    _unscheduled_agent_task_roles = staticmethod(unscheduled_agent_task_roles)
+    _team_mode = staticmethod(team_mode)
+    _team_risk = staticmethod(team_risk)
+    _team_scope = staticmethod(team_scope)
+    _failed_team_schedule = staticmethod(failed_team_schedule)
 
     def __init__(self, connection: sqlite3.Connection, *, root: str | Path | None = None):
         self.connection = connection
@@ -672,6 +358,27 @@ class ProductLoopCoordinator:
         if seconds is None:
             return None
         return iso_after_seconds(now, float(seconds))
+
+    def _write_context_entries(self, loop: dict[str, Any], entries: dict[str, Any]) -> dict[str, Any]:
+        """Escribe ``entries`` sobre el contexto del loop tal como está persistido AHORA.
+
+        Los llamadores arman ``entries`` desde un ``loop`` leído antes de una operación larga; mezclarlo
+        con ese ``loop["context"]`` obsoleto pisaría lo que otro escritor (transición, ``record_usage``,
+        aprobaciones) confirmó mientras tanto. Aquí se re-lee dentro de la misma transacción que escribe;
+        si el loop ya no existe se usa la instantánea del llamador y ``update_loop_context`` decide el error.
+        """
+
+        def write() -> dict[str, Any]:
+            try:
+                current = self.repository.get_loop(loop["id"])
+            except KeyError:
+                current = loop
+            return self.repository.update_loop_context(loop["id"], context={**current["context"], **entries})
+
+        if self.connection.in_transaction:
+            return write()
+        with immediate_transaction(self.connection):
+            return write()
 
     def _durable_run_context(self, loop: dict[str, Any]) -> dict[str, Any]:
         return dict((loop.get("context") or {}).get("durableRun") or {})
@@ -817,9 +524,7 @@ class ProductLoopCoordinator:
         )
         durable["approval"] = approval
         durable["updatedAt"] = utc_now()
-        return self.repository.update_loop_context(
-            loop["id"], context={**loop["context"], "durableRun": durable}
-        )
+        return self._write_context_entries(loop, {"durableRun": durable})
 
     def _landing_root(self, project_id: str) -> Path:
         return self.root if self.root is not None else Path(self._queue_root(project_id) or ".")
@@ -845,9 +550,7 @@ class ProductLoopCoordinator:
         )["job"]
         durable["landing"] = {"status": LANDING_QUEUED, "jobId": job["id"], "feedbackId": feedback_id}
         durable["updatedAt"] = utc_now()
-        loop = self.repository.update_loop_context(
-            loop["id"], context={**loop["context"], "durableRun": durable}
-        )
+        loop = self._write_context_entries(loop, {"durableRun": durable})
         return loop, {"type": "delivery_landing", "status": LANDING_QUEUED, "jobId": job["id"]}
 
     def _land_delivered_work(self, loop: dict[str, Any]) -> dict[str, Any]:
@@ -873,7 +576,7 @@ class ProductLoopCoordinator:
             {**landing, "jobId": queued.get("jobId"), "feedbackId": queued.get("feedbackId")}
         )
         durable["updatedAt"] = utc_now()
-        self.repository.update_loop_context(loop["id"], context={**loop["context"], "durableRun": durable})
+        self._write_context_entries(loop, {"durableRun": durable})
         return durable["landing"]
 
     def land_queued_delivery(self, loop_id: str) -> dict[str, Any]:
@@ -1101,10 +804,7 @@ class ProductLoopCoordinator:
             "continuation": continuation,
             "updatedAt": queued_at,
         }
-        loop = self.repository.update_loop_context(
-            loop["id"],
-            context={**loop["context"], "durableRun": durable},
-        )
+        loop = self._write_context_entries(loop, {"durableRun": durable})
         threads.set_status(thread_id, "queued")
         threads.record_event(
             thread_id=thread_id,
@@ -1596,9 +1296,7 @@ class ProductLoopCoordinator:
             },
             evidence_package_ids=[*evidence_ids, evidence["id"]],
         )
-        planned = self.repository.update_loop_context(
-            loop["id"], context={**loop["context"], **context_patch}
-        )
+        planned = self._write_context_entries(loop, context_patch)
         self._record_loop_event(
             project_id=planned["projectId"],
             event_type="product_loop.plan_ready",
@@ -2762,90 +2460,6 @@ class ProductLoopCoordinator:
             fallback_story_ids,
         )
 
-    def _team_mode(self, request_meta: dict[str, Any]) -> str:
-        mode = (
-            str(
-                request_meta.get("teamMode")
-                or request_meta.get("team_mode")
-                or request_meta.get("mode")
-                or "balanced"
-            )
-            .strip()
-            .lower()
-        )
-        return mode if mode in MODES else "balanced"
-
-    def _team_risk(
-        self,
-        *,
-        request_meta: dict[str, Any],
-        intent: dict[str, Any],
-        output: dict[str, Any],
-        message: str,
-    ) -> str:
-        risk = str(request_meta.get("risk") or intent.get("risk") or "").strip().lower()
-        if risk in RISKS:
-            return risk
-        text = " ".join(
-            [
-                message,
-                str(output.get("summary") or ""),
-                " ".join(str(item) for item in output.get("risks") or []),
-            ]
-        ).lower()
-        if any(marker in text for marker in ("critical", "prod", "production", "payment", "pii")):
-            return "high"
-        return "medium"
-
-    def _team_scope(
-        self,
-        *,
-        message: str,
-        intent: dict[str, Any],
-        output: dict[str, Any],
-        agent_tasks: list[dict[str, Any]],
-    ) -> list[str]:
-        scope: dict[str, None] = {}
-        for intent_name in intent.get("intents") or []:
-            value = str(intent_name).strip().lower()
-            if value:
-                scope.setdefault(value, None)
-        for role in intent.get("requiredRoles") or []:
-            mapped = _ROLE_TO_SCOPE.get(str(role).strip().lower())
-            if mapped:
-                scope.setdefault(mapped, None)
-        text = " ".join(
-            [
-                message,
-                str(output.get("summary") or ""),
-                str((output.get("productBriefPatch") or {}).get("scope") or ""),
-                " ".join(str(item) for item in output.get("risks") or []),
-            ]
-        ).lower()
-        keyword_scope = {
-            "backend": ("backend", "api", "server", "fastapi", "service"),
-            "frontend": ("frontend", "ui", "web", "react", "screen"),
-            "mobile": ("mobile", "ios", "android", "react native"),
-            "database": ("database", "schema", "migration", "sqlite", "sql"),
-            "data": ("data", "analytics", "pipeline", "ml"),
-            "infra": ("infra", "devops", "deploy", "ci", "kubernetes", "docker"),
-            "security": ("security", "auth", "login", "token", "secret", "pentest", "exploit"),
-            "research": ("research", "investigate", "source", "benchmark"),
-            "release": ("release", "publish", "rollback"),
-            "refactor": ("refactor", "restructure", "decouple"),
-        }
-        for scope_name, markers in keyword_scope.items():
-            if any(marker in text for marker in markers):
-                scope.setdefault(scope_name, None)
-        for task in agent_tasks:
-            role = str(task.get("role") or "").strip().lower()
-            mapped = _ROLE_TO_SCOPE.get(role)
-            if mapped:
-                scope.setdefault(mapped, None)
-        if not scope or not any(scope_name in _TECHNICAL_TEAM_SCOPES for scope_name in scope):
-            scope["backend"] = None
-        return list(scope)
-
     def _team_schedule(
         self,
         *,
@@ -2877,62 +2491,6 @@ class ProductLoopCoordinator:
             disabled_providers=disabled_provider_ids(self.connection),
         )
         return {**plan, "intent": intent}
-
-    @staticmethod
-    def _failed_team_schedule(
-        *,
-        phase: str,
-        reason: str,
-        previous_schedule: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        failed = {
-            "status": "failed",
-            "phase": phase,
-            "reason": reason,
-        }
-        if previous_schedule is not None:
-            failed["previousSchedule"] = previous_schedule
-        return failed
-
-    @staticmethod
-    def _resource_required_capabilities(role_plan: dict[str, Any]) -> list[str]:
-        capabilities = {str(item).strip().lower() for item in role_plan.get("capabilities") or []}
-        kind = str(role_plan.get("kind") or "").strip().lower()
-        required: list[str] = []
-        if "code_edit" in capabilities:
-            required.append("code")
-        if kind == "review" or capabilities & {"security_review", "test_design", "regression", "code_review"}:
-            required.append("review")
-        return required or ["chat"]
-
-    @staticmethod
-    def _resource_context_tokens_estimate(request_meta: dict[str, Any]) -> int:
-        for key in (
-            "contextTokensEstimate",
-            "context_tokens_estimate",
-            "estimatedTokens",
-            "estimated_tokens",
-        ):
-            value = request_meta.get(key)
-            if value is None or value == "":
-                continue
-            try:
-                return max(int(value), 0)
-            except (TypeError, ValueError):
-                continue
-        return 0
-
-    @staticmethod
-    def _resource_privacy_level(request_meta: dict[str, Any]) -> str:
-        if request_meta.get("forceLocal"):
-            return "local_only"
-        value = str(
-            request_meta.get("privacyLevel")
-            or request_meta.get("privacy_level")
-            or request_meta.get("resourcePrivacyLevel")
-            or "remote_allowed"
-        ).strip()
-        return value or "remote_allowed"
 
     def _resource_role_policy(
         self,
@@ -3003,73 +2561,6 @@ class ProductLoopCoordinator:
             "preferredResources": [],
             "blockedResources": [],
         }
-
-    @staticmethod
-    def _public_resource_decision(decision: dict[str, Any]) -> dict[str, Any]:
-        return redact_secrets(
-            {
-                "routingDecisionId": decision.get("routingDecisionId"),
-                "selected": decision.get("selected"),
-                "proposal": decision.get("proposal"),
-                "reviewRequired": bool(decision.get("reviewRequired")),
-                "reviewerSelection": decision.get("reviewerSelection"),
-                "localVsRemote": decision.get("localVsRemote"),
-                "costTier": decision.get("costTier"),
-                "multiModelQuorum": decision.get("multiModelQuorum"),
-                "contextCompression": decision.get("contextCompression"),
-                "maxTokens": decision.get("maxTokens"),
-                "budgetStop": decision.get("budgetStop"),
-                "approvalRequired": decision.get("approvalRequired"),
-                "approvalSatisfied": bool(decision.get("approvalSatisfied")),
-                "estimatedCostUsd": decision.get("estimatedCostUsd"),
-                "usageStatus": decision.get("usageStatus"),
-                "decisionReason": decision.get("decisionReason"),
-                "scoreBreakdown": decision.get("scoreBreakdown") or {},
-                "policyResult": decision.get("policyResult") or {},
-                "candidates": decision.get("candidates") or [],
-                "rejected": decision.get("rejected") or [],
-            }
-        )
-
-    @staticmethod
-    def _approved_resource_selection_for(
-        *,
-        role: str,
-        selected: dict[str, Any] | None,
-        request_meta: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        if not selected:
-            return None
-        approvals = request_meta.get("approvedResourceSelections")
-        if not isinstance(approvals, list):
-            return None
-        for approval in approvals:
-            if not isinstance(approval, dict):
-                continue
-            if str(approval.get("role") or "") != role:
-                continue
-            if all(
-                str(approval.get(key) or "") == str(selected.get(key) or "")
-                for key in ("providerId", "model", "runtime")
-            ):
-                return redact_secrets(approval)
-        return None
-
-    @staticmethod
-    def _same_resource_selection(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
-        return all(
-            str(current.get(key) or "") == str(candidate.get(key) or "")
-            for key in ("role", "providerId", "model", "runtime")
-        )
-
-    @staticmethod
-    def _source_resource_approval_loop_id(request_meta: dict[str, Any]) -> str:
-        return str(
-            request_meta.get("retryOfLoopId")
-            or request_meta.get("planOnlyOfLoopId")
-            or request_meta.get("continueOfLoopId")
-            or ""
-        ).strip()
 
     def _trusted_remediation_resource_approval_marker(
         self,
@@ -3201,20 +2692,6 @@ class ProductLoopCoordinator:
             ),
             "policyResult": policy_result,
         }
-
-    @staticmethod
-    def _resource_decision_has_pending_approval(decision: dict[str, Any]) -> bool:
-        if not bool(decision.get("approvalRequired")):
-            return False
-        if bool(decision.get("approvalSatisfied")):
-            return False
-        policy_result = decision.get("policyResult") if isinstance(decision.get("policyResult"), dict) else {}
-        override = (
-            policy_result.get("approvalOverride")
-            if isinstance(policy_result.get("approvalOverride"), dict)
-            else {}
-        )
-        return override.get("approved") is not True
 
     def _team_schedule_with_resource_decisions(
         self,
@@ -3440,29 +2917,6 @@ class ProductLoopCoordinator:
             return []
         return global_role_order(request_meta, team_role)
 
-    @staticmethod
-    def _select_walking_providers(
-        manager: AIResourceManager,
-        build_request: Any,
-        allowed: list[str] | None,
-        walk: list[str],
-        **select_kwargs: Any,
-    ) -> dict[str, Any]:
-        """Selecciona con ``allowed``; con ``walk`` de 2+ proveedores prueba de a uno, en orden.
-
-        Cada proveedor se sondea sin registrar (``record=False``: sin fila de ruteo ni Jev) y solo el
-        primero con candidatos se selecciona de verdad; su veredicto es el de la elección determinista.
-        Si ninguno tiene candidatos, se registra una única decisión sobre el orden completo para que el
-        blocker de asignación tenga su evidencia.
-        """
-        if len(walk) < 2:
-            return manager.select_resource(build_request(allowed), **select_kwargs)
-        for provider_id in walk:
-            probe = manager.select_resource(build_request([provider_id]), record=False)
-            if probe.get("selected") is not None or probe.get("candidates"):
-                return manager.select_resource(build_request([provider_id]), **select_kwargs)
-        return manager.select_resource(build_request(list(walk)), **select_kwargs)
-
     def _team_resource_request(
         self,
         *,
@@ -3527,20 +2981,6 @@ class ProductLoopCoordinator:
             require_approval_for_unknown_cost=policy["requireApprovalForUnknownCost"],
             require_approval_over_usd=policy["requiresApprovalOverUsd"],
         )
-
-    @staticmethod
-    def _unscheduled_agent_task_roles(
-        *, agent_tasks: list[dict[str, Any]], team_schedule: dict[str, Any]
-    ) -> list[str]:
-        scheduled_roles = {
-            str(role_plan.get("role") or "").strip()
-            for role_plan in team_schedule.get("roles") or []
-            if str(role_plan.get("role") or "").strip()
-        }
-        task_roles = {
-            str(task.get("role") or "").strip() for task in agent_tasks if str(task.get("role") or "").strip()
-        }
-        return sorted(role for role in task_roles if role not in scheduled_roles)
 
     def _profile_by_role(self, project_id: str | None = None) -> dict[str, dict[str, Any]]:
         profiles = self.agents.list_agent_profiles(project_id=project_id)
@@ -3626,116 +3066,6 @@ class ProductLoopCoordinator:
                 )
             )
         return assignments
-
-    @staticmethod
-    def _runtime_provider_usage(
-        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
-    ) -> dict[str, Any] | None:
-        for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
-            if not isinstance(source, dict):
-                continue
-            for key in ("usage", "providerUsage", "rawUsage"):
-                value = source.get(key)
-                if isinstance(value, dict):
-                    return value
-        return None
-
-    @staticmethod
-    def _runtime_actual_cost_usd(
-        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
-    ) -> float | None:
-        for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
-            if not isinstance(source, dict):
-                continue
-            for key in ("actualCostUsd", "actual_cost_usd", "costUsd", "cost_usd"):
-                value = source.get(key)
-                if value is not None and value != "":
-                    return float(value)
-        return None
-
-    @staticmethod
-    def _runtime_latency_ms(
-        runtime_result: dict[str, Any], usage_entry: dict[str, Any] | None = None
-    ) -> int | None:
-        for source in (usage_entry, runtime_result, runtime_result.get("runtimeResult")):
-            if not isinstance(source, dict):
-                continue
-            for key in ("latencyMs", "latency_ms", "durationMs", "duration_ms"):
-                value = source.get(key)
-                if value is not None and value != "":
-                    return int(value)
-        return None
-
-    @staticmethod
-    def _runtime_bool_metric(
-        usage_entry: dict[str, Any] | None,
-        *,
-        keys: tuple[str, ...],
-        default: bool,
-    ) -> bool:
-        if not isinstance(usage_entry, dict):
-            return default
-        truthy = {"1", "true", "yes", "passed", "pass", "success", "succeeded", "completed"}
-        falsey = {"0", "false", "no", "failed", "fail", "blocked", "not_started"}
-        for key in keys:
-            value = usage_entry.get(key)
-            if value is None or value == "":
-                continue
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, (int, float)):
-                return bool(value)
-            normalized = str(value).strip().lower()
-            if normalized in truthy:
-                return True
-            if normalized in falsey:
-                return False
-        return default
-
-    @staticmethod
-    def _runtime_quality_score_metric(
-        usage_entry: dict[str, Any] | None,
-        *,
-        default: float,
-    ) -> float:
-        if not isinstance(usage_entry, dict):
-            return default
-        for key in ("qualityScore", "quality_score", "quality"):
-            value = usage_entry.get(key)
-            if value is None or value == "":
-                continue
-            return max(0.0, min(float(value), 1.0))
-        return default
-
-    @staticmethod
-    def _runtime_resource_usage_entries(runtime_result: dict[str, Any]) -> list[dict[str, Any]]:
-        for key in ("resourceUsage", "resource_usage", "aiUsage", "ai_usage", "usageObservations"):
-            value = runtime_result.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return []
-
-    @staticmethod
-    def _resource_role_matches(role_plan: dict[str, Any], usage_entry: dict[str, Any]) -> bool:
-        entry_role = str(usage_entry.get("role") or usage_entry.get("agentRole") or "").strip()
-        if not entry_role:
-            return True
-        return entry_role == str(role_plan.get("role") or "")
-
-    @staticmethod
-    def _resource_selection_matches(selected: dict[str, Any], usage_entry: dict[str, Any]) -> bool:
-        for selected_key, entry_keys in (
-            ("providerId", ("providerId", "provider_id", "provider")),
-            ("model", ("model",)),
-            ("runtime", ("runtime", "runtimeType", "runtime_type")),
-        ):
-            entry_value = next(
-                (usage_entry.get(key) for key in entry_keys if usage_entry.get(key) not in {None, ""}),
-                None,
-            )
-            if entry_value is not None and str(entry_value) != str(selected.get(selected_key)):
-                return False
-        return True
 
     def _is_model_runtime_provider(self, provider_id: str) -> bool:
         """Indica si la cuenta corresponde a un runtime de modelo (no CLI).
@@ -4454,10 +3784,7 @@ class ProductLoopCoordinator:
         durable = self._durable_run_context(loop)
         durable["resourceLearning"] = resource_learning
         durable["updatedAt"] = utc_now()
-        result["loop"] = self.repository.update_loop_context(
-            loop["id"],
-            context={**loop["context"], "durableRun": redact_secrets(durable)},
-        )
+        result["loop"] = self._write_context_entries(loop, {"durableRun": redact_secrets(durable)})
         return result
 
     def _block_after_runtime_with_resource_learning(
@@ -4512,10 +3839,7 @@ class ProductLoopCoordinator:
             "resourceLearning": resource_learning,
         }
         durable["updatedAt"] = utc_now()
-        result["loop"] = self.repository.update_loop_context(
-            loop["id"],
-            context={**loop["context"], "durableRun": redact_secrets(durable)},
-        )
+        result["loop"] = self._write_context_entries(loop, {"durableRun": redact_secrets(durable)})
         return result
 
     def _requires_brief_approval(
@@ -4969,9 +4293,7 @@ class ProductLoopCoordinator:
                 durable = self._durable_run_context(loop)
                 durable["specDriven"] = {"plan": SKIPPED_LOW_RISK, "risk": intent.get("risk")}
                 durable["updatedAt"] = utc_now()
-                return self.repository.update_loop_context(
-                    loop["id"], context={**loop["context"], "durableRun": durable}
-                )
+                return self._write_context_entries(loop, {"durableRun": durable})
             technical_plan = technical_plan_view(raw_plan, agent_tasks=agent_tasks)
             if technical_plan is None:
                 return loop
@@ -5186,9 +4508,7 @@ class ProductLoopCoordinator:
             durable = self._durable_run_context(loop)
             durable["teamReviews"] = redact_secrets(reviews)
             durable["updatedAt"] = utc_now()
-            run.loop = self.repository.update_loop_context(
-                loop["id"], context={**loop["context"], "durableRun": durable}
-            )
+            run.loop = self._write_context_entries(loop, {"durableRun": durable})
             self._record_loop_event(
                 project_id=run.project_id,
                 event_type="product_loop.team_reviews_recorded",
@@ -5299,9 +4619,7 @@ class ProductLoopCoordinator:
                     )
                 receipt.update({"status": "consumed", "consumedAt": utc_now()})
                 durable.update({"researchResolution": receipt, "runActive": True})
-                loop = self.repository.update_loop_context(
-                    loop["id"], context={**loop["context"], "durableRun": durable}
-                )
+                loop = self._write_context_entries(loop, {"durableRun": durable})
                 hydrate_research_run(self, run, loop=loop, receipt=receipt)
             return None
         except (ResearchResolutionError, KeyError, OSError, ValueError, TypeError) as error:
@@ -5355,9 +4673,7 @@ class ProductLoopCoordinator:
                 return loop
             durable["runActive"] = False
             durable["updatedAt"] = utc_now()
-            return self.repository.update_loop_context(
-                loop["id"], context={**loop["context"], "durableRun": durable}
-            )
+            return self._write_context_entries(loop, {"durableRun": durable})
         except Exception:
             return loop
 
@@ -5483,9 +4799,7 @@ class ProductLoopCoordinator:
                 "enforcement": constitution["enforcement"],
             }
             durable["updatedAt"] = utc_now()
-            run.loop = self.repository.update_loop_context(
-                loop["id"], context={**loop["context"], "durableRun": durable}
-            )
+            run.loop = self._write_context_entries(loop, {"durableRun": durable})
         except Exception as error:
             self._record_loop_event(
                 project_id=run.project_id,

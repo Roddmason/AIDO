@@ -11,9 +11,12 @@ vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_t
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .fsm import PRODUCT_LOOP_STATES
 
 FEEDBACK_ACTION_VALUES = (
     "accept",
@@ -552,6 +555,9 @@ class ThreadEta(BaseModel):
     includes_operator_approval: bool = Field(alias="includesOperatorApproval")
 
 
+MAX_TIMEOUT_SECONDS = 10 * 365 * 24 * 3600
+
+
 class ProductLoopStartRequest(BaseModel):
     """Cuerpo para arrancar un product loop en ``goal_received``, con su política de gobierno opcional."""
 
@@ -563,6 +569,34 @@ class ProductLoopStartRequest(BaseModel):
     timeouts: dict[str, Any] | None = None
     max_rework_rounds: int | None = Field(default=None, alias="maxReworkRounds")
     deadline: str | None = None
+
+    @field_validator("timeouts")
+    @classmethod
+    def _validate_timeouts(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Exige estados conocidos y segundos finitos, positivos y acotados (el coordinador los suma a ``now``)."""
+        for state, seconds in (value or {}).items():
+            if state not in PRODUCT_LOOP_STATES:
+                raise ValueError(f"Unknown product loop state in timeouts: {state}")
+            is_number = isinstance(seconds, (int, float)) and not isinstance(seconds, bool)
+            if not is_number or not 0 < seconds <= MAX_TIMEOUT_SECONDS:
+                raise ValueError(
+                    f"Timeout for {state} must be a finite number of seconds in (0, {MAX_TIMEOUT_SECONDS}]."
+                )
+        return value
+
+    @field_validator("deadline")
+    @classmethod
+    def _normalize_deadline(cls, value: str | None) -> str | None:
+        """Normaliza el deadline al formato UTC canónico de ``utc_now()``: el loop lo compara como texto."""
+        if value is None or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        except (ValueError, OverflowError) as error:
+            raise ValueError("Deadline must be an ISO-8601 timestamp.") from error
 
 
 class ProductLoopTransitionRequest(BaseModel):

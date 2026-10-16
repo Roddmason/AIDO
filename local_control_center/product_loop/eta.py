@@ -33,7 +33,7 @@ from typing import Any
 from local_control_center.shared.time import iso_after_seconds, utc_now
 
 from .coordinator import _OPERATOR_WAIT_STATES, TERMINAL_STATES
-from .repository import ProductLoopRepository
+from .repository import ProductLoopRepository, _database_identity
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +90,6 @@ def reset_state_duration_cache() -> None:
     """Vacía el caché TTL de permanencia por estado; usar entre tests para evitar fugas de estado global."""
     with _state_duration_cache_lock:
         _state_duration_cache.clear()
-
-
-def _database_identity(connection: sqlite3.Connection) -> str:
-    """Archivo de la base principal: separa las cachés de distintas bases del mismo proceso."""
-    row = connection.execute("PRAGMA database_list").fetchone()
-    return str(row[2] or f"memory-{id(connection)}")
 
 
 def _parse_iso(value: str) -> datetime:

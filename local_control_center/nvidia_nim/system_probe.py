@@ -102,8 +102,7 @@ class SubprocessProbeCommandRunner:
         if not argv or tuple(argv[1:]) not in allowed_arguments:
             raise ValueError("System probe command is not allowlisted.")
         try:
-            # nosemgrep: python-dangerous-shell-without-policy-comment
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosemgrep: python-dangerous-shell-without-policy-comment
                 list(argv),
                 capture_output=True,
                 check=False,

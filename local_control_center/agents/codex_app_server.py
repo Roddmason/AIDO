@@ -134,6 +134,10 @@ def read_codex_rate_limits(
 ) -> dict[str, Any]:
     """Resultado de ``account/rateLimits/read`` (``{"rateLimits": {...}, ...}``) del app-server.
 
+    Lanza ``codex app-server`` directamente (argv fijo, ``shell=False``, ejecutable resuelto por
+    ``resolve_codex_command``): es una consulta de cuota de solo lectura, no una acción del agente, por
+    eso no pasa por la capa de política/sandbox.
+
     Raises:
         RuntimeError: dentro de una transacción SQLite (``assert_external_boundary``); no es un fallo
             de la fuente y no debe caer a otra fuente de red.
@@ -145,7 +149,7 @@ def read_codex_rate_limits(
         raise CodexAppServerError("codex executable not found")
     deadline = time.monotonic() + min(float(timeout), APP_SERVER_TIMEOUT_SECONDS)
     try:
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # nosemgrep: python-dangerous-shell-without-policy-comment
             [executable, "app-server"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

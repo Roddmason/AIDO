@@ -13,6 +13,7 @@ persiste, solo devuelve la decision; no lanza.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -49,7 +50,6 @@ GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
 # Plumbing read-only que usa el gestor de ramas para inventariar (fechas, merged, ahead/behind,
 # equivalencia de parches). Ninguno mueve refs ni toca el árbol de trabajo.
 GIT_BRANCH_INVENTORY_READ_COMMANDS = {"for-each-ref", "merge-base", "cherry", "rev-list"}
-GIT_WORKSPACE_WRITE_COMMANDS = {"branch", "checkout"}
 GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "develop", "HEAD"}
 GIT_FLOW_RENAME_PREFIXES = ("feature/", "bugfix/", "release/", "hotfix/", "support/")
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
@@ -97,6 +97,20 @@ def _model_runtime_binding_is_valid(input_payload: dict[str, Any], tool: str) ->
     if tool not in MODEL_RUNTIME_TOOLS or not runtime_id or provider_id != runtime_id:
         return False
     return input_payload.get("providerFamily") == tool
+
+
+def _is_git_read_unsafe_flag(arg: str) -> bool:
+    """Marca flags de lectura que escriben archivos, saltan el index o ejecutan drivers externos."""
+    return (
+        arg == "--output"
+        or arg.startswith(("--output=", "-O"))
+        or arg
+        in {
+            "--no-index",
+            "--ext-diff",
+            "--textconv",
+        }
+    )
 
 
 def _is_safe_git_arg(value: str | None) -> bool:
@@ -268,6 +282,16 @@ def evaluate_git_workspace_command(
             "decision": "deny",
             "riskLevel": "high",
             "reason": "Git workspace network access is limited to explicit remote tests and branch pushes.",
+            "categories": categories,
+        }
+    if subcommand in {*GIT_WORKSPACE_READ_COMMANDS, *GIT_BRANCH_INVENTORY_READ_COMMANDS} and any(
+        _is_git_read_unsafe_flag(arg) for arg in args[: args.index("--") if "--" in args else len(args)]
+    ):
+        categories.append("git_workspace_read_flag_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git read commands cannot write files, bypass the index or run external diff drivers.",
             "categories": categories,
         }
     if subcommand in GIT_WORKSPACE_READ_COMMANDS:
@@ -801,6 +825,27 @@ def evaluate_git_workspace_command(
     }
 
 
+def _executed_argv_command(input_payload: dict[str, Any], operation: str) -> str | None:
+    """Reconstruye el comando que el sandbox ejecutara realmente a partir de ``commandArgv``.
+
+    El campo ``command`` es solo display; el sandbox corre el argv. Para una ejecucion de shell
+    estructurada la politica juzga el argv (con ``argv[0]`` reducido a su basename, como el resto
+    de los clasificadores); devuelve ``None`` cuando no aplica esa reconstruccion.
+    """
+    argv = input_payload.get("commandArgv")
+    if (
+        input_payload.get("execute") is not True
+        or str(input_payload.get("tool") or "") != "shell"
+        or operation in RUNTIME_CLI_OPERATIONS
+        or not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
+        return None
+    executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1]
+    return shlex.join([executable, *argv[1:]])
+
+
 def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bool = False) -> dict[str, Any]:
     """Evalua una accion y devuelve ``{decision, riskLevel, reason, categories}``.
 
@@ -811,14 +856,20 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
     shell ni adaptadores; lo no allowlisted cae a ``requires_approval``, no a ``allow``.
     """
     command = str(input_payload.get("command") or "")
+    operation = str(input_payload.get("operation") or "")
+    argv_command = _executed_argv_command(input_payload, operation)
+    caller_classification = classify_command(command)
+    if argv_command is not None:
+        command = argv_command
     git_operation = str(input_payload.get("gitOperation") or input_payload.get("git_operation") or "")
     deployment_target = str(
         input_payload.get("deploymentTarget") or input_payload.get("deployment_target") or ""
     )
     tool = str(input_payload.get("tool") or "")
-    operation = str(input_payload.get("operation") or "")
     permission_profile = permission_profile_for(input_payload)
     classification = classify_command(command)
+    if argv_command is not None and caller_classification["riskLevel"] == "critical":
+        classification = caller_classification
     categories = list(classification["categories"])
     if not is_path_inside(input_payload.get("path"), input_payload.get("workspacePath")):
         categories.append("path_outside_workspace")
@@ -853,6 +904,12 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
             "categories": categories,
         }
     if git_operation in {"force_push", "push_main"} or classification["riskLevel"] == "critical":
+        if operation == "git_workspace_command":
+            scoped = evaluate_git_workspace_command(
+                input_payload, permission_profile=permission_profile, categories=list(categories)
+            )
+            if scoped["decision"] == "deny":
+                return scoped
         return {
             "decision": "requires_human",
             "riskLevel": "critical",
@@ -1521,6 +1578,23 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
             "categories": categories,
         }
 
+    if tool == "shell" and not command:
+        if permission_profile == "plan":
+            categories.append("profile_shell_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "medium",
+                "reason": "Plan profile cannot execute shell commands.",
+                "categories": categories,
+            }
+        categories.append("shell_command_missing")
+        return {
+            "decision": "requires_approval",
+            "riskLevel": "medium",
+            "reason": "Shell action carries no command or structured argv and requires approval.",
+            "categories": categories,
+        }
+
     if permission_profile == "plan" and tool in PLAN_EXECUTION_ADAPTER_TOOLS:
         categories.append("profile_runtime_adapter_denied")
         return {
@@ -1568,8 +1642,8 @@ def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bo
             "categories": categories,
         }
     return {
-        "decision": "allow",
-        "riskLevel": "low",
-        "reason": "Read-only or low-risk action allowed by internal policy.",
-        "categories": categories,
+        "decision": "requires_approval",
+        "riskLevel": "medium",
+        "reason": "Action is not recognized as low-risk by internal policy and requires approval.",
+        "categories": [*categories, "unrecognized_action_gated"],
     }

@@ -64,7 +64,7 @@ from .contracts import (
 from .developer_agent import DeveloperAgentRunner
 from .devops_agent import DevOpsAgentRunner
 from .product_owner_agent import ProductOwnerAgentRunner
-from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .research_agent import ResearchAgentRunner
@@ -109,7 +109,6 @@ VALID_AGENT_ROLES = {
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
-REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
 MODEL_AGENT_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
 DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
 ARCHITECT_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES | {"claude_code_cli"}
@@ -1081,6 +1080,8 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         task_id = payload.get("taskId", "task")
         input_payload = payload.get("input") or {}
         tool_calls = input_payload.get("toolCalls") or []
+        if not isinstance(tool_calls, list) or not all(isinstance(item, dict) for item in tool_calls):
+            raise HTTPException(status_code=422, detail="input.toolCalls must be a list of objects.")
         requested_skill_refs = _requested_skill_refs(input_payload)
         resolved_skills, skill_error = skill_registry().resolve_for_agent_run(
             requested_refs=requested_skill_refs,

@@ -94,7 +94,6 @@ TOOLCHAIN_VERSION_EXECUTABLES = frozenset(
 _LOWERED_PACKAGE_SCRIPT_HOOKS = frozenset(hook.lower() for hook in PACKAGE_SCRIPT_HOOKS)
 
 PACKAGE_MANAGER_INSTALL_VERBS = frozenset({"install", "add", "remove", "uninstall", "update", "upgrade"})
-NETWORK_EXECUTABLES = frozenset({"curl", "curl.exe", "invoke-webrequest", "wget", "wget.exe", "ssh", "scp"})
 READ_ONLY_EXECUTABLES = frozenset({"rg", "rg.exe", "get-content", "ls", "dir"})
 RUNTIME_VERSION_EXECUTABLES = frozenset(
     {

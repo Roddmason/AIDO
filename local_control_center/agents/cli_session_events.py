@@ -35,7 +35,6 @@ CLI_SESSION_EVENT_TYPES = frozenset(
         "cancelled",
     }
 )
-TERMINAL_EVENT_TYPES = frozenset({"completed", "failed", "cancelled"})
 
 MAX_EVENTS_PER_SESSION = 500
 MAX_EVENT_PAYLOAD_BYTES = 4_000

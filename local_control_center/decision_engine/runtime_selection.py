@@ -120,8 +120,12 @@ def rank_runtime_candidates(
                 ranking_request, revalidate=revalidate
             )
         )
-    except Exception:
-        return None, {**evidence, "reasonCode": "selection_evidence_unavailable"}
+    except Exception as error:
+        return None, {
+            **evidence,
+            "reasonCode": "selection_evidence_unavailable",
+            "errorType": type(error).__name__,
+        }
     if not receipt:
         return None, {**evidence, "reasonCode": "selection_disabled"}
     if receipt["reasonCode"] == "risk_requires_review":

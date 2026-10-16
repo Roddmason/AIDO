@@ -42,6 +42,7 @@ from local_control_center.process_supervision.service import (
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.sandbox import open_restricted_text_process
 from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.diagnostics import diagnostic_event
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -208,9 +209,9 @@ def _run(
     handle: _RunningHandle,
     process_opener: ProcessOpener,
 ) -> None:
-    connection = open_sqlite_connection(db_path)
-    root = _registered_workspace_root(connection, workspace_id=workspace_id)
-    events = CliSessionEventStore(connection, project_id=project_id, artifact_root=root)
+    connection: sqlite3.Connection | None = None
+    events: CliSessionEventStore | None = None
+    root: Path | None = None
     stdout_acc: list[str] = []
     stderr_acc: list[str] = []
     captured_bytes = {"stdout": 0, "stderr": 0}
@@ -222,6 +223,9 @@ def _run(
     reader_stop = threading.Event()
     readers: list[threading.Thread] = []
     try:
+        connection = open_sqlite_connection(db_path)
+        root = _registered_workspace_root(connection, workspace_id=workspace_id)
+        events = CliSessionEventStore(connection, project_id=project_id, artifact_root=root)
         events.record_event(
             session_id,
             "started",
@@ -619,7 +623,16 @@ def _run(
         )
     except Exception as error:
         reason = str(error)
+        diagnostic_event(
+            "cli_session_failed",
+            component="cli_session_stream",
+            errorCode=type(error).__name__,
+            error=error,
+            level="ERROR",
+        )
         try:
+            if connection is None or events is None:
+                raise RuntimeError("cli_session_setup_failed") from error
             if process is not None and managed_process_for(process) is not None:
                 terminate_managed_process(process, reason="session_failed", grace_seconds=0)
                 reader_stop.set()
@@ -668,8 +681,26 @@ def _run(
                     **finish,
                 },
             )
-        except Exception:
-            pass
+        except Exception as terminal_error:
+            diagnostic_event(
+                "cli_session_terminal_update_failed",
+                component="cli_session_stream",
+                errorCode=type(terminal_error).__name__,
+                level="ERROR",
+            )
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    _update_agent_run(
+                        connection,
+                        agent_run_id,
+                        status="runtime_failed",
+                        output_payload={
+                            "cliSessionId": session_id,
+                            "status": "runtime_failed",
+                            "reason": reason,
+                            "runtimeFailed": True,
+                        },
+                    )
     finally:
         reader_stop.set()
         if process is not None and managed_process_for(process) is not None:
@@ -679,7 +710,8 @@ def _run(
             complete_managed_process(process, exit_code=process.poll(), cancelled=handle.cancel.is_set())
         with _LOCK:
             _RUNNING.pop(session_id, None)
-        connection.close()
+        if connection is not None:
+            connection.close()
 
 
 def _reader(
@@ -762,7 +794,7 @@ def _changed_files(
         workspace_id=workspace_id,
         workspace_path=registered_path,
         cwd=registered_path,
-        args=["status", "--porcelain"],
+        args=["status", "--porcelain", "--untracked-files=all"],
         task_id=f"cli_session.{session_id}.changed_files",
     )
     if result["returnCode"] != 0:

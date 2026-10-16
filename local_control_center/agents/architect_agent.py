@@ -50,7 +50,6 @@ from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
 FAILED_VALIDATION_STATUS = "failed_validation"
-ARCHITECT_TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, FAILED_VALIDATION_STATUS, "failed"}
 MODEL_OUTPUT_LIMIT_CHARS = 120_000
 PROMPT_DIFF_LIMIT_CHARS = 40_000
 PROMPT_COLLECTION_LIMIT = 20

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -113,6 +114,24 @@ def _inside(path: Path, root: Path) -> bool:
 
 def _hash_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _workspace_candidates(workspace: Path) -> list[Path]:
+    """Lista archivos y symlinks del workspace podando ``IGNORED_PARTS`` sin descender en ellos."""
+    candidates: list[Path] = []
+    for root, dirnames, filenames in os.walk(workspace):
+        dirnames[:] = [name for name in dirnames if name not in IGNORED_PARTS]
+        base = Path(root)
+        candidates.extend(base / name for name in (*dirnames, *filenames) if name not in IGNORED_PARTS)
+    return sorted(candidates)
 
 
 def _relative_path(path: Path, workspace: Path) -> str:
@@ -248,7 +267,7 @@ class SecurityAgentRunner:
         files_scanned: list[dict[str, Any]] = []
         dependency_files: list[dict[str, Any]] = []
         scanned = 0
-        for path in sorted(workspace.rglob("*")):
+        for path in _workspace_candidates(workspace):
             if scanned >= MAX_FILES_SCANNED:
                 findings.append(
                     _finding(
@@ -259,8 +278,6 @@ class SecurityAgentRunner:
                     )
                 )
                 break
-            if any(part in IGNORED_PARTS for part in path.relative_to(workspace).parts):
-                continue
             if path.is_symlink():
                 findings.append(
                     _finding(
@@ -273,20 +290,21 @@ class SecurityAgentRunner:
                 continue
             if not path.is_file():
                 continue
-            content = path.read_bytes()
-            content_hash = _hash_bytes(content)
+            size_bytes = path.stat().st_size
+            content = path.read_bytes() if size_bytes <= MAX_FILE_BYTES else b""
+            content_hash = _hash_bytes(content) if size_bytes <= MAX_FILE_BYTES else _hash_file(path)
             rel = _relative_path(path, workspace)
-            files_scanned.append({"path": rel, "hash": content_hash, "sizeBytes": len(content)})
+            files_scanned.append({"path": rel, "hash": content_hash, "sizeBytes": size_bytes})
             scanned += 1
             if path.name in DEPENDENCY_FILENAMES:
                 dependency_entry = {
                     "path": rel,
                     "hash": content_hash,
-                    "sizeBytes": len(content),
+                    "sizeBytes": size_bytes,
                     "kind": path.name,
                 }
                 dependency_files.append(dependency_entry)
-                if path.name == "package.json":
+                if path.name == "package.json" and size_bytes <= MAX_FILE_BYTES:
                     try:
                         json.loads(content.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -299,21 +317,18 @@ class SecurityAgentRunner:
                                 evidence={"contentHash": content_hash},
                             )
                         )
-            if len(content) > MAX_FILE_BYTES:
+            if size_bytes > MAX_FILE_BYTES:
                 findings.append(
                     _finding(
                         check_id="file_scan_limit",
                         severity="medium",
                         message=f"File exceeds SecurityAgent text scan limit: {MAX_FILE_BYTES} bytes.",
                         location=_redacted_location(rel),
-                        evidence={"contentHash": content_hash, "sizeBytes": len(content)},
+                        evidence={"contentHash": content_hash, "sizeBytes": size_bytes},
                     )
                 )
                 continue
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
+            text = content.decode("utf-8", errors="replace")
             self._scan_text_for_secrets(text=text, path=rel, content_hash=content_hash, findings=findings)
         return files_scanned, dependency_files
 

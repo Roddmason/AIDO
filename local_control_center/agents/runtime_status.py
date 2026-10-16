@@ -63,7 +63,6 @@ CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
 OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
-PROVIDER_DISABLED_BLOCKER = "provider_disabled"
 CLI_NOT_DETECTED_REASON_CODE = "cli_not_detected"
 PROVIDER_DISABLED_REASON = (
     "provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); "

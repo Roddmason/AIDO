@@ -101,7 +101,16 @@ class ShadowDecisionEngine:
                 },
             )
             if selecting and reason == "recommendation_usable":
-                rejection = revalidate(result.selected)
+                try:
+                    rejection = revalidate(result.selected)
+                except Exception as error:
+                    rejection = "revalidation_error"
+                    diagnostic_event(
+                        "decision_revalidation_failed",
+                        component="decision_engine",
+                        errorCode=type(error).__name__,
+                        level="ERROR",
+                    )
                 if rejection:
                     receipt["reasonCode"] = rejection
                 else:

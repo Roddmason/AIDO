@@ -37,11 +37,12 @@ def _enabled(connection: sqlite3.Connection, project_id: str | None) -> bool:
     )
 
 
-def _failure(operation: str) -> None:
+def _failure(operation: str, error: BaseException | None = None) -> None:
     diagnostic_event(
         "decision_evidence_failed",
         component="decision_engine",
         operation=operation,
+        errorCode=type(error).__name__ if error is not None else None,
         outcome="evidence_unavailable",
         level="ERROR",
     )
@@ -81,8 +82,8 @@ def _observe(connection: sqlite3.Connection, requests: list[DecisionRequest]) ->
                 await engine.observe(request)
 
         asyncio.run(observe_all())
-    except Exception:
-        _failure("observe")
+    except Exception as error:
+        _failure("observe", error)
 
 
 def _identity(candidate: dict) -> str:
@@ -138,8 +139,8 @@ def observe_resource_decision(
             routing_latency_ms=routing_latency_ms,
         )
         _observe(connection, [request])
-    except Exception:
-        _failure("resource_decision")
+    except Exception as error:
+        _failure("resource_decision", error)
 
 
 def observe_intake(
@@ -200,8 +201,8 @@ def observe_intake(
             for kind, candidates, selected in decisions
         ]
         _observe(connection, requests)
-    except Exception:
-        _failure("intake")
+    except Exception as error:
+        _failure("intake", error)
 
 
 def record_resource_outcome(
@@ -217,6 +218,9 @@ def record_resource_outcome(
             (source_decision_id,),
         ).fetchall()
         for row in rows:
-            DecisionRepository(connection).record_outcome(row["id"], outcome)
-    except Exception:
-        _failure("outcome")
+            try:
+                DecisionRepository(connection).record_outcome(row["id"], outcome)
+            except ValueError:
+                continue
+    except Exception as error:
+        _failure("outcome", error)

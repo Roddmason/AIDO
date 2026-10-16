@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from local_control_center.agents.model_execution_health import VALIDATION_TTL_SECONDS
-from local_control_center.agents.product_owner_agent_contract import product_owner_agent_readiness
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.evidence.artifacts import write_text_artifact
@@ -27,6 +26,18 @@ from local_control_center.product_loop.metadata import (
     strip_untrusted_resource_cost_policy_metadata,
 )
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.remediations.action_policy import should_resolve
+from local_control_center.remediations.blocker_classification import (
+    blocker_type,
+    has_actionable_pending_decision,
+)
+from local_control_center.remediations.decision_answers import (
+    answer_options,
+    matched_option,
+    option_key,
+    validated_answer,
+)
+from local_control_center.remediations.git_remote_policy import remote_url_payload_is_safe
 from local_control_center.remediations.local_runtime import local_runtime_specs, uses_local_runtime_specs
 from local_control_center.remediations.payloads import (
     PAYLOAD_BUILDERS,
@@ -34,13 +45,32 @@ from local_control_center.remediations.payloads import (
     build_blocker_payload_context,
     decision_engine_failure,
     interrupted_execution_specs,
-    jev_confidence_below_threshold_failure,
-    resource_policy_summary,
     resource_selection_constraint_failure,
     runtime_risk_review_failure,
 )
 from local_control_center.remediations.repository import RemediationActionsRepository
-from local_control_center.runtime_integrations.repository import RuntimeConfigRepository, is_ollama_runtime_id
+from local_control_center.remediations.resource_approvals import (
+    approve_resource_decision_spec,
+    approved_resource_selections_from_durable,
+    resource_approvals_from_blockers,
+    resource_approvals_from_payload,
+    resource_decision_requires_approval,
+    same_resource_approval,
+    single_resource_approval,
+)
+from local_control_center.remediations.retry_support import (
+    backfill_details_from_durable,
+    cooldown_rejected_provider_ids,
+    existing_plan_only_job,
+    existing_retry_job,
+    has_delivery_gitleaks_evidence,
+    has_delivery_resource_learning_evidence,
+    mark_thread_run_queued_best_effort,
+    resolved_similarity_decision_mode,
+    source_retry_message,
+)
+from local_control_center.remediations.runtime_actions import runtime_status_for, validate_runtime_execution
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.runtime_team.validation import (
     REMOTE_MODEL_RUNTIME_KINDS,
     account_validation_state,
@@ -51,7 +81,6 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
-from local_control_center.threads.similarity import SIMILARITY_ACTIONS
 from local_control_center.workers.leadership import WorkerControlRepository
 
 # Remediation actions that can discard or overwrite local work; execute() refuses them until the
@@ -64,20 +93,64 @@ LOCAL_WORKER_RECOVERABLE_STAGES = frozenset({"gitleaks", "research", "runtime", 
 # Blocker types de `resource_manager` que la reanudación automática por cooldown puede tocar; ver
 # `BlockerRemediationService.resume_cooldown_expired_blocks`.
 COOLDOWN_ELIGIBLE_BLOCKER_TYPES = frozenset({"resource_manager_unconfigured", "runtime_not_executable"})
-# `thread_decisions.metadata.source` de las preguntas y decisiones que levanta el ProductOwnerAgent
-# (agents/product_owner_agent.py::PRODUCT_OWNER_AGENT_ID). Solo estas admiten selección múltiple y
-# texto libre en `_answer_question`; el resto (similitud, funcionalidad existente, intake) son
-# excluyentes por semántica y siguen exigiendo una sola opción exacta.
-PRODUCT_OWNER_DECISION_SOURCE = "product_owner_agent"
+
+ACTION_HANDLERS: dict[str, str] = {
+    "open_settings_section": "_handle_open_settings_section",
+    "validate_runtime": "_handle_validate_runtime",
+    "switch_runtime": "_handle_switch_runtime",
+    "run_worker_once": "_handle_run_worker_once",
+    "check_network_access": "_handle_check_network_access",
+    "git_init": "_handle_git_action",
+    "add_remote": "_handle_git_action",
+    "create_branch": "_handle_git_action",
+    "checkout_branch": "_handle_git_action",
+    "view_diff": "_handle_git_action",
+    "run_gitleaks": "_handle_git_action",
+    "save_patch": "_handle_save_patch",
+    "retry_loop": "_handle_retry_loop",
+    "answer_question": "_handle_answer_question",
+    "approve_resource_decision": "_handle_approve_resource_decision",
+    "continue_plan_only": "_handle_continue_plan_only",
+    "revalidate_runtime": "_handle_revalidate_runtime",
+}
+GIT_ACTION_HANDLERS: dict[str, str] = {
+    "git_init": "_git_init",
+    "add_remote": "_git_add_remote",
+    "create_branch": "_git_create_branch",
+    "checkout_branch": "_git_checkout_branch",
+    "view_diff": "_git_view_diff",
+    "run_gitleaks": "_git_run_gitleaks",
+}
+
+
+CoordinatorFactory = Callable[[sqlite3.Connection, Path | None], Any]
+
+
+def default_coordinator_factory(connection: sqlite3.Connection, root: Path | None) -> Any:
+    """Build the real ProductLoopCoordinator; imported lazily because the coordinator imports this module."""
+    from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+
+    return ProductLoopCoordinator(connection, root=root)
 
 
 class BlockerRemediationService:
     """Maps blocker evidence to persisted, user-executable remediation actions."""
 
-    def __init__(self, connection: sqlite3.Connection, *, root: str | Path | None = None):
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        root: str | Path | None = None,
+        coordinator_factory: CoordinatorFactory | None = None,
+    ):
         self.connection = connection
         self.root = Path(root).resolve(strict=False) if root is not None else None
         self.repository = RemediationActionsRepository(connection)
+        self._coordinator_factory = coordinator_factory or default_coordinator_factory
+
+    def _coordinator(self) -> Any:
+        """Build a Product Loop coordinator bound to this service's connection and root."""
+        return self._coordinator_factory(self.connection, self.root)
 
     def create_for_blocked_run(
         self,
@@ -574,9 +647,7 @@ class BlockerRemediationService:
         thread_id: str,
         project_id: str,
     ) -> dict[str, Any] | None:
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         for loop in coordinator.list_loops(project_id):
             if str(loop.get("state") or "") != "awaiting_user":
                 continue
@@ -661,18 +732,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _backfill_details_from_durable(durable: dict[str, Any]) -> dict[str, Any]:
-        functionality = (
-            durable.get("existingFunctionality")
-            if isinstance(durable.get("existingFunctionality"), dict)
-            else {}
-        )
-        return {
-            "decisionId": durable.get("decisionId"),
-            "functionalityId": functionality.get("id"),
-            "sourceThreadId": functionality.get("sourceThreadId"),
-            "score": functionality.get("score"),
-            "options": list(SIMILARITY_ACTIONS),
-        }
+        return backfill_details_from_durable(durable)
 
     def dismiss(self, action_id: str) -> dict[str, Any]:
         """Dismiss one pending remediation action."""
@@ -685,44 +745,9 @@ class BlockerRemediationService:
         thread_id: str,
         event_payload: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        status_update: dict[str, Any] = {"status": "queued"}
-        try:
-            thread = threads.set_status(thread_id, "queued")
-        except Exception as error:
-            thread = threads.get_thread(thread_id)
-            status_update = {
-                "status": "failed",
-                "reason": str(redact_secrets(str(error))),
-                "threadId": thread_id,
-            }
-        event_update: dict[str, Any] = {"status": "recorded"}
-        try:
-            threads.record_event(
-                thread_id=thread_id,
-                type="run_queued",
-                agent_role="aido_lead",
-                payload=event_payload,
-            )
-        except Exception as error:
-            event_update = {
-                "status": "failed",
-                "reason": str(redact_secrets(str(error))),
-                "threadId": thread_id,
-            }
-            with suppress(Exception):
-                threads.record_event(
-                    thread_id=thread_id,
-                    type="run_queue_event_failed",
-                    agent_role="aido_lead",
-                    payload={
-                        **event_payload,
-                        "reason": event_update["reason"],
-                    },
-                )
-        update_summary = {"status": status_update["status"], "thread": status_update, "event": event_update}
-        if reason := status_update.get("reason") or event_update.get("reason"):
-            update_summary["reason"] = reason
-        return thread, update_summary
+        return mark_thread_run_queued_best_effort(
+            threads=threads, thread_id=thread_id, event_payload=event_payload
+        )
 
     @staticmethod
     def _requires_confirmation(action: dict[str, Any]) -> bool:
@@ -786,106 +811,9 @@ class BlockerRemediationService:
                 {"reason": (payload or {}).get("reason")},
             )
             return {"remediation": self.repository.get(action_id), "execution": result["execution"]}
-        if action_type == "open_settings_section":
-            execution = {
-                "status": "completed",
-                "action": action_type,
-                "section": execution_payload.get("section")
-                or execution_payload.get("settingsSection")
-                or "runtime",
-            }
-        elif action_type == "validate_runtime":
-            project_id = (
-                str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
-            )
-            providers = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
-            execution = self._validate_runtime_execution(
-                runtime_id=str(execution_payload.get("runtimeId") or "").strip(),
-                providers=providers,
-                product_owner=action.get("stage") in {"product_owner", "product_owner_runtime"},
-            )
-        elif action_type == "switch_runtime":
-            runtime_id = str(execution_payload.get("runtimeId") or "").strip()
-            if not runtime_id:
-                execution = {
-                    "status": "blocked",
-                    "action": action_type,
-                    "reason": "runtimeId is required to switch runtime.",
-                }
-            else:
-                project_id = (
-                    str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
-                )
-                providers = RuntimeStatusService(self.connection).list_provider_statuses(
-                    project_id=project_id
-                )
-                target = self._runtime_status_for(providers, runtime_id)
-                if target is None:
-                    execution = {
-                        "status": "blocked",
-                        "action": action_type,
-                        "runtimeId": runtime_id,
-                        "providers": redact_secrets(providers),
-                        "reason": f"Runtime {runtime_id} is not available in runtime status.",
-                    }
-                elif target.get("executable") is not True:
-                    execution = {
-                        "status": "blocked",
-                        "action": action_type,
-                        "runtimeId": runtime_id,
-                        "target": redact_secrets(target),
-                        "providers": redact_secrets(providers),
-                        "reason": str(
-                            target.get("reason")
-                            or f"Runtime {runtime_id} is not executable and cannot be selected."
-                        ),
-                    }
-                else:
-                    preferences = self._set_default_runtime(str(target.get("id") or runtime_id))
-                    execution = {
-                        "status": "completed",
-                        "action": action_type,
-                        "runtimeId": str(target.get("id") or runtime_id),
-                        "target": redact_secrets(target),
-                        "preferences": preferences,
-                        "reason": "Default runtime preference updated to an executable runtime.",
-                    }
-        elif action_type == "run_worker_once":
-            execution = self._request_worker_batch(execution_payload)
-        elif action_type == "check_network_access":
-            execution = self._check_network_access(
-                project_id=str(execution_payload.get("projectId") or action.get("projectId") or "").strip()
-                or None
-            )
-        elif action_type in {
-            "git_init",
-            "add_remote",
-            "create_branch",
-            "checkout_branch",
-            "view_diff",
-            "run_gitleaks",
-        }:
-            execution = self._execute_git_action(
-                action_type, action=action, payload=execution_payload, platform=platform
-            )
-        elif action_type == "save_patch":
-            execution = self._save_patch(action=action, payload=execution_payload, platform=platform)
-        elif action_type == "retry_loop":
-            execution = self._retry_loop(action=action, payload=payload or {})
-        elif action_type == "answer_question":
-            execution = self._answer_question(action=action, payload=execution_payload)
-        elif action_type == "approve_resource_decision":
-            execution = self._approve_resource_decision(action=action, payload=execution_payload)
-        elif action_type == "continue_plan_only":
-            execution = self._continue_plan_only(action=action)
-        elif action_type == "revalidate_runtime":
-            execution = self._revalidate_runtime(action=action, platform=platform)
-        else:
-            execution = {
-                "status": "blocked",
-                "action": action_type,
-                "reason": "Unsupported remediation action.",
-            }
+        execution = self._dispatch_action(
+            action, payload=payload or {}, execution_payload=execution_payload, platform=platform
+        )
 
         if self._should_resolve(action_type=action_type, execution=execution):
             current_action = self.repository.get(action_id)
@@ -897,6 +825,130 @@ class BlockerRemediationService:
         else:
             remediation = self.repository.get(action_id)
         return {"remediation": remediation, "execution": redact_secrets(execution)}
+
+    def _dispatch_action(
+        self,
+        action: dict[str, Any],
+        *,
+        payload: dict[str, Any],
+        execution_payload: dict[str, Any],
+        platform: Any,
+    ) -> dict[str, Any]:
+        """Resolve the handler for ``action['actionType']`` at call time so it stays patchable."""
+        action_type = action["actionType"]
+        handler_name = ACTION_HANDLERS.get(action_type)
+        if handler_name is None:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "reason": "Unsupported remediation action.",
+            }
+        return getattr(self, handler_name)(
+            action, payload=payload, execution_payload=execution_payload, platform=platform
+        )
+
+    def _handle_open_settings_section(self, action, *, payload, execution_payload, platform):
+        """Report the settings section the client should open."""
+        return {
+            "status": "completed",
+            "action": action["actionType"],
+            "section": execution_payload.get("section")
+            or execution_payload.get("settingsSection")
+            or "runtime",
+        }
+
+    def _handle_validate_runtime(self, action, *, payload, execution_payload, platform):
+        """Validate the requested runtime against the current provider statuses."""
+        project_id = str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
+        providers = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
+        return self._validate_runtime_execution(
+            runtime_id=str(execution_payload.get("runtimeId") or "").strip(),
+            providers=providers,
+            product_owner=action.get("stage") in {"product_owner", "product_owner_runtime"},
+        )
+
+    def _handle_switch_runtime(self, action, *, payload, execution_payload, platform):
+        """Switch the default runtime to an executable target."""
+        action_type = action["actionType"]
+        runtime_id = str(execution_payload.get("runtimeId") or "").strip()
+        if not runtime_id:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "reason": "runtimeId is required to switch runtime.",
+            }
+        project_id = str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
+        providers = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
+        target = self._runtime_status_for(providers, runtime_id)
+        if target is None:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "runtimeId": runtime_id,
+                "providers": redact_secrets(providers),
+                "reason": f"Runtime {runtime_id} is not available in runtime status.",
+            }
+        if target.get("executable") is not True:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "runtimeId": runtime_id,
+                "target": redact_secrets(target),
+                "providers": redact_secrets(providers),
+                "reason": str(
+                    target.get("reason") or f"Runtime {runtime_id} is not executable and cannot be selected."
+                ),
+            }
+        preferences = self._set_default_runtime(str(target.get("id") or runtime_id))
+        return {
+            "status": "completed",
+            "action": action_type,
+            "runtimeId": str(target.get("id") or runtime_id),
+            "target": redact_secrets(target),
+            "preferences": preferences,
+            "reason": "Default runtime preference updated to an executable runtime.",
+        }
+
+    def _handle_run_worker_once(self, action, *, payload, execution_payload, platform):
+        """Request one bounded worker batch."""
+        return self._request_worker_batch(execution_payload)
+
+    def _handle_check_network_access(self, action, *, payload, execution_payload, platform):
+        """Probe network access for the action's project."""
+        return self._check_network_access(
+            project_id=str(execution_payload.get("projectId") or action.get("projectId") or "").strip()
+            or None
+        )
+
+    def _handle_git_action(self, action, *, payload, execution_payload, platform):
+        """Delegate every Git remediation to ``_execute_git_action``."""
+        return self._execute_git_action(
+            action["actionType"], action=action, payload=execution_payload, platform=platform
+        )
+
+    def _handle_save_patch(self, action, *, payload, execution_payload, platform):
+        """Persist the workspace diff as a patch artifact."""
+        return self._save_patch(action=action, payload=execution_payload, platform=platform)
+
+    def _handle_retry_loop(self, action, *, payload, execution_payload, platform):
+        """Retry the blocked Product Loop with the caller-supplied payload only."""
+        return self._retry_loop(action=action, payload=payload)
+
+    def _handle_answer_question(self, action, *, payload, execution_payload, platform):
+        """Record the answer to a pending thread question."""
+        return self._answer_question(action=action, payload=execution_payload)
+
+    def _handle_approve_resource_decision(self, action, *, payload, execution_payload, platform):
+        """Approve the pending resource decision."""
+        return self._approve_resource_decision(action=action, payload=execution_payload)
+
+    def _handle_continue_plan_only(self, action, *, payload, execution_payload, platform):
+        """Continue the loop in plan-only mode."""
+        return self._continue_plan_only(action=action)
+
+    def _handle_revalidate_runtime(self, action, *, payload, execution_payload, platform):
+        """Revalidate the runtime whose evidence went stale."""
+        return self._revalidate_runtime(action=action, platform=platform)
 
     def resolve_thread_decision(
         self,
@@ -1003,9 +1055,7 @@ class BlockerRemediationService:
         project_id: str,
         decision_id: str,
     ) -> bool:
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        for loop in ProductLoopCoordinator(self.connection, root=self.root).list_loops(project_id):
+        for loop in self._coordinator().list_loops(project_id):
             durable = dict((loop.get("context") or {}).get("durableRun") or {})
             thread_ref = durable.get("thread") if isinstance(durable.get("thread"), dict) else {}
             if str(thread_ref.get("projectThreadId") or "") != thread_id:
@@ -1045,24 +1095,7 @@ class BlockerRemediationService:
         }
 
     def _should_resolve(self, *, action_type: str, execution: dict[str, Any]) -> bool:
-        if execution.get("status") not in {"completed", "queued", "awaiting_approval"}:
-            return False
-        return action_type in {
-            "validate_runtime",
-            "switch_runtime",
-            "continue_plan_only",
-            "git_init",
-            "add_remote",
-            "create_branch",
-            "checkout_branch",
-            "run_gitleaks",
-            "run_worker_once",
-            "check_network_access",
-            "answer_question",
-            "approve_resource_decision",
-            "retry_loop",
-            "revalidate_runtime",
-        }
+        return should_resolve(action_type=action_type, execution=execution)
 
     def _retry_failed_worker_job_if_needed(self, *, payload: dict[str, Any]) -> dict[str, Any]:
         details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
@@ -1144,76 +1177,17 @@ class BlockerRemediationService:
     def _validate_runtime_execution(
         self, *, runtime_id: str, providers: list[dict[str, Any]], product_owner: bool = False
     ) -> dict[str, Any]:
-        if product_owner:
-            target = self._runtime_status_for(providers, runtime_id)
-            preferred = str((target or {}).get("id") or runtime_id).strip() or None
-            readiness = product_owner_agent_readiness(providers, preferred_runtime=preferred)
-            selected_id = str(readiness.get("selectedRuntimeId") or runtime_id)
-            return {
-                "status": "completed" if readiness.get("executable") is True else "blocked",
-                "action": "validate_runtime",
-                "runtimeId": selected_id,
-                "target": redact_secrets(self._runtime_status_for(providers, selected_id)),
-                "providers": redact_secrets(providers),
-                "reason": readiness["reason"],
-            }
-        if runtime_id:
-            target = self._runtime_status_for(providers, runtime_id)
-            if target is None:
-                return {
-                    "status": "blocked",
-                    "action": "validate_runtime",
-                    "runtimeId": runtime_id,
-                    "providers": redact_secrets(providers),
-                    "reason": f"Runtime {runtime_id} is not available in runtime status.",
-                }
-            executable = target.get("executable") is True
-            return {
-                "status": "completed" if executable else "blocked",
-                "action": "validate_runtime",
-                "runtimeId": str(target.get("id") or runtime_id),
-                "target": redact_secrets(target),
-                "providers": redact_secrets(providers),
-                "reason": "Target runtime is executable."
-                if executable
-                else str(target.get("reason") or f"Runtime {runtime_id} is not executable."),
-            }
-        executable_provider = next(
-            (provider for provider in providers if provider.get("executable") is True), None
+        return validate_runtime_execution(
+            runtime_id=runtime_id, providers=providers, product_owner=product_owner
         )
-        return {
-            "status": "completed" if executable_provider is not None else "blocked",
-            "action": "validate_runtime",
-            "runtimeId": str((executable_provider or {}).get("id") or ""),
-            "target": redact_secrets(executable_provider) if executable_provider is not None else None,
-            "providers": redact_secrets(providers),
-            "reason": "At least one runtime is executable."
-            if executable_provider is not None
-            else "No executable runtime is currently available.",
-        }
 
     @staticmethod
     def _runtime_status_for(providers: list[dict[str, Any]], runtime_id: str) -> dict[str, Any] | None:
-        normalized = str(runtime_id or "").strip()
-        if not normalized:
-            return None
-        for provider in providers:
-            provider_id = str(provider.get("id") or "").strip()
-            if provider_id == normalized:
-                return provider
-            if is_ollama_runtime_id(normalized) and is_ollama_runtime_id(provider_id):
-                return provider
-        return None
+        return runtime_status_for(providers, runtime_id)
 
     @staticmethod
     def _approved_resource_selections_from_durable(durable: dict[str, Any]) -> list[dict[str, Any]]:
-        resource_approval = (
-            durable.get("resourceApproval") if isinstance(durable.get("resourceApproval"), dict) else {}
-        )
-        approvals = resource_approval.get("approvedResourceSelections")
-        if resource_approval.get("status") != "approved" or not isinstance(approvals, list):
-            return []
-        return [approval for approval in approvals if isinstance(approval, dict)]
+        return approved_resource_selections_from_durable(durable)
 
     def _execute_git_action(
         self,
@@ -1223,82 +1197,98 @@ class BlockerRemediationService:
         payload: dict[str, Any],
         platform: Any,
     ) -> dict[str, Any]:
-        def with_action(result: dict[str, Any]) -> dict[str, Any]:
-            return {"action": action_type, **result}
-
         if action_type == "view_diff" and action["payload"].get("interruptedExecutionId"):
-            return with_action(self._view_interrupted_workspace(action))
+            return {"action": action_type, **self._view_interrupted_workspace(action)}
+        handler_name = GIT_ACTION_HANDLERS.get(action_type)
+        if handler_name is None:
+            return {"status": "blocked", "reason": f"Unsupported git remediation: {action_type}."}
         project_id = str(payload.get("projectId") or action["projectId"])
         service = GitWorkspaceService(self.connection, root=Path(getattr(platform, "cwd", self.root or ".")))
-        if action_type == "git_init":
-            return with_action(service.init_repository(project_id))
-        if action_type == "add_remote":
-            name = str(payload.get("name") or payload.get("remoteName") or "").strip()
-            url = str(payload.get("url") or payload.get("remoteUrl") or "").strip()
-            if not name or not url:
-                return {
-                    "status": "blocked",
-                    "action": action_type,
-                    "reason": "name and url are required to add a Git remote.",
-                }
-            return with_action(service.add_remote(project_id, name=name, url=url))
-        if action_type == "create_branch":
-            branch = str(
-                payload.get("branchName") or payload.get("branch") or f"codex/remediation-{action['id'][-8:]}"
-            )
-            return with_action(service.create_branch(project_id, name=branch, base=payload.get("base")))
-        if action_type == "checkout_branch":
-            branch = str(payload.get("branchName") or payload.get("branch") or "")
-            if not branch:
-                return {"status": "blocked", "reason": "branchName is required for checkout_branch."}
-            return with_action(
-                service.checkout(
-                    project_id, branch=branch, allow_dirty=bool(payload.get("allowDirty", False))
-                )
-            )
-        if action_type == "view_diff":
-            return with_action(service.diff(project_id))
-        if action_type == "run_gitleaks":
-            recovery = self._blocked_gitleaks_context(action=action, payload=payload)
-            scan_kwargs: dict[str, Any] = {}
-            if recovery is not None:
-                durable = recovery["durable"]
-                workspace_id = str(durable.get("workspaceId") or "").strip()
-                workspace_path = str(durable.get("workspacePath") or "").strip()
-                if workspace_id:
-                    scan_kwargs["workspace_id"] = workspace_id
-                if workspace_path:
-                    scan_kwargs["workspace_path"] = workspace_path
+        return getattr(self, handler_name)(
+            action_type, action=action, payload=payload, project_id=project_id, service=service
+        )
+
+    def _git_init(self, action_type, *, action, payload, project_id, service):
+        """Initialise the project repository."""
+        return {"action": action_type, **service.init_repository(project_id)}
+
+    def _git_add_remote(self, action_type, *, action, payload, project_id, service):
+        """Add a named remote when both name and url are supplied."""
+        name = str(payload.get("name") or payload.get("remoteName") or "").strip()
+        url = str(payload.get("url") or payload.get("remoteUrl") or "").strip()
+        if not name or not url:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "reason": "name and url are required to add a Git remote.",
+            }
+        return {"action": action_type, **service.add_remote(project_id, name=name, url=url)}
+
+    def _git_create_branch(self, action_type, *, action, payload, project_id, service):
+        """Create a branch, defaulting to a remediation-scoped name."""
+        branch = str(
+            payload.get("branchName") or payload.get("branch") or f"codex/remediation-{action['id'][-8:]}"
+        )
+        return {
+            "action": action_type,
+            **service.create_branch(project_id, name=branch, base=payload.get("base")),
+        }
+
+    def _git_checkout_branch(self, action_type, *, action, payload, project_id, service):
+        """Check out an explicit branch."""
+        branch = str(payload.get("branchName") or payload.get("branch") or "")
+        if not branch:
+            return {"status": "blocked", "reason": "branchName is required for checkout_branch."}
+        result = service.checkout(
+            project_id, branch=branch, allow_dirty=bool(payload.get("allowDirty", False))
+        )
+        return {"action": action_type, **result}
+
+    def _git_view_diff(self, action_type, *, action, payload, project_id, service):
+        """Return the workspace diff."""
+        return {"action": action_type, **service.diff(project_id)}
+
+    def _git_run_gitleaks(self, action_type, *, action, payload, project_id, service):
+        """Run gitleaks, resuming a gitleaks-blocked loop when the scan is clean."""
+        recovery = self._blocked_gitleaks_context(action=action, payload=payload)
+        scan_kwargs: dict[str, Any] = {}
+        if recovery is not None:
+            durable = recovery["durable"]
+            workspace_id = str(durable.get("workspaceId") or "").strip()
+            workspace_path = str(durable.get("workspacePath") or "").strip()
+            if workspace_id:
+                scan_kwargs["workspace_id"] = workspace_id
+            if workspace_path:
+                scan_kwargs["workspace_path"] = workspace_path
+        try:
             try:
-                try:
-                    result = (
-                        service.gitleaks_scan(project_id, **scan_kwargs)
-                        if scan_kwargs
-                        else service.gitleaks_scan(project_id)
-                    )
-                except TypeError as error:
-                    if "unexpected keyword" not in str(error):
-                        raise
-                    result = service.gitleaks_scan(project_id)
-            except Exception as error:
-                return {
-                    "status": "blocked",
-                    "action": action_type,
-                    "projectId": project_id,
-                    "reason": f"gitleaks remediation failed to run: {redact_secrets(str(error))}",
-                }
-            if recovery is None or result.get("status") != "completed" or bool(result.get("deliveryBlocked")):
-                return with_action(result)
-            return self._retry_gitleaks_approval(
-                action=action,
-                coordinator=recovery["coordinator"],
-                loop=recovery["loop"],
-                durable=recovery["durable"],
-                thread_id=recovery["threadId"],
-                threads=recovery["threads"],
-                gitleaks=result,
-            )
-        return {"status": "blocked", "reason": f"Unsupported git remediation: {action_type}."}
+                result = (
+                    service.gitleaks_scan(project_id, **scan_kwargs)
+                    if scan_kwargs
+                    else service.gitleaks_scan(project_id)
+                )
+            except TypeError as error:
+                if "unexpected keyword" not in str(error):
+                    raise
+                result = service.gitleaks_scan(project_id)
+        except Exception as error:
+            return {
+                "status": "blocked",
+                "action": action_type,
+                "projectId": project_id,
+                "reason": f"gitleaks remediation failed to run: {redact_secrets(str(error))}",
+            }
+        if recovery is None or result.get("status") != "completed" or bool(result.get("deliveryBlocked")):
+            return {"action": action_type, **result}
+        return self._retry_gitleaks_approval(
+            action=action,
+            coordinator=recovery["coordinator"],
+            loop=recovery["loop"],
+            durable=recovery["durable"],
+            thread_id=recovery["threadId"],
+            threads=recovery["threads"],
+            gitleaks=result,
+        )
 
     def _view_interrupted_workspace(self, action: dict[str, Any]) -> dict[str, Any]:
         """Read partial changes from the persisted loop workspace, never request-body paths."""
@@ -1416,17 +1406,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _resolved_similarity_decision_mode(*, threads: ThreadsRepository, decision_id: str) -> str | None:
-        """Devuelve el modo elegido por el usuario si la decisión está resuelta y es válido."""
-        if not decision_id:
-            return None
-        try:
-            decision = threads.get_decision(decision_id)
-        except KeyError:
-            return None
-        if str(decision.get("status") or "") != "resolved":
-            return None
-        mode = str(decision.get("resolution") or "").strip().lower().replace(" ", "_").replace("-", "_")
-        return mode if mode in SIMILARITY_ACTIONS else None
+        return resolved_similarity_decision_mode(threads=threads, decision_id=decision_id)
 
     def _reseal_operator_cost_decision(
         self,
@@ -1468,7 +1448,7 @@ class BlockerRemediationService:
         )
 
     def _retry_research_loop(self, *, action: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator, _UserMessageRun
+        from local_control_center.product_loop.coordinator import _UserMessageRun
         from local_control_center.product_loop.phases.discovery import finish_brief_ready
         from local_control_center.product_loop.research_resolution import (
             ResearchResolutionError,
@@ -1486,7 +1466,7 @@ class BlockerRemediationService:
             }
         if self.root is None:
             return {**blocked, "reason": "The project root is required to verify research artifacts."}
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         threads = ThreadsRepository(self.connection)
         try:
             with immediate_transaction(self.connection):
@@ -1755,15 +1735,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _cooldown_rejected_provider_ids(details: dict[str, Any]) -> set[str]:
-        """ProviderIds rechazados en un bloqueo `resource_manager`, según sus `resourceBlockers`."""
-        resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else None
-        return {
-            str(rejected["providerId"])
-            for blocker in resource_blockers or []
-            if isinstance(blocker, dict) and isinstance(blocker.get("decision"), dict)
-            for rejected in blocker["decision"].get("rejected") or []
-            if isinstance(rejected, dict) and str(rejected.get("providerId") or "").strip()
-        }
+        return cooldown_rejected_provider_ids(details)
 
     def resume_cooldown_expired_blocks(self) -> list[dict[str, Any]]:
         """Reanuda automáticamente los bloqueos de recursos cuyo cooldown de cuota ya cedió.
@@ -1843,9 +1815,7 @@ class BlockerRemediationService:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
             return {"status": "blocked", "action": "retry_loop", "reason": "loopId is required."}
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         threads = ThreadsRepository(self.connection)
         jobs = JobsRepository(self.connection)
         with immediate_transaction(self.connection):
@@ -2241,15 +2211,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _has_delivery_gitleaks_evidence(durable: dict[str, Any]) -> bool:
-        review = durable.get("review") if isinstance(durable.get("review"), dict) else {}
-        return (
-            isinstance(durable.get("runtimeResult"), dict)
-            and isinstance(durable.get("teamSchedule"), dict)
-            and isinstance(review, dict)
-            and bool(review.get("changedFiles"))
-            and bool(str(durable.get("workspaceId") or "").strip())
-            and bool(str(durable.get("workspacePath") or "").strip())
-        )
+        return has_delivery_gitleaks_evidence(durable)
 
     def _blocked_gitleaks_context(
         self,
@@ -2260,9 +2222,7 @@ class BlockerRemediationService:
         loop_id = str(payload.get("loopId") or action.get("loopId") or "").strip()
         if not loop_id:
             return None
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         try:
             loop = coordinator.get(loop_id)
         except KeyError:
@@ -2486,30 +2446,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _has_delivery_resource_learning_evidence(durable: dict[str, Any]) -> bool:
-        resource_details = (
-            durable.get("resource_learning") if isinstance(durable.get("resource_learning"), dict) else {}
-        )
-        review = (
-            durable.get("review")
-            if isinstance(durable.get("review"), dict)
-            else resource_details.get("review")
-        )
-        gitleaks = (
-            durable.get("gitleaks")
-            if isinstance(durable.get("gitleaks"), dict)
-            else resource_details.get("gitleaks")
-        )
-        return (
-            isinstance(durable.get("runtimeResult"), dict)
-            and (
-                isinstance(durable.get("teamSchedule"), dict)
-                or isinstance(resource_details.get("teamSchedule"), dict)
-            )
-            and isinstance(review, dict)
-            and bool(review.get("changedFiles"))
-            and isinstance(gitleaks, dict)
-            and gitleaks.get("status") == "completed"
-        )
+        return has_delivery_resource_learning_evidence(durable)
 
     def _retry_resource_learning_approval(
         self,
@@ -2709,10 +2646,7 @@ class BlockerRemediationService:
         thread_id: str,
         message_id: str,
     ) -> dict[str, Any] | None:
-        if message_id:
-            return threads.get_message(message_id)
-        user_messages = [message for message in threads.list_messages(thread_id) if message["kind"] == "user"]
-        return user_messages[-1] if user_messages else None
+        return source_retry_message(threads=threads, thread_id=thread_id, message_id=message_id)
 
     @staticmethod
     def _existing_retry_job(
@@ -2722,17 +2656,7 @@ class BlockerRemediationService:
         loop_id: str,
         action_id: str,
     ) -> dict[str, Any] | None:
-        active_statuses = {"approval_required", "queued", "running"}
-        for job in jobs.list_jobs(project_id=project_id):
-            payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-            if (
-                job["kind"] == "thread.product_loop.run"
-                and payload.get("retryOfLoopId") == loop_id
-                and payload.get("remediationActionId") == action_id
-                and job["status"] in active_statuses
-            ):
-                return job
-        return None
+        return existing_retry_job(jobs=jobs, project_id=project_id, loop_id=loop_id, action_id=action_id)
 
     @staticmethod
     def _existing_plan_only_job(
@@ -2742,25 +2666,13 @@ class BlockerRemediationService:
         loop_id: str,
         action_id: str,
     ) -> dict[str, Any] | None:
-        active_statuses = {"approval_required", "queued", "running"}
-        for job in jobs.list_jobs(project_id=project_id):
-            payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-            if (
-                job["kind"] == "thread.product_loop.run"
-                and payload.get("planOnlyOfLoopId") == loop_id
-                and payload.get("remediationActionId") == action_id
-                and job["status"] in active_statuses
-            ):
-                return job
-        return None
+        return existing_plan_only_job(jobs=jobs, project_id=project_id, loop_id=loop_id, action_id=action_id)
 
     def _continue_plan_only(self, *, action: dict[str, Any]) -> dict[str, Any]:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
             return {"status": "blocked", "action": "continue_plan_only", "reason": "loopId is required."}
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         loop = coordinator.get(loop_id)
         if loop["state"] != "blocked":
             return {
@@ -2947,192 +2859,86 @@ class BlockerRemediationService:
                 "action": "approve_resource_decision",
                 "reason": "A selected AI resource is required before approval.",
             }
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
-        loop = coordinator.get(loop_id)
-        if loop["state"] != "blocked":
-            return {
-                "status": "blocked",
-                "action": "approve_resource_decision",
-                "reason": "Product Loop is not blocked.",
-            }
-        durable = dict((loop.get("context") or {}).get("durableRun") or {})
-        if durable.get("blockedStage") != "resource_manager":
-            return {
-                "status": "blocked",
-                "action": "approve_resource_decision",
-                "reason": "Product Loop is not blocked at resource_manager.",
-            }
-        request_meta = strip_untrusted_resource_cost_policy_metadata(
-            durable.get("requestMeta") if isinstance(durable.get("requestMeta"), dict) else {}
+        coordinator = self._coordinator()
+        transaction = (
+            nullcontext(self.connection)
+            if self.connection.in_transaction
+            else immediate_transaction(self.connection)
         )
-        approvals = [
-            item
-            for item in request_meta.get("approvedResourceSelections") or []
-            if isinstance(item, dict)
-            and not any(self._same_resource_approval(item, approval) for approval in new_approvals)
-        ]
-        approvals.extend(new_approvals)
-        request_meta["approvedResourceSelections"] = approvals
-        approved_at = new_approvals[-1]["approvedAt"]
-        durable = {
-            **durable,
-            "requestMeta": request_meta,
-            "resourceApproval": {
-                "status": "approved",
-                "latest": new_approvals[-1],
-                "approvedResourceSelections": approvals,
-            },
-            "updatedAt": approved_at,
-        }
-        updated = coordinator.repository.update_loop_context(
-            loop_id,
-            context={**loop["context"], "durableRun": durable},
-        )
-        return {
-            "status": "completed",
-            "action": "approve_resource_decision",
-            "reason": "Approved the selected AI resource for the next Product Loop retry.",
-            "approvals": redact_secrets(new_approvals),
-            "loop": updated,
-        }
+        with transaction:
+            loop = coordinator.get(loop_id)
+            if loop["state"] != "blocked":
+                return {
+                    "status": "blocked",
+                    "action": "approve_resource_decision",
+                    "reason": "Product Loop is not blocked.",
+                }
+            durable = dict((loop.get("context") or {}).get("durableRun") or {})
+            if durable.get("blockedStage") != "resource_manager":
+                return {
+                    "status": "blocked",
+                    "action": "approve_resource_decision",
+                    "reason": "Product Loop is not blocked at resource_manager.",
+                }
+            request_meta = strip_untrusted_resource_cost_policy_metadata(
+                durable.get("requestMeta") if isinstance(durable.get("requestMeta"), dict) else {}
+            )
+            approvals = [
+                item
+                for item in request_meta.get("approvedResourceSelections") or []
+                if isinstance(item, dict)
+                and not any(self._same_resource_approval(item, approval) for approval in new_approvals)
+            ]
+            approvals.extend(new_approvals)
+            request_meta["approvedResourceSelections"] = approvals
+            approved_at = new_approvals[-1]["approvedAt"]
+            durable = {
+                **durable,
+                "requestMeta": request_meta,
+                "resourceApproval": {
+                    "status": "approved",
+                    "latest": new_approvals[-1],
+                    "approvedResourceSelections": approvals,
+                },
+                "updatedAt": approved_at,
+            }
+            updated = coordinator.repository.update_loop_context(
+                loop_id,
+                context={**loop["context"], "durableRun": durable},
+            )
+            return {
+                "status": "completed",
+                "action": "approve_resource_decision",
+                "reason": "Approved the selected AI resource for the next Product Loop retry.",
+                "approvals": redact_secrets(new_approvals),
+                "loop": updated,
+            }
 
     def _resource_approvals_from_payload(
         self, *, action: dict[str, Any], payload: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        items = payload.get("resourceApprovals")
-        if isinstance(items, list):
-            approvals = [
-                approval
-                for item in items
-                if isinstance(item, dict)
-                for approval in [self._single_resource_approval(action=action, payload=item)]
-                if approval is not None
-            ]
-            if approvals:
-                return approvals
-        approval = self._single_resource_approval(action=action, payload=payload)
-        return [approval] if approval is not None else []
+        return resource_approvals_from_payload(action=action, payload=payload)
 
     def _single_resource_approval(
         self, *, action: dict[str, Any], payload: dict[str, Any]
     ) -> dict[str, Any] | None:
-        selected = payload.get("selected") if isinstance(payload.get("selected"), dict) else {}
-        role = str(payload.get("role") or "").strip()
-        provider_id = str(payload.get("providerId") or selected.get("providerId") or "").strip()
-        model = str(payload.get("model") or selected.get("model") or "").strip()
-        runtime = str(payload.get("runtime") or selected.get("runtime") or "").strip()
-        if not role or not provider_id or not model or not runtime:
-            return None
-        if not self._resource_decision_requires_approval(payload):
-            return None
-        approval = {
-            "role": role,
-            "providerId": provider_id,
-            "model": model,
-            "runtime": runtime,
-            "taskId": str(payload.get("taskId") or "").strip(),
-            "reason": str(payload.get("reason") or action.get("description") or "").strip(),
-            "approvedBy": str(payload.get("approvedBy") or "remediation"),
-            "approvedAt": utc_now(),
-            "remediationActionId": action["id"],
-        }
-        for key in (
-            "approvalRequired",
-            "estimatedCostUsd",
-            "usageStatus",
-            "localVsRemote",
-            "costTier",
-            "budgetStop",
-            "maxTokens",
-        ):
-            if key in payload:
-                approval[key] = payload.get(key)
-        policy_result = resource_policy_summary(payload.get("policyResult"))
-        if policy_result:
-            approval["policyResult"] = policy_result
-        score_breakdown = payload.get("scoreBreakdown")
-        if isinstance(score_breakdown, dict) and score_breakdown:
-            approval["scoreBreakdown"] = score_breakdown
-        return redact_secrets(approval)
+        return single_resource_approval(action=action, payload=payload)
 
     @staticmethod
     def _same_resource_approval(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
-        return all(
-            str(current.get(key) or "") == str(candidate.get(key) or "")
-            for key in ("role", "providerId", "model", "runtime")
-        )
+        return same_resource_approval(current, candidate)
 
     @staticmethod
     def _resource_decision_requires_approval(decision: Any) -> bool:
-        if not isinstance(decision, dict):
-            return False
-        approval_required = decision.get("approvalRequired")
-        if approval_required is True:
-            return True
-        if approval_required is False:
-            return False
-        policy_result = resource_policy_summary(decision.get("policyResult"))
-        unknown_cost_policy = policy_result.get("unknownCostPolicy")
-        return (
-            isinstance(unknown_cost_policy, dict)
-            and str(unknown_cost_policy.get("action") or "").strip() == "require_approval"
-        )
+        return resource_decision_requires_approval(decision)
 
     @staticmethod
     def _resource_approvals_from_blockers(details: dict[str, Any]) -> list[dict[str, Any]]:
-        resource_approvals: list[dict[str, Any]] = []
-        resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else []
-        for item in resource_blockers or []:
-            if not isinstance(item, dict):
-                continue
-            decision = item.get("decision") if isinstance(item.get("decision"), dict) else {}
-            selected = decision.get("selected") if isinstance(decision.get("selected"), dict) else {}
-            if not selected:
-                continue
-            policy_result = resource_policy_summary(decision.get("policyResult"))
-            if not BlockerRemediationService._resource_decision_requires_approval(decision):
-                continue
-            approval = {
-                "role": item.get("role"),
-                "taskId": item.get("taskId"),
-                "providerId": selected.get("providerId"),
-                "model": selected.get("model"),
-                "runtime": selected.get("runtime"),
-                "selected": selected,
-                "decisionReason": decision.get("decisionReason"),
-            }
-            for key in (
-                "approvalRequired",
-                "estimatedCostUsd",
-                "usageStatus",
-                "localVsRemote",
-                "costTier",
-                "budgetStop",
-                "maxTokens",
-            ):
-                if key in decision:
-                    approval[key] = decision.get(key)
-            if policy_result:
-                approval["policyResult"] = policy_result
-            score_breakdown = decision.get("scoreBreakdown")
-            if isinstance(score_breakdown, dict) and score_breakdown:
-                approval["scoreBreakdown"] = score_breakdown
-            resource_approvals.append(approval)
-        return resource_approvals
+        return resource_approvals_from_blockers(details)
 
     @classmethod
     def _approve_resource_decision_spec(cls, details: dict[str, Any]) -> dict[str, Any] | None:
-        resource_approvals = cls._resource_approvals_from_blockers(details)
-        if not resource_approvals:
-            return None
-        return {
-            "actionType": "approve_resource_decision",
-            "title": "Approve selected AI resources",
-            "description": "Approve the blocked model/runtime selections for the next Product Loop retry.",
-            "payload": {"resourceApprovals": resource_approvals},
-        }
+        return approve_resource_decision_spec(details)
 
     def _answer_question(
         self,
@@ -3306,10 +3112,8 @@ class BlockerRemediationService:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
             return None
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
         try:
-            loop = ProductLoopCoordinator(self.connection, root=self.root).get(loop_id)
+            loop = self._coordinator().get(loop_id)
         except KeyError:
             return None
         durable = dict((loop.get("context") or {}).get("durableRun") or {})
@@ -3349,9 +3153,7 @@ class BlockerRemediationService:
         thread_id = str(action.get("threadId") or "").strip()
         if not loop_id or not thread_id:
             return []
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        loop = ProductLoopCoordinator(self.connection, root=self.root).get(loop_id)
+        loop = self._coordinator().get(loop_id)
         durable = dict((loop.get("context") or {}).get("durableRun") or {})
         product_owner = durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
         pending_specs = product_owner.get("pendingThreadDecisions")
@@ -3392,9 +3194,7 @@ class BlockerRemediationService:
             )
         loop_id = str(action.get("loopId") or "").strip()
         thread_id = str(action.get("threadId") or "").strip()
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator
-
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         loop = coordinator.get(loop_id)
         durable = dict((loop.get("context") or {}).get("durableRun") or {})
         product_owner = durable.get("productOwner") if isinstance(durable.get("productOwner"), dict) else {}
@@ -3476,9 +3276,9 @@ class BlockerRemediationService:
         if not loop_id or queued_job is None:
             return {}
 
-        from local_control_center.product_loop.coordinator import ProductLoopCoordinator, allowed_next_states
+        from local_control_center.product_loop.coordinator import allowed_next_states
 
-        coordinator = ProductLoopCoordinator(self.connection, root=self.root)
+        coordinator = self._coordinator()
         loop = coordinator.get(loop_id)
         if loop["state"] == "cancelled":
             return {"loop": loop, "loopSupersede": {"status": "already_cancelled"}}
@@ -3533,8 +3333,7 @@ class BlockerRemediationService:
 
     @staticmethod
     def _answer_options(*, decision: dict[str, Any], action_payload: dict[str, Any]) -> list[str]:
-        raw_options = decision.get("options") or action_payload.get("options") or []
-        return list(dict.fromkeys(str(option).strip() for option in raw_options if str(option).strip()))
+        return answer_options(decision=decision, action_payload=action_payload)
 
     def _validated_answer(
         self,
@@ -3544,32 +3343,12 @@ class BlockerRemediationService:
         selected_options: list[str],
         free_text: str,
     ) -> list[str]:
-        """Partes de una respuesta válida (opciones canónicas + texto libre) o ``ValueError`` con el motivo.
-
-        Única definición de qué respuesta acepta una decisión: la usan la resolución real
-        (``_answer_question``) y la validación previa del lote, para que un lote no descubra a mitad
-        de camino una respuesta que la resolución iba a rechazar. Solo las preguntas del PO admiten
-        varias opciones y texto libre; similitud, funcionalidad existente e intake son excluyentes.
-        """
-        metadata = decision.get("metadata") if isinstance(decision.get("metadata"), dict) else {}
-        allows_free_form = str(metadata.get("source") or "").strip() == PRODUCT_OWNER_DECISION_SOURCE
-        options = self._answer_options(decision=decision, action_payload=action_payload)
-        if not allows_free_form and len(selected_options) > 1:
-            raise ValueError("This decision accepts a single option.")
-        resolved: list[str] = []
-        for raw_option in selected_options:
-            matched = self._matched_option(raw_option, options)
-            if matched is None and options:
-                raise ValueError("Answer must match one of the offered decision options.")
-            resolved.append(matched or raw_option)
-        if free_text and not allows_free_form and options:
-            raise ValueError("Free text is only accepted for Product Owner questions and decisions.")
-        combined = list(dict.fromkeys(resolved))
-        if free_text:
-            combined.append(free_text)
-        if not combined:
-            raise ValueError("answer, selectedOptions or freeText is required.")
-        return combined
+        return validated_answer(
+            decision=decision,
+            action_payload=action_payload,
+            selected_options=selected_options,
+            free_text=free_text,
+        )
 
     def validate_thread_decision_answer(
         self,
@@ -3626,14 +3405,11 @@ class BlockerRemediationService:
 
     @classmethod
     def _matched_option(cls, answer: str, options: list[str]) -> str | None:
-        if not options:
-            return None
-        answer_key = cls._option_key(answer)
-        return next((option for option in options if cls._option_key(option) == answer_key), None)
+        return matched_option(answer, options)
 
     @staticmethod
     def _option_key(value: str) -> str:
-        return "_".join(str(value).replace("_", " ").strip().lower().split())
+        return option_key(value)
 
     def _record_clarification_answer(
         self,
@@ -3729,174 +3505,15 @@ class BlockerRemediationService:
         )
 
     def _blocker_type(self, *, stage: str, reason: str, details: dict[str, Any]) -> str:
-        text = f"{stage} {reason} {details}".lower()
-        reason_text = str(reason or "").lower()
-        status = str(details.get("status") or "").lower()
-        if stage == "review":
-            return "review_diff_unavailable"
-        if stage == "runtime_team":
-            return "runtime_team_validation_expired"
-        if stage == "gitleaks":
-            if status == "configuration_required" or "not found" in text:
-                return "gitleaks_missing"
-            return "gitleaks_failed"
-        if stage in {"qa", "qa_rework"}:
-            return "qa_failed"
-        if stage == "runtime":
-            if any(token in reason_text for token in ("auth", "login", "not authenticated")):
-                return "runtime_auth_missing"
-            if details.get("executable") is False:
-                return "runtime_not_executable"
-            return "runtime_output_invalid"
-        if stage == "resource_manager":
-            if runtime_risk_review_failure(details) is not None or details.get("runtimeRiskReviewInvalid"):
-                return "runtime_risk_review_required"
-            if jev_confidence_below_threshold_failure(details) is not None:
-                # Jev no tuvo confianza para desempatar candidatos ya validados: no es un runtime
-                # inejecutable, ni una constraint de política, ni una validación vencida. Tiene su
-                # propio tipo para que la tarjeta diga eso y no "el equipo necesita una prueba
-                # reciente"; la acción es asignar un runtime al rol en el equipo del hilo.
-                return "runtime_selection_ambiguous"
-            if decision_engine_failure(details) is not None:
-                return "decision_engine_unavailable"
-            if resource_selection_constraint_failure(details) is not None:
-                return "resource_manager_unconfigured"
-            resource_blockers = details.get("resourceBlockers") if isinstance(details, dict) else None
-            blockers = [
-                item
-                for item in resource_blockers or []
-                if isinstance(item, dict) and isinstance(item.get("decision"), dict)
-            ]
-            if any(item["decision"].get("selected") is None for item in blockers):
-                rejected = [
-                    rejected_item
-                    for item in blockers
-                    for rejected_item in item["decision"].get("rejected") or []
-                    if isinstance(rejected_item, dict)
-                ]
-                explicit_rejected = [item for item in rejected if item.get("profileSource") == "explicit"]
-                relevant_rejected = explicit_rejected or rejected
-                rejection_text = f"{reason_text} {relevant_rejected}".lower()
-                if "credential" in rejection_text or "api key" in rejection_text:
-                    return "provider_missing_credentials"
-                if "runtime_not_executable:" in rejection_text:
-                    return "runtime_not_executable"
-                if "provider" in rejection_text and (
-                    "health" in rejection_text or "unhealthy" in rejection_text
-                ):
-                    return "provider_health_failed"
-                if relevant_rejected and all(
-                    item.get("reason") == "privacy_blocks_remote" for item in relevant_rejected
-                ):
-                    return "resource_manager_privacy_blocked"
-                return "resource_manager_unconfigured"
-            if "requires approval" in reason_text or any(
-                self._resource_decision_requires_approval(item["decision"]) for item in blockers
-            ):
-                return "resource_manager_approval_required"
-            return "resource_manager_unconfigured"
-        if stage == "team_scheduler":
-            return "team_scheduler_failed"
-        if stage == "technical_lead":
-            return "technical_lead_planning_failed"
-        if stage == "resource_learning":
-            return "resource_learning_failed"
-        if stage == "product_owner_runtime":
-            return "runtime_not_executable"
-        if stage == "git":
-            if details.get("remoteMissing") is True or "configured git remote" in reason_text:
-                return "git_remote_missing"
-            if status == "failed" or "status check failed" in reason_text:
-                return "git_status_failed"
-            if details.get("dirty") is True or "dirty" in reason_text:
-                return "git_dirty_tree"
-            if status == "configuration_required" or "not a git repository" in text:
-                return "git_not_initialized"
-            return "git_branch_missing"
-        if stage == "worker":
-            return "worker_not_running"
-        if stage == "product_owner" and status in {"runtime_failed", "runtime_unavailable"}:
-            runtime_result = details.get("runtimeResult")
-            if isinstance(runtime_result, dict) and runtime_result.get("decision") == "deny":
-                return "runtime_execution_denied"
-            if isinstance(runtime_result, dict):
-                http_status = runtime_result.get("httpStatus")
-                if (
-                    str(runtime_result.get("execution") or "").startswith("runtime_adapter:")
-                    and isinstance(http_status, int)
-                    and 400 <= http_status <= 599
-                ):
-                    return "runtime_execution_failed"
-            return "runtime_not_executable"
-        if stage == "product_owner" and status in {"persistence_failed", "failed_validation"}:
-            return "product_owner_output_invalid"
-        if stage == "product_owner" and (
-            status == "needs_input"
-            or bool(details.get("pendingDecisions"))
-            or "question" in text
-            or "input" in text
-        ):
-            if not self._has_actionable_pending_decision(details):
-                return "product_owner_output_invalid"
-            return "po_needs_input"
-        if stage == "product_owner":
-            return "product_owner_output_invalid"
-        if stage == "backlog":
-            return "product_owner_output_invalid"
-        if stage == "research":
-            return "research_required"
-        if stage == "workspace_check":
-            return "workspace_root_missing"
-        if stage in {"product_owner_workspace", "workspace"}:
-            return "workspace_allocation_failed"
-        if stage == "approval":
-            return "approval_unavailable"
-        if stage == "project_assessment":
-            return "project_assessment_failed"
-        if stage == "functionality_memory":
-            return "functionality_memory_decision_required"
-        if stage == "thread_similarity":
-            return "thread_similarity_decision_required"
-        if stage == "thread_intake":
-            return "thread_intake_decision_required"
-        if "credential" in text or "api key" in text:
-            return "provider_missing_credentials"
-        if "provider" in text and ("health" in text or "unhealthy" in text):
-            return "provider_health_failed"
-        if "auth" in text or "login" in text or "not authenticated" in text:
-            return "runtime_auth_missing"
-        return "runtime_output_invalid"
+        return blocker_type(stage=stage, reason=reason, details=details)
 
     @staticmethod
     def _has_actionable_pending_decision(details: dict[str, Any]) -> bool:
-        pending_decisions = details.get("pendingDecisions") if isinstance(details, dict) else None
-        if not isinstance(pending_decisions, list):
-            return False
-        for item in pending_decisions:
-            if not isinstance(item, dict) or not str(item.get("decisionId") or "").strip():
-                continue
-            options = [str(option).strip() for option in item.get("options") or [] if str(option).strip()]
-            if len(options) >= 2:
-                return True
-        return False
+        return has_actionable_pending_decision(details)
 
     @staticmethod
     def _remote_url_payload_is_safe(url: str) -> bool:
-        text = url.strip()
-        if not text or text != url:
-            return False
-        parsed = urlparse(text)
-        if parsed.scheme:
-            if parsed.scheme not in {"https", "ssh"}:
-                return False
-            if parsed.username or parsed.password:
-                return False
-            return bool(parsed.hostname and parsed.path.strip("/"))
-        if " " in text or "\t" in text or "\n" in text:
-            return False
-        user_host, separator, path = text.partition(":")
-        user, at, host = user_host.partition("@")
-        return bool(separator and at and user and host and path.strip("/"))
+        return remote_url_payload_is_safe(url)
 
     def _configured_git_remote_add_specs(self, project_id: str | None) -> list[dict[str, Any]]:
         normalized_project_id = str(project_id or "").strip()

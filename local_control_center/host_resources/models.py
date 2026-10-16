@@ -46,8 +46,8 @@ class ResourceSnapshot(_AliasedModel):
     swap_or_pagefile_used_bytes: int = Field(alias="swapOrPagefileUsedBytes", ge=0)
     disk_free_bytes: dict[str, int] = Field(alias="diskFreeBytes")
     disk_total_bytes: dict[str, int] = Field(default_factory=dict, alias="diskTotalBytes")
-    """: Capacidad total por volumen. Sin esto un piso solo puede expresarse en valor absoluto, : y un
-    absoluto no significa lo mismo en un disco de 256 GB que en uno de 2 TB.
+    """Capacidad total por volumen. Sin esto un piso solo puede expresarse en valor absoluto, y un absoluto
+    no significa lo mismo en un disco de 256 GB que en uno de 2 TB.
     """
     disk_read_bytes_per_second: float = Field(alias="diskReadBytesPerSecond", ge=0)
     disk_write_bytes_per_second: float = Field(alias="diskWriteBytesPerSecond", ge=0)

@@ -92,19 +92,19 @@ class AIResourceRequest:
     preferred_provider_ids: list[str] = field(default_factory=list)
     blocked_resources: list[dict[str, Any]] = field(default_factory=list)
     excluded_resources: list[dict[str, Any]] = field(default_factory=list)
-    """: Candidatos descartados por haber fallado en este mismo turno. Va aparte de : ``blocked_resources`` a
-    propósito: ese contador se audita como política de rol y mezclar : exclusiones de transporte lo
+    """Candidatos descartados por haber fallado en este mismo turno. Va aparte de ``blocked_resources`` a
+    propósito: ese contador se audita como política de rol y mezclar exclusiones de transporte lo
     falsearía.
     """
     preferred_resources: list[dict[str, Any]] = field(default_factory=list)
-    """: Preferencias ordenadas de la política de rol (``preferred``/``fallback``/``escalation`` ya :
-    concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*" : prefiere
+    """Preferencias ordenadas de la política de rol (``preferred``/``fallback``/``escalation`` ya
+    concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*" prefiere
     cualquier modelo del provider. Rankean ANTES que el score; el orden es la prioridad.
     """
     provider_order: list[str] = field(default_factory=list)
-    """: Orden estricto de proveedores del equipo de IA global (asignado primero, luego fallbacks). : Rankea
-    ANTES que ``preferred_resources``: los pins de la política del rol solo eligen el : modelo dentro del
-    proveedor que el operador puso primero. Vacío = sin orden estricto. Como las : demás preferencias, no
+    """Orden estricto de proveedores del equipo de IA global (asignado primero, luego fallbacks). Rankea
+    ANTES que ``preferred_resources``: los pins de la política del rol solo eligen el modelo dentro del
+    proveedor que el operador puso primero. Vacío = sin orden estricto. Como las demás preferencias, no
     aplica cuando Jev selecciona el runtime (``runtime_selection``).
     """
     context_token_limit: int | None = None
@@ -129,9 +129,9 @@ class AIResourceRequest:
     agent_profile_id: str | None = None
     task_id: str | None = None
     local_model_pins: dict[str, str] = field(default_factory=dict)
-    """: Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``."""
+    """Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``."""
     local_model_affinity: dict[str, str] = field(default_factory=dict)
-    """: Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie."""
+    """Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie."""
 
 
 def _bool(value: Any) -> bool:

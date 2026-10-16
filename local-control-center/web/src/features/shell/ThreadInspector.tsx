@@ -319,8 +319,6 @@ function ThreadVitals({
 	);
 }
 
-/** ---------- shared panel states ---------- */
-
 function PanelSkeleton() {
 	const { t } = useI18n();
 	return (
@@ -377,8 +375,6 @@ function ResourceGate<T>({
 function SectionTitle({ children }: { children: ReactNode }) {
 	return <h4 className="thread-inspector-section-title">{children}</h4>;
 }
-
-/** ---------- shared value helpers ---------- */
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value)
@@ -439,8 +435,6 @@ function trustTone(level: string): StatusTone {
 	if (level === 'untrusted') return 'danger';
 	return 'info';
 }
-
-/** ---------- Goal ---------- */
 
 function GoalPanel({
 	detail,
@@ -947,8 +941,6 @@ function TeamAgentCard({
 	);
 }
 
-/** ---------- Plan ---------- */
-
 function phaseState(isCurrent: boolean, isDone: boolean): 'current' | 'done' | 'upcoming' {
 	if (isCurrent) return 'current';
 	return isDone ? 'done' : 'upcoming';
@@ -1231,8 +1223,6 @@ function PlanPanel({
 		</ResourceGate>
 	);
 }
-
-/** ---------- Backlog ---------- */
 
 function BacklogPanel({ loop }: { loop: InspectorResource<LoopData> }) {
 	const { t } = useI18n();
@@ -1554,8 +1544,6 @@ function MemoryPanel({
 	);
 }
 
-/** ---------- Research ---------- */
-
 type ResearchSourcePayload = {
 	id?: string;
 	url?: string;
@@ -1736,8 +1724,6 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 	);
 }
 
-/** ---------- Artifacts ---------- */
-
 const ARTIFACTS_LIMIT = 30;
 
 function ArtifactsPanel({
@@ -1804,8 +1790,6 @@ function ArtifactsPanel({
 		</ResourceGate>
 	);
 }
-
-/** ---------- Settings ---------- */
 
 function settingValueText(value: unknown): string {
 	if (value == null) return '—';

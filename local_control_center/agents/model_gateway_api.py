@@ -203,7 +203,7 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
 TEST_PROMPT_MESSAGE = "Reply with the single word: ok."
 TEST_PROMPT_SAMPLE_LIMIT = 280
 TEST_PROMPT_ERROR_BODY_LIMIT = 400
-""": Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida."""
+"""Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida."""
 
 
 def _resolve_test_prompt_model(

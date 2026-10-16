@@ -78,7 +78,7 @@ class RuntimeTeamValidationRecord(BaseModel):
 
 
 MAX_CATALOG_VALIDATION_MODELS = 10_000
-""": Tope de ids por corrida explícita (mismo margen que el bulk PATCH de modelos)."""
+"""Tope de ids por corrida explícita (mismo margen que el bulk PATCH de modelos)."""
 ModelValidationOutcomeStatus = Literal["ok", "failed", "skipped"]
 ModelValidationRunStatus = Literal[
     "running", "completed", "cancelled", "budget_exhausted", "aborted", "interrupted"

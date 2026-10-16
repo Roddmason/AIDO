@@ -37,10 +37,10 @@ RuntimeFailureCause = Literal[
     "model_not_found",
     "unknown",
 ]
-""": Causas estables de fallo de runtime. La UI mapea cada una a copia traducida y a su remediación."""
+"""Causas estables de fallo de runtime. La UI mapea cada una a copia traducida y a su remediación."""
 
 EVIDENCE_LIMIT = 1000
-""": Tope de la evidencia que se persiste y se muestra; el stderr de un CLI puede ser enorme."""
+"""Tope de la evidencia que se persiste y se muestra; el stderr de un CLI puede ser enorme."""
 
 _CAUSE_PATTERNS: tuple[tuple[RuntimeFailureCause, re.Pattern[str]], ...] = (
     (
@@ -166,7 +166,7 @@ def classify_runtime_failure(
 
 
 LOCAL_EVIDENCE_LIMIT = 300
-""": Tope de la evidencia de un fallo local que viaja en la razón del resultado."""
+"""Tope de la evidencia de un fallo local que viaja en la razón del resultado."""
 
 _LOCAL_LOAD_FAILED_PATTERN = re.compile(
     r"failed to load|error loading model|could not load model|unable to load model"

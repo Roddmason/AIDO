@@ -654,8 +654,11 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				.click();
 			await expect(endpointDialog).toBeHidden({ timeout: 30_000 });
 
+			// The provider card of the runtime panel also shows the endpoint name; only the endpoint
+			// card carries the endpoint actions.
 			const endpointCard = settings.locator('.card', {
 				hasText: 'Lifecycle controlled Ollama',
+				has: page.locator('.endpoint-card-action'),
 			});
 			await expect(endpointCard).toBeVisible({ timeout: 30_000 });
 			await endpointCard.getByRole('button', { name: /Validate|Validar/, exact: true }).click();

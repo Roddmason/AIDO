@@ -397,10 +397,12 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=422, detail="Cannot approve an empty product backlog.")
         actor = body.actor or "operator"
         with immediate_transaction(platform.connection):
-            ProductLoopRepository(platform.connection).update_loop_context(
+            loop_repository = ProductLoopRepository(platform.connection)
+            current = loop_repository.get_loop(loop_id)
+            loop_repository.update_loop_context(
                 loop_id,
                 context={
-                    **(loop.get("context") or {}),
+                    **(current.get("context") or {}),
                     "backlogApproval": {
                         "approved": True,
                         "approvedBy": actor,

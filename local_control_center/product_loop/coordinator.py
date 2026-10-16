@@ -61,7 +61,7 @@ from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.backlog.story_spec import build_story_spec, render_story_spec_prompt
 from local_control_center.backlog.technical_lead_planner import TechnicalLeadPlanner
 from local_control_center.decision_engine.config import resolve_config
-from local_control_center.decision_engine.observers import observe_resource_decision, record_resource_outcome
+from local_control_center.decision_engine.observers import observe_resource_decision
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
@@ -138,6 +138,7 @@ from .phases import environment as environment_phase
 from .phases import execution as execution_phase
 from .phases import intake as intake_phase
 from .phases import qa_gate as qa_gate_phase
+from .phases import resource_learning as resource_learning_phase
 from .phases import security as security_phase
 from .phases import story_loop as story_loop_phase
 from .phases import team_planning as team_planning_phase
@@ -3414,40 +3415,6 @@ class ProductLoopCoordinator:
             for role_plan in targets
         ]
 
-    def _resource_observation_targets(
-        self,
-        *,
-        team_schedule: dict[str, Any],
-        runtime_result: dict[str, Any],
-    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
-        roles = [
-            role_plan
-            for role_plan in team_schedule.get("roles") or []
-            if isinstance((role_plan.get("resourceDecision") or {}).get("selected"), dict)
-            and (role_plan.get("resourceDecision") or {}).get("selected")
-        ]
-        usage_entries = self._runtime_resource_usage_entries(runtime_result)
-        if usage_entries:
-            targets: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
-            for entry in usage_entries:
-                for role_plan in roles:
-                    selected = (role_plan.get("resourceDecision") or {}).get("selected") or {}
-                    if self._resource_role_matches(role_plan, entry) and self._resource_selection_matches(
-                        selected,
-                        entry,
-                    ):
-                        targets.append((role_plan, entry))
-                        break
-            return targets
-        execution_roles = [
-            role_plan
-            for role_plan in roles
-            if role_plan.get("kind") in {"build", "review"}
-            or "code_edit" in (role_plan.get("capabilities") or [])
-        ]
-        fallback = execution_roles or roles
-        return [(fallback[0], None)] if fallback else []
-
     def _record_resource_decision_learning(
         self,
         *,
@@ -3461,72 +3428,18 @@ class ProductLoopCoordinator:
         rework: bool,
         quality_score: float,
     ) -> dict[str, Any] | None:
-        selected = decision.get("selected") or {}
-        provider_id = str(selected.get("providerId") or "")
-        model = str(selected.get("model") or "")
-        runtime = str(selected.get("runtime") or "")
-        if not provider_id or not model or not runtime:
-            return None
-        effective_success = self._runtime_bool_metric(
-            usage_entry,
-            keys=("success", "succeeded", "passed", "status"),
-            default=success,
-        )
-        effective_rework = self._runtime_bool_metric(
-            usage_entry,
-            keys=("rework", "requiresRework", "requires_rework"),
-            default=rework,
-        )
-        effective_quality_score = self._runtime_quality_score_metric(
-            usage_entry,
-            default=quality_score,
-        )
-        latency_ms = self._runtime_latency_ms(runtime_result, usage_entry)
-        manager.record_outcome(
-            provider_id=provider_id,
-            model=model,
-            runtime=runtime,
-            success=effective_success,
-            rework=effective_rework,
-            quality_score=effective_quality_score,
-            latency_ms=latency_ms,
+        return resource_learning_phase.record_resource_decision_learning(
+            self,
+            manager=manager,
+            role=role,
+            decision=decision,
+            runtime_result=runtime_result,
+            usage_entry=usage_entry,
             evidence_ref=evidence_ref,
+            success=success,
+            rework=rework,
+            quality_score=quality_score,
         )
-        cost = manager.record_cost_observation(
-            provider_id=provider_id,
-            model=model,
-            runtime=runtime,
-            estimated_cost_usd=decision.get("estimatedCostUsd"),
-            actual_cost_usd=self._runtime_actual_cost_usd(runtime_result, usage_entry),
-            provider_usage=self._runtime_provider_usage(runtime_result, usage_entry),
-            latency_ms=latency_ms,
-            evidence_ref=evidence_ref,
-        )
-        record_resource_outcome(
-            self.connection,
-            source_decision_id=decision.get("routingDecisionId"),
-            outcome={
-                "evidence_ref": evidence_ref,
-                "execution_succeeded": effective_success,
-                "duration_ms": latency_ms,
-                "cost": cost.get("actualCostUsd"),
-                "tokens": cost.get("totalTokens"),
-            },
-        )
-        return {
-            "role": role,
-            "providerId": provider_id,
-            "model": model,
-            "runtime": runtime,
-            "success": effective_success,
-            "rework": effective_rework,
-            "qualityScore": effective_quality_score,
-            "latencyMs": latency_ms,
-            "costObservationId": cost["id"],
-            "tokenStatus": cost["tokenStatus"],
-            "costStatus": cost["costStatus"],
-            "evidenceRef": evidence_ref,
-        }
 
     def _record_product_owner_resource_learning(
         self,
@@ -3538,62 +3451,15 @@ class ProductLoopCoordinator:
         product_owner_status: str,
         evidence_ref: str,
     ) -> dict[str, Any]:
-        if product_owner_result.get("replayedFromLoopId"):
-            return {
-                "status": "not_applicable",
-                "loopId": loop_id,
-                "projectId": project_id,
-                "evidenceRef": evidence_ref,
-                "observationCount": 0,
-                "observations": [],
-            }
-        valid_completion = product_owner_status in {
-            "backlog_ready",
-            "brief_ready",
-            "completed",
-            "scope_is_clear",
-        }
-        success = valid_completion or product_owner_status == "needs_input"
-        quality_score = 1.0 if valid_completion else 0.8 if product_owner_status == "needs_input" else 0.0
-        observation = self._record_resource_decision_learning(
-            manager=AIResourceManager(self.connection),
-            role="product_owner",
-            decision=resource_decision,
-            runtime_result=product_owner_result,
-            usage_entry=None,
+        return resource_learning_phase.record_product_owner_resource_learning(
+            self,
+            project_id=project_id,
+            loop_id=loop_id,
+            resource_decision=resource_decision,
+            product_owner_result=product_owner_result,
+            product_owner_status=product_owner_status,
             evidence_ref=evidence_ref,
-            success=success,
-            rework=False,
-            quality_score=quality_score,
         )
-        observations = [observation] if observation else []
-        return {
-            "status": "recorded" if observations else "not_applicable",
-            "loopId": loop_id,
-            "projectId": project_id,
-            "evidenceRef": evidence_ref,
-            "observationCount": len(observations),
-            "observations": observations,
-        }
-
-    def _product_owner_resource_learning_persistence_failed(
-        self,
-        *,
-        project_id: str,
-        loop_id: str,
-        evidence_ref: str,
-        error: Exception,
-    ) -> dict[str, Any]:
-        return {
-            "status": "persistence_failed",
-            "loopId": loop_id,
-            "projectId": project_id,
-            "evidenceRef": evidence_ref,
-            "role": "product_owner",
-            "reason": str(redact_secrets(str(error))),
-            "observationCount": 0,
-            "observations": [],
-        }
 
     def _record_product_owner_resource_learning_best_effort(
         self,
@@ -3605,22 +3471,15 @@ class ProductLoopCoordinator:
         product_owner_status: str,
         evidence_ref: str,
     ) -> dict[str, Any]:
-        try:
-            return self._record_product_owner_resource_learning(
-                project_id=project_id,
-                loop_id=loop_id,
-                resource_decision=resource_decision,
-                product_owner_result=product_owner_result,
-                product_owner_status=product_owner_status,
-                evidence_ref=evidence_ref,
-            )
-        except Exception as error:
-            return self._product_owner_resource_learning_persistence_failed(
-                project_id=project_id,
-                loop_id=loop_id,
-                evidence_ref=evidence_ref,
-                error=error,
-            )
+        return resource_learning_phase.record_product_owner_resource_learning_best_effort(
+            self,
+            project_id=project_id,
+            loop_id=loop_id,
+            resource_decision=resource_decision,
+            product_owner_result=product_owner_result,
+            product_owner_status=product_owner_status,
+            evidence_ref=evidence_ref,
+        )
 
     def _record_resource_learning(
         self,
@@ -3634,52 +3493,17 @@ class ProductLoopCoordinator:
         rework: bool,
         quality_score: float,
     ) -> dict[str, Any]:
-        observations: list[dict[str, Any]] = []
-        manager = AIResourceManager(self.connection)
-        for role_plan, usage_entry in self._resource_observation_targets(
+        return resource_learning_phase.record_resource_learning(
+            self,
+            project_id=project_id,
+            loop_id=loop_id,
             team_schedule=team_schedule,
             runtime_result=runtime_result,
-        ):
-            decision = role_plan.get("resourceDecision") or {}
-            observation = self._record_resource_decision_learning(
-                manager=manager,
-                role=str(role_plan.get("role") or ""),
-                decision=decision,
-                runtime_result=runtime_result,
-                usage_entry=usage_entry,
-                evidence_ref=evidence_ref,
-                success=success,
-                rework=rework,
-                quality_score=quality_score,
-            )
-            if observation:
-                observations.append(observation)
-        return {
-            "status": "recorded" if observations else "not_applicable",
-            "loopId": loop_id,
-            "projectId": project_id,
-            "evidenceRef": evidence_ref,
-            "observationCount": len(observations),
-            "observations": observations,
-        }
-
-    @staticmethod
-    def _resource_learning_persistence_failed(
-        *,
-        project_id: str,
-        loop_id: str,
-        evidence_ref: str,
-        error: Exception,
-    ) -> dict[str, Any]:
-        return {
-            "status": "persistence_failed",
-            "loopId": loop_id,
-            "projectId": project_id,
-            "evidenceRef": evidence_ref,
-            "reason": str(redact_secrets(str(error))),
-            "observationCount": 0,
-            "observations": [],
-        }
+            evidence_ref=evidence_ref,
+            success=success,
+            rework=rework,
+            quality_score=quality_score,
+        )
 
     def _record_resource_learning_best_effort(
         self,
@@ -3693,36 +3517,24 @@ class ProductLoopCoordinator:
         rework: bool,
         quality_score: float,
     ) -> dict[str, Any]:
-        try:
-            return self._record_resource_learning(
-                project_id=project_id,
-                loop_id=loop_id,
-                team_schedule=team_schedule,
-                runtime_result=runtime_result,
-                evidence_ref=evidence_ref,
-                success=success,
-                rework=rework,
-                quality_score=quality_score,
-            )
-        except Exception as error:
-            return self._resource_learning_persistence_failed(
-                project_id=project_id,
-                loop_id=loop_id,
-                evidence_ref=evidence_ref,
-                error=error,
-            )
+        return resource_learning_phase.record_resource_learning_best_effort(
+            self,
+            project_id=project_id,
+            loop_id=loop_id,
+            team_schedule=team_schedule,
+            runtime_result=runtime_result,
+            evidence_ref=evidence_ref,
+            success=success,
+            rework=rework,
+            quality_score=quality_score,
+        )
 
     def _attach_resource_learning_to_result(
         self,
         result: dict[str, Any],
         resource_learning: dict[str, Any],
     ) -> dict[str, Any]:
-        loop = result["loop"]
-        durable = self._durable_run_context(loop)
-        durable["resourceLearning"] = resource_learning
-        durable["updatedAt"] = utc_now()
-        result["loop"] = self._write_context_entries(loop, {"durableRun": redact_secrets(durable)})
-        return result
+        return resource_learning_phase.attach_resource_learning_to_result(self, result, resource_learning)
 
     def _block_after_runtime_with_resource_learning(
         self,
@@ -3740,44 +3552,30 @@ class ProductLoopCoordinator:
         rework: bool = True,
         quality_score: float = 0.0,
     ) -> dict[str, Any]:
-        """Block after runtime execution and preserve ResourceManager learning evidence."""
-        blocked_result = self._block_run(
+        return resource_learning_phase.block_after_runtime_with_resource_learning(
+            self,
             loop,
+            project_id=project_id,
             stage=stage,
             reason=reason,
             actor=actor,
             details=details,
             thread_id=thread_id,
-        )
-        evidence_ref = str((blocked_result.get("evidencePackage") or {}).get("id") or "").strip()
-        if not evidence_ref:
-            return blocked_result
-        resource_learning = self._record_resource_learning_best_effort(
-            project_id=project_id,
-            loop_id=loop["id"],
             team_schedule=team_schedule,
             runtime_result=runtime_result,
-            evidence_ref=evidence_ref,
             success=success,
             rework=rework,
             quality_score=quality_score,
         )
-        return self._attach_resource_learning_to_result(blocked_result, resource_learning)
 
     def _attach_product_owner_resource_learning_to_result(
         self,
         result: dict[str, Any],
         resource_learning: dict[str, Any],
     ) -> dict[str, Any]:
-        loop = result["loop"]
-        durable = self._durable_run_context(loop)
-        durable["productOwner"] = {
-            **dict(durable.get("productOwner") or {}),
-            "resourceLearning": resource_learning,
-        }
-        durable["updatedAt"] = utc_now()
-        result["loop"] = self._write_context_entries(loop, {"durableRun": redact_secrets(durable)})
-        return result
+        return resource_learning_phase.attach_product_owner_resource_learning_to_result(
+            self, result, resource_learning
+        )
 
     def _requires_brief_approval(
         self, *, request_meta: dict[str, Any], result: dict[str, Any], output: dict[str, Any]

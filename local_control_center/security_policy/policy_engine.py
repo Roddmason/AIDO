@@ -825,12 +825,17 @@ def evaluate_git_workspace_command(
     }
 
 
+WINDOWS_LAUNCHER_SUFFIXES = frozenset({".cmd", ".bat", ".exe", ".ps1"})
+"""Extensiones de lanzador Windows que no forman parte del nombre lógico del ejecutable."""
+
+
 def _executed_argv_command(input_payload: dict[str, Any], operation: str) -> str | None:
     """Reconstruye el comando que el sandbox ejecutara realmente a partir de ``commandArgv``.
 
     El campo ``command`` es solo display; el sandbox corre el argv. Para una ejecucion de shell
-    estructurada la politica juzga el argv (con ``argv[0]`` reducido a su basename, como el resto
-    de los clasificadores); devuelve ``None`` cuando no aplica esa reconstruccion.
+    estructurada la politica juzga el argv (con ``argv[0]`` reducido a su basename sin extension de lanzador
+    Windows, como el resto de los clasificadores; el origen del ejecutable se valida aparte sobre
+    la ruta cruda); devuelve ``None`` cuando no aplica esa reconstruccion.
     """
     argv = input_payload.get("commandArgv")
     if (
@@ -843,6 +848,9 @@ def _executed_argv_command(input_payload: dict[str, Any], operation: str) -> str
     ):
         return None
     executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1]
+    stem, dot, suffix = executable.rpartition(".")
+    if dot and stem and f".{suffix.lower()}" in WINDOWS_LAUNCHER_SUFFIXES:
+        executable = stem
     return shlex.join([executable, *argv[1:]])
 
 

@@ -357,3 +357,18 @@ def test_force_push_rule_does_not_span_chained_commands():
     assert "force_push" not in classify_command("git push origin x; rm -f y")["categories"]
     assert "force_push" not in classify_command("git push && ls -f")["categories"]
     assert classify_command("git push -f origin x")["categories"] == ["force_push"]
+
+
+def test_argv_rebuild_drops_windows_launcher_suffix_before_allowlist_matching():
+    from local_control_center.security_policy.policy_engine import _executed_argv_command
+
+    command = _executed_argv_command(
+        {
+            "tool": "shell",
+            "execute": True,
+            "commandArgv": [r"C:\Program Files\nodejs\corepack.CMD", "pnpm@10.24.0", "--version"],
+        },
+        "devops_agent_command",
+    )
+
+    assert command == "corepack pnpm@10.24.0 --version"

@@ -83,16 +83,18 @@ from local_control_center.shared.time import utc_now
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.workers.leadership import WorkerControlRepository
 
-# Remediation actions that can discard or overwrite local work; execute() refuses them until the
-# caller explicitly confirms, and their persisted records are flagged ``confirmationRequired``.
 DESTRUCTIVE_REMEDIATION_ACTION_TYPES = frozenset({"checkout_branch"})
+"""Remediation actions that can discard or overwrite local work; execute() refuses them until the caller
+explicitly confirms, and their persisted records are flagged ``confirmationRequired``.
+"""
 PRODUCT_LOOP_DEPENDENT_REMEDIATION_ACTION_TYPES = frozenset(
     {"approve_resource_decision", "continue_plan_only", "retry_loop"}
 )
 LOCAL_WORKER_RECOVERABLE_STAGES = frozenset({"gitleaks", "research", "runtime", "worker"})
-# Blocker types de `resource_manager` que la reanudación automática por cooldown puede tocar; ver
-# `BlockerRemediationService.resume_cooldown_expired_blocks`.
 COOLDOWN_ELIGIBLE_BLOCKER_TYPES = frozenset({"resource_manager_unconfigured", "runtime_not_executable"})
+"""Blocker types de `resource_manager` que la reanudación automática por cooldown puede tocar; ver
+`BlockerRemediationService.resume_cooldown_expired_blocks`.
+"""
 
 ACTION_HANDLERS: dict[str, str] = {
     "open_settings_section": "_handle_open_settings_section",
@@ -267,7 +269,6 @@ class BlockerRemediationService:
                             and stored.get("researchLoopVersion") == loop["version"]
                             and "researchSnapshotUpgrade" not in stored
                         ):
-                            # New fields are observed now; this does not assert historical equality.
                             upgrade = {
                                 "addedFields": sorted(additions),
                                 "previousSnapshot": anchor,
@@ -298,7 +299,6 @@ class BlockerRemediationService:
                                     loop["version"],
                                 ),
                             )
-                        # A lost CAS must expose the persisted anchor, never the computed replacement.
                         stored_action = self.repository.get(action["id"])
                         action = {**action, "status": stored_action["status"]}
                         stored = stored_action["payload"]
@@ -414,11 +414,8 @@ class BlockerRemediationService:
             and durable.get("blockedStage") == "resource_manager"
             and (durable.get("resource_manager") or {}).get("runtimeRiskReviewInvalid")
         ):
-            # A changed policy or checkpoint is a new gate, not a stale consent error.
             return
         if (durable.get("runtimeRiskReview") or {}).get("status") in {"queued", "consuming", "consumed"}:
-            # Consent is already durable. Polling while the worker advances must not
-            # turn that approval into a new settings error or hide a later failure.
             self.connection.execute(
                 "UPDATE remediation_actions SET status='dismissed',resolved_at=? WHERE loop_id=? "
                 "AND blocker_type='runtime_risk_review_required' AND action_type='open_settings_section' "
@@ -438,7 +435,6 @@ class BlockerRemediationService:
         try:
             ensure_runtime_risk_review(self.connection, loop_id=loop["id"], root=self.root)
         except (KeyError, ValueError, TypeError, OSError) as error:
-            # A stale review is actionable evidence, never a missing-runtime diagnosis or a rerun.
             card = self.repository.create_action(
                 project_id=loop["projectId"],
                 thread_id=thread_id,
@@ -528,7 +524,6 @@ class BlockerRemediationService:
                 continue
             details = payload.get("details")
             if summary and "detailsEvidence" in payload:
-                # Only legacy candidates need the full persisted evidence to correct their diagnosis.
                 thread = ThreadsRepository(self.connection).get_thread(thread_id)
                 loop = self._latest_loop_for_thread(thread_id=thread_id, project_id=thread["projectId"])
                 if (
@@ -1338,7 +1333,6 @@ class BlockerRemediationService:
             if status == "??":
                 untracked_files.append(entry[3:])
             elif "R" in status or "C" in status:
-                # Porcelain -z emits a second path for renames/copies, without a status prefix.
                 next(entries, None)
         return {
             "status": "completed",
@@ -1435,8 +1429,6 @@ class BlockerRemediationService:
                 resealed[key] = caller_value
             else:
                 resealed.pop(key, None)
-        # El hilo se pasa para que el retry se comporte como un mensaje mas de ese hilo: si el
-        # mensaje original no eligio modo, hereda el que el hilo recuerda, no el del proyecto.
         return seal_operator_cost_decision(
             self.connection,
             project_id=project_id,
@@ -1779,7 +1771,7 @@ class BlockerRemediationService:
             if not isinstance(snapshot, dict) or not snapshot.get("providerIds"):
                 provider_ids = self._cooldown_rejected_provider_ids(payload.get("details") or {})
                 if not provider_ids or not provider_ids <= still_cooling.keys():
-                    continue  # no es (hoy) un bloqueo puro de cooldown de cuota
+                    continue
                 self.repository.merge_payload(
                     action["id"],
                     {
@@ -1789,10 +1781,10 @@ class BlockerRemediationService:
                         }
                     },
                 )
-                continue  # confirmado; espera a que el cooldown ceda en un tick posterior
+                continue
             provider_ids = {str(item) for item in snapshot["providerIds"]}
             if not provider_ids or provider_ids <= still_cooling.keys():
-                continue  # todos los que bloqueaban siguen en cooldown
+                continue
             relieved = sorted(provider_ids - still_cooling.keys())
             result = self.execute(action["id"], platform=None)
             if (result.get("execution") or {}).get("status") == "queued":
@@ -1981,12 +1973,7 @@ class BlockerRemediationService:
                 "remediationActionId": current_action["id"],
             }
             if functionality_decision_mode:
-                # Sin la elección resuelta el rerun volvería a bloquearse en el gate de memoria de
-                # funcionalidad con el mismo mensaje, en un ciclo sin salida para el operador.
                 retry_metadata["functionalityDecision"] = functionality_decision_mode
-            # El requestMeta del run bloqueado quedó sellado con la configuración de ese momento;
-            # reutilizarlo congelaría un forceLocal/teamMode que el operador pudo haber corregido
-            # y el retry volvería a bloquearse con la config vieja.
             retry_metadata = self._reseal_operator_cost_decision(
                 retry_metadata,
                 project_id=loop["projectId"],
@@ -2974,8 +2961,6 @@ class BlockerRemediationService:
             else []
         )
         free_text = str(payload.get("freeText") or "").strip()
-        # Legacy single-answer callers (no selectedOptions/freeText key at all, e.g. a direct
-        # /remediations/{id}/execute call) keep treating `answer` as one selection.
         if "selectedOptions" not in payload and "freeText" not in payload and answer:
             selected_options = [answer]
         if not thread_id or not decision_id or not (answer or selected_options or free_text):

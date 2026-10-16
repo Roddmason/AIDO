@@ -16,12 +16,13 @@ interface AidoConfig {
   baseUrl?: string;
 }
 
-// `config` llega tipado por el SDK desde configSchema; lo tratamos como unknown
-// y leemos baseUrl defensivamente para no acoplarnos al genérico del SDK.
-//
-// Se cachea un AidoClient por baseUrl a nivel de módulo: cada tool `execute` corre en
-// una invocación nueva, y sin este cache `cachedToken` (el handshake de escritura) se
-// perdía en cada llamada, forzando un handshake extra por cada escritura.
+/**
+ * `config` llega tipado por el SDK desde configSchema; lo tratamos como unknown y leemos baseUrl
+ * defensivamente para no acoplarnos al genérico del SDK. Se cachea un AidoClient por baseUrl a
+ * nivel de módulo: cada tool `execute` corre en una invocación nueva, y sin este cache
+ * `cachedToken` (el handshake de escritura) se perdía en cada llamada, forzando un handshake extra
+ * por cada escritura.
+ */
 const clients = new Map<string, AidoClient>();
 
 export function client(config: unknown): AidoClient {

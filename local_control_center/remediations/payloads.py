@@ -1278,7 +1278,6 @@ def _resource_manager_unconfigured_specs(context: BlockerPayloadContext) -> list
                 "payload": {**resource_manager_settings_payload, "retryTarget": "resource_manager"},
             },
         ]
-    # Con equipo de IA global, un rol sin candidatos se arregla primero en el orden del rol ("team").
     team_specs = (
         [
             {
@@ -1405,8 +1404,6 @@ def _team_scheduler_failed_specs(context: BlockerPayloadContext) -> list[dict[st
     ]
 
 
-# A brief/backlog that fails validation almost always means the runtime behind
-# ProductOwnerAgent answered badly, so the runtime repairs lead the settings navigation.
 def _product_owner_output_invalid_specs(context: BlockerPayloadContext) -> list[dict[str, Any]]:
     runtime_payload = context.runtime_payload
     product_owner_settings_payload = context.product_owner_settings_payload

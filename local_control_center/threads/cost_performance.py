@@ -105,11 +105,9 @@ class ThreadCostPerformanceService:
 
     def _task_prefixes(self, thread_id: str, loop_ids: list[str]) -> list[str]:
         prefixes: list[str] = []
-        # Esquema estable actual: una identidad por hilo compartida por todos sus turnos.
         for prefix in _task_prefixes_for_suffix(stable_task_suffix(thread_id, "")):
             if prefix not in prefixes:
                 prefixes.append(prefix)
-        # Esquema legacy por loop: correlaciona turnos previos al sufijo estable por hilo.
         for loop_id in loop_ids:
             for prefix in _task_prefixes_for_loop(loop_id):
                 if prefix not in prefixes:

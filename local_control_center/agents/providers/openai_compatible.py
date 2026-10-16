@@ -207,7 +207,6 @@ class OpenAICompatibleProvider(ModelProvider):
         self.credential_ref = resolved_credential_ref
         self.credential_required = credential_required
         self.credential_resolver = CredentialResolver()
-        # Recibe el deadline monótono de la llamada; `nullcontext` lo acepta como `enter_result` y no espera nada.
         self.invocation_slot: Callable[[float | None], AbstractContextManager[object]] = nullcontext
 
     def _credential(self) -> str:
@@ -348,8 +347,6 @@ class OpenAICompatibleProvider(ModelProvider):
             headers = getattr(response, "headers", None)
             content_type = str(headers.get("Content-Type") or "") if headers is not None else ""
             payload = read_bounded(response, limit=self.max_response_bytes)
-        # Hay gateways (p. ej. OmniRoute con algunos upstreams) que responden SSE aunque el body pida
-        # ``stream: false``: se arma la misma forma que la ruta con stream en vez de fallar el JSON.
         if "text/event-stream" in content_type or payload.lstrip().startswith(b"data:"):
             return _read_chat_stream(io.BytesIO(payload), limit=self.max_response_bytes, deadline=deadline)
         return json.loads(payload.decode("utf-8"))
@@ -409,7 +406,7 @@ class OpenAICompatibleProvider(ModelProvider):
             except urllib.error.HTTPError as error:
                 if error.code != _HTTP_BAD_REQUEST or "response_format" not in body:
                     raise
-                error.close()  # libera el socket del 400 antes del reintento, sin esperar al GC
+                error.close()
                 raw = post(
                     {key: value for key, value in body.items() if key != "response_format"}, timeout=timeout
                 )

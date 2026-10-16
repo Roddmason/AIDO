@@ -725,8 +725,6 @@ class IssueToPrRunner:
                         "workflowKind": "issue_to_pr",
                         "workflowRunId": run_id,
                         "workflowStepId": steps["architecture_review"]["id"],
-                        # El DAG completo no viaja al agente: el prompt solo whitelistea
-                        # workflowKind/attempt/title y el DAG ya queda en la metadata del workflow.
                         "attempt": attempt,
                     },
                     "testResults": qa.get("results") or [],

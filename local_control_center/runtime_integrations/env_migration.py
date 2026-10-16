@@ -157,8 +157,6 @@ def migrate_environment_config(
         if provider_id:
             try:
                 current = str(provider_store.get_provider_account(provider_id).get("credentialRef") or "")
-                # Una ref que el operador ya configuró y que resuelve (p. ej. keyring:aido/providers/...)
-                # no se pisa con la variable de entorno: solo se completa una ref vacía o que no resuelve.
                 if preferred_credential_ref(current, f"env:{env_var}") != current.strip():
                     provider_store.patch_provider_account(provider_id, {"credentialRef": f"env:{env_var}"})
                     report["providers"].append({"providerId": provider_id, "credentialRef": f"env:{env_var}"})

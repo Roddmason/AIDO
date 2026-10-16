@@ -202,9 +202,6 @@ export function AppShell({
 		if (selectedRunId) expandInspector();
 	}, [selectedRunId, expandInspector]);
 
-	// Threads area: surface the manager console whenever a live thread is selected, mirroring
-	// the run-detail behavior above (the user can still collapse it afterwards). Desktop only:
-	// in the stacked mobile layout the inspector overlays the composer and blocks its clicks.
 	useEffect(() => {
 		if (!isDesktop) return;
 		if (area === 'threads' && selectedSessionId && selectedSessionId !== NEW_SESSION_ID) {

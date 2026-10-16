@@ -72,14 +72,10 @@ export function useThreadRemediations(
 			fetchedRef.current = null;
 			return undefined;
 		}
-		// One fetch per (thread, refresh signal, manual reload); the marker also dedups React's
-		// StrictMode double-invoke and resets synchronously on cleanup so a quick change refetches.
 		const requestKey = `${threadId}#${refreshSignal}#${attempt}`;
 		if (fetchedRef.current === requestKey) return undefined;
 		fetchedRef.current = requestKey;
 		const controller = new AbortController();
-		// Drop the previous thread's cards immediately, but keep the same thread's cards visible
-		// across a refresh/refetch so an incoming event never flashes the panel back to a skeleton.
 		if (loadedKeyRef.current !== threadId) {
 			loadedKeyRef.current = threadId;
 			setRemediations([]);
@@ -124,7 +120,6 @@ export function useThreadRemediations(
 					(token) => executeRemediation(token, action.remediation?.id ?? '', payload),
 					{ awaitRefresh: false },
 				);
-				// Wake the event stream first: the refresh SLA must not wait on the remediation refetch.
 				if (threadId) wakeThreadEventStream(threadId);
 				await refetch();
 				return result;

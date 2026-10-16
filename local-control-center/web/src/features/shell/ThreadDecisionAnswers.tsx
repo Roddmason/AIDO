@@ -79,7 +79,6 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 	const { t } = useI18n();
 	const [drafts, setDrafts] = useState<DraftState>({});
 	const [submitError, setSubmitError] = useState('');
-	// A ref, not state: a fast double click fires twice before the host's `busy` re-renders.
 	const submittingRef = useRef(false);
 
 	const answerable = useMemo(
@@ -108,9 +107,6 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 			await onSubmit(readyAnswers);
 			setDrafts({});
 		} catch (error) {
-			// The API validates the whole batch before resolving any answer; on failure the drafts
-			// stay so nothing typed is lost, and the host reloads the thread so an answer that was
-			// already applied (a 409 partial batch) leaves this list.
 			const reason =
 				error instanceof Error && error.message
 					? error.message
@@ -144,12 +140,9 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 		>
 			{answerable.map((decision) => {
 				const draft = drafts[decision.id] ?? { selectedOptions: [], freeText: '' };
-				// A repeated option would collide as a React key and render twice.
 				const options = Array.from(new Set(decision.options));
 				const hasOptions = options.length > 0;
 				const isPoDecision = isProductOwnerDecision(decision);
-				// Mutually exclusive types (similarity, existing functionality, intake) keep a single
-				// choice; only Product Owner questions/decisions accept several plus free text.
 				const allowsMultiple = isPoDecision;
 				return (
 					<m.article

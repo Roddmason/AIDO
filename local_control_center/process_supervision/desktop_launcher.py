@@ -77,7 +77,6 @@ def open_in_file_manager(
     process = popen_factory(argv, **options)
     wait = getattr(process, "wait", None)
     if callable(wait):
-        # explorer.exe/open/xdg-open delegan en el explorador ya residente y terminan enseguida.
         threading.Thread(target=_reap, args=(wait,), name="aido-file-manager-reaper", daemon=True).start()
     return {"argv": argv, "pid": getattr(process, "pid", None)}
 
@@ -85,5 +84,5 @@ def open_in_file_manager(
 def _reap(wait: Callable[..., Any]) -> None:
     try:
         wait(timeout=REAP_TIMEOUT_SECONDS)
-    except Exception:  # el reaper nunca debe propagar; el proceso sigue desacoplado.
+    except Exception:
         return

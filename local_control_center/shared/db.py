@@ -83,7 +83,6 @@ def require_safe_sqlite_runtime() -> None:
 @contextmanager
 def immediate_transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Abre una transacción atómica (``BEGIN IMMEDIATE``): COMMIT al salir, ROLLBACK si algo falla."""
-    # A failed BEGIN owns no transaction: preserve its error and any enclosing caller's work.
     from .diagnostics import diagnostic_event
 
     started = time.monotonic()

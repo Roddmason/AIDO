@@ -417,7 +417,6 @@ def _workload_class_for_job(job: dict[str, Any], *, connection: Any | None = Non
         if permitted_workloads == {"local_model_call"} and kind != THREAD_PRODUCT_LOOP_JOB_KIND:
             return "local_model_call"
     if kind == MEMORY_FORGET_JOB_KIND:
-        # Borrado lógico en SQLite más un rebuild de índice: no merece el perfil pesado por defecto.
         return "control_plane"
     if kind == THREAD_RESEARCH_JOB_KIND or kind in {"prompt.optimize", "chat.route"}:
         return "remote_llm_light"
@@ -463,7 +462,6 @@ def execute_job(
                     summary="The runner requires its own active resource reservation.",
                     metadata={"reason": "resource_parent_identity_mismatch"},
                 )
-            # The admitted envelope survives policy edits between claim and dispatch.
             workload = lease.workload_class
         ExecutionRepository(connection).attach_claimed_job(
             job,
@@ -658,8 +656,6 @@ def _execute_thread_product_loop_job(
         )
 
     threads = ThreadsRepository(connection)
-    # Closes the claim→cancel window: the operator may have stopped this job between the claim and here,
-    # and starting the loop now would run it beside the replacement run the operator queued instead.
     if _thread_job_was_cancelled(threads, job["id"]):
         threads.record_event(
             thread_id=thread_id,
@@ -733,7 +729,6 @@ def _execute_thread_product_loop_job(
             run_metadata=run_metadata,
             actor=worker_id or "thread_worker",
             thread_id=thread_id,
-            # Live signal, re-read per stage: a cancel committed on another connection stops this loop.
             should_abort=lambda: _thread_job_was_cancelled(threads, job["id"]),
         )
     except Exception as error:
@@ -930,11 +925,6 @@ def _execute_thread_research_job(
     }
 
 
-# Ruteo explícito status del run -> (status del hilo, tipo de evento terminal). Cada status que el
-# coordinator retorna (RUN_RESULT_STATUSES) debe tener su fila: el gate
-# test_product_loop_result_taxonomy.py falla ante un status nuevo sin decisión, porque el fallback
-# fail-closed de abajo pinta el pipeline del hilo como bloqueado y eso le mintió al operador cuando
-# brief_ready caía en él.
 PRODUCT_LOOP_RESULT_ROUTING: dict[str, tuple[str, str]] = {
     "awaiting_approval": ("awaiting_approval", "approval_required"),
     "awaiting_user": ("waiting_decision", "decision_required"),
@@ -947,9 +937,15 @@ PRODUCT_LOOP_RESULT_ROUTING: dict[str, tuple[str, str]] = {
     "plan_ready": ("open", "plan_ready"),
     "reworking": ("blocked", "blocked"),
 }
-# Fallback fail-closed para statuses fuera del contrato: mejor un falso bloqueo visible (que el gate
-# de taxonomía convierte en rojo de test) que un hilo resuelto sin evidencia.
+"""Ruteo explícito status del run -> (status del hilo, tipo de evento terminal). Cada status que el
+coordinator retorna (RUN_RESULT_STATUSES) debe tener su fila: el gate test_product_loop_result_taxonomy.py
+falla ante un status nuevo sin decisión, porque el fallback fail-closed de abajo pinta el pipeline del
+hilo como bloqueado y eso le mintió al operador cuando brief_ready caía en él.
+"""
 _UNMAPPED_RESULT_ROUTE = ("blocked", "blocked")
+"""Fallback fail-closed para statuses fuera del contrato: mejor un falso bloqueo visible (que el gate de
+taxonomía convierte en rojo de test) que un hilo resuelto sin evidencia.
+"""
 
 
 def _thread_status_for_product_loop_result(status: str) -> str:
@@ -981,8 +977,6 @@ def _finish_thread_after_product_loop(
     evidence_id: str | None,
     event_type: str = "blocked",
 ) -> None:
-    # If the operator cancelled this job mid-run, do not overwrite the thread status: leave whatever
-    # the cancel (or a replacement run) set and only leave a benign trace in the execution console.
     if _thread_job_was_cancelled(threads, job_id):
         threads.record_event(
             thread_id=thread_id,
@@ -1025,8 +1019,6 @@ def _finish_thread_after_research(
     report_artifact_id: str | None,
     event_type: str,
 ) -> None:
-    # Same cancellation guard as the product-loop finalizer: a stopped research run must not resurrect
-    # the thread the operator already reopened.
     if _thread_job_was_cancelled(threads, job_id):
         threads.record_event(
             thread_id=thread_id,

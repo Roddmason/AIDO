@@ -54,16 +54,17 @@ from local_control_center.threads.similarity import (
     ThreadSimilarityService,
 )
 
-# plan_mode values that mean the coordinator must stop and ask the operator before proceeding.
 BLOCKING_PLAN_MODES = ("ask", "blocked")
+"""plan_mode values that mean the coordinator must stop and ask the operator before proceeding."""
 PLAN_ONLY_RESOLUTION_MODES = frozenset({"continue_in_plan_only_mode", "continue_plan_only", "plan_only"})
 THREAD_RESEARCH_JOB_KIND = "thread.research.run"
 _SUMMARY_LIMIT = 140
-# Thread statuses with a live run: a new user message here would spawn a concurrent loop, so
-# `post_message` refuses one. The operator adds a note (`add_operator_note`) or cancels first.
 ACTIVE_EXECUTION_STATUSES = ("queued", "running")
-# Job statuses still worth cancelling when the operator stops a thread's execution.
+"""Thread statuses with a live run: a new user message here would spawn a concurrent loop, so `post_message`
+refuses one. The operator adds a note (`add_operator_note`) or cancels first.
+"""
 _CANCELLABLE_JOB_STATUSES = ("queued", "running", "approval_required")
+"""Job statuses still worth cancelling when the operator stops a thread's execution."""
 _PUBLIC_MESSAGE_PROTECTED_PRODUCT_LOOP_METADATA_KEYS = frozenset(
     {
         "approvedResourceSelections",
@@ -138,10 +139,7 @@ class ThreadCoordinator:
         """
         if not content.strip():
             raise ValueError("Message content is required")
-        # Resolve the thread up front so a missing id fails before any write.
         existing_thread = self.repository.get_thread(thread_id)
-        # Fail closed on a thread that is already executing: a normal message would queue a second,
-        # concurrent product-loop run. The operator must add a note or cancel the current run first.
         if existing_thread["status"] in ACTIVE_EXECUTION_STATUSES:
             raise ThreadBusyError(
                 f"Thread {thread_id} is {existing_thread['status']}: add a note or cancel the current "
@@ -154,8 +152,6 @@ class ThreadCoordinator:
             or user_mode
             or "aido_decide"
         )
-        # A `mode` equal to a similarity action means the operator already took the deduplication
-        # decision in the new-thread intake; re-blocking here would ask the same question twice.
         similarity_resolved = str(message_metadata.get("mode") or "") in SIMILARITY_ACTIONS
 
         decision_input = IntentClassificationInput(
@@ -405,7 +401,6 @@ class ThreadCoordinator:
                 matches.append((decision, best))
         if not matches:
             return None
-        # Las duplicadas del mismo batch se resuelven en diferido; la última reanuda el run.
         for decision, resolution in matches[:-1]:
             self.resolve_decision(
                 thread_id=thread_id,
@@ -510,11 +505,6 @@ class ThreadCoordinator:
                 pending_decision, resolution=resolution, decided_by=decided_by
             )
             if append_message:
-                # kind="user": the chat shows what the operator answered, not a tarjeta de decisión
-                # anymore (that card only lives in the execution panel now). metadata.decisionId marks
-                # this as a synthetic answer, not a fresh request — _source_message_for_decision's
-                # fallback below must skip it or a later undecorated decision could adopt this text as
-                # its "original ask" and requeue work from it instead of from what the user actually said.
                 self.repository.append_message(
                     thread_id=thread_id,
                     kind="user",
@@ -532,9 +522,6 @@ class ThreadCoordinator:
                 pending_decision.get("metadata") if isinstance(pending_decision.get("metadata"), dict) else {}
             )
             similarity_candidate_id = _metadata_text(decision_metadata, "similarityCandidateId", "")
-            # La decisión del gate de funcionalidad existente puede quedar con el hilo en 'blocked'
-            # (la transición del run pisa 'waiting_decision'); resolverla debe poder reanudar el
-            # loop igualmente, o el hilo queda bloqueado para siempre sin salida para el operador.
             functionality_decision = (
                 _metadata_text(decision_metadata, "source", "") == "functionality_registry"
             )
@@ -598,8 +585,6 @@ class ThreadCoordinator:
                 )
                 run_metadata = {**source_metadata, "userMode": forced_decision.user_mode}
                 if functionality_decision:
-                    # El rerun debe llevar la elección del usuario o el gate de memoria de
-                    # funcionalidad volvería a bloquear el mismo mensaje en un ciclo sin fin.
                     run_metadata["functionalityDecision"] = resolution_mode
                 if plan_only:
                     run_metadata["planOnly"] = True
@@ -631,8 +616,6 @@ class ThreadCoordinator:
                 )
                 thread = self.repository.set_status(thread_id, "queued")
             else:
-                # Only reopen a thread that was actually waiting on this decision; never override an
-                # archived/blocked status set by another flow.
                 thread = (
                     self.repository.set_status(thread_id, "open")
                     if current["status"] == "waiting_decision"
@@ -680,7 +663,6 @@ class ThreadCoordinator:
         """
         if not content.strip():
             raise ValueError("Note content is required")
-        # Resolve up front so a missing thread fails before any write.
         thread = self.repository.get_thread(thread_id)
         with immediate_transaction(self.connection):
             note = self.repository.append_message(
@@ -726,8 +708,6 @@ class ThreadCoordinator:
                     continue
                 self.jobs.cancel_job(job["id"], reason=clean_reason, actor=clean_actor)
                 cancelled_job_ids.append(job["id"])
-            # Only mutate the thread when there was something to stop; a stray click after the run
-            # already finished must not append a misleading "cancelled" note or reopen a closed thread.
             if cancelled_job_ids or was_executing:
                 self.repository.append_message(
                     thread_id=thread_id,
@@ -745,7 +725,6 @@ class ThreadCoordinator:
                 thread = self.repository.set_status(thread_id, "open")
         return {"thread": thread, "cancelledJobIds": cancelled_job_ids}
 
-    # -- internals -------------------------------------------------------------
     def _high_similarity_candidate(
         self,
         *,
@@ -943,7 +922,6 @@ class ThreadCoordinator:
         thread = self.repository.get_thread(thread_id)
         if thread["summary"]:
             return
-        # Redact before persisting: the summary is surfaced in list_threads and the overview snapshot.
         snippet = redact_secrets(content.strip().replace("\n", " "))[:_SUMMARY_LIMIT]
         self.repository.set_summary(thread_id, snippet)
 
@@ -1056,8 +1034,6 @@ class ThreadCoordinator:
                 for message in self.repository.list_messages(decision["threadId"])
                 if message["kind"] == "user"
                 and int(message["sequence"]) < request_sequence
-                # Skip the synthetic "answer" messages resolve_decision appends (metadata.decisionId):
-                # they are not a fresh ask and must never be adopted as one by a later decision.
                 and not _metadata_text(message.get("metadata") or {}, "decisionId", "")
             ]
             return previous_user_messages[-1] if previous_user_messages else None
@@ -1086,7 +1062,6 @@ class ThreadCoordinator:
         scope = _scope_for_decision(decision)
         mode = "critical" if decision.risk in {"high", "critical"} else "balanced"
         try:
-            # Mismo filtro que el plan del loop: un proveedor apagado no aparece en el equipo planificado.
             return schedule_team(
                 scope=scope,
                 risk=decision.risk,

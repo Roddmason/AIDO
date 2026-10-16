@@ -9,16 +9,20 @@ const viteCli = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import
 const playwrightCli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
 const windowsPython = fileURLToPath(new URL('../.venv/Scripts/python.exe', import.meta.url));
 const posixPython = fileURLToPath(new URL('../.venv/bin/python', import.meta.url));
-// Low, non-ephemeral base: the 30000-49999 range can land on Windows reserved/ephemeral ports
-// (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
+/**
+ * Low, non-ephemeral base: the 30000-49999 range can land on Windows reserved/ephemeral ports
+ * (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
+ */
 const defaultDashboardPort = String(8600 + (process.pid % 900));
 const dashboardPort = process.env.PLAYWRIGHT_DASHBOARD_PORT || defaultDashboardPort;
-// The domain fixtures refuse any database whose isolation they cannot prove: they require
-// AIDO_QUALITY_SCRATCH + AIDO_QUALITY_RETAINED and a PLAYWRIGHT_DB_PATH that resolves under that
-// scratch root. `pnpm run quality` injects them from the supervised runner; a standalone run has to
-// own an equivalent identity or those specs cannot execute at all. The proof is not weakened: the
-// fixture still validates the scratch parent and the database location itself.
-// Both halves are injected together or not at all: half an identity is not a supervised run.
+/**
+ * The domain fixtures refuse any database whose isolation they cannot prove: they require
+ * AIDO_QUALITY_SCRATCH + AIDO_QUALITY_RETAINED and a PLAYWRIGHT_DB_PATH that resolves under that
+ * scratch root. `pnpm run quality` injects them from the supervised runner; a standalone run has
+ * to own an equivalent identity or those specs cannot execute at all. The proof is not weakened:
+ * the fixture still validates the scratch parent and the database location itself. Both halves are
+ * injected together or not at all: half an identity is not a supervised run.
+ */
 const supervised = Boolean(process.env.AIDO_QUALITY_SCRATCH && process.env.AIDO_QUALITY_RETAINED);
 const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-tests-${process.pid}`);
 const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
@@ -88,8 +92,11 @@ const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `play
 const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
-// A standalone run keeps its Playwright output inside its own evidence directory, the same contract
-// the supervised runner uses; the lifecycle spec refuses to retain evidence anywhere else.
+/**
+ * A standalone run keeps its Playwright output inside its own evidence directory, the same
+ * contract the supervised runner uses; the lifecycle spec refuses to retain evidence anywhere
+ * else.
+ */
 const artifactRoot =
 	process.env.PLAYWRIGHT_ARTIFACT_ROOT ||
 	(ownedQualityRoot ? path.join(qualityRetained, 'playwright-artifacts') : `.tmp/playwright-artifacts-${process.pid}`);
@@ -138,8 +145,6 @@ function dashboardServerCommand(port, sqlitePath) {
 		'--workspace',
 		'.',
 	];
-	// A concurrent `vite build` empties dist/web mid-run and every chunk starts 500ing on GET /;
-	// pointing the dashboard at a frozen snapshot of the build isolates the run from that race.
 	if (process.env.PLAYWRIGHT_STATIC_DIR) {
 		dashboardArgs.push('--static-dir', process.env.PLAYWRIGHT_STATIC_DIR);
 	}
@@ -205,7 +210,6 @@ async function stopDashboardServer(childProcess) {
 	if (!Number.isFinite(childProcess.aidoCreatedAt)) {
 		throw new Error('Dashboard identity is unverified; outer supervisor cleanup is required.');
 	}
-	// The Windows venv PID is a redirector: snapshot and stop its descendants before losing it.
 	const result = processTreeCommand('stop', childProcess.pid, childProcess.aidoCreatedAt);
 	if (result.remainingCount !== 0 || !(await waitForExit(childProcess, 5000))) {
 		throw new Error('Owned dashboard tree did not exit; supervisor cleanup is required.');
@@ -268,7 +272,6 @@ function listProjectTests(project, env) {
 
 async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 	if (chunk.length === 1 && privateServerTests.has(chunk[0])) {
-		// This journey owns a separate API and worker. Do not allocate an unused second API.
 		return executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
 	}
 	const dashboard = dashboardServerCommand(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, chunkEnv.PLAYWRIGHT_DB_PATH);
@@ -321,9 +324,6 @@ if (status === 0) {
 		const projectDbPath = process.env.PLAYWRIGHT_DB_PATH || dbPath.replace(/\.sqlite$/, `-${project}.sqlite`);
 		const projectEnv = {
 			...process.env,
-			// Same contract as the supervised runner (local_control_center/quality/paths.py): temp files
-			// of the specs live inside the owned scratch. The lifecycle fixture refuses a database outside
-			// it, so without this the real-pipeline spec could only pass under the supervised runner.
 			...(supervised ? {} : { TEMP: qualityScratch, TMP: qualityScratch, TMPDIR: qualityScratch }),
 			AIDO_QUALITY_SCRATCH: qualityScratch,
 			AIDO_QUALITY_RETAINED: qualityRetained,
@@ -337,9 +337,6 @@ if (status === 0) {
 		}
 		const chunks = chunkTests(tests);
 		for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-			// Always increment per chunk from the (env or default) base. Reusing one fixed port
-			// across sequential chunks can hit a TIME_WAIT bind collision (abnormal exit); a unique
-			// port per chunk avoids both that and the reserved-range failure.
 			const chunkPort = Number.isFinite(dashboardPortNumber)
 				? String(dashboardPortNumber + projectIndex * 200 + chunkIndex + 1)
 				: dashboardPort;

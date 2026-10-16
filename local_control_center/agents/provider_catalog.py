@@ -59,9 +59,10 @@ class ProviderCatalogEntry:
     terms_mode: TermsMode = "unspecified"
     pricing_mode: PricingMode = "unknown"
     aliases: tuple[str, ...] = ()
-    #: Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del
-    #: operador): el sync los omite y apaga los que un sync anterior dejó habilitados.
     excluded_model_prefixes: tuple[str, ...] = ()
+    """: Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del : operador): el
+    sync los omite y apaga los que un sync anterior dejó habilitados.
+    """
     local_profile: LocalRuntimeProfile | None = None
 
     def public_dict(self) -> dict[str, Any]:
@@ -93,12 +94,6 @@ class ProviderCatalogEntry:
 PROVIDER_CATALOG_VERSION = "2026-07-25"
 OPENAI_COMPATIBLE_SYNC = {"strategy": "api_list_models", "endpoint": "/models"}
 
-# Gemini exposes model ids through the OpenAI-compatible ``/models`` endpoint, but that
-# response intentionally does not carry the capability, context, or pricing metadata
-# required by AIDO's router.  Keep the official, reviewed metadata in one manifest and
-# overlay it only for exact stable model ids.  ``freeTier`` means "Google offers this
-# model on a free project"; the provider account's ``pricingMode`` still decides whether
-# a particular call is free.
 GEMINI_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
     "gemini-3.5-flash": {
         "displayName": "Gemini 3.5 Flash",
@@ -186,8 +181,6 @@ GEMINI_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
         "supportsVision": True,
         "supportsReasoning": True,
         "supportsThinking": True,
-        # Paid prices are prompt-length tiered and the current catalog schema cannot
-        # represent that boundary honestly. An operator-attested free account is still cost zero.
         "freeTier": True,
         "freeTierNotes": (
             "Available on free-tier projects. Paid pricing is prompt-length tiered and must be "
@@ -195,6 +188,12 @@ GEMINI_MODEL_MANIFEST: dict[str, dict[str, Any]] = {
         ),
     },
 }
+"""Gemini exposes model ids through the OpenAI-compatible ``/models`` endpoint, but that response
+intentionally does not carry the capability, context, or pricing metadata required by AIDO's router.  Keep
+the official, reviewed metadata in one manifest and overlay it only for exact stable model ids.
+``freeTier`` means "Google offers this model on a free project"; the provider account's ``pricingMode``
+still decides whether a particular call is free.
+"""
 
 LLAMA_CPP_LOCAL_PROFILE = LocalRuntimeProfile(
     liveness_path="/health",
@@ -278,19 +277,11 @@ PROVIDER_CATALOG: tuple[ProviderCatalogEntry, ...] = (
         credential_kind="optional_bearer_token",
         known_models=(),
         model_sync=OPENAI_COMPATIBLE_SYNC,
-        # La familia queda en openai_compatible a propósito: es la única familia gateway con tool
-        # adapter en el ToolBroker y presente en MODEL_RUNTIME_TOOLS del policy engine, así la
-        # cuenta ejecuta en el loop sin registrar adapters nuevos.
         capabilities=("chat", "routing", "tools_optional", "json_optional", "streaming_optional"),
         docs_url="https://github.com/diegosouzapw/OmniRoute",
         pricing_source="operator_managed_gateway",
         provider_family="openai_compatible",
-        # self_hosted: el gateway corre en el equipo del operador y su auth es la del host, así que
-        # el bearer token es opcional (mismo criterio que LiteLLM Proxy y Ollama).
         deployment_mode="self_hosted_development",
-        # Regla del proyecto (ver scripts/omniroute_models.json): estos prefijos reexponen
-        # servicios comerciales fuera de su cliente oficial, y los alias auto/* enrutan a
-        # cualquier provider interno sin trazabilidad de la fuente. El sync no debe habilitarlos.
         excluded_model_prefixes=("aug/", "tllm/", "ddgw/", "pepper/", "mcode/", "veo-free/", "auto/"),
     ),
     ProviderCatalogEntry(

@@ -66,8 +66,6 @@ def recover_managed_processes(db_path: Path) -> list[str]:
                 outcome="BLOCKED",
                 causeStatus="UNKNOWN",
             )
-            # Native start resumes before the identity update. Zero is UNKNOWN, not absence.
-            # Keep the active record/lease so job recovery cannot replay uncertain external effects.
             logging.getLogger(__name__).warning(
                 "process_recovery_unknown_identity managed_process_id=%s execution_id=%s",
                 record.managed_process_id,
@@ -76,11 +74,9 @@ def recover_managed_processes(db_path: Path) -> list[str]:
             continue
         if record.root_create_time > 0 and identity_alive(record.root_pid, record.root_create_time):
             if os.name != "nt":
-                # Sólo un grupo cuya raíz conserva la identidad registrada puede terminarse.
                 if os.getpgid(record.root_pid) != record.root_pid:
                     raise RuntimeError("La raíz POSIX ya no pertenece al grupo registrado.")
                 os.killpg(record.root_pid, signal.SIGKILL)
-            # Kill-on-close puede demorar brevemente tras un cierre abrupto de Windows.
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline and identity_alive(record.root_pid, record.root_create_time):
                 time.sleep(0.02)

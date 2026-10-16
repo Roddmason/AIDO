@@ -41,8 +41,6 @@ export function useShellShortcuts({
 				target?.tagName === 'INPUT' ||
 				target?.tagName === 'TEXTAREA' ||
 				target?.tagName === 'SELECT';
-			// While a Dialog/Drawer overlay is open it owns Escape (LIFO, topmost only);
-			// yield so the shell's close-overlays broom never dismisses the layer beneath.
 			if (event.key === 'Escape' && !hasOpenModalLayer()) {
 				onEscape();
 			}

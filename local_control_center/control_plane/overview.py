@@ -41,10 +41,11 @@ OVERVIEW_COST_USAGE_LIMIT = 200
 OVERVIEW_EVIDENCE_LIMIT = 100
 OVERVIEW_TEST_RESULT_LIMIT = 150
 OVERVIEW_ARTIFACT_LIMIT = 300
-# Colecciones históricas: crecen sin techo natural, así que el snapshot (poll de 5 s del
-# dashboard) conserva solo el tail más reciente. Los catálogos de configuración
-# (projects, providers, agentProfiles, modelProviders, skills, …) van completos a propósito.
 OVERVIEW_THREAD_LIMIT = 500
+"""Colecciones históricas: crecen sin techo natural, así que el snapshot (poll de 5 s del dashboard) conserva
+solo el tail más reciente. Los catálogos de configuración (projects, providers, agentProfiles,
+modelProviders, skills, …) van completos a propósito.
+"""
 OVERVIEW_JOB_LIMIT = 200
 OVERVIEW_JOB_RUN_LIMIT = 200
 OVERVIEW_MEMORY_ITEM_LIMIT = 200

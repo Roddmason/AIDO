@@ -907,8 +907,6 @@ class QuotaManager:
             for row in rows
             if (cooldown := _parse_utc(row["cooldown_until"])) is not None and cooldown > now
         }
-        # Un proveedor sobre su umbral de uso (``provider_usage``) cuenta como agotado igual que un
-        # cooldown: el estado de runtime, el preflight y la reanudación automática ya lo respetan.
         return cooling | set(self._usage_suspensions(now))
 
     def providers_in_cooldown_detail(self) -> dict[str, str]:

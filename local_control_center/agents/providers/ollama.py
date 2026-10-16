@@ -79,7 +79,6 @@ class OllamaProvider(ModelProvider):
         self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
         self.credential_ref = credential_ref or ""
         self.credential_resolver = CredentialResolver()
-        # Recibe el deadline monótono de la llamada; `nullcontext` lo acepta como `enter_result` y no espera nada.
         self.invocation_slot: Callable[[float | None], AbstractContextManager[object]] = nullcontext
 
     def _base_url_blocking_reason(self) -> str | None:

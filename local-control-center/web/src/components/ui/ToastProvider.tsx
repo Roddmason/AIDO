@@ -86,7 +86,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 		[clearTimer],
 	);
 
-	// Re-armed after each hover/focus pause so the user controls the time limit (WCAG 2.2.1).
 	const armDismiss = useCallback(
 		(id: number, durationMs: number) => {
 			clearTimer(id);
@@ -129,8 +128,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 					aria-label={t('app.global.notifications', 'Notifications')}
 				>
 					{toasts.map((toast) => (
-						// Each toast is its own atomic status region so title, body and the optional
-						// action are announced together; hover/focus pauses the auto-dismiss timer.
 						<div
 							key={toast.id}
 							className="toast"

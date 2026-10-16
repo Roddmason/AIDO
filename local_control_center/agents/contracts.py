@@ -413,12 +413,14 @@ class RuntimeProviderStatus(BaseModel):
     authenticated: bool = False
     available: bool
     executable: bool
-    #: Switch del operador (`provider_accounts.enabled`): apagado ⇒ ningún hilo lo usa, aunque esté sano.
-    #: Distinto de ``globallyEnabled``, que refleja los flags por tipo (CLI/local/remoto).
     enabled: bool = False
-    #: Hay una llamada en curso con este proveedor (reserva ``active``/``dispatched`` vigente en
-    #: ``provider_execution_leases``): la UI no deja apagar el switch hasta que termine.
+    """: Switch del operador (`provider_accounts.enabled`): apagado ⇒ ningún hilo lo usa, aunque esté sano. :
+    Distinto de ``globallyEnabled``, que refleja los flags por tipo (CLI/local/remoto).
+    """
     in_use: bool = Field(default=False, alias="inUse")
+    """: Hay una llamada en curso con este proveedor (reserva ``active``/``dispatched`` vigente en :
+    ``provider_execution_leases``): la UI no deja apagar el switch hasta que termine.
+    """
     globally_enabled: bool = Field(default=False, alias="globallyEnabled")
     project_enabled: bool = Field(default=False, alias="projectEnabled")
     policy_allowed: bool = Field(default=False, alias="policyAllowed")
@@ -428,15 +430,17 @@ class RuntimeProviderStatus(BaseModel):
     blocking_reasons: list[str] = Field(default_factory=list, alias="blockingReasons")
     last_checked_at: str | None = Field(default=None, alias="lastCheckedAt")
     compatibility: dict[str, Any] | None = None
-    #: Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations:
-    #: ``runtime_auth_missing`` / ``runtime_not_executable``, más ``runtime_validation_expired`` para
-    #: una auth CLI que solo venció su TTL); ``None`` si está sano o no configurado.
-    #: Deja que la UI muestre el mismo chip accionable que un bloqueo de loop sin duplicar la causa.
     blocker_type: str | None = Field(default=None, alias="blockerType")
-    #: Comando exacto de login interactivo del runtime, vacio si no tiene uno. La UI lo ofrece
-    #: copiable: el login de Claude y ChatGPT lo hace el operador en su navegador, y un tercero
-    #: no puede intermediar esos tokens de sesion.
+    """: Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations: :
+    ``runtime_auth_missing`` / ``runtime_not_executable``, más ``runtime_validation_expired`` para : una
+    auth CLI que solo venció su TTL); ``None`` si está sano o no configurado. : Deja que la UI muestre el
+    mismo chip accionable que un bloqueo de loop sin duplicar la causa.
+    """
     login_command: str = Field(default="", alias="loginCommand")
+    """: Comando exacto de login interactivo del runtime, vacio si no tiene uno. La UI lo ofrece : copiable:
+    el login de Claude y ChatGPT lo hace el operador en su navegador, y un tercero : no puede intermediar
+    esos tokens de sesion.
+    """
     can_run_version_check: bool = Field(default=False, alias="canRunVersionCheck")
     can_run_prompt: bool = Field(default=False, alias="canRunPrompt")
     can_edit_workspace: bool = Field(default=False, alias="canEditWorkspace")

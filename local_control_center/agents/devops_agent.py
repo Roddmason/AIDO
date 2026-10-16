@@ -153,8 +153,6 @@ def missing_toolchain_findings(
     el error crudo del sistema operativo, que no le dice al operador cual es su decision.
     """
     if containerized:
-        # El operador ya decidio: el contenedor cubre la toolchain ausente, no hay nada que
-        # reportarle. Seguir emitiendo el hallazgo seria pedirle una accion ya tomada.
         return []
     findings: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1027,9 +1025,6 @@ class DevOpsAgentRunner:
             }
             image = container_image_for_command(self.connection, project_id=project_id, command=planned)
             if image is not None:
-                # Contenerizar no saca la ejecucion del broker: la politica y la evidencia se
-                # evaluan igual. Se usa `container_argv` porque el `argv` del host trae la ruta
-                # resuelta en este equipo, que dentro del contenedor no existe.
                 result, container_artifacts = self._execute_broker_command(
                     broker=broker,
                     project_id=project_id,

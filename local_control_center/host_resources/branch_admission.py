@@ -181,8 +181,6 @@ class BranchAdmission:
                         parent_lease = self._verified_parent_lease(connection)
                         if not self._parent_covers(parent_lease, workload_class):
                             raise BranchAdmissionDeferred("resource_parent_limits_changed")
-                        # Recheck the parent budget excluding its own lease exactly once; a resident-model
-                        # client is checked with its own class (see borrowed_preview_class).
                         decision = governor.preview(
                             ResourceAdmissionRequest(
                                 execution_id=parent_lease.execution_id,

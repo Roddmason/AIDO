@@ -94,8 +94,8 @@ DANGEROUS_FLAGS = {
 DOCKER_CRITICAL_FLAGS = {"--mount", "--network=host", "--privileged", "--volume", "-v"}
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 5000
-# Tope de findings que viajan al prompt del análisis opcional; el resto se reporta como conteo.
 ANALYSIS_PROMPT_FINDINGS_LIMIT = 100
+"""Tope de findings que viajan al prompt del análisis opcional; el resto se reporta como conteo."""
 EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
 
 

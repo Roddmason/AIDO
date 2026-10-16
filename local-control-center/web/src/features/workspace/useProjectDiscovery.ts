@@ -260,8 +260,6 @@ export function useProjectDiscovery(overview: Overview, mutate: Mutate) {
 		setBusy(true);
 		setError('');
 		try {
-			// Opening is not permission to create a missing directory. Ask the existing
-			// backend discovery boundary before registration; do not infer from the path string.
 			if (mode === 'open_folder' && !createDirectory) {
 				const result = await mutate((token) =>
 					discoverProject(token, { path: workspaceFolder.trim() }),

@@ -165,9 +165,6 @@ class SkillRegistry:
         if not refs:
             return [], None
 
-        # Resolución por lote: un SELECT para el catálogo y otro para las versiones, en vez
-        # de dos queries por ref. La semántica por-ref (orden, errores, allowlist, dedupe)
-        # se conserva recorriendo ``refs`` en orden sobre los mapas resueltos.
         unique_refs = sorted(set(refs))
         placeholders = ", ".join("?" for _ in unique_refs)
         skill_rows = self.connection.execute(

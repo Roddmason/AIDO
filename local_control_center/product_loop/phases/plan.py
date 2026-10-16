@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
-# Intents cuyo riesgo bajo no amerita plan técnico formal: el carril rápido del diseño §8.1.
 FAST_LANE_INTENTS = {"docs", "tests", "cleanup", "bugfix"}
+"""Intents cuyo riesgo bajo no amerita plan técnico formal: el carril rápido del diseño §8.1."""
 SKIPPED_LOW_RISK = "skipped_low_risk"
 PLANNED = "planned"
 

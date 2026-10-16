@@ -23,8 +23,8 @@ import psutil
 
 from local_control_center.shared.diagnostics import diagnostic_event
 
-# Official Sysinternals 12.01 x64 download; Authenticode Microsoft signature checked at preparation.
 PROCDUMP_SHA256 = "d1fc99ae304bd1d2bf28abeb62531da959e2431916194981b88c958fd713a8e6"
+"""Official Sysinternals 12.01 x64 download; Authenticode Microsoft signature checked at preparation."""
 
 
 def private_directory(path: Path) -> None:
@@ -108,7 +108,6 @@ class NativeCapture:
         if free_bytes < 1024**3:
             raise OSError("Native capture requires 1 GiB free-space floor")
         private_directory(self.directory)
-        # Atomic one-shot marker: even a failed attach must not replay an uncertain attempt.
         marker = root / f"native-claimed-{managed.execution_id}"
         with marker.open("x", encoding="utf-8") as output:
             output.write(managed.managed_process_id)
@@ -193,7 +192,7 @@ class NativeCapture:
     def _drain(stream):
         try:
             while stream.read1(65536):
-                pass  # CapturedReader preserves the bounded, redacted artifact.
+                pass
         finally:
             stream.close()
 
@@ -204,7 +203,6 @@ class NativeCapture:
         try:
             self.collector.process.wait(timeout=12)
         except subprocess.TimeoutExpired:
-            # The supervisor still owns the target Job Object; never detach and leave it running.
             self.service.backend.terminate_tree(
                 self.collector, grace_seconds=0, reason="native_capture_deadline"
             )
@@ -231,12 +229,8 @@ class NativeCapture:
             raise RuntimeError("Native capture produced more than one artifact")
         collector_exit = self.collector.process.poll()
         self.receipt["collectorExitCode"] = collector_exit
-        # ProcDump 12.01 also returned 1 after a complete, identity-valid synthetic dump.
-        # Preserve that native code; artifact validation, not exit zero alone, proves capture.
         failed = not dumps and (collector_exit != 0 or self.target.process.poll() not in (None, 0))
         self.receipt["outcome"] = "FAIL" if failed else "captured" if dumps else "no_exception_observed"
-        # Read only the collector's completed, bounded artifact, outside SQLite. Keep numeric
-        # causal codes, not arbitrary output or memory, in the common diagnostic channel.
         error_codes = []
         stdout = self.collector.captures.get("stdout")
         if stdout is not None:

@@ -331,8 +331,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "metadata": {
                     **body.metadata,
                     "providerFamily": "ollama",
-                    # Solo la restricción explícita del cliente persiste (P4/R13); un `kind="local"`
-                    # demovido a remoto por `_infer_kind` no es una declaración real de remoto.
                     "endpointKind": body.kind,
                 },
             }

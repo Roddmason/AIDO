@@ -104,7 +104,6 @@ export function useSettings(
 		[token, refresh],
 	);
 
-	// Retain the current project's snapshot during refresh without exposing another project's rows.
 	const currentData = data?.projectId === projectId ? data : null;
 	return {
 		general: currentData?.general ?? [],

@@ -96,7 +96,6 @@ def main() -> None:
         except KeyboardInterrupt:
             worker.stop(reason="Worker interrumpido por el operador.")
     else:
-        # El worker no necesita routers HTTP ni cargar NumPy/FAISS al arrancar.
         from .app import create_app
 
         if args.worker and not args.no_worker:
@@ -108,8 +107,6 @@ def main() -> None:
             allow_external=os.environ.get("AIDO_ALLOW_EXTERNAL_DASHBOARD") == "1",
         )
         app = create_app(runtime=runtime, static_dir=args.static_dir)
-        # Uvicorn's loop factory bypasses the policy set above on recent versions.
-        # Keep the API's existing Windows Selector contract explicit, without a global change.
         uvicorn.run(
             app,
             host=host,

@@ -164,13 +164,9 @@ export function ThreadInspector({
 		tab,
 		refreshSignal,
 	);
-	// Actionable repair cards read from the remediations endpoint; pinned above the tabs so a blocked
-	// thread always shows how to unblock it, whichever manager view is open.
 	const remediations = useThreadRemediations(threadId, mutate, refreshSignal);
 	const hasRepairCard = remediations.cards.length > 0 || remediations.error;
 	const repairRef = useRef<HTMLDivElement>(null);
-	// The Plan tab's blocked banner hands the operator over to the repair card instead of duplicating
-	// its actions. `scrollIntoView` matters only when a tall header spills the pane into its own scroll.
 	const focusRepair = useCallback(() => {
 		const node = repairRef.current;
 		if (!node) return;
@@ -184,10 +180,6 @@ export function ThreadInspector({
 		return {
 			id: def.id,
 			label: (
-				// In icon-only mode the label survives three ways: the wrapped text keeps the tab's
-				// accessible name (screen readers + role queries) even while visually hidden; `title`
-				// gives a mouse-hover tooltip; and `data-label` feeds the CSS focus tooltip that covers
-				// the sighted keyboard user (native `title` never shows on keyboard focus).
 				<span className="thread-inspector-tab-label" title={label} data-label={label}>
 					<Icon aria-hidden="true" size={14} />
 					<span className="thread-inspector-tab-text">{label}</span>
@@ -253,8 +245,6 @@ export function ThreadInspector({
 	return (
 		<div className="thread-inspector">
 			<ThreadVitals threadId={threadId} detail={detail} loop={loop} />
-			{/* Wrapped only when there is something to repair: an always-mounted wrapper would add a
-			    second flex gap under the vitals on every healthy thread. */}
 			{hasRepairCard ? (
 				<div className="thread-inspector-repair" ref={repairRef} tabIndex={-1}>
 					<ThreadBlockerList handle={remediations} onOpenSettings={onOpenSettings} />
@@ -329,7 +319,7 @@ function ThreadVitals({
 	);
 }
 
-/* ---------- shared panel states ---------- */
+/** ---------- shared panel states ---------- */
 
 function PanelSkeleton() {
 	const { t } = useI18n();
@@ -388,7 +378,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 	return <h4 className="thread-inspector-section-title">{children}</h4>;
 }
 
-/* ---------- shared value helpers ---------- */
+/** ---------- shared value helpers ---------- */
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value)
@@ -450,7 +440,7 @@ function trustTone(level: string): StatusTone {
 	return 'info';
 }
 
-/* ---------- Goal ---------- */
+/** ---------- Goal ---------- */
 
 function GoalPanel({
 	detail,
@@ -523,8 +513,6 @@ function GoalPanel({
 		</ResourceGate>
 	);
 }
-
-/* ---------- Team ---------- */
 
 /** Visual tone for each roster state's chip. */
 const STATE_TONE: Record<AgentState, StatusTone> = {
@@ -625,7 +613,6 @@ function TeamRoster({
 	const { t } = useI18n();
 	const unknownCostLabel = t('app.runtime.card.unknown', 'unknown');
 
-	// Per-agent recorded spend: model calls joined to profiles through agent_runs metadata.
 	const spendByProfile = useMemo(() => {
 		const profileByRun = new Map<string, string>();
 		for (const run of overview.agentRuns) {
@@ -649,7 +636,6 @@ function TeamRoster({
 		return totals;
 	}, [overview.agentRuns, overview.modelCalls]);
 
-	// Current (not yet released) assignment per agent, resolved to task title and canonical artifact.
 	const assignmentByAgent = useMemo(() => {
 		const map = new Map<string, AgentAssignment>();
 		if (!loop.data) return map;
@@ -696,8 +682,6 @@ function TeamRoster({
 	const activeCount = countFor('active');
 	const blockedCount = countFor('blocked');
 	const unconfiguredCount = countFor('unconfigured');
-	// Sum the roster's own spend, not every profile the ledger ever saw: the roster and the spend ledger
-	// come from different endpoints, so a retired profile with recorded calls must not inflate the total.
 	const spendEntries = entries.flatMap((entry) => (entry.spend ? [entry.spend] : []));
 	const hasUnknownSpend = spendEntries.some((item) => item.unknownCalls > 0);
 	const totalSpend = spendEntries.reduce((sum, item) => sum + item.knownCostUsd, 0);
@@ -827,17 +811,12 @@ function TeamAgentCard({
 	const selection = describeRuntimeSelection(profile);
 	const disabledForProject = profile.projectOverride?.status === 'disabled';
 	const needsFix = state === 'blocked' || state === 'unconfigured';
-	// A project-disabled agent is re-enabled from the project Team section; a stuck or unset runtime
-	// is fixed in Providers & CLI. Route the inline action to whichever actually unblocks the agent.
 	const fixSection = disabledForProject ? 'team' : 'providers-cli';
 
 	return (
 		<>
 			<div className="thread-inspector-row-main">
 				<strong>{profile.name}</strong>
-				{/* Identity before diagnosis: a roster is scanned by who the agent is and what runs it, and
-				    only then by what went wrong. The reason carries the agent's own state label, so an
-				    unconfigured agent never reads as "Blocked" while its chip says otherwise. */}
 				<span className="thread-inspector-subline mono">
 					{humanize(profile.role)} · {profile.runtimeType}
 					{availability?.selectedProviderId ? ` · ${availability.selectedProviderId}` : ''}
@@ -968,7 +947,7 @@ function TeamAgentCard({
 	);
 }
 
-/* ---------- Plan ---------- */
+/** ---------- Plan ---------- */
 
 function phaseState(isCurrent: boolean, isDone: boolean): 'current' | 'done' | 'upcoming' {
 	if (isCurrent) return 'current';
@@ -1072,14 +1051,11 @@ function PlanPanel({
 				const currentRank = PRODUCT_LOOP_STATE_ORDER.indexOf(
 					activeLoop.state as (typeof PRODUCT_LOOP_STATE_ORDER)[number],
 				);
-				// Blocked and cancelled both halt the loop: no phase may render as "done".
 				const isHalted = activeLoop.state === 'blocked' || activeLoop.state === 'cancelled';
 				const blockedTransitions = data.transitions
 					.filter((transition) => transition.toState === 'blocked')
 					.slice(-3)
 					.reverse();
-				// The banner states the block that is holding the loop right now; anything older is
-				// history and stays folded away so the current problem is never buried under it.
 				const isBlocked = activeLoop.state === 'blocked';
 				const currentBlock = isBlocked ? blockedTransitions[0] : undefined;
 				const earlierBlocks = currentBlock ? blockedTransitions.slice(1) : blockedTransitions;
@@ -1256,7 +1232,7 @@ function PlanPanel({
 	);
 }
 
-/* ---------- Backlog ---------- */
+/** ---------- Backlog ---------- */
 
 function BacklogPanel({ loop }: { loop: InspectorResource<LoopData> }) {
 	const { t } = useI18n();
@@ -1387,8 +1363,6 @@ function BacklogStoryRows({
 		</>
 	);
 }
-
-/* ---------- Memory ---------- */
 
 /** One recall category: a titled list when there is data, an honest empty line when not. */
 function MemorySection<T>({
@@ -1580,7 +1554,7 @@ function MemoryPanel({
 	);
 }
 
-/* ---------- Research ---------- */
+/** ---------- Research ---------- */
 
 type ResearchSourcePayload = {
 	id?: string;
@@ -1762,7 +1736,7 @@ function ResearchReportCard({ artifact }: { artifact: ThreadArtifact }) {
 	);
 }
 
-/* ---------- Artifacts ---------- */
+/** ---------- Artifacts ---------- */
 
 const ARTIFACTS_LIMIT = 30;
 
@@ -1831,7 +1805,7 @@ function ArtifactsPanel({
 	);
 }
 
-/* ---------- Settings ---------- */
+/** ---------- Settings ---------- */
 
 function settingValueText(value: unknown): string {
 	if (value == null) return '—';

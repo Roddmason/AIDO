@@ -309,7 +309,6 @@ export function ApprovalDecisionPanel({
 										)}
 							</span>
 						</div>
-						{/* 13-control checklist: failures first so blockers are seen at a glance. */}
 						<ul className="evidence-checklist">
 							{[...decision.patchGate.checks]
 								.sort((left, right) => Number(left.ok) - Number(right.ok))

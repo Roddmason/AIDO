@@ -97,8 +97,6 @@ const MILESTONE_INDEX: Record<string, number> = {
 	reworking: 3,
 	qa_running: 4,
 	security_running: 5,
-	// Analysis (quality_review) runs right after the security gate and has no step of its own,
-	// so it keeps the security step current instead of freezing the stepper.
 	quality_review: 5,
 	review_ready: 6,
 	awaiting_approval: 6,
@@ -158,7 +156,6 @@ export function derivePipeline(
 			lastMilestoneSeq = event.sequence;
 			if (milestone <= 1) seenChecks.add(milestone);
 		}
-		// Capacity failures can leave a job queued; its waiting-worker banner owns that state.
 		const workerExecutionFailed = event.type === 'worker_failed' && threadStatus !== 'queued';
 		if (event.type === 'blocked' || workerExecutionFailed) {
 			const payload = safeRecord(event.payload);
@@ -169,8 +166,6 @@ export function derivePipeline(
 				loopId !== '' &&
 				loopId === blockedLoopId &&
 				reason === blockedReason;
-			// A job-level failure repeats the agent's blocker without its stage; preserve only that
-			// same failure's stage, never the stage of an earlier loop or a different cause.
 			blockedStage = workerExecutionFailed
 				? 'worker'
 				: textValue(payload.stage) || (sameFailure ? blockedStage : '');
@@ -180,11 +175,8 @@ export function derivePipeline(
 		}
 	}
 
-	// A newer lifecycle milestone supersedes a historical blocker even while the thread snapshot
-	// still says blocked. A later failure remains authoritative over an earlier research adoption.
 	const isBlocked = blockedSeq > 0 ? blockedSeq > lastMilestoneSeq : threadStatus === 'blocked';
 	if (isBlocked) {
-		// Auxiliary research jobs may append a blocker without the product loop's stage.
 		blockedStage ||= remediationStage;
 		current = BLOCKED_STAGE_INDEX[blockedStage] ?? MILESTONE_INDEX[blockedStage] ?? current;
 	}
@@ -224,8 +216,11 @@ type BlockerCard = {
 
 /** The queued banner already offers "Run now", so the worker remediation is hidden in this host. */
 const REMEDIATION_EXCLUDE_IN_PANEL = ['worker_not_running'] as const;
-// Decision blocker types stay counted for the pipeline stage (REMEDIATION_EXCLUDE_IN_PANEL above),
-// but are excluded from the generic card list below: ThreadDecisionAnswers is their one answer surface.
+/**
+ * Decision blocker types stay counted for the pipeline stage (REMEDIATION_EXCLUDE_IN_PANEL above),
+ * but are excluded from the generic card list below: ThreadDecisionAnswers is their one answer
+ * surface.
+ */
 const BLOCKER_CARDS_EXCLUDE_IN_PANEL = [
 	...REMEDIATION_EXCLUDE_IN_PANEL,
 	...DECISION_REMEDIATION_BLOCKER_TYPES,
@@ -319,8 +314,6 @@ export function ThreadExecutionPanel({
 		}
 	};
 
-	// The only other thread-state blocker that is not a persisted remediation: an awaiting approval.
-	// Pending decisions render through ThreadDecisionAnswers below, not as a generic blocker card.
 	const blockers = collectBlockers({ t, threadStatus, onOpenApprovals });
 
 	const consoleEntries = useMemo(
@@ -331,8 +324,6 @@ export function ThreadExecutionPanel({
 	const queuedCopy = queuedBannerCopy(workerBusy, resourceWaitCode, t);
 	const workerIsRunning = workerStatus?.running === true;
 	const showRunNow = waitingForWorker && !workerIsRunning;
-	// A blocked run whose blocker the backend never mapped to a remediation still deserves a repair
-	// card; the blocked event carries the only stage and cause we have for it.
 	const remediationFallback = pipeline.blocked
 		? { stage: pipeline.blockedStage, reason: pipeline.blockedReason }
 		: null;
@@ -430,19 +421,12 @@ export function ThreadExecutionPanel({
 				</section>
 			) : null}
 
-			{/* Pending decisions render first and above the generic repair list: they block the loop
-			    the same way, but the operator answers them directly here instead of being routed to
-			    a repair action, and a stable position avoids fighting the remediation list below for
-			    layout space while its cards load/refresh. */}
 			<ThreadDecisionAnswers
 				decisions={pendingDecisions}
 				busy={decisionsBusy}
 				onSubmit={handleSubmitDecisions}
 			/>
 
-			{/* Persisted, executable repair actions for runtime/git/gitleaks/QA/provider blockers. The
-			    queued banner above owns the worker-not-running "Run now", and pending-decision blocker
-			    types are excluded too: ThreadDecisionAnswers above is their one answer surface. */}
 			<ThreadBlockerList
 				handle={remediations}
 				onOpenSettings={onOpenSettings}
@@ -534,8 +518,6 @@ function collectBlockers({
 				'This run pauses until you approve it on the review board.',
 			),
 			actionLabel: t('app.threads.blocker.openApprovals', 'Open approvals'),
-			// The only blocker action that leaves the thread (navigates to the review board), so it
-			// alone carries the outbound icon.
 			actionExternal: true,
 			onAction: onOpenApprovals,
 		});
@@ -834,6 +816,5 @@ function eventDetail(payload: Record<string, unknown>, t: Translate): string {
 	}
 	const assignmentId = textValue(payload.assignmentId);
 	if (assignmentId) return `${t('app.threads.eventAssignment', 'Assignment')}: ${assignmentId}`;
-	// The visible clock column already tells *when*; a raw ISO detail would only repeat it.
 	return '';
 }

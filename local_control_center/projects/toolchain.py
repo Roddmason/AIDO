@@ -163,13 +163,6 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
-# El argv se emite con el nombre pelado del binario, sin resolverlo a una ruta absoluta.
-# `sandbox._resolved_subprocess_argv` ya lo resuelve al ejecutar, contra su propia allowlist.
-# Resolverlo aca duplicaba esa logica, producia `corepack.cmd` donde el resto del sistema espera
-# `corepack`, y metia una ruta absoluta justo donde la politica solo ve el basename.
-# El wrapper del repo es la excepcion: ahi la ruta ES el dato, porque no esta en el PATH.
-
-
 def executable_is_available(name: str) -> bool:
     """Indica si el binario existe en el host, que es lo que decide si hace falta dockerizar."""
     if "." not in name:
@@ -279,7 +272,6 @@ def _node_install_command(manager: str, workspace: Path, *, lockfile_sha256: str
         label = "Install dependencies (npm ci)"
         executable = "npm"
     else:
-        # Yarn Berry no tiene --ignore-scripts; --mode=skip-build omite los scripts de build.
         flags = (
             ["--immutable", "--mode=skip-build"]
             if (workspace / ".yarnrc.yml").is_file()
@@ -362,8 +354,6 @@ def _node_commands(workspace: Path) -> list[ToolchainCommand]:
     manager = node_package_manager(workspace)
     install_plan = resolve_node_install_plan(workspace, manager=manager)
     if install_plan.blocking_reason:
-        # Sin lockfile no hay como instalar de forma determinista: ningun comando Node (test,
-        # build...) puede correr con confianza, asi que el plan se reduce a este unico bloqueo.
         return [_node_unresolved_install_command(install_plan.blocking_reason)]
     commands: list[ToolchainCommand] = []
     if install_plan.command is not None:
@@ -401,8 +391,6 @@ def _maven_commands(workspace: Path) -> list[ToolchainCommand]:
     wrapper = _wrapper_path(workspace, "mvnw.cmd", "mvnw.bat", "mvnw")
     executable = wrapper.name if wrapper else "mvn"
     argv_head = str(wrapper) if wrapper else "mvn"
-    # `-B` (batch) evita que Maven pida entrada interactiva, que colgaría el subproceso.
-    # `verify` corre tests y empaqueta sin publicar nada fuera de la máquina.
     return [
         ToolchainCommand(
             purpose="test",

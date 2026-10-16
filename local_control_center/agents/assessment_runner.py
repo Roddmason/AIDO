@@ -91,8 +91,6 @@ class ProjectAssessmentRunner:
         if decision["decision"] != "allow":
             return self._finalize_blocked(job=job, agent_run=agent_run, decision=decision)
 
-        # La inspección del árbol y la escritura del artefacto ocurren sin retener un writer lock.
-        # ``run_project_assessment`` abre una transacción breve solo para assessment + findings.
         run = run_project_assessment(self.projects, project_id=project_id, root_path=root_path)
         artifact = self._write_artifact(
             project_id=project_id, assessment=run["assessment"], findings=run["findings"]

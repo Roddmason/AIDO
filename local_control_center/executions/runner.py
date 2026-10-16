@@ -183,7 +183,6 @@ def _arguments(handler, payload, platform):
     for name, parameter in inspect.signature(handler).parameters.items():
         annotation = hints.get(name, parameter.annotation)
         if annotation is Request:
-            # Identidad local efímera del runner autenticado por su lease; no viaja por red ni se persiste.
             arguments[name] = Request(
                 {
                     "type": "http",

@@ -47,9 +47,10 @@ PROFILE_DEFAULTS: dict[str, str] = {
 
 GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
 GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
-# Plumbing read-only que usa el gestor de ramas para inventariar (fechas, merged, ahead/behind,
-# equivalencia de parches). Ninguno mueve refs ni toca el árbol de trabajo.
 GIT_BRANCH_INVENTORY_READ_COMMANDS = {"for-each-ref", "merge-base", "cherry", "rev-list"}
+"""Plumbing read-only que usa el gestor de ramas para inventariar (fechas, merged, ahead/behind, equivalencia
+de parches). Ninguno mueve refs ni toca el árbol de trabajo.
+"""
 GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "develop", "HEAD"}
 GIT_FLOW_RENAME_PREFIXES = ("feature/", "bugfix/", "release/", "hotfix/", "support/")
 GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
@@ -309,8 +310,6 @@ def evaluate_git_workspace_command(
             "categories": [*categories, "git_workspace_command", f"git_{subcommand.replace('-', '_')}"],
         }
     if subcommand == "merge-tree":
-        # Solo la forma que calcula el árbol de un merge hipotético (detección de squash): escribe
-        # objetos sueltos en la base de objetos, jamás refs, index ni árbol de trabajo.
         if (
             git_operation != "branch_inventory"
             or len(args) != 3
@@ -377,8 +376,6 @@ def evaluate_git_workspace_command(
             "categories": [*categories, "git_workspace_command", "git_init"],
         }
     if subcommand == "push" and git_operation == "delete_remote_branch":
-        # Borrado remoto opt-in del gestor de ramas: forma exacta, nunca force ni refspec, y nunca
-        # una rama protegida (la validación de merged/protegida vive además en el servicio).
         if (
             not network_required
             or len(args) != 3
@@ -447,10 +444,6 @@ def evaluate_git_workspace_command(
             "categories": [*categories, "git_workspace_command", "git_merge_work_branch"],
         }
     if subcommand == "add":
-        # Dos únicas formas legítimas, cada una atada a su contexto declarado. Mantenerlas en UNA
-        # sola rama es deliberado: el slice de commit ya tapó una vez la forma intent-to-add al
-        # agregar su chequeo encima (la rama de abajo retornaba siempre y la otra quedó muerta),
-        # y con ella murió el diff de archivos nuevos en toda captura de evidencia.
         if git_operation == "stage_changes" and args == ["-A"]:
             return {
                 "decision": "allow",
@@ -581,8 +574,6 @@ def evaluate_git_workspace_command(
                 "categories": [*categories, "git_workspace_command", "git_init_default_branch"],
             }
         if git_operation == "advance_base_after_merge":
-            # El primitivo verifica el fast-forward (merge-base) ANTES de pedir este avance; la
-            # policy fija la forma exacta para que no pueda mover refs arbitrarios ni forzar hist.
             if len(args) != 3 or args[0] != "-f" or not all(_is_safe_git_arg(arg) for arg in args[1:]):
                 categories.append("git_workspace_branch_advance_denied")
                 return {

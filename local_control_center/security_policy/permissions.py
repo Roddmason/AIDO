@@ -197,8 +197,6 @@ def _toolchain_invocation_category(
 
 
 def _is_corepack_pnpm(parsed: ParsedCommand) -> tuple[bool, tuple[str, ...]]:
-    # Se compara el nombre base: el runner puede entregar el binario ya resuelto
-    # (`corepack.cmd`, una ruta absoluta), y una igualdad estricta lo dejaria sin categoria.
     if _base_executable(parsed.executable) != "corepack":
         return False, ()
     if not parsed.args:
@@ -280,8 +278,6 @@ def node_script_category(parsed: ParsedCommand) -> str | None:
     if not is_node or len(args) < 2 or args[0] != "run":
         return None
     script = args[1]
-    # Sin normalizar, `npm run Preinstall` evadia la categoria dedicada que este invariante
-    # promete: el hook quedaba como script generico en vez de marcarse como hook.
     lowered = script.lower()
     if lowered in _LOWERED_PACKAGE_SCRIPT_HOOKS or lowered.startswith(("pre", "post")):
         return "package_script_hook"
@@ -318,7 +314,6 @@ def package_manager_category(parsed: ParsedCommand) -> str | None:
     if _base_executable(executable) == "corepack":
         is_pnpm, pnpm_args = _is_corepack_pnpm(parsed)
         if is_pnpm and pnpm_args == _FROZEN_PNPM_INSTALL_ARGS:
-            # Instalacion determinista y offline: la clasifica low_risk_shell_category, no esto.
             return None
         if is_pnpm and pnpm_args and pnpm_args[0] in PACKAGE_MANAGER_INSTALL_VERBS:
             return "install"

@@ -20,9 +20,10 @@ from typing import Any
 from local_control_center.agents.provider_catalog import PROVIDER_CATALOG, PROVIDER_CATALOG_VERSION
 from local_control_center.security_policy.policy_engine import permission_profile_for
 
-# Versions the role-selection/scheduling algorithm. Provider/default-candidate changes are
-# independently traceable through PROVIDER_CATALOG_VERSION and persisted profile metadata.
 SCHEDULER_VERSION = 2
+"""Versions the role-selection/scheduling algorithm. Provider/default-candidate changes are independently
+traceable through PROVIDER_CATALOG_VERSION and persisted profile metadata.
+"""
 
 CORE_ROLES = ("product_owner", "technical_lead")
 ALL_ROLES = (
@@ -215,9 +216,6 @@ _BASE_ROLE_PROVIDER_PREFERENCE = {
     "release_manager": ["claude_code_cli", "codex_cli"],
 }
 
-# ``PROVIDER_CATALOG`` owns the API/local catalog. The remaining entries are technical runtimes
-# already catalogued by the control plane. Keeping them concrete here is intentional: wildcard
-# permission belongs in ``allowedProviders``; candidate selection must remain ordered and auditable.
 _TECHNICAL_PROVIDER_IDS = (
     "codex_cli",
     "claude_code_cli",
@@ -225,6 +223,10 @@ _TECHNICAL_PROVIDER_IDS = (
     "swe_agent",
     "manual",
 )
+"""``PROVIDER_CATALOG`` owns the API/local catalog. The remaining entries are technical runtimes already
+catalogued by the control plane. Keeping them concrete here is intentional: wildcard permission belongs in
+``allowedProviders``; candidate selection must remain ordered and auditable.
+"""
 _KNOWN_PROVIDER_IDS = tuple(
     dict.fromkeys([*(entry.id for entry in PROVIDER_CATALOG), *_TECHNICAL_PROVIDER_IDS])
 )

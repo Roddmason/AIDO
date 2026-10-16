@@ -86,8 +86,6 @@ def backfill_oversized_remediation_payloads(
         """,
         (size_limit_bytes, max_rows_per_pass),
     ).fetchall()
-    # El reloj arranca despues del SELECT: el presupuesto de tiempo es para decodificar/recomprimir,
-    # no para localizar candidatas (que ya viene acotado por LIMIT).
     started = time.perf_counter()
     compacted_count = 0
     for row in rows:

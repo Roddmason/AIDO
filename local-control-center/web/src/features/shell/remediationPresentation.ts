@@ -563,8 +563,6 @@ export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 		labelFallback: 'Revalidate runtime',
 		kind: 'execute',
 	},
-	// Picking a different runtime is a choice, not a side effect: the backend refuses `switch_runtime`
-	// unless the caller already knows the target id, so the button routes to the runtime catalog.
 	switch_runtime: {
 		labelKey: 'app.threads.remediation.action.switchRuntime',
 		labelFallback: 'Switch to Ollama / API / CLI',
@@ -601,7 +599,6 @@ export const ACTION_COPY: Record<ActionType, ActionCopy> = {
 		labelFallback: 'Run gitleaks',
 		kind: 'execute',
 	},
-	// Reuses the established "Run now" copy so the queued banner and the blocker card read the same.
 	run_worker_once: {
 		labelKey: 'app.threads.runNow',
 		labelFallback: 'Run now',
@@ -766,7 +763,6 @@ export function buildBlockerCards(remediations: RemediationActionRecord[]): Bloc
 					record.actionType === 'open_settings_section' &&
 					payloadString(record.payload, 'section') === 'routing',
 			);
-		// A role without candidates in the global AI team is fixed in its provider order ("team").
 		const globalTeamRepair =
 			first.blockerType === 'resource_manager_unconfigured' &&
 			records.some(

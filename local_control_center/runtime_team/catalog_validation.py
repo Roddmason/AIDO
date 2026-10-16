@@ -61,18 +61,18 @@ from .validation import (
     enabled_models_validation_state,
 )
 
-#: Estados HTTP transitorios: el modelo puede andar en otro momento, no se descarta.
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 502, 503, 504})
-#: Por debajo de este margen no se lanza otra prueba (no alcanzaría a responder).
+""": Estados HTTP transitorios: el modelo puede andar en otro momento, no se descarta."""
 MIN_MODEL_SECONDS = 2.0
-#: Cada cuánto el hilo principal revisa cancelación, switch del proveedor, cuota y presupuesto.
+""": Por debajo de este margen no se lanza otra prueba (no alcanzaría a responder)."""
 CONTROL_INTERVAL_SECONDS = 0.5
-#: Margen reservado dentro del sobre de la ejecución para persistir el cierre.
+""": Cada cuánto el hilo principal revisa cancelación, switch del proveedor, cuota y presupuesto."""
 CLEANUP_SECONDS = 30
-#: Espera extra por hilos colgados tras el presupuesto; son daemon y no retienen el proceso.
+""": Margen reservado dentro del sobre de la ejecución para persistir el cierre."""
 WORKER_GRACE_SECONDS = 15.0
-#: Una corrida ``running`` sin avance por más que esto (y sin ejecución viva) se informa interrumpida.
+""": Espera extra por hilos colgados tras el presupuesto; son daemon y no retienen el proceso."""
 STALE_RUN_SECONDS = 15 * 60
+""": Una corrida ``running`` sin avance por más que esto (y sin ejecución viva) se informa interrumpida."""
 _DETAIL_LIMIT = min(EVIDENCE_LIMIT, 500)
 _WORKER_DONE = object()
 
@@ -153,8 +153,6 @@ class CatalogValidationService:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
-
-    # ------------------------------------------------------------------ lectura
 
     def status(self, provider_id: str) -> dict[str, Any]:
         """Última corrida (reconciliada con su ejecución) y último resultado por modelo, sin red.
@@ -255,8 +253,6 @@ class CatalogValidationService:
             "updatedAt": row["updated_at"],
             "finishedAt": row["finished_at"],
         }
-
-    # ------------------------------------------------------------------ corrida
 
     def run(
         self,
@@ -447,7 +443,7 @@ class CatalogValidationService:
                 name=f"aido-model-validation-{index}",
                 daemon=True,
             ).start()
-        if workers == 0:  # base en memoria (pruebas unitarias): mismo camino, sin hilos
+        if workers == 0:
             _probe_loop(
                 self.connection,
                 state.provider_id,
@@ -469,7 +465,6 @@ class CatalogValidationService:
             if item is _WORKER_DONE:
                 workers -= 1
             elif item is not None and item[0] is None:
-                # El hilo no pudo armar su adapter: es del proveedor, no de un modelo.
                 state.abort_reason = state.abort_reason or "provider_adapter_unavailable"
                 stop.set()
             elif item is not None:
@@ -648,7 +643,7 @@ def _probe_loop(
                 provider,
                 timeout_seconds=max(min(limits.model_timeout_seconds, remaining), MIN_MODEL_SECONDS),
             )
-        except Exception as error:  # una falla inesperada de un modelo no tumba la corrida
+        except Exception as error:
             result = {
                 "status": "failed",
                 "reason": "runtime_validation_failed",

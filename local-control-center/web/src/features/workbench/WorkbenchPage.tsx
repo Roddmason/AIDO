@@ -319,7 +319,7 @@ export function WorkbenchPage({
 			setTitleEdited(false);
 			clearComposerDraft(activeProject.id);
 		} catch (submitError) {
-			if (signal.aborted) return; // User cancelled — keep the prompt, surface no error.
+			if (signal.aborted) return;
 			setError(
 				submitError instanceof Error
 					? submitError.message
@@ -618,7 +618,6 @@ export function WorkbenchPage({
 				className="shell-chat-layout"
 				aria-label={t('app.workbench.primaryRegion', 'Thread and progress')}
 			>
-				{/* --- Transcript: leads, fills available height, scrolls --- */}
 				<div
 					id="shell-chat-transcript"
 					className="shell-chat-transcript"
@@ -665,7 +664,6 @@ export function WorkbenchPage({
 					) : null}
 				</div>
 
-				{/* --- Pinned bottom composer --- */}
 				<div className="shell-chat-composer">
 					{error ? (
 						<div className="form-error" role="alert">
@@ -696,7 +694,6 @@ export function WorkbenchPage({
 					/>
 					{modeControl}
 
-					{/* Inline submit row */}
 					<div className="shell-chat-options">
 						<div className="shell-chat-send">
 							{busy ? (
@@ -716,7 +713,6 @@ export function WorkbenchPage({
 						</div>
 					</div>
 
-					{/* Workspace toolbar: project label + clustered git controls (branch, status, actions) */}
 					<div className="shell-chat-context">
 						<span className="shell-chat-context-project">{project.name}</span>
 						<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />
@@ -727,8 +723,6 @@ export function WorkbenchPage({
 	}
 
 	return (
-		// `.workbench-canvas` is the query container for `.workbench-layout`: the grid must reflow on the
-		// width of this resizable pane, which is far narrower than the viewport a media query would read.
 		<div className="workbench-canvas">
 			{header}
 			<div className="workbench-layout">
@@ -773,7 +767,6 @@ export function WorkbenchPage({
 						</button>
 					</div>
 
-					{/* Single composer: always visible, drives every loop action from one place. */}
 					<Surface flat>
 						<div className="stack">
 							<TextArea
@@ -832,7 +825,6 @@ export function WorkbenchPage({
 								</div>
 							) : null}
 
-							{/* Workspace toolbar: mirrors the shell-chat composer toolbar for consistency */}
 							<div className="shell-chat-context">
 								<span className="shell-chat-context-project">{project.name}</span>
 								<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />

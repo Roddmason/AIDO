@@ -72,7 +72,6 @@ export function ModelSelectionList({
 				? 'none'
 				: 'some';
 
-	// `indeterminate` has no HTML attribute: it is set on the element so the header reads "mixed".
 	useEffect(() => {
 		if (headerRef.current) headerRef.current.indeterminate = headerState === 'some';
 	}, [headerState]);

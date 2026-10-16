@@ -18,8 +18,10 @@ const WRITE_ORIGIN = "http://127.0.0.1";
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_POLL_TIMEOUT_MS = 60_000;
 
-// Statuses terminales de /api/v1/executions/{id}; cualquier otro valor (p.ej.
-// "queued"/"running") significa que hay que seguir haciendo polling.
+/**
+ * Statuses terminales de /api/v1/executions/{id}; cualquier otro valor (p.ej. "queued"/"running")
+ * significa que hay que seguir haciendo polling.
+ */
 const TERMINAL_EXECUTION_STATUSES = new Set(["completed", "failed", "blocked", "cancelled", "interrupted"]);
 
 export interface AidoClientOptions {

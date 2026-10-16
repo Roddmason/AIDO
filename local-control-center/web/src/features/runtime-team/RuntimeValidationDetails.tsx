@@ -68,7 +68,6 @@ function AttemptRow({ attempt }: { attempt: Attempt }) {
 export function RuntimeValidationDetails({ result }: { result: RuntimeValidationResult }) {
 	const { t } = useI18n();
 	const attempts = result.attempts ?? [];
-	// With several models tried, the headline counts them; each row carries its own cause.
 	const reason =
 		attempts.length > 0 && result.status === 'failed'
 			? t('app.runtimeTeam.noModelPassed', 'None of the {count} models tried passed.').replace(
@@ -94,7 +93,6 @@ export function RuntimeValidationDetails({ result }: { result: RuntimeValidation
 					className="runtime-team-attempts"
 					aria-label={t('app.runtimeTeam.attempts', 'Models tested')}
 				>
-					{/* The backend never tries a model twice in one test, so the id is a stable key. */}
 					{attempts.map((attempt) => (
 						<AttemptRow key={attempt.model ?? 'no-model'} attempt={attempt} />
 					))}

@@ -151,8 +151,6 @@ class LauncherCaptureSession:
                 aggregate_managed_process_id=self.id,
             )
             address = rf"\\.\pipe\AIDO-capture-{uuid.uuid4().hex}"
-            # Authenticate both peers using their Windows pipe PID + creation identity.
-            # No blocking userland auth handshake, credential file or pickle protocol.
             self.listener = Listener(address, family="AF_PIPE", authkey=None)
             os.environ[SESSION_ENV] = json.dumps(
                 {
@@ -179,8 +177,6 @@ class LauncherCaptureSession:
             self.server.start()
             return self
         except BaseException:
-            # If already assigned, closing kill-on-close would kill this owner before its
-            # durable rollback. Keep that handle OS-owned until this failed launcher exits.
             self.job.Detach()
             with closing(open_sqlite_connection(self.db_path)) as connection:
                 HostResourceGovernor(connection).release(self.lease.id, reason="session_prepare_failed")
@@ -209,7 +205,7 @@ class LauncherCaptureSession:
     def _drain(stream):
         try:
             while stream.read1(65536):
-                pass  # Existing bounded ArtifactCapture persists both streams.
+                pass
         finally:
             stream.close()
 
@@ -328,7 +324,6 @@ class LauncherCaptureSession:
                         timeout_seconds=900,
                         workload_class=row["workload_class"],
                     )
-                    # Output remains in existing bounded artifacts, not duplicated in IPC.
                     return {
                         key: result[key]
                         for key in (
@@ -444,7 +439,6 @@ class LauncherCaptureSession:
         info = win32job.QueryInformationJobObject(self.job, win32job.JobObjectExtendedLimitInformation)
         pids = win32job.QueryInformationJobObject(self.job, win32job.JobObjectBasicProcessIdList)
         if any(pid != os.getpid() for pid in pids):
-            # The last OS-owned handle still kills all descendants if orderly cleanup failed.
             self.job.Detach()
             raise RuntimeError("Owned session descendants remain; recovery required")
         with closing(open_sqlite_connection(self.db_path)) as connection:
@@ -452,9 +446,6 @@ class LauncherCaptureSession:
                 "UPDATE managed_processes SET peak_memory_bytes=?, termination_reason='launcher_shutdown_pending_exit' WHERE managed_process_id=?",
                 (int(info["PeakJobMemoryUsed"]), self.id),
             )
-            # A process cannot attest its own death. The existing identity-based recovery
-            # releases the lease after OS exit, never while this self-containing root lives.
-        # Do not turn off kill-on-close. Keep this self-containing handle alive until OS exit.
         self.job.Detach()
         if self.previous_environment is None:
             os.environ.pop(SESSION_ENV, None)

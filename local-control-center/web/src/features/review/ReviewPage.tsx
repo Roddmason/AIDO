@@ -304,7 +304,6 @@ export function ReviewPage({
 								</Surface>
 								{shipOp ? (
 									<>
-										{/* Ship operations: promote / create PR (shippable runs only) */}
 										<div className="field">
 											<label htmlFor="review-ship-reason">
 												{t('app.review.shipReasonLabel', 'Workflow operation reason')}

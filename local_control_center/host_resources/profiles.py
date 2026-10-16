@@ -16,8 +16,6 @@ from .models import ResourceSnapshot, WorkloadClass, WorkloadProfile
 
 GIB = 1024**3
 
-# One definition of the admitted session: all parts are fractions of the same
-# aggregate scope, not independent leases. The creator uses aggregate headroom.
 CAPTURE_SESSION_PARTS = {
     "creator": {"memoryBytes": 2 * GIB, "cpuPercent": 13},
     "api": {"memoryBytes": 2 * GIB, "cpuPercent": 6.5},
@@ -25,6 +23,9 @@ CAPTURE_SESSION_PARTS = {
     "execution": {"memoryBytes": 8 * GIB, "cpuPercent": 26},
     "collector": {"memoryBytes": 4 * GIB, "cpuPercent": 13},
 }
+"""One definition of the admitted session: all parts are fractions of the same aggregate scope, not
+independent leases. The creator uses aggregate headroom.
+"""
 
 TEST_RUNNER_PROCESS_LIMIT = 64
 """Tope de procesos activos (``ActiveProcessLimit`` del Job Object) de las clases que corren QA.
@@ -149,8 +150,6 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=15,
         memory_limit_bytes=2 * GIB,
-        # Cliente HTTP de un servidor residente: corre dentro del proceso del job y el modelo ya
-        # figura como memoria usada. Reserva como el otro cliente HTTP (remote_llm_light); ver ADR-004.
         memory_request_bytes=GIB // 2,
         process_limit=4,
         gpu_required=False,
@@ -254,7 +253,6 @@ def effective_min_free_disk_bytes(connection: sqlite3.Connection, *, snapshot: R
     capacities = [value for value in snapshot.disk_total_bytes.values() if value > 0]
     if not capacities or percent <= 0:
         return absolute
-    # El gobernador juzga por el volumen mas apretado, asi que el piso se calcula sobre el mismo.
     relative = int(min(capacities) * percent / 100)
     return min(absolute, relative)
 

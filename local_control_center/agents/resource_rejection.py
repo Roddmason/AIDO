@@ -25,8 +25,6 @@ def runtime_executable_reject_reason(
     if status is None:
         return f"runtime_not_executable: Provider {provider_id} is not configured in runtime status."
     if status.get("enabled") is False:
-        # El switch del operador es un rechazo duro propio, no una falla de runtime reparable:
-        # ni la selección ni el failover pueden elegir un proveedor apagado.
         return f"provider_disabled: Provider {provider_id} is switched off by the operator."
     if is_nvidia_nim_auto_selection_sentinel(
         str(status.get("providerFamily") or "").strip(),

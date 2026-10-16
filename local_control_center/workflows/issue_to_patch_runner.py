@@ -1707,9 +1707,6 @@ class IssueToPatchRunner:
             configured = False
         else:
             configured = True
-            # GitHub rechaza con 422 un PR cuya head no existe en el remoto: publicar la rama
-            # promovida ANTES del POST. Si el proyecto no tiene remoto git local se mantiene el
-            # comportamiento previo (el POST reporta el fallo real).
             branch_push = self._push_promoted_branch_for_pr(
                 project_id=project_id, branch=promoted_branch_name
             )

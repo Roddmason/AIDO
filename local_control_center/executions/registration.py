@@ -32,7 +32,7 @@ _DOMAINS = {
 def register_operation(platform, operation: str) -> None:
     """Retain original handler, validation and authentication; omit unrelated HTTP wiring."""
     if operation.startswith("legacy_job:"):
-        return  # The existing legacy dispatcher validates the exact job kind.
+        return
     module = _DOMAINS.get(operation.partition(".")[0])
     if module is None:
         raise ValueError("Operation is not registered by application code.")

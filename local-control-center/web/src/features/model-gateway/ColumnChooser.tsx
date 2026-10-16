@@ -70,7 +70,6 @@ export function ColumnChooser({
 			<fieldset
 				className="column-chooser-options"
 				aria-label={t('app.modelGateway.columns.chooser', 'Columns')}
-				// Reset the <fieldset> user-agent chrome so the flex box matches the prior <div>.
 				style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
 			>
 				{advanced.map((column) => {

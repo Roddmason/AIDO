@@ -96,8 +96,6 @@ def _try_acquire(
                 (provider_id,),
             )
         }
-        # Se cuentan los slots vigentes de todo el endpoint, no solo los menores al límite: si el operador lo
-        # baja mientras hay un slot alto tomado, ese holder sigue ocupando el endpoint hasta liberarlo.
         active = sum(
             1 for row in rows.values() if row["holder"] is not None and float(row["expires_at"] or 0) > now
         )
@@ -175,8 +173,6 @@ def local_endpoint_slot(
     deadline = clock() + wait_seconds
     with closing(connection_factory()) as connection:
         while True:
-            # El busy_timeout de la conexión (30 s) no puede alargar la espera acotada: cada intento espera el
-            # lock de escritura como mucho lo que queda de ella, y una base ocupada cuenta como endpoint ocupado.
             _set_busy_timeout(connection, max(deadline - clock(), 0.0))
             try:
                 token = _try_acquire(

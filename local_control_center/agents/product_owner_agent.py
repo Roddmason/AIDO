@@ -96,8 +96,6 @@ RUNTIME_OUTPUT_STATUSES = {
     SCOPE_IS_CLEAR_STATUS,
 }
 BLOCKING_DECISION_STATUSES = {"open", "proposed", "resolved", "accepted"}
-# Motivo accionable por causa clasificada. Reemplaza al returncode opaco en el blocker que ve el
-# cliente; la traducción vive en el catálogo i18n, indexada por la misma causa.
 _RUNTIME_FAILURE_REASONS = {
     "auth_expired": "The AI runtime session expired: re-authenticate the CLI and retry.",
     "auth_missing": "The AI runtime is not logged in: sign in to the CLI and retry.",
@@ -106,22 +104,27 @@ _RUNTIME_FAILURE_REASONS = {
     "provider_unreachable": "The AI provider could not be reached.",
     "model_not_found": "The configured model is not available on the AI provider.",
 }
+"""Motivo accionable por causa clasificada. Reemplaza al returncode opaco en el blocker que ve el cliente; la
+traducción vive en el catálogo i18n, indexada por la misma causa.
+"""
 QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
 PROMPT_TEXT_LIMIT_CHARS = 8_000
 PROMPT_COLLECTION_LIMIT = 20
-# Presupuesto agregado de las 4 colecciones del contexto (preguntas, decisiones, facts, settled):
-# solo actua en hilos patologicos. Se descarta lo MAS ANTIGUO primero (lo reciente es lo relevante)
-# y el conteo de omitidos queda en el contexto para que el modelo sepa que hubo historia truncada.
 PROMPT_CONTEXT_BUDGET_CHARS = 40_000
+"""Presupuesto agregado de las 4 colecciones del contexto (preguntas, decisiones, facts, settled): solo actua
+en hilos patologicos. Se descarta lo MAS ANTIGUO primero (lo reciente es lo relevante) y el conteo de
+omitidos queda en el contexto para que el modelo sepa que hubo historia truncada.
+"""
 RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
 ASSESSMENT_SIGNAL_LIMIT = 5
 PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS = 2
 REPAIR_ERROR_LIMIT_CHARS = 2_000
-# El error de validación (arriba) ya señala el campo exacto a corregir; 1.5k de salida previa
-# bastan como referencia y ahorran ~2.5k chars en cada intento de repair.
 REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 1_500
+"""El error de validación (arriba) ya señala el campo exacto a corregir; 1.5k de salida previa bastan como
+referencia y ahorran ~2.5k chars en cada intento de repair.
+"""
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
@@ -148,9 +151,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     return_code = execution_result.get("returnCode")
     timed_out = bool(execution_result.get("timedOut", False))
     blocked = denied or bool(execution_result.get("blocked", False))
-    # El sandbox deja stdout/stderr inline en el payload: ahí está la causa real del fallo
-    # ("OAuth access token has expired", "You've hit your usage limit"). Sin clasificarla, el
-    # cliente solo recibe el returncode y no puede saber qué arreglar.
     failure = classify_runtime_failure(
         runtime_id=str(execution_result.get("runtimeId") or ""),
         return_code=return_code if isinstance(return_code, int) else None,
@@ -165,8 +165,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
     elif not reason and blocked:
         reason = "ProductOwnerAgent runtime execution was blocked."
     elif not reason and failure is not None and failure.cause != "unknown":
-        # La causa clasificada reemplaza al returncode incluso cuando el proceso salió con 0:
-        # `codex exec` imprime el error de cuota y termina con código de éxito.
         reason = _RUNTIME_FAILURE_REASONS[failure.cause]
         if failure.retry_after:
             reason = f"{reason} Available again at {failure.retry_after}."
@@ -178,7 +176,6 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         reason = str(payload.get("decisionReason") or "").strip()
     classified = failure.cause if failure is not None and failure.cause != "unknown" else None
     return {
-        # Una causa clasificada degrada el resultado aunque el proceso haya salido con 0.
         "status": "failed" if (classified is not None or denied or not completed) else "completed",
         "toolCallId": tool_call.get("id"),
         "decision": "deny" if denied else payload.get("decision"),
@@ -331,19 +328,19 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
     }
 
 
-# Colecciones del contexto y el extremo por el que se recorta cada una al aplicar el presupuesto.
-# El descarte SIEMPRE elimina el elemento MÁS ANTIGUO y preserva el más reciente (garantía
-# anti-repregunta: la respuesta/decisión recién zanjada jamás se descarta). El extremo depende del
-# orden en que la colección llega desde el repositorio: openQuestions (sequence ASC) y resolvedFacts
-# (closed[-N:], recorte final de sequence ASC) son oldest-first, así que se recorta la cabeza;
-# unresolvedDecisions y settledDecisions vienen de list_product_decisions (ORDER BY updated_at DESC),
-# newest-first, así que se recorta la cola.
 _CONTEXT_BUDGET_COLLECTIONS: dict[str, str] = {
     "existingOpenQuestions": "head",
     "existingUnresolvedDecisions": "tail",
     "resolvedFacts": "head",
     "settledDecisions": "tail",
 }
+"""Colecciones del contexto y el extremo por el que se recorta cada una al aplicar el presupuesto. El
+descarte SIEMPRE elimina el elemento MÁS ANTIGUO y preserva el más reciente (garantía anti-repregunta: la
+respuesta/decisión recién zanjada jamás se descarta). El extremo depende del orden en que la colección
+llega desde el repositorio: openQuestions (sequence ASC) y resolvedFacts (closed[-N:], recorte final de
+sequence ASC) son oldest-first, así que se recorta la cabeza; unresolvedDecisions y settledDecisions
+vienen de list_product_decisions (ORDER BY updated_at DESC), newest-first, así que se recorta la cola.
+"""
 
 
 def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
@@ -368,7 +365,6 @@ def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
         items = context.get(heaviest) or []
         if len(items) <= 1:
             break
-        # head = oldest-first (descarta el frente); tail = newest-first (descarta el final).
         context[heaviest] = items[1:] if _CONTEXT_BUDGET_COLLECTIONS[heaviest] == "head" else items[:-1]
         omitted[heaviest] += 1
         total = sum(weight(name) for name in collections)
@@ -544,10 +540,6 @@ class ProductOwnerAgent:
                 _bounded_text(decision.get("title"))
                 for decision in (assessment.get("unresolvedDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
             ],
-            # Lo ya zanjado es el hecho detectado más fuerte que existe. Sin estos dos bloques el
-            # prompt queda MENOS informativo después de responder que antes (la pregunta contestada
-            # sale de openQuestions y su respuesta no entra por ningún lado), así que el modelo
-            # vuelve a preguntar lo mismo turno tras turno y el loop no converge.
             "resolvedFacts": [
                 {
                     "question": _bounded_text(fact.get("question")),
@@ -1030,8 +1022,6 @@ class ProductOwnerAgentRunner:
             "initiative": initiative,
             "brief": briefs[0] if briefs else None,
             "openQuestions": open_questions,
-            # Toda pregunta ya formulada, respondida o no: una respondida es el hecho detectado más
-            # fuerte que existe, así que debe suprimir la repregunta igual que una abierta.
             "askedQuestions": asked_questions,
             "unresolvedDecisions": unresolved_decisions,
             "resolvedFacts": self._resolved_facts(asked_questions),
@@ -1111,7 +1101,6 @@ class ProductOwnerAgentRunner:
 
     @staticmethod
     def _json_object_from_text(content: str) -> Any:
-        # El texto puede venir crudo del canal transitorio: se redacta ya parseado, antes de validar y persistir.
         try:
             return redact_secrets(json.loads(json_candidate_text(content)))
         except json.JSONDecodeError as error:
@@ -1159,7 +1148,6 @@ class ProductOwnerAgentRunner:
                     "model": model,
                     "messages": messages,
                     "temperature": 0.1,
-                    # Un runtime local corta la salida apenas entra en bucle, no al tope de tokens.
                     "streamOutput": True,
                     **local_model_call_input(
                         self.connection,
@@ -1171,10 +1159,7 @@ class ProductOwnerAgentRunner:
                         },
                     ),
                 },
-                # Provider transport is broker-owned. ProductOwnerAgent receives no independent
-                # network or secret capability beyond that selected adapter invocation.
                 "networkRequired": False,
-                # Provider credentials are injected by the adapter transport and never enter the prompt.
                 "secretsRequired": False,
                 "providerTransportRequired": True,
                 "workspaceReadRequired": False,
@@ -1341,8 +1326,6 @@ class ProductOwnerAgentRunner:
                     "source": PRODUCT_OWNER_AGENT_ID,
                     "taskId": task_id,
                     "blocking": blocking,
-                    # Persist the options so the coordinator can surface the decision as an answerable
-                    # thread decision by reusing this row instead of re-inserting a duplicate.
                     "options": list(decision.get("options") or []),
                     "autonomy": audit,
                 },

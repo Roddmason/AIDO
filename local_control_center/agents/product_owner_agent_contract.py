@@ -20,14 +20,16 @@ from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAM
 from .runtime_selection import is_ollama_runtime, runtime_disabled_by_operator, runtime_provider_family
 
 PRODUCT_OWNER_AGENT_ID = "product_owner_agent"
-# Claves que delatan una historia técnica (tarea por rol de agente) en vez de valor de usuario. Viven
-# aquí, junto al esquema, como regla de contrato: la usan tanto el `description` del esquema como el
-# validador, de modo que ambos comparten una sola fuente y no pueden derivar.
 TECHNICAL_STORY_KEYS = frozenset({"role", "agentRole", "taskRole", "technicalTask", "implementationTask"})
+"""Claves que delatan una historia técnica (tarea por rol de agente) en vez de valor de usuario. Viven aquí,
+junto al esquema, como regla de contrato: la usan tanto el `description` del esquema como el validador, de
+modo que ambos comparten una sola fuente y no pueden derivar.
+"""
 PRODUCT_OWNER_AGENT_CLI_RUNTIMES = {"codex_cli", "claude_code_cli"}
-# Being catalogued does not authorize the ProductOwner model-call operation.
-# Keep readiness and resource selection inside the executor's existing policy.
 PRODUCT_OWNER_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES & MODEL_RUNTIME_TOOLS)
+"""Being catalogued does not authorize the ProductOwner model-call operation. Keep readiness and resource
+selection inside the executor's existing policy.
+"""
 PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES & MODEL_RUNTIME_TOOLS)
 PRODUCT_OWNER_AGENT_ALLOWED_TOOLS = ["shell", *sorted(PRODUCT_OWNER_AGENT_MODEL_RUNTIMES)]
 PRODUCT_OWNER_AGENT_RUNTIMES = PRODUCT_OWNER_AGENT_CLI_RUNTIMES | PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
@@ -411,7 +413,6 @@ def _runtime_resolution(
                 "executionAuthorized": False,
                 "authority": "ToolBroker",
             },
-            # No provider call has occurred. Local policy (including no_limit) is not provider quota.
             "observedEffort": None,
             "remainingQuota": None,
         }

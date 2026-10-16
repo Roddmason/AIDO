@@ -37,10 +37,6 @@ from .repository import ProductLoopRepository, _database_identity
 
 logger = logging.getLogger(__name__)
 
-# Orden normal de los estados de trabajo del FSM: excluye bifurcaciones de espera del operador
-# (awaiting_user, brief_ready, awaiting_approval, awaiting_feedback) y ramas opcionales
-# (iteration_planning), que nunca deben sumar tiempo "de trabajo" al estimado. Fuente: el flujo
-# verificado contra product_loop_transitions (126 loops / 833 transiciones) y coordinator.ALLOWED_TRANSITIONS.
 CANONICAL_PATH: tuple[str, ...] = (
     "goal_received",
     "workspace_check",
@@ -58,26 +54,32 @@ CANONICAL_PATH: tuple[str, ...] = (
     "review_ready",
     "delivered",
 )
+"""Orden normal de los estados de trabajo del FSM: excluye bifurcaciones de espera del operador
+(awaiting_user, brief_ready, awaiting_approval, awaiting_feedback) y ramas opcionales
+(iteration_planning), que nunca deben sumar tiempo "de trabajo" al estimado. Fuente: el flujo verificado
+contra product_loop_transitions (126 loops / 833 transiciones) y coordinator.ALLOWED_TRANSITIONS.
+"""
 
-# Estados sin historial propio (no aparecen en el orden normal) que se resuelven a su equivalente en
-# CANONICAL_PATH para no caer en "insufficient_history" por diseño en vez de por falta real de datos:
-# discovering es el alias legado de discovery, reworking siempre vuelve a executing
-# (phases/story_loop.py: la arista qa_running/reworking -> executing con trigger "next_story"), e
-# iteration_planning es la bifurcación opcional entre backlog_ready y branch_ready
-# (ALLOWED_TRANSITIONS["backlog_ready"]).
 _STATE_ALIASES: dict[str, str] = {
     "discovering": "discovery",
     "reworking": "executing",
     "iteration_planning": "backlog_ready",
 }
+"""Estados sin historial propio (no aparecen en el orden normal) que se resuelven a su equivalente en
+CANONICAL_PATH para no caer en "insufficient_history" por diseño en vez de por falta real de datos:
+discovering es el alias legado de discovery, reworking siempre vuelve a executing (phases/story_loop.py:
+la arista qa_running/reworking -> executing con trigger "next_story"), e iteration_planning es la
+bifurcación opcional entre backlog_ready y branch_ready (ALLOWED_TRANSITIONS["backlog_ready"]).
+"""
 
-# brief_ready no integra _OPERATOR_WAIT_STATES del coordinator (esa fuente gobierna la reanudación
-# durable tras un reinicio), pero para el ETA es una espera real del operador: sólo la aprobación
-# explícita del brief la libera hacia backlog_ready (phases/discovery.py:781-824, api.py:355-361).
 _ETA_OPERATOR_WAIT_STATES: frozenset[str] = frozenset({*_OPERATOR_WAIT_STATES, "brief_ready"})
+"""brief_ready no integra _OPERATOR_WAIT_STATES del coordinator (esa fuente gobierna la reanudación durable
+tras un reinicio), pero para el ETA es una espera real del operador: sólo la aprobación explícita del
+brief la libera hacia backlog_ready (phases/discovery.py:781-824, api.py:355-361).
+"""
 
-# Estados cuya duración depende de cuántas historias quedan por procesar.
 _PER_STORY_STATES: frozenset[str] = frozenset({"executing", "qa_running"})
+"""Estados cuya duración depende de cuántas historias quedan por procesar."""
 _FAST_LANE_SKIPPED_STATES: frozenset[str] = frozenset({"architecture_review", "quality_review"})
 _MIN_SAMPLES_REQUIRED = 3
 
@@ -194,11 +196,12 @@ def _remaining_story_count(durable_run: dict[str, Any]) -> int:
     return max(pending, 1)
 
 
-# Caché LRU (no TTL: la clave incluye la versión del loop, así que una entrada nunca queda obsoleta
-# mientras el loop no avance) de los únicos dos campos del ``context`` que el estimador necesita.
-# Acotado por capacidad, no por tiempo, porque un proceso de larga duración vería crecer las
-# combinaciones (loopId, versión) sin límite.
 _DURABLE_RUN_CACHE_CAPACITY = 2048
+"""Caché LRU (no TTL: la clave incluye la versión del loop, así que una entrada nunca queda obsoleta mientras
+el loop no avance) de los únicos dos campos del ``context`` que el estimador necesita. Acotado por
+capacidad, no por tiempo, porque un proceso de larga duración vería crecer las combinaciones (loopId,
+versión) sin límite.
+"""
 _durable_run_cache: OrderedDict[tuple[str, str, int], dict[str, Any]] = OrderedDict()
 _durable_run_cache_lock = threading.Lock()
 
@@ -300,9 +303,6 @@ def estimate_thread_eta(
 
     last_transition = repository.latest_transition_for_loop(summary["id"])
     version = int(last_transition["version"]) if last_transition else 0
-    # Sin ninguna transición todavía (loop recién creado, previo a su primer avance real) no hay una
-    # columna liviana que traiga su fecha de creación: se asume elapsed=0 en ese instante brevísimo en
-    # vez de pagar el costo de leer ``created_at`` (posterior a ``context`` en el esquema físico).
     entered_at = last_transition["createdAt"] if last_transition else resolved_now
     elapsed_seconds = max((_parse_iso(resolved_now) - _parse_iso(entered_at)).total_seconds(), 0.0)
 
@@ -316,12 +316,6 @@ def estimate_thread_eta(
         for candidate in CANONICAL_PATH[index + 1 :]
         if candidate != "delivered" and not (fast_lane and candidate in _FAST_LANE_SKIPPED_STATES)
     ]
-    # El estado actual, si es executing o qa_running, ya "gastó" su propio turno en CANONICAL_PATH:
-    # las historias adicionales (más allá de la que está en curso) necesitan su propio ciclo completo
-    # de executing+qa_running, que remaining_path ya no puede aportar (ninguno de los dos vuelve a
-    # aparecer después del índice actual). Sin este ajuste, 3 historias restantes con el loop en
-    # executing subestiman el resto: sólo se contaría un qa_running extra, nunca el executing de las
-    # historias 2 y 3.
     extra_story_cycles = max(remaining_stories - 1, 0) if resolved_state in _PER_STORY_STATES else 0
 
     required_states = {resolved_state, *remaining_path}

@@ -205,7 +205,6 @@ def budget_lock(root: Path):
                         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except OSError as error:
-                    # EACCES is contention ONLY at the native lock operation, not open/write.
                     if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
                         raise
                     remaining = deadline - time.monotonic()
@@ -275,7 +274,6 @@ class DiagnosticHandler(logging.Handler):
 
     def handle(self, record):
         """Evita el lock bloqueante predeterminado de logging.Handler."""
-        # logging.Handler.handle normally serializes emit with an unbounded lock.
         self.emit(record)
         return True
 
@@ -347,8 +345,6 @@ class DiagnosticHandler(logging.Handler):
                 with diagnostic_io("segment_rotate", self.path):
                     self.path.rename(self.path.with_suffix(".closed.jsonl"))
                 self.path = None
-            # Windows supplies size/time with the directory scan. Discarding that metadata
-            # and stat-ing all historical files/keep markers per event starves other writers.
             with os.scandir(self.root) as entries:
                 files = [
                     (self.root / entry.name, entry.stat())
@@ -465,7 +461,6 @@ def diagnostic_event(event: str, *, component: str, error=None, context=None, le
             {**context_fields(context), **{k: v for k, v in fields.items() if k in _FIELDS and v is not None}}
         )
         if level == "DEBUG" and not payload.pop("debugEnabled", False):
-            # DEBUG is enabled only by the explicit attempt scope; never a global env switch.
             from local_control_center.process_supervision.context import CURRENT_EXECUTION
 
             ctx = context or CURRENT_EXECUTION.get()

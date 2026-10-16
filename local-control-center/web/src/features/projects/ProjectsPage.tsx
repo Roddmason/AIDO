@@ -157,8 +157,6 @@ function ProjectLaneCard({
 						{compactPath(project.path)}
 					</span>
 				</div>
-				{/* Every card of the active lane is "active": the badge only earns its place in the
-				    audit lanes, where it tells completed, failed and cancelled apart. */}
 				{operational ? null : <Badge tone={toneForStatus(project.status)}>{project.status}</Badge>}
 			</div>
 			<div className="home-project-stats">

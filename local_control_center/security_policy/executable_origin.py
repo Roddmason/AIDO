@@ -67,8 +67,6 @@ def _path_directories() -> set[str]:
     raw = os.environ.get("PATH") or ""
     directories = set()
     for entry in raw.split(os.pathsep):
-        # Windows admite entradas entrecomilladas; sin quitarlas, un directorio valido del PATH
-        # no coincidiria y un binario legitimo quedaria denegado.
         candidate = entry.strip().strip('"')
         if not candidate:
             continue

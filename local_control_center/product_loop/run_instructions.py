@@ -8,8 +8,8 @@ instrucción completa.
 
 from __future__ import annotations
 
-# Tope del texto de instrucción del developer (se reenvía por ronda de rework y por failover).
 INSTRUCTION_PROMPT_LIMIT_CHARS = 20_000
+"""Tope del texto de instrucción del developer (se reenvía por ronda de rework y por failover)."""
 
 CHANGE_REQUEST_HEADER = "[Operator change request after delivery review]"
 EARLIER_CHANGE_REQUEST_HEADER = (

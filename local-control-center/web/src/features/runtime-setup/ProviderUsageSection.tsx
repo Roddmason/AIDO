@@ -278,7 +278,6 @@ export function ProviderUsageSection({
 							).replace('{general}', String(Math.round(generalThresholdPercent)))
 					: t('app.providers.usage.thresholdInvalid', 'Enter a whole number from 1 to 100.')}
 			</span>
-			{/* Secondary actions share one row under the threshold, apart from its Save. */}
 			<div className="provider-usage-footer">
 				{entry.suspended ? (
 					<button

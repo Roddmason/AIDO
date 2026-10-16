@@ -91,19 +91,22 @@ class AIResourceRequest:
     allowed_provider_ids: list[str] | None = None
     preferred_provider_ids: list[str] = field(default_factory=list)
     blocked_resources: list[dict[str, Any]] = field(default_factory=list)
-    #: Candidatos descartados por haber fallado en este mismo turno. Va aparte de
-    #: ``blocked_resources`` a propósito: ese contador se audita como política de rol y mezclar
-    #: exclusiones de transporte lo falsearía.
     excluded_resources: list[dict[str, Any]] = field(default_factory=list)
-    #: Preferencias ordenadas de la política de rol (``preferred``/``fallback``/``escalation`` ya
-    #: concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*"
-    #: prefiere cualquier modelo del provider. Rankean ANTES que el score; el orden es la prioridad.
+    """: Candidatos descartados por haber fallado en este mismo turno. Va aparte de : ``blocked_resources`` a
+    propósito: ese contador se audita como política de rol y mezclar : exclusiones de transporte lo
+    falsearía.
+    """
     preferred_resources: list[dict[str, Any]] = field(default_factory=list)
-    #: Orden estricto de proveedores del equipo de IA global (asignado primero, luego fallbacks).
-    #: Rankea ANTES que ``preferred_resources``: los pins de la política del rol solo eligen el
-    #: modelo dentro del proveedor que el operador puso primero. Vacío = sin orden estricto. Como las
-    #: demás preferencias, no aplica cuando Jev selecciona el runtime (``runtime_selection``).
+    """: Preferencias ordenadas de la política de rol (``preferred``/``fallback``/``escalation`` ya :
+    concatenadas): entradas ``{"provider": ..., "model": ...}`` donde model vacío/"auto"/"*" : prefiere
+    cualquier modelo del provider. Rankean ANTES que el score; el orden es la prioridad.
+    """
     provider_order: list[str] = field(default_factory=list)
+    """: Orden estricto de proveedores del equipo de IA global (asignado primero, luego fallbacks). : Rankea
+    ANTES que ``preferred_resources``: los pins de la política del rol solo eligen el : modelo dentro del
+    proveedor que el operador puso primero. Vacío = sin orden estricto. Como las : demás preferencias, no
+    aplica cuando Jev selecciona el runtime (``runtime_selection``).
+    """
     context_token_limit: int | None = None
     role_policy_id: str | None = None
     allow_remote: bool = True
@@ -125,10 +128,10 @@ class AIResourceRequest:
     agent_id: str | None = None
     agent_profile_id: str | None = None
     task_id: str | None = None
-    #: Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``.
     local_model_pins: dict[str, str] = field(default_factory=dict)
-    #: Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie.
+    """: Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``."""
     local_model_affinity: dict[str, str] = field(default_factory=dict)
+    """: Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie."""
 
 
 def _bool(value: Any) -> bool:
@@ -240,7 +243,6 @@ def _row_to_ai_routing_decision(row: sqlite3.Row) -> dict[str, Any]:
         "selectedProvider": row["selected_provider"],
         "selectedModel": row["selected_model"],
         "selectedRuntime": row["selected_runtime"],
-        # The AI resource manager selects a model, not a reasoning effort: absent, not zero.
         "selectedEffort": None,
         "taskId": row["task_id"],
         "estimatedCostUsd": row["estimated_cost_usd"],
@@ -455,7 +457,6 @@ class AIResourceManager:
         if runtime_selection and record and allow_decision_inference:
             from .runtime_preflight import prevalidate_candidates
 
-            # Health may be renewed; role, model and privacy restrictions cannot.
             eligible = []
             for model in models:
                 status = (runtime_statuses or {}).get(str(model["providerId"]))
@@ -743,11 +744,6 @@ class AIResourceManager:
                     "Jev proposed an eligible runtime; explicit risk review is required before selection."
                 )
             elif decision_engine["reasonCode"] in {"confidence_below_threshold", "margin_below_threshold"}:
-                # No es un problema de validación ni de runtime: Jev sí tuvo candidatos ya
-                # validados, sólo no pudo desempatar con la confianza o el margen mínimos exigidos.
-                # Por diseño no hay respaldo determinista para ese caso
-                # (decision_engine/runtime_selection.py); la acción que resuelve la ambigüedad es que
-                # el operador asigne un runtime al rol.
                 by_margin = decision_engine["reasonCode"] == "margin_below_threshold"
                 decision["decisionReason"] = self._jev_confidence_blocked_reason(
                     candidates=candidates,
@@ -1063,8 +1059,6 @@ class AIResourceManager:
         ]
         if not pinned and not eligible:
             return {}, None
-        # La lectura del estado es la que llena la tabla de alias del router: se lee antes de resolver el sello
-        # para que un proceso recién iniciado no deje sin candidato a un modelo sellado bajo su alias.
         load_states = local_model_state.LOAD_STATE_CACHE.get(account)
         model_aliases = local_model_state.model_aliases_for(account)
         if pinned:
@@ -1313,7 +1307,6 @@ class AIResourceManager:
             "SELECT enabled FROM provider_accounts WHERE provider_id = ?", (model["providerId"],)
         ).fetchone()
         if account is not None and not account["enabled"]:
-            # Rechazo duro: un proveedor apagado no entra ni a la prevalidación de salud ni al failover.
             return "provider_disabled"
         catalog = self.connection.execute(
             "SELECT enabled FROM model_catalog WHERE provider_id = ? AND model = ?",

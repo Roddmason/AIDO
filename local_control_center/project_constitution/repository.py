@@ -29,17 +29,18 @@ from local_control_center.shared.time import utc_now
 
 CONSTITUTION_SOURCES = ("operator", "bootstrapped")
 CONSTITUTION_ENFORCEMENTS = ("advisory", "enforced")
-# Campos de contenido que participan del hash: cambiar cualquiera produce versión nueva.
 _CONTENT_FIELDS = ("title", "principles", "nonNegotiables", "qualityGates")
+"""Campos de contenido que participan del hash: cambiar cualquiera produce versión nueva."""
 
-# Principios base del bootstrap: el estándar mínimo que todo proyecto hereda hasta que el operador
-# escriba su propia constitución. Deliberadamente cortos: viajan al prompt de cada agente.
 _BOOTSTRAP_PRINCIPLES = [
     "Surgical changes only: every modified line must trace to the current request.",
     "No secrets in code, logs, fixtures or prompts.",
     "Existing architecture and conventions win over personal preference.",
     "Every delivery needs verifiable evidence (tests, diffs, logs); never claim success without it.",
 ]
+"""Principios base del bootstrap: el estándar mínimo que todo proyecto hereda hasta que el operador escriba
+su propia constitución. Deliberadamente cortos: viajan al prompt de cada agente.
+"""
 
 
 def content_hash_for(body: dict[str, Any]) -> str:

@@ -656,7 +656,6 @@ class WorkflowsRepository:
                 f"SELECT * FROM workflow_steps {where} ORDER BY created_at ASC", base_params
             ).fetchall()
         else:
-            # Tail: keep the N most recent rows in deterministic DESC order, then flip to ASC.
             rows = list(
                 reversed(
                     self.connection.execute(
@@ -681,7 +680,6 @@ class WorkflowsRepository:
                     (workflow_run_id,),
                 ).fetchall()
             else:
-                # Tail: keep the N most recent rows in deterministic DESC order, then flip to ASC.
                 rows = list(
                     reversed(
                         self.connection.execute(

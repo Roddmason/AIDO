@@ -171,7 +171,6 @@ const ATTEMPT_STATUS_COPY: Record<
 	deferred: {
 		key: 'app.providers.wizard.attemptDeferred',
 		fallback: 'deferred',
-		// Deferred is "not decided yet", not a problem: neutral pending tone, never the failure cross.
 		tone: 'pending',
 		Icon: CirclePause,
 	},
@@ -204,14 +203,10 @@ function RuntimeValidationSummary({ validation }: { validation: RuntimeValidatio
 			: t('app.providers.wizard.realValidateFailed', 'No selected model passed');
 	return (
 		<div className="stack compact" role="status" data-testid="wizard-runtime-validation">
-			{/* The headline repeats the per-attempt icon and tone, so a deferred result reads as
-			    pending (pause glyph, neutral tone) instead of borrowing the failure cross. */}
 			<div className="inline wizard-validation-headline" data-tone={headlineCopy.tone}>
 				<HeadlineIcon aria-hidden="true" size={15} className="wizard-validation-icon" />
 				<Badge tone={headlineCopy.tone}>{headline}</Badge>
 			</div>
-			{/* One row per model: status icon + tone, the model id in mono and the status word; the reason
-			    sits under it, clamped to two lines with the full text in its tooltip. */}
 			<ul className="wizard-attempts">
 				{attempts.map((attempt) => {
 					const copy = ATTEMPT_STATUS_COPY[attempt.status];
@@ -468,9 +463,6 @@ export function AddProviderWizard({
 		setBaseUrl(
 			(restoresInitialAccount ? initialBaseUrl : '') || (selectedEntry?.defaultBaseUrl ?? ''),
 		);
-		// Models synced for the previous provider must not survive the switch: a stale catalog would
-		// mislabel the models step, suppress the auto-routing sync and steer role routing to model
-		// ids the new provider does not serve.
 		setDiscovered([]);
 		setSelected(new Set());
 		setValidation(null);
@@ -539,8 +531,6 @@ export function AddProviderWizard({
 				});
 				ref = created.credential.credentialRef;
 			}
-			// Applied before the models step: with the kill switch off, the model sync itself is
-			// vetoed (403), so consenting at save time would be too late for the rest of the wizard.
 			if (AUTO_ROUTING_GATEWAYS.has(entry.id) && remoteRuntimeDisabled && reenableRemote) {
 				await putSetting('runtime.remote.enabled', { scope: 'general', value: true }, token);
 				setRemoteRuntimeDisabled(false);
@@ -558,9 +548,6 @@ export function AddProviderWizard({
 					: {}),
 				...(entry.id === 'omniroute'
 					? {
-							// The gateway runs on localhost but forwards to external providers; without this
-							// marker AIDO classifies it as local and grants it local_private privacy it does
-							// not have. Same marker scripts/setup_omniroute.py pins.
 							metadata: { endpointKind: 'remote', gateway: 'omniroute' },
 						}
 					: {}),
@@ -568,8 +555,6 @@ export function AddProviderWizard({
 				...(ref ? { credentialRef: ref } : {}),
 			});
 			clearApiKey();
-			// A reference AIDO cannot resolve (an env var its process does not see) used to pass this
-			// step and fail later at "Sync models" with "Credential ref … is missing". Stop here instead.
 			const credentialStatus = saved?.provider?.credentialStatus;
 			if (
 				credMode === 'ref' &&
@@ -589,7 +574,6 @@ export function AddProviderWizard({
 			}
 			return true;
 		} catch (saveError) {
-			// Keep the backend's reason (redacted): a generic "could not be saved" hid why a pasted key failed.
 			const detail = redactVisibleSecret(errorMessage(saveError), '');
 			setError(
 				`${t(
@@ -612,7 +596,6 @@ export function AddProviderWizard({
 			const result = await syncProviderAccountModels(token, entry.id);
 			const models = (result as { models?: ModelGatewayModel[] }).models ?? [];
 			const knownIds = new Set(discovered.map((model) => model.id));
-			// Recommended stays an offer, never a preselection: persisted enabled flags win.
 			const recommendedNames = new Set(result.recommendedModels ?? []);
 			setRecommendedIds(
 				result.recommendedModels
@@ -622,7 +605,6 @@ export function AddProviderWizard({
 					: null,
 			);
 			setDiscovered(models);
-			// Keep the operator's draft on re-sync; newly discovered rows start from persisted state.
 			setSelected(
 				(current) =>
 					new Set(
@@ -795,7 +777,6 @@ export function AddProviderWizard({
 		if (step === 'credential') {
 			if (await persistProvider()) {
 				setStep('models');
-				// The gateway owns model choice: sync for the operator instead of asking them to.
 				if (AUTO_ROUTING_GATEWAYS.has(entry.id) && !discovered.length) void syncModels();
 			}
 			return;

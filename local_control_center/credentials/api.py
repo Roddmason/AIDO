@@ -344,8 +344,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 and existing.get("locator") == locator
                 and (source is None or existing.get("backendKind") == source)
             ):
-                # Reingresar la key del mismo proveedor (mismo nombre y locator) es una rotación: antes
-                # fallaba con "Credential already exists" y el wizard decía "could not be saved".
                 return {"credential": manager.rotate(label, body.value, actor=body.actor)}
             credential = manager.create_credential(
                 name=label,

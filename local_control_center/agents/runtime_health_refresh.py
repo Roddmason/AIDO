@@ -192,8 +192,6 @@ def _pending_health_checks(platform: Any) -> tuple[int, set[tuple[str, str]], se
                 raise CredentialBackendError("Health check target is unavailable.")
             targets.add((operation, target))
         except (CredentialBackendError, TypeError, ValueError):
-            # Sin identidad no se puede probar ausencia de duplicados. El bloqueo queda
-            # acotado a esta operación, sin impedir la otra clase de health-check.
             unresolved_operations.add(operation)
     return len(rows), targets, unresolved_operations
 

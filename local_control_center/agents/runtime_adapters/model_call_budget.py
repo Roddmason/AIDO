@@ -55,7 +55,6 @@ def effective_model_call_timeout(
                 "The execution deadline leaves no time to load the model.",
             ) from error
         raise
-    # ``desired`` siempre supera ``cold_start``: un presupuesto menor solo puede venir del deadline.
     if cold_start and budget < cold_start:
         raise LocalRuntimeError(
             "insufficient_time_for_model_load",

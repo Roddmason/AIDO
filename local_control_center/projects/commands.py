@@ -94,16 +94,12 @@ def create_project(
     )
     bootstrap_base_team_if_needed(projects.connection)
     created = bool(project.pop("_created", False))
-    # La deteccion la hace el SERVIDOR leyendo los manifiestos del repo, no el cliente: lo que
-    # venia en el body es dato no confiable. Solo al crear, no al adjuntar una ruta ya conocida.
     auto_configuration: dict[str, Any] = {"assigned": {}, "preserved": [], "detected": {}}
     if created:
         auto_configuration = apply_project_auto_configuration(
             projects.connection, project_id=project["id"], project_path=project_path
         )
     if auto_configuration["assigned"]:
-        # Configurar por su cuenta sin dejar traza le quita al operador la posibilidad de
-        # revisarlo. `actor="system"` lo distingue de lo que pone una persona.
         events.record_audit(
             project_id=project["id"],
             action="project.auto_configured",

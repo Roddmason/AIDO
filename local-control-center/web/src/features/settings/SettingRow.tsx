@@ -79,8 +79,6 @@ export function ChipLabel({
 			);
 		}
 		if (setting.assignedBy === 'auto') {
-			// Distinguir lo que puso la deteccion de lo que puso la persona: sin esta marca la
-			// auto-asignacion es magia y el operador no puede revisar lo que no logra diferenciar.
 			return (
 				<span className="setting-chip" data-origin="auto">
 					{t('app.settings.chip.autoAssigned', 'Auto-assigned')}
@@ -176,8 +174,6 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 	}, [setting.key, scope, toLocalValue(setting)]);
 
 	const isNumberEmpty = setting.type === 'number' && localValue.trim() === '';
-	// Belt-and-suspenders: type="number" inputs sanitize most malformed text to '',
-	// so this guard mainly covers paste and programmatic values, not keystrokes.
 	const isNumberInvalid =
 		setting.type === 'number' && localValue.trim() !== '' && !Number.isFinite(Number(localValue));
 
@@ -192,7 +188,6 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 			}
 			return;
 		}
-		// Never PUT a non-numeric string into a number-typed setting.
 		if (setting.type === 'number' && !Number.isFinite(Number(localValue))) return;
 		let coerced: JsonValue = localValue;
 		if (setting.type === 'number') {
@@ -269,7 +264,6 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 							<span className="setting-switch-track" aria-hidden="true">
 								<span className="setting-switch-thumb" />
 							</span>
-							{/* aria-hidden: the checkbox already announces its checked state. */}
 							<span className="setting-switch-state" aria-hidden="true">
 								{(booleanImmediate ? Boolean(setting.value) : localChecked)
 									? t('app.settings.boolean.on', 'On')
@@ -386,7 +380,6 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: Sett
 					</button>
 				)}
 			</div>
-			{/* Save/revert progress announced to screen readers; visual state is the disabled control. */}
 			<span className="sr-only" role="status">
 				{pending ? t('app.settings.status.saving', 'Saving...') : ''}
 			</span>

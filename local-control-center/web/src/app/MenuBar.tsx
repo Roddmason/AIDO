@@ -241,8 +241,6 @@ export function MenuBar({
 			<h1 className="menu-bar-brand" aria-label={t('app.brand.title', 'AIDO Control Center')}>
 				AIDO
 			</h1>
-			{/* El menubar ARIA envuelve SOLO los menu items: un heading no es hijo válido de
-			    role="menubar", y el h1 de marca debe quedar fuera del patrón de teclado. */}
 			<div
 				className="menu-bar-menus"
 				role="menubar"

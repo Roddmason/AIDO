@@ -40,7 +40,6 @@ async def resolve_jev_address(host: str, timeout: float) -> str:
         raise httpx.ConnectError("dns_dependency_unavailable") from None
     try:
         resolver = dns.asyncresolver.Resolver()
-        # System resolver addresses may be private; only literal Do53 destinations are used.
         servers = []
         for server in resolver.nameservers:
             if isinstance(server, dns.nameserver.Do53Nameserver):

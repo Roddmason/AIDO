@@ -180,8 +180,6 @@ class WorkspacesRepository:
 
         workspace_id = f"workspace-{uuid.uuid4()}"
         project_path = self._project_path(project_id)
-        # El workspace materializa el codigo del proyecto: pertenece al proyecto, no al repositorio
-        # del sistema. Dejarlo bajo <aido>/.tmp anidaba worktrees ajenos en el arbol de AIDO.
         workspace_path = project_workspaces_root(project_path) / workspace_id
         ensure_workspaces_excluded(project_path)
         resolved_isolation = "directory"

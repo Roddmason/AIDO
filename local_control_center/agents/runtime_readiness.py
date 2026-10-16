@@ -30,7 +30,6 @@ CREDENTIAL_PROVIDER_KINDS = frozenset({"cli", "api", "gateway"})
 
 HOST_CAPACITY_BLOCKERS = frozenset(
     {
-        # Motivos del gobernador: el host esta ocupado, el runtime no tiene nada malo.
         "aggregate_cpu_budget",
         "aggregate_memory_budget",
         "browser_build_conflict",
@@ -43,7 +42,6 @@ HOST_CAPACITY_BLOCKERS = frozenset(
         "unreal_cook_active",
         "unreal_cook_exclusive",
         "unreal_local_gpu_conflict",
-        # Motivos de este modulo cuando la muestra de recursos no sirve para decidir.
         "resource_session_unverified",
         "resource_snapshot_required",
         "resource_snapshot_stale",
@@ -84,9 +82,6 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                 ):
                     from local_control_center.host_resources.branch_admission import borrowed_preview_class
 
-                    # Retain live host CPU, disk and the full 18 GiB + host-reserve check, except for a
-                    # resident-model client, which admission re-checks with its own class (borrowed_preview_class).
-                    # Session subbudgets and fencing remain enforced by the supervisor at spawn.
                     workload, execution_id = borrowed_preview_class(lease, workload), lease.execution_id
             elif (
                 context.in_job_runner
@@ -107,8 +102,6 @@ def _readiness_resource_request(connection, account) -> ResourceAdmissionRequest
                     and lease.owner_id == context.worker_id
                     and BranchAdmission._parent_covers(lease, workload)
                 ):
-                    # Preview the full reservation already held by this verified job.
-                    # Transport admission still serializes any child using that budget.
                     workload, execution_id = borrowed_preview_class(lease, workload), lease.execution_id
     return ResourceAdmissionRequest(
         execution_id=execution_id, owner_id="readiness-preview", workload_class=workload
@@ -181,7 +174,6 @@ def apply_effective_readiness(
     reasons = []
     healthy = healthy_evidence(status)
     for condition, reason in (
-        # El switch del operador va primero: es la causa que explica todas las demás.
         (kind != "manual" and account.get("enabled") is False, "provider_disabled"),
         (not status["configured"], "configuration_required"),
         (kind == "cli" and not status["installed"], "not_installed"),
@@ -229,13 +221,9 @@ def apply_effective_readiness(
     )
     if not executable:
         if status["executable"]:
-            # A later resource/health/policy projection must not retain a successful
-            # explanation. Earlier specific blockers (for example auth) keep precedence.
             ordered = list(dict.fromkeys(reasons))
             actionable = [reason for reason in ordered if reason not in HOST_CAPACITY_BLOCKERS]
             if not actionable:
-                # Solo falta capacidad del host: es transitorio y se resuelve solo. Reportarlo
-                # como runtime roto llenaba la cola de "necesitan atencion" con IAs sanas.
                 blocker = None
             elif "authentication_required" in actionable and kind in CREDENTIAL_PROVIDER_KINDS:
                 blocker = "runtime_auth_missing"

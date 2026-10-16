@@ -134,7 +134,6 @@ export function missingRequiredRoles(
 	return REQUIRED_TEAM_ROLES.filter((role) => {
 		const assignedProvider = roleRuntimes[role];
 		if (!assignedProvider) return true;
-		// If candidates are provided, verify the assigned runtime is validated and eligible.
 		if (candidates) {
 			const candidate = candidates.find((c) => c.providerId === assignedProvider);
 			if (candidate?.validation.status !== 'validated') return true;

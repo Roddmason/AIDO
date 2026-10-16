@@ -69,8 +69,6 @@ export function useTeamActivity(
 		};
 
 		load(true);
-		// Mismo contrato que el poll de overview: sin tick con la pestaña oculta y refetch
-		// inmediato al volver a visible.
 		const timer = window.setInterval(() => {
 			if (document.visibilityState === 'hidden') return;
 			load(false);

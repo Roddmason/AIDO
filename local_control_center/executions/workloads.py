@@ -34,8 +34,6 @@ def operation_workload(connection, spec, payload):
         action = connection.execute(
             "SELECT action_type FROM remediation_actions WHERE id=?", (payload.get("remediation_id"),)
         ).fetchone()
-        # Revalidation reads persisted readiness; it must precede the conversation it repairs.
-        # All other actions retain the conservative profile, regardless of client payload claims.
         if action and action["action_type"] in {"validate_runtime", "revalidate_runtime"}:
             return "qa_light"
     if spec.name not in INFERENCE_OPERATIONS:

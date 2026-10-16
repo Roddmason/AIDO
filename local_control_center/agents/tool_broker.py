@@ -261,9 +261,6 @@ def _developer_codex_boundary(
     native_codex = bool(argv and "codex" in Path(str(argv[0])).name.lower())
     if operation != "developer_agent_runtime" or (not native_codex and environment is None):
         return None
-    # The existing streaming service owns drainage through its restricted opener;
-    # it requests authorization only, not the isolated Developer command builder.
-    # This authority is an internal argument, never accepted from tool-call metadata.
     if (
         trusted_operation == "cli_session_stream"
         and profile.get("id") == "developer_agent"
@@ -1078,10 +1075,6 @@ class ToolBroker:
                             "reason": "Docker sandbox requires a structured argv list.",
                         }
                     else:
-                        # El perfil elige la postura: `project_build` monta el workspace con
-                        # escritura porque un build genera artefactos; `default_docker` lo deja
-                        # de solo lectura porque es un sandbox de analisis. Son posturas
-                        # distintas, no un parametro del mismo sandbox.
                         sandbox_runtime = (
                             self.project_build_container
                             if profile_id in WRITABLE_WORKSPACE_SANDBOX_PROFILES
@@ -1187,9 +1180,6 @@ class ToolBroker:
                 )
 
         if status == "failed" and execution_result is not None:
-            # No se reusa runtime_id: ese cae al nombre del sandbox cuando la llamada no declara
-            # runtime, y un comando shell cualquiera que mencione la cuota al fallar terminaria
-            # inventando un limite para 'restricted_subprocess'.
             self._record_runtime_quota_exhaustion(
                 provider_id=provider_id or str(tool_call.get("runtimeId") or "").strip() or None,
                 execution_result=execution_result,

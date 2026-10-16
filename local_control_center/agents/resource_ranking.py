@@ -76,7 +76,6 @@ def selection_sort_key(
     except ValueError:
         preference_rank = len(provider_preference)
     order = provider_order or []
-    # Sin orden estricto todos empatan en 0 y el rank queda como antes.
     order_rank = order.index(provider_id) if provider_id in order else len(order)
     return (
         order_rank,

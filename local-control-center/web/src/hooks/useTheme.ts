@@ -63,8 +63,6 @@ export function useTheme() {
 	}, []);
 
 	const toggleTheme = useCallback(() => {
-		// Reads storage (not stale state) and persists outside the updater so the
-		// cross-instance sync event never fires mid-render.
 		const next: Theme = readStoredTheme() === 'dark' ? 'light' : 'dark';
 		persistTheme(next);
 		setThemeState(next);

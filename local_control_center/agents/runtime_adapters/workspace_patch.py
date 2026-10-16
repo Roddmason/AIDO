@@ -128,8 +128,6 @@ class WorkspacePatchBrokerAdapter:
                 }
             target = workspace / path
             if not target.exists():
-                # The goal state already holds (an earlier story deleted it): not a reason to drop
-                # the whole patch, which is what blocked a live rework.
                 already_absent.append(path)
                 continue
             if not target.is_file():

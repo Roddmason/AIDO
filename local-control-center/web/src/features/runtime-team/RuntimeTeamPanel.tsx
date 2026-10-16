@@ -144,7 +144,6 @@ export function RuntimeTeamPanel({
 	const { t } = useI18n();
 	const [allowed, setAllowed] = useState<string[]>(initial?.allowedRuntimes ?? []);
 	const [roles, setRoles] = useState<RoleRuntimes>(initial?.roleRuntimes ?? {});
-	// A saved team is the operator's choice: its roles start pinned until "Assign automatically".
 	const [manualRoles, setManualRoles] = useState<ReadonlySet<TeamRole>>(
 		() => new Set(TEAM_ROLES.filter((role) => Boolean(initial?.roleRuntimes[role]))),
 	);
@@ -154,7 +153,6 @@ export function RuntimeTeamPanel({
 	const { data, failed, reload } = useRuntimeTeamCandidates(projectId, allowed, true);
 	const candidates = data?.candidates ?? [];
 	const autoProbed = useRef(false);
-	// Closing the drawer unmounts the panel: stop polling its probes (the queued test still runs).
 	const unmounted = useRef<AbortController | null>(null);
 	useEffect(() => {
 		const controller = new AbortController();
@@ -217,7 +215,6 @@ export function RuntimeTeamPanel({
 		[token, projectId, reload, setProbe],
 	);
 
-	// Operator policy: expired runtimes are re-tested on open; never-tested ones wait for a click.
 	useEffect(() => {
 		if (!data || autoProbed.current) return;
 		autoProbed.current = true;
@@ -307,8 +304,6 @@ export function RuntimeTeamPanel({
 						: outcome
 							? outcome.status
 							: candidate.validation.status;
-					// The persisted failure only knows "failed" (and its HTTP status): the cause per model comes
-					// from the test this panel ran, so a stored generic code is not repeated as the reason.
 					const reason = denied ? candidate.validation.reason : (outcome?.reason ?? null);
 					const checked = allowed.includes(candidate.providerId);
 					const selectable =

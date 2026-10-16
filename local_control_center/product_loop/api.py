@@ -83,11 +83,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             key=lambda item: str(item.get("createdAt") or ""),
         )
         acceptance_criteria = backlog.list_acceptance_criteria(project_id=project_id)
-        # ``metadata.resourceDecision.rejected`` acumula el historial completo de candidatos de runtime
-        # descartados en cada asignación (medido: ~554 KB por asignación, 3000+ entradas en una sola);
-        # nadie en `web/src` lee `assignment.metadata` desde este agregado, así que el resumen la omite
-        # igual que el `context` del loop, y sin decodificarla siquiera (``list_agent_assignment_summaries``
-        # no la selecciona).
         assignments = (
             backlog.list_agent_assignments(project_id=project_id)
             if include_context

@@ -213,7 +213,6 @@ def validate_cli_candidate(
     lease = None
     settled = False
     try:
-        # Capability refresh cannot run before the same provider quota authorization.
         lease = quota.acquire(
             QuotaRequest(
                 provider_id=provider,

@@ -123,9 +123,6 @@ export function App() {
 		[state.runtimeProviders],
 	);
 
-	// Proactive nudge: when the live poll shows an AI degrade from healthy to blocked (an expired CLI
-	// token, an exhausted quota) toast it once, edge-triggered. The first poll only seeds the baseline
-	// so a reload never spams a toast per already-broken provider.
 	useEffect(() => {
 		if (!state.runtimeProviders) return;
 		const current = new Set(runtimeAlerts.map((alert) => alert.providerId));
@@ -318,7 +315,6 @@ export function App() {
 										body={state.error}
 									/>
 								) : null}
-								{/* Mutation errors must not unmount the route and erase its drafts or inline errors. */}
 								{renderRoute(page, routeContext)}
 							</Suspense>
 						</RouteErrorBoundary>
@@ -361,7 +357,6 @@ export function App() {
 				actions={commandActions}
 			/>
 
-			{/* Settings modal: global overlay, portaled via Dialog; its body loads on the first open. */}
 			<SettingsDialog
 				open={settingsModalOpen && !workspaceDialogOpen}
 				onClose={() => setSettingsModalOpen(false)}
@@ -380,7 +375,6 @@ export function App() {
 				language={bilingualLanguage}
 			/>
 
-			{/* AI-health modal: global overlay listing every runtime that needs attention. */}
 			<RuntimeHealthModal
 				open={runtimeHealthOpen}
 				onClose={() => setRuntimeHealthOpen(false)}
@@ -390,7 +384,6 @@ export function App() {
 					openSettings(section, providerId);
 				}}
 				onRevalidate={(providerId) => {
-					// mutate() already surfaces a failed probe as the control-plane error banner.
 					void state
 						.mutate((token) => healthCheckModelGatewayCliRuntime(token, providerId))
 						.catch(() => undefined);

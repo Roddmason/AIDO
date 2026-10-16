@@ -120,8 +120,6 @@ def _resolve_technical_plan(coordinator, loop):
                 raise ValueError("The legacy plan story or acceptance criteria changed.")
     output = coordinator.discovery.get_product_owner_output(po["productOwnerOutputId"])
     schedule = durable["teamSchedule"]
-    # The final schedule expands from generated tasks (e.g. security adds pentester).
-    # The planner originally received the preliminary schedule, before those tasks existed.
     preliminary_scope = coordinator._team_scope(
         message=durable["message"], intent=schedule.get("intent") or {}, output=output, agent_tasks=[]
     )
@@ -325,9 +323,6 @@ def _checkpoint(coordinator, loop):
     config = resolve_config(connection, loop["projectId"])
     if not config.selects_runtime:
         raise ValueError("Jev runtime selection is no longer enabled.")
-    # Misma herencia que la corrida original (coordinator._team_schedule_with_resource_decisions):
-    # sin equipo de runtimes en el hilo, el request reconstruido debe restringirse al mismo proveedor
-    # del PO para que su fingerprint calce con el de la decisión ya persistida.
     product_owner_provider_id = (
         str(_durable_product_owner_selected_resource(durable).get("providerId") or "").strip() or None
     )
@@ -342,9 +337,6 @@ def _checkpoint(coordinator, loop):
             raise ValueError("A role has no durable routing decision.")
         policy = json_loads(row["policy_result_json"])
         engine = policy.get("decisionEngine") or {}
-        # Con Jev y un orden automático del equipo global, la decisión se tomó sobre un solo proveedor
-        # del orden (``_select_walking_providers``): el request reconstruido usa ese mismo allowlist para
-        # que el hash firmado corresponda al request que de verdad se consultó.
         walk = coordinator._jev_provider_walk(
             loop["projectId"],
             metadata,
@@ -884,7 +876,6 @@ def resume_runtime_risk_planning(coordinator, run):
     """Revalidate the saved schedule and complete planning without new inference."""
     from local_control_center.product_loop.phases.team_planning import finish_team_planning
 
-    # Runtime inventory may validate CLI authentication; it must never inherit a SQLite write lock.
     assert_external_boundary()
     with _transaction(coordinator.connection):
         marker, job = _active_continuation_job(coordinator, run)
@@ -914,7 +905,6 @@ def resume_runtime_risk_planning(coordinator, run):
         thread_id=run.thread_id,
     )
     with _transaction(coordinator.connection):
-        # Keep the current context even on rejection, so the caller cannot overwrite an operator edit.
         run.loop = coordinator.get(loop["id"])
         _active_continuation_job(coordinator, run)
         action = coordinator.jobs.get_action_request(review["actionRequestId"])

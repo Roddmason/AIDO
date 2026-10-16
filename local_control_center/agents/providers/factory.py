@@ -112,9 +112,6 @@ def provider_account_requires_credential(account: dict[str, Any]) -> bool:
     deployment_mode = str(account.get("deploymentMode") or "").strip()
     if provider_family in {"ollama", "local_ollama", "litellm"} or api_format == "ollama":
         return False
-    # Un endpoint self-hosted lo opera el propio usuario: su auth es la del host, no un bearer que
-    # AIDO deba custodiar. NVIDIA NIM ya usaba este criterio; aplica igual a cualquier gateway
-    # self-hosted (OmniRoute, vLLM, TGI) para no forzar el registro de un secreto ficticio.
     if deployment_mode.startswith("self_hosted"):
         return False
     return str(account.get("providerType") or "").strip() in {"api", "gateway"}

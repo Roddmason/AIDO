@@ -30,7 +30,6 @@ export function ProjectDiscoverySummary({
 			<ul
 				className="detection-grid"
 				aria-label={t('app.workspace.detection.aria', 'Detected project markers')}
-				// Reset the <ul> user-agent chrome so the grid box matches the prior <div>.
 				style={{ margin: 0, padding: 0, listStyle: 'none' }}
 			>
 				{markers.map((marker) => (

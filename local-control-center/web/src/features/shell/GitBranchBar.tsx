@@ -107,7 +107,6 @@ export function GitBranchBar({
 	const [gitleaks, setGitleaks] = useState<ProjectGitGitleaksScanResponse | null>(null);
 	const [gitleaksBusy, setGitleaksBusy] = useState(false);
 
-	// Dialog + async state for the secondary flows kept out of the compact bar.
 	const [changesOpen, setChangesOpen] = useState(false);
 	const [diff, setDiff] = useState<ProjectGitDiffResponse | null>(null);
 	const [diffBusy, setDiffBusy] = useState(false);
@@ -136,7 +135,6 @@ export function GitBranchBar({
 				return;
 			}
 			try {
-				// Mount only observes persisted state. Explicit refresh/mutation completion queues Git.
 				if (!signal && token) {
 					await requestCompletedOperation(
 						'refresh_git_api_v1_projects__project_id__git_refresh_post',
@@ -165,7 +163,6 @@ export function GitBranchBar({
 	useEffect(() => {
 		const controller = new AbortController();
 		void refreshGit(controller.signal);
-		// Switching project resets every transient bit so nothing leaks across repositories.
 		setGitleaks(null);
 		setBranchName('');
 		setPendingBranch('');
@@ -184,7 +181,6 @@ export function GitBranchBar({
 	const currentBranch = gitStatus?.currentBranch || gitBranches?.currentBranch || '';
 	const branchOptions = useMemo(() => {
 		const branches = new Set<string>();
-		// 'HEAD' is the service's placeholder for detached/empty HEAD, not a real branch — never offer it.
 		if (currentBranch && currentBranch !== 'HEAD') branches.add(currentBranch);
 		for (const branch of gitBranches?.localBranches ?? []) {
 			if (branch && branch !== 'HEAD') branches.add(branch);
@@ -194,8 +190,6 @@ export function GitBranchBar({
 
 	const lastCommit = gitStatus?.lastCommit?.shortHash ? gitStatus.lastCommit : null;
 
-	// Single source of truth for the bar's render phase. Both git fetches resolve together
-	// (Promise.all in refreshGit), so `loading` is exactly the pre-response window.
 	const gitPhase: GitPhase = gitError
 		? 'error'
 		: !gitStatus
@@ -211,34 +205,18 @@ export function GitBranchBar({
 							: 'error';
 	const ready = gitPhase === 'ready';
 
-	// A stale gitleaks verdict must not outlive the repo state it was scanned against: if the repo
-	// leaves `ready` (policy block, error, repo removed), drop the in-memory result.
 	useEffect(() => {
 		if (gitPhase !== 'ready') setGitleaks(null);
 	}, [gitPhase]);
 
-	// `configuration_required` collapses "git missing from PATH" and "folder is not a repo" into one
-	// backend status; only the reason string tells them apart. Initializing helps the second, not the
-	// first — offering Init when git is absent produces an indistinguishable no-op. We match the exact
-	// executable-missing phrase ("Git executable was not found on PATH.") rather than the bare word
-	// PATH, because the no-repo reason ("Project path is not a Git repository.") also contains "path".
-	// This is a deliberate, documented coupling to service.py wording (no structured field exists yet).
 	const gitMissing =
 		gitPhase === 'no_git' && /executable was not found/i.test(gitStatus?.reason ?? '');
 
 	const hasCommits = Boolean(lastCommit);
-	// Git materializes a branch ref only with the first commit: right after `git init --initial-branch dev`
-	// the repo reports currentBranch='dev' while `git branch --format` lists nothing at all. So the signal
-	// for "no branch exists yet" is the ABSENCE OF COMMITS, not an empty currentBranch — keying this off
-	// currentBranch left the freshly-initialized repo (exactly where Initialize Git lands) with an empty
-	// workspace cluster: no branch, no CTA, no explanation.
 	const branchMissing = ready && !hasCommits;
 	const detachedHead = ready && hasCommits && (currentBranch === 'HEAD' || currentBranch === '');
-	// The unborn branch `git init` selected. Empty when HEAD does not even point at a branch name.
 	const unbornBranch = branchMissing && currentBranch !== 'HEAD' ? currentBranch : '';
 	const showPicker = ready && hasCommits;
-	// Fresh repo with a single protected line and no work branch yet: guide toward creating one before
-	// the first change, anticipating the server-side block on committing work directly to main/master.
 	const onlyProtectedBranch =
 		showPicker &&
 		!detachedHead &&
@@ -249,8 +227,6 @@ export function GitBranchBar({
 	const changedCount = gitStatus?.changedFiles.length ?? 0;
 	const stagedCount = gitStatus?.stagedFiles.length ?? 0;
 	const untrackedCount = gitStatus?.untrackedFiles.length ?? 0;
-	// The bar only has room for counts; the dialog is where "what exactly is dirty" gets answered. Empty
-	// groups are dropped so the list never pads a two-file change with three empty headings.
 	const fileGroups = useMemo(
 		() =>
 			[
@@ -295,7 +271,6 @@ export function GitBranchBar({
 			: rawGitleaksStatus
 		: t('app.statusBar.git.gitleaksNotRun', 'not run');
 
-	// Derived tones for non-OK coloring of status label text / dots.
 	const dirtyTone = dirty ? 'warn' : 'ok';
 	const gitConnTone =
 		gitPhase === 'loading'
@@ -310,7 +285,7 @@ export function GitBranchBar({
 			? 'ok'
 			: gitleaks?.status === 'blocked' || gitleaks?.status === 'failed'
 				? 'danger'
-				: 'ok'; // 'not run' and 'configuration_required' are informational, not problems
+				: 'ok';
 
 	/**
 	 * Runs one token-guarded git write: toggles the busy flag, toasts the completed/blocked outcome (or the
@@ -372,9 +347,6 @@ export function GitBranchBar({
 		);
 	};
 
-	// A dirty tree makes the backend reject checkout unless allowDirty=true. Rather than firing the
-	// request and surfacing the block in a toast that has already faded, ask up front and offer both
-	// exits (view changes / switch anyway) in a confirmation dialog.
 	const requestCheckout = (nextBranch: string) => {
 		if (!nextBranch || nextBranch === currentBranch) return;
 		if (dirty) setCheckoutConfirm(nextBranch);
@@ -485,7 +457,6 @@ export function GitBranchBar({
 				await refreshGit();
 				onRefresh();
 			} else {
-				// Keep the reason visible next to the field, not only in a fading toast.
 				setRemoteFormError(result.reason);
 			}
 		} catch (error) {
@@ -503,7 +474,6 @@ export function GitBranchBar({
 		if (!projectId || remoteTestBusy) return;
 		setRemoteTestBusy(name);
 		try {
-			// Test hits the network (git ls-remote); the button label + hint make that explicit.
 			const result = await testProjectGitRemote(token, projectId, name, { allowNetwork: true });
 			const passed = result.status === 'completed';
 			notify({
@@ -537,13 +507,8 @@ export function GitBranchBar({
 			role="group"
 			aria-label={t('app.composer.gitControls', 'Git workspace')}
 		>
-			{/* Cluster (a): workspace — the state-driven primary CTA so no phase is ever a dead end. */}
 			<div className="composer-git-cluster composer-git-cluster--workspace">
 				{gitPhase === 'loading' ? (
-					/* Loading window: the branch control is present but inert (nothing to browse yet,
-					   WCAG 3.2.2 On Input) so it fills in when the policy-gated git fetch resolves instead
-					   of popping into the DOM seconds later. onChange is a required no-op for a disabled
-					   controlled <select>. */
 					<select
 						className="status-branch-select"
 						aria-label={t('app.statusBar.git.branchSelect', 'Git branch')}
@@ -586,7 +551,6 @@ export function GitBranchBar({
 								{t('app.statusBar.git.initGit', 'Initialize Git')}
 							</Button>
 						)}
-						{/* The CTA alone never says what is lost without a repository; state the stakes next to it. */}
 						<span className="composer-git-note composer-git-note--hint">
 							{t(
 								'app.statusBar.git.whyGit',
@@ -595,9 +559,6 @@ export function GitBranchBar({
 						</span>
 					</>
 				) : branchMissing ? (
-					// An unborn branch cannot be created, renamed or checked out: `git branch <name>` fails with
-					// "not a valid object name", and both `checkout -b` and `branch -m` are denied by policy. The
-					// only real exit is the first commit, so name it instead of offering a CTA that would fail.
 					<span className="composer-git-note" data-tone="warn">
 						<GitCommitHorizontal aria-hidden="true" size={14} />
 						{unbornBranch
@@ -614,9 +575,6 @@ export function GitBranchBar({
 						) : null}
 						{showPicker ? (
 							<>
-								{/* Selecting only stages the branch (WCAG 3.2.2 On Input); the Check button commits
-								   it. A permanently present sr-only hint makes the confirm button discoverable
-								   without relying on incidental tab order. */}
 								<span className="sr-only" id={selectHelpId}>
 									{t(
 										'app.statusBar.git.selectHelp',
@@ -666,8 +624,6 @@ export function GitBranchBar({
 										</IconButton>
 									</Tooltip>
 								) : null}
-								{/* Not a nested <form>: this bar renders inside the composer's <form>. Enter on the
-								   input creates the branch via onKeyDown; the button is a plain type="button". */}
 								<div className="status-branch-create">
 									<input
 										value={branchName}
@@ -708,7 +664,6 @@ export function GitBranchBar({
 				)}
 			</div>
 
-			{/* Cluster (b): status — connection (+ dirty/gitleaks/remote when connected), read-only. */}
 			<div className="composer-git-cluster composer-git-cluster--status">
 				{(() => {
 					const connectionItem = (
@@ -729,8 +684,6 @@ export function GitBranchBar({
 						>
 							<StatusDot tone={gitConnTone} />
 							<GitBranch aria-hidden="true" size={14} />
-							{/* In the happy `ready` path the icon + green dot carry the meaning (aria-label names it);
-							   every non-ready phase shows visible text so state never rides on color alone. */}
 							{gitPhase === 'loading' ? (
 								<span>{t('app.statusBar.git.branchLoading', 'loading…')}</span>
 							) : null}
@@ -777,8 +730,6 @@ export function GitBranchBar({
 									{t('app.statusBar.git.gitleaksPrefix', 'gitleaks')} {gitleaksLabel}
 								</>
 							);
-							// gitleaks missing: the chip IS the way out — a real button that opens setup, so the
-							// problem and its resolution live in the same control (not a passive label + far-off CTA).
 							if (gitleaksMissing) {
 								return (
 									<Tooltip label={t('app.statusBar.git.gitleaksSetup', 'Open setup')}>
@@ -826,7 +777,6 @@ export function GitBranchBar({
 				) : null}
 			</div>
 
-			{/* Cluster (c): actions — frequent controls, pushed right. Secondary flows open dialogs. */}
 			<div className="composer-git-cluster composer-git-cluster--actions">
 				{ready ? (
 					<>
@@ -900,7 +850,6 @@ export function GitBranchBar({
 				</Tooltip>
 			</div>
 
-			{/* Dialog: dirty-tree checkout confirmation — both exits are explicit and up front. */}
 			<Dialog
 				open={Boolean(checkoutConfirm)}
 				onClose={() => setCheckoutConfirm('')}
@@ -935,7 +884,6 @@ export function GitBranchBar({
 				</div>
 			</Dialog>
 
-			{/* Dialog: view changes (diff) + save patch. */}
 			<Dialog
 				open={changesOpen}
 				onClose={() => setChangesOpen(false)}
@@ -952,8 +900,6 @@ export function GitBranchBar({
 							{t('app.statusBar.git.savePatch', 'Save patch')}
 						</Button>
 					</div>
-					{/* What is dirty, by group. `git status` is the only source that sees untracked files, so this
-					    list — not the diff below — is what makes an untracked-only tree legible. */}
 					{fileGroups.length ? (
 						<div className="composer-git-files">
 							{fileGroups.map((group) => (
@@ -973,7 +919,6 @@ export function GitBranchBar({
 							))}
 						</div>
 					) : null}
-					{/* aria-live announces the loading→result transition without stealing the dialog's focus. */}
 					<div className="composer-git-diff" aria-live="polite">
 						{diffBusy ? (
 							<p className="composer-git-dialog-detail">
@@ -991,8 +936,6 @@ export function GitBranchBar({
 							</p>
 						)}
 					</div>
-					{/* `git diff HEAD` never reports untracked files, so an untracked-only tree renders an empty
-					    diff. Without this line "No changes against HEAD" reads as "the tree is clean" — a lie. */}
 					{untrackedCount ? (
 						<p className="composer-git-dialog-detail composer-git-note--hint">
 							{t(
@@ -1004,7 +947,6 @@ export function GitBranchBar({
 				</div>
 			</Dialog>
 
-			{/* Dialog: remotes — list + test + add. Form lives here (portalled) so it never nests. */}
 			<Dialog
 				open={remotesOpen}
 				onClose={() => setRemotesOpen(false)}
@@ -1066,7 +1008,6 @@ export function GitBranchBar({
 				</div>
 			</Dialog>
 
-			{/* Dialog: gitleaks setup — the exit when the scanner is not installed. */}
 			<Dialog
 				open={setupOpen}
 				onClose={() => setSetupOpen(false)}

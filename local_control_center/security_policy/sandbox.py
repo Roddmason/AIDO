@@ -34,10 +34,6 @@ from local_control_center.process_supervision.service import (
 )
 
 ALLOWED_EXECUTABLES = {
-    # Toolchains de proyecto: las emite `projects/toolchain.py` para validar el repo del usuario
-    # con SUS herramientas. Estar en la allowlist de `permissions` no alcanza — son dos capas
-    # distintas: aquella clasifica el riesgo, esta autoriza el spawn. Los wrappers versionados
-    # (`mvnw`, `gradlew`) van incluidos porque son la version que el proyecto fijo.
     "cargo",
     "cargo.exe",
     "go",
@@ -754,8 +750,6 @@ class ProjectBuildContainer:
         if not image or image.startswith("-") or any(char.isspace() for char in image):
             raise ValueError("Container image must be a single catalog value.")
         if image not in set(TOOLCHAIN_IMAGES.values()):
-            # La imagen entra directo al argv de `docker run`: un valor libre es ejecucion
-            # arbitraria con la red y el workspace ya montados.
             raise ValueError(f"Container image is not in the toolchain catalog: {image!r}")
         if network not in self.ALLOWED_NETWORKS:
             raise ValueError("Container network must be 'bridge' or 'none'; host networking is denied.")

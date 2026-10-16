@@ -76,7 +76,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         try:
             request_body = body or RemediationExecuteRequest()
             action = service().repository.get(remediation_id)
-            # Un comando de control no puede depender del worker que debe despertar.
             if action["actionType"] == "run_worker_once":
                 return service().execute(remediation_id, platform=platform, payload=request_body.payload)
             accepted = enqueue_registered_operation(

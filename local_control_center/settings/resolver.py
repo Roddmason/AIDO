@@ -55,9 +55,6 @@ def _resolve_one(
                 value, origin, inherited = general_val, "general", True
             else:
                 value, origin, inherited = descriptor.default, "default", True
-    # Quien asigno el valor EFECTIVO, que es distinto de `origin` (de que ambito salio). Un
-    # default o un valor heredado no los asigno la deteccion de este proyecto, asi que cuentan
-    # como del operador: es el mismo criterio conservador del default de la columna.
     assigned_by = (
         repo.get_assigned_by(descriptor.key, origin, project_id if origin == "project" else None)
         if origin != "default"

@@ -13,7 +13,7 @@ import asyncio
 import json
 import math
 import re
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
@@ -128,14 +128,6 @@ class ProviderError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
-
-
-class DecisionProvider(Protocol):
-    """Contrato asíncrono para proponer una decisión sin ejecutar la acción seleccionada."""
-
-    async def decide(self, request: DecisionRequest) -> DecisionResult:
-        """Devuelve la propuesta validada o lanza un error tipado."""
-        ...
 
 
 class DeterministicDecisionProvider:

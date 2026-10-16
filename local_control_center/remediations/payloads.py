@@ -54,6 +54,7 @@ DECISION_ENGINE_FAILURE_CODES = frozenset(
         "provider_disabled",
         "jev_required_for_selection",
         "selection_disabled",
+        "revalidation_error",
     }
 )
 

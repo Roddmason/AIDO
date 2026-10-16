@@ -89,7 +89,6 @@ PROVIDER_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 MODEL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind != "tools")
-TOOL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind == "tools")
 
 PROVIDER_RANK = (
     "claude_code_cli",

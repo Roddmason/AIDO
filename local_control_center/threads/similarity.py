@@ -224,15 +224,6 @@ class ThreadSimilarityService:
             raise KeyError(f"Thread index not found: {thread_id}")
         return _row_to_index(row)
 
-    def index_project(self, project_id: str) -> None:
-        """Reconstrucción total del índice del proyecto (vía explícita de ``POST .../memory/reindex``)."""
-        rows = self.connection.execute(
-            "SELECT id FROM project_threads WHERE project_id = ? ORDER BY updated_at ASC",
-            (project_id,),
-        ).fetchall()
-        for row in rows:
-            self.index_thread(row["id"])
-
     def ensure_project_index(self, project_id: str) -> int:
         """Backfill mínimo: indexa solo threads sin fila de índice o con índice más viejo que el thread.
 

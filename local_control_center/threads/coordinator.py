@@ -718,11 +718,11 @@ class ThreadCoordinator:
         was_executing = thread["status"] in ACTIVE_EXECUTION_STATUSES
         cancelled_job_ids: list[str] = []
         with immediate_transaction(self.connection):
-            for job in self.jobs.list_jobs(project_id=thread["projectId"]):
+            for job in self.jobs.list_thread_jobs(
+                project_id=thread["projectId"], statuses=_CANCELLABLE_JOB_STATUSES
+            ):
                 payload = job.get("payload")
                 if not isinstance(payload, dict) or payload.get("threadId") != thread_id:
-                    continue
-                if job["status"] not in _CANCELLABLE_JOB_STATUSES:
                     continue
                 self.jobs.cancel_job(job["id"], reason=clean_reason, actor=clean_actor)
                 cancelled_job_ids.append(job["id"])

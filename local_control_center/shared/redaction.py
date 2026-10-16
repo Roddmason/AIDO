@@ -75,7 +75,7 @@ def redact_secrets(value: Any, *, key: str = "") -> Any:
         return {
             item_key: redact_secrets(item_value, key=str(item_key)) for item_key, item_value in value.items()
         }
-    if isinstance(value, list):
+    if isinstance(value, list | tuple | set | frozenset):
         return [redact_secrets(item) for item in value]
     if isinstance(value, str):
         return SECRET_VALUE_PATTERN.sub("[redacted]", _sanitize_git_remote_lines(value))

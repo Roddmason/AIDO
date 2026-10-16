@@ -29,23 +29,6 @@ from local_control_center.shared.redaction import redact_secrets
 from .discovery import discover_project_path
 from .repository import ProjectsRepository
 
-FINDING_CATEGORIES = {
-    "stack",
-    "module",
-    "architecture",
-    "endpoint",
-    "data",
-    "test",
-    "coverage",
-    "quality_command",
-    "debt",
-    "security",
-    "documentation",
-    "git_history",
-    "feature",
-    "risk",
-    "gap",
-}
 SOURCE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs"}
 PRUNE_DIRS = {
     ".git",

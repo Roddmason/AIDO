@@ -32,6 +32,7 @@ from .repository import ResourceRepository
 
 _BORROW_LOCKS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _BORROW_REGISTRY_LOCK = threading.Lock()
+ADMISSION_POLL_SECONDS = 0.5
 
 
 def borrowed_preview_class(parent_lease, workload_class: str) -> str:
@@ -213,7 +214,7 @@ class BranchAdmission:
                         raise BranchAdmissionDeferred(
                             decision.reason_code if timeout_seconds == 0 else "resource_wait_timeout"
                         )
-                    time.sleep(0.1)
+                    time.sleep(ADMISSION_POLL_SECONDS)
             context = (
                 replace(self.parent, connection=connection, resource_lease_id=lease.id)
                 if self.parent
@@ -228,17 +229,16 @@ class BranchAdmission:
             renewal_error = []
 
             def renew():
-                with closing(open_sqlite_connection(self.db_path)) as heartbeat_connection:
-                    while not stop.wait(5):
-                        try:
+                try:
+                    with closing(open_sqlite_connection(self.db_path)) as heartbeat_connection:
+                        while not stop.wait(5):
                             renewed = HostResourceGovernor(heartbeat_connection).heartbeat(
                                 lease.id, owner_id=owner_id, lease_seconds=60
                             )
                             if renewed is None:
                                 raise RuntimeError("resource_lease_lost")
-                        except Exception as error:
-                            renewal_error.append(error)
-                            return
+                except Exception as error:
+                    renewal_error.append(error)
 
             thread = (
                 threading.Thread(target=renew, name="aido-branch-lease-heartbeat", daemon=True)

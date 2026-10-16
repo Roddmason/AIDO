@@ -55,13 +55,6 @@ from local_control_center.workspaces_projects.git_worktrees import capture_git_d
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 ISSUE_TO_PR_APPROVAL_ACTION = "workflow.issue_to_pr.approve_issue_to_pr"
-ISSUE_TO_PR_AGENT_LABELS = {
-    DEVELOPER_AGENT_ID: "DeveloperAgent",
-    QA_AGENT_ID: "QAAgent",
-    SECURITY_AGENT_ID: "SecurityAgent",
-    ARCHITECT_AGENT_ID: "ArchitectAgent",
-    DEVOPS_AGENT_ID: "DevOpsAgent",
-}
 ISSUE_TO_PR_DAG = {
     "nodes": ISSUE_TO_PR_STEPS,
     "edges": [[left, right] for left, right in itertools.pairwise(ISSUE_TO_PR_STEPS)],

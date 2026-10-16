@@ -52,6 +52,7 @@ DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 DEFAULT_MAX_CONCURRENT_JOBS = 1
 TELEMETRY_PRUNE_INTERVAL_SECONDS = 3600.0
 COOLDOWN_RESUME_POLL_SECONDS = 10.0
+WORKER_CYCLE_FAILURE_BACKOFF_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -156,10 +157,6 @@ class LocalWorkerRuntime:
     ) -> LocalWorkerRuntime:
         """Create a runtime using the persisted general worker settings."""
         return cls(db_path=db_path, cwd=cwd, settings=resolve_worker_settings(connection))
-
-    def refresh_settings(self, connection: sqlite3.Connection) -> None:
-        """Refresh settings from SQLite so API status reflects current configuration."""
-        self.settings = resolve_worker_settings(connection)
 
     @property
     def running(self) -> bool:
@@ -313,78 +310,103 @@ class LocalWorkerRuntime:
         """
         self._stop_event.clear()
         self._status = "standby"
-        while not self._stop_event.is_set():
-            connection = open_sqlite_connection(self.db_path)
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    if not self._run_forever_cycle():
+                        return
+                except Exception as error:
+                    self._status = "standby"
+                    self._reason = f"Worker cycle failed: {type(error).__name__}."
+                    self._last_error = f"{type(error).__name__}: {error}"
+                    diagnostic_event(
+                        "worker.cycle_failed",
+                        component="worker",
+                        workerId=self.worker_id,
+                        error=error,
+                        level="WARNING",
+                    )
+                    self._stop_event.wait(WORKER_CYCLE_FAILURE_BACKOFF_SECONDS)
+        finally:
             try:
-                initialize_platform_schema(connection)
-                self.settings = resolve_worker_settings(connection)
-                leadership = WorkerLeadershipRepository(connection)
-                decision = leadership.acquire(
-                    owner_id=self.worker_id,
-                    lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
-                )
-                self._fencing_token = decision.fencing_token if decision.acquired else None
-                from local_control_center.shared.diagnostics import diagnostic_event
+                self._release_leadership("Worker loop exited.")
+            except Exception as error:
+                self._last_error = f"{type(error).__name__}: {error}"
 
-                diagnostic_event(
-                    "leadership.acquire",
-                    component="worker",
-                    workerId=self.worker_id,
-                    fencingToken=decision.fencing_token,
-                    outcome=decision.role,
-                )
-                control = WorkerControlRepository(connection).get()
-            finally:
-                connection.close()
-            if not decision.acquired:
-                self._status = "standby"
-                self._reason = decision.reason
-                self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
-                continue
-            self._ensure_leadership_watcher()
-            if str(control["desiredState"]) == "running":
-                # En pausa los refrescos encolados no pueden correr y quedan a la cabeza de la cola:
-                # el "run once" que el operador pide para SU operación ejecutaba un health check en
-                # su lugar. Dentro de un job la salud rancia se renueva sola (RuntimeStatusService).
-                self._refresh_runtime_health_if_due()
-                self._refresh_provider_usage_if_due()
-            self._resume_cooldown_blocked_threads_if_due()
-            try:
-                from local_control_center.process_supervision.recovery import recover_managed_processes
+    def _run_forever_cycle(self) -> bool:
+        """Ejecuta una vuelta del scheduler; `False` indica que el worker debe terminar."""
+        connection = open_sqlite_connection(self.db_path)
+        try:
+            initialize_platform_schema(connection)
+            self.settings = resolve_worker_settings(connection)
+            leadership = WorkerLeadershipRepository(connection)
+            decision = leadership.acquire(
+                owner_id=self.worker_id,
+                lease_seconds=DEFAULT_LEADER_LEASE_SECONDS,
+            )
+            self._fencing_token = decision.fencing_token if decision.acquired else None
+            from local_control_center.shared.diagnostics import diagnostic_event
 
-                recover_managed_processes(self.db_path)
-            except (OSError, RuntimeError) as error:
-                self._reason = f"Recuperación de procesos pendiente: {type(error).__name__}."
-                self._renew_leadership(status="resource_wait")
-                self._stop_event.wait(self.settings.poll_interval_seconds)
-                continue
-            if not self._govern_resources_if_due():
-                self._renew_leadership(status="resource_wait")
-                self._stop_event.wait(self.settings.poll_interval_seconds)
-                continue
-            desired_state = str(control["desiredState"])
-            self._status = desired_state
-            self._reason = str(control["reason"] or f"Worker is {desired_state}.")
-            if desired_state in {"stopped", "emergency_stopped"}:
-                self._release_leadership(self._reason)
-                return
-            if desired_state == "draining":
-                self._release_leadership("Worker drained and stopped.")
-                return
-            run_once_at = control.get("runOnceRequestedAt")
-            should_run = desired_state == "running" or bool(run_once_at)
-            if should_run and self._fencing_token is not None:
-                if run_once_at:
-                    with closing(open_sqlite_connection(self.db_path)) as consume_connection:
-                        initialize_platform_schema(consume_connection)
-                        if not WorkerControlRepository(consume_connection).consume_run_once(str(run_once_at)):
-                            self._stop_event.wait(0.1)
-                            continue
-                if self._queued_job_preflight():
-                    self._run_batch_once(fencing_token=decision.fencing_token)
-            else:
-                self._renew_leadership(status=desired_state)
+            diagnostic_event(
+                "leadership.acquire",
+                component="worker",
+                workerId=self.worker_id,
+                fencingToken=decision.fencing_token,
+                outcome=decision.role,
+            )
+            control = WorkerControlRepository(connection).get()
+        finally:
+            connection.close()
+        if not decision.acquired:
+            self._status = "standby"
+            self._reason = decision.reason
+            self._stop_event.wait(min(self.settings.poll_interval_seconds, 2.0))
+            return True
+        self._ensure_leadership_watcher()
+        if str(control["desiredState"]) == "running":
+            # En pausa los refrescos encolados no pueden correr y quedan a la cabeza de la cola:
+            # el "run once" que el operador pide para SU operación ejecutaba un health check en
+            # su lugar. Dentro de un job la salud rancia se renueva sola (RuntimeStatusService).
+            self._refresh_runtime_health_if_due()
+            self._refresh_provider_usage_if_due()
+        self._resume_cooldown_blocked_threads_if_due()
+        try:
+            from local_control_center.process_supervision.recovery import recover_managed_processes
+
+            recover_managed_processes(self.db_path)
+        except (OSError, RuntimeError) as error:
+            self._reason = f"Recuperación de procesos pendiente: {type(error).__name__}."
+            self._renew_leadership(status="resource_wait")
             self._stop_event.wait(self.settings.poll_interval_seconds)
+            return True
+        if not self._govern_resources_if_due():
+            self._renew_leadership(status="resource_wait")
+            self._stop_event.wait(self.settings.poll_interval_seconds)
+            return True
+        desired_state = str(control["desiredState"])
+        self._status = desired_state
+        self._reason = str(control["reason"] or f"Worker is {desired_state}.")
+        if desired_state in {"stopped", "emergency_stopped"}:
+            self._release_leadership(self._reason)
+            return False
+        if desired_state == "draining":
+            self._release_leadership("Worker drained and stopped.")
+            return False
+        run_once_at = control.get("runOnceRequestedAt")
+        should_run = desired_state == "running" or bool(run_once_at)
+        if should_run and self._fencing_token is not None:
+            if run_once_at:
+                with closing(open_sqlite_connection(self.db_path)) as consume_connection:
+                    initialize_platform_schema(consume_connection)
+                    if not WorkerControlRepository(consume_connection).consume_run_once(str(run_once_at)):
+                        self._stop_event.wait(0.1)
+                        return True
+            if self._queued_job_preflight():
+                self._run_batch_once(fencing_token=decision.fencing_token)
+        else:
+            self._renew_leadership(status=desired_state)
+        self._stop_event.wait(self.settings.poll_interval_seconds)
+        return True
 
     def _queued_job_preflight(self) -> bool:
         """Preserva el gate de conversación sin impedir operaciones para reparar el runtime."""

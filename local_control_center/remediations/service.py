@@ -28,9 +28,6 @@ from local_control_center.remediations.action_policy import should_resolve
 from local_control_center.remediations.blocker_classification import (
     blocker_type,
 )
-from local_control_center.remediations.decision_answers import (
-    option_key,
-)
 from local_control_center.remediations.git_remote_policy import remote_url_payload_is_safe
 from local_control_center.remediations.local_runtime import local_runtime_specs, uses_local_runtime_specs
 from local_control_center.remediations.payloads import (
@@ -1543,10 +1540,6 @@ class BlockerRemediationService:
             selected_options=selected_options,
             free_text=free_text,
         )
-
-    @staticmethod
-    def _option_key(value: str) -> str:
-        return option_key(value)
 
     def _record_clarification_answer(
         self,

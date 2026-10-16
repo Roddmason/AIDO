@@ -176,8 +176,8 @@ def resume_after_runtime_validation(
     """
     rows = service.connection.execute(
         """SELECT id FROM remediation_actions
-           WHERE action_type = 'revalidate_runtime' AND status = 'pending'
-           ORDER BY created_at ASC, rowid ASC"""
+               WHERE action_type = 'revalidate_runtime' AND status = 'pending'
+               ORDER BY created_at ASC, rowid ASC"""
     ).fetchall()
     resumed: list[dict[str, Any]] = []
     for row in rows:
@@ -217,9 +217,9 @@ def resume_cooldown_expired_blocks(service: BlockerRemediationService) -> list[d
     placeholders = ",".join("?" for _ in COOLDOWN_ELIGIBLE_BLOCKER_TYPES)
     rows = service.connection.execute(
         f"""SELECT id FROM remediation_actions
-            WHERE status = 'pending' AND action_type = 'retry_loop' AND stage = 'resource_manager'
-              AND blocker_type IN ({placeholders})
-            ORDER BY created_at ASC, rowid ASC""",
+                WHERE status = 'pending' AND action_type = 'retry_loop' AND stage = 'resource_manager'
+                  AND blocker_type IN ({placeholders})
+                ORDER BY created_at ASC, rowid ASC""",
         tuple(COOLDOWN_ELIGIBLE_BLOCKER_TYPES),
     ).fetchall()
     if not rows:

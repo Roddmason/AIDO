@@ -27,7 +27,7 @@ export type ProductLoopSectionBlueprint = {
 };
 
 /** The ten loop sections, in flow order. */
-export const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
+const PRODUCT_LOOP_SECTIONS: ProductLoopSectionBlueprint[] = [
 	{ id: 'conversation', labelKey: 'app.workbench.loop.conversation', label: 'Conversation' },
 	{ id: 'questions', labelKey: 'app.workbench.loop.questions', label: 'Questions' },
 	{ id: 'brief', labelKey: 'app.workbench.loop.brief', label: 'Product brief' },

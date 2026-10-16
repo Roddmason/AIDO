@@ -92,6 +92,7 @@ function useLazyResource<T>(
 			});
 		return () => {
 			controller.abort();
+			setLoading(false);
 			if (fetchedRef.current === fetchId) fetchedRef.current = null;
 		};
 	}, [active, key, attempt, load, refreshSignal]);

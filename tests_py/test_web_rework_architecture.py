@@ -34,7 +34,6 @@ def test_dashboard_entrypoint_uses_vite_typescript_app() -> None:
         SRC / "app" / "App.tsx",
         SRC / "api" / "client.ts",
         SRC / "api" / "types.ts",
-        SRC / "components" / "primitives.tsx",
         SRC / "motion" / "useControlMotion.ts",
         SRC / "design-system" / "tokens.css",
         SRC / "design-system" / "base.css",
@@ -237,10 +236,11 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "retrievalStatus: Dictionary | null" not in hook_source
     assert "artifact: Artifact" in artifacts_source
     assert "retrievalStatus: RetrievalStatus | null" in memory_source
-    assert "useState<Artifact | null>" in pages_source
-    assert "useState<Artifact | null>" in run_detail_source
-    assert "const openPreview = async (artifact: Artifact)" in pages_source
-    assert "const openPreview = async (artifact: Artifact)" in run_detail_source
+    preview_hook_source = read(SRC / "features" / "review" / "useArtifactPreview.ts")
+    assert "useState<Artifact | null>" in preview_hook_source
+    assert "openPreview: (artifact: Artifact) => Promise<void>" in preview_hook_source
+    assert "useArtifactPreview(token)" in pages_source
+    assert "useArtifactPreview(token)" in run_detail_source
 
 
 def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> None:

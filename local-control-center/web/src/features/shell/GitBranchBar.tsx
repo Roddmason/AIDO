@@ -24,7 +24,7 @@ import {
 	ShieldAlert,
 	ShieldCheck,
 } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
 	addProjectGitRemote,
 	checkoutProjectGitBranch,
@@ -124,6 +124,8 @@ export function GitBranchBar({
 
 	const projectId = selectedProject?.id ?? '';
 	const selectHelpId = useId();
+	const activeProjectRef = useRef(projectId);
+	activeProjectRef.current = projectId;
 
 	const refreshGit = useCallback(
 		async (signal?: AbortSignal) => {
@@ -148,12 +150,12 @@ export function GitBranchBar({
 					getProjectGitStatus(projectId, signal),
 					getProjectGitBranches(projectId, signal),
 				]);
-				if (signal?.aborted) return;
+				if (signal?.aborted || activeProjectRef.current !== projectId) return;
 				setGitStatus(nextStatus);
 				setGitBranches(nextBranches);
 				setGitError('');
 			} catch (error) {
-				if (signal?.aborted) return;
+				if (signal?.aborted || activeProjectRef.current !== projectId) return;
 				setGitError(error instanceof Error ? error.message : 'Git status unavailable.');
 			}
 		},
@@ -310,19 +312,24 @@ export function GitBranchBar({
 				? 'danger'
 				: 'ok'; // 'not run' and 'configuration_required' are informational, not problems
 
-	const initGit = async () => {
-		if (!projectId || gitBusy) return;
+	/**
+	 * Runs one token-guarded git write: toggles the busy flag, toasts the completed/blocked outcome (or the
+	 * failure), then re-pulls git state and the overview. `onCompleted` runs only on a completed result.
+	 */
+	const runGitAction = async (
+		run: () => Promise<{ status: string; reason: string }>,
+		copy: { done: string; blocked: string; failed: string },
+		onCompleted?: () => void,
+	) => {
 		setGitBusy(true);
 		try {
-			const result = await initProjectGitRepository(token, projectId, {});
+			const result = await run();
 			if (result.status === 'completed') {
-				notify({
-					title: t('app.statusBar.git.initGitDone', 'Git repository initialized'),
-					tone: 'ok',
-				});
+				onCompleted?.();
+				notify({ title: copy.done, tone: 'ok' });
 			} else {
 				notify({
-					title: t('app.statusBar.git.initGitFailed', 'Git init failed'),
+					title: copy.blocked,
 					body: result.reason,
 					tone: result.status === 'blocked' ? 'warn' : 'danger',
 					durationMs: 0,
@@ -332,7 +339,7 @@ export function GitBranchBar({
 			onRefresh();
 		} catch (error) {
 			notify({
-				title: t('app.statusBar.git.initGitFailed', 'Git init failed'),
+				title: copy.failed,
 				body: error instanceof Error ? error.message : undefined,
 				tone: 'danger',
 				durationMs: 0,
@@ -342,38 +349,27 @@ export function GitBranchBar({
 		}
 	};
 
+	const initGit = async () => {
+		if (!projectId || gitBusy) return;
+		await runGitAction(() => initProjectGitRepository(token, projectId, {}), {
+			done: t('app.statusBar.git.initGitDone', 'Git repository initialized'),
+			blocked: t('app.statusBar.git.initGitFailed', 'Git init failed'),
+			failed: t('app.statusBar.git.initGitFailed', 'Git init failed'),
+		});
+	};
+
 	const checkoutBranch = async (nextBranch: string, allowDirty: boolean) => {
 		if (!projectId || !nextBranch || nextBranch === currentBranch || gitBusy) return;
-		setGitBusy(true);
 		setPendingBranch('');
 		setCheckoutConfirm('');
-		try {
-			const result = await checkoutProjectGitBranch(token, projectId, {
-				branch: nextBranch,
-				allowDirty,
-			});
-			if (result.status === 'completed') {
-				notify({ title: t('app.statusBar.git.checkoutDone', 'Branch checked out'), tone: 'ok' });
-			} else {
-				notify({
-					title: t('app.statusBar.git.checkoutBlocked', 'Checkout blocked'),
-					body: result.reason,
-					tone: result.status === 'blocked' ? 'warn' : 'danger',
-					durationMs: 0,
-				});
-			}
-			await refreshGit();
-			onRefresh();
-		} catch (error) {
-			notify({
-				title: t('app.statusBar.git.checkoutFailed', 'Checkout failed'),
-				body: error instanceof Error ? error.message : undefined,
-				tone: 'danger',
-				durationMs: 0,
-			});
-		} finally {
-			setGitBusy(false);
-		}
+		await runGitAction(
+			() => checkoutProjectGitBranch(token, projectId, { branch: nextBranch, allowDirty }),
+			{
+				done: t('app.statusBar.git.checkoutDone', 'Branch checked out'),
+				blocked: t('app.statusBar.git.checkoutBlocked', 'Checkout blocked'),
+				failed: t('app.statusBar.git.checkoutFailed', 'Checkout failed'),
+			},
+		);
 	};
 
 	// A dirty tree makes the backend reject checkout unless allowDirty=true. Rather than firing the
@@ -388,32 +384,15 @@ export function GitBranchBar({
 	const createBranch = async () => {
 		const name = branchName.trim();
 		if (!projectId || !name || gitBusy) return;
-		setGitBusy(true);
-		try {
-			const result = await createProjectGitBranch(token, projectId, { name });
-			if (result.status === 'completed') {
-				setBranchName('');
-				notify({ title: t('app.statusBar.git.branchCreated', 'Branch created'), tone: 'ok' });
-			} else {
-				notify({
-					title: t('app.statusBar.git.branchBlocked', 'Branch not created'),
-					body: result.reason,
-					tone: result.status === 'blocked' ? 'warn' : 'danger',
-					durationMs: 0,
-				});
-			}
-			await refreshGit();
-			onRefresh();
-		} catch (error) {
-			notify({
-				title: t('app.statusBar.git.branchFailed', 'Branch creation failed'),
-				body: error instanceof Error ? error.message : undefined,
-				tone: 'danger',
-				durationMs: 0,
-			});
-		} finally {
-			setGitBusy(false);
-		}
+		await runGitAction(
+			() => createProjectGitBranch(token, projectId, { name }),
+			{
+				done: t('app.statusBar.git.branchCreated', 'Branch created'),
+				blocked: t('app.statusBar.git.branchBlocked', 'Branch not created'),
+				failed: t('app.statusBar.git.branchFailed', 'Branch creation failed'),
+			},
+			() => setBranchName(''),
+		);
 	};
 
 	const runGitleaks = async () => {

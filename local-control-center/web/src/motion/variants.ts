@@ -46,18 +46,6 @@ export const listStagger: Variants = {
 	exit: {},
 };
 
-/**
- * Pulso de estado decorativo (solo opacity). El consumidor DEBE condicionar `animate="pulse"`
- * con `useReducedMotion()` para no autoreproducir bajo prefers-reduced-motion.
- */
-export const statusPulse: Variants = {
-	idle: { opacity: 1 },
-	pulse: {
-		opacity: [1, 0.55, 1],
-		transition: { duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' },
-	},
-};
-
 /** Crossfade de contenido (p.ej. paneles de tabs dentro de AnimatePresence keyed por tab). */
 export const crossfade: Variants = {
 	initial: { opacity: 0 },

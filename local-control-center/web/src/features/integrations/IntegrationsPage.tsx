@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { registerMcpServer } from '../../api/client';
 import type { McpTransport, Overview } from '../../api/types';
+import type { Mutate } from '../../app/routes';
 import {
 	StatusChip as Badge,
 	DataTable,
@@ -17,34 +18,7 @@ import {
 } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
-
-type Mutate = <T>(
-	operation: (token: string) => Promise<T>,
-	options?: { awaitRefresh?: boolean },
-) => Promise<T>;
-
-function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
-	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
-	return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	records: T[],
-	incoming: T,
-) {
-	const existing = records.find((record) => record.id === incoming.id);
-	if (existing && recordTimestamp(existing) > recordTimestamp(incoming)) return records;
-	return existing
-		? records.map((record) => (record.id === incoming.id ? incoming : record))
-		: [incoming, ...records];
-}
-
-function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	current: T[],
-	incoming: T[],
-) {
-	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
-}
+import { mergeNewestById, upsertNewestById } from '../../lib/records';
 
 export function IntegrationsPage({ overview, mutate }: { overview: Overview; mutate: Mutate }) {
 	const { t } = useI18n();

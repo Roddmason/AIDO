@@ -473,7 +473,7 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
  * act), so it lands in Needs review with run health shown as a badge — never
  * silently parked in Blocked. This is a lifecycle map, not `toneForStatus`.
  */
-export function classifyReviewItem(item: ReviewItem): ReviewColumn {
+function classifyReviewItem(item: ReviewItem): ReviewColumn {
 	if (
 		item.decisionStatus === 'approved' ||
 		item.decisionStatus === 'denied' ||
@@ -499,7 +499,7 @@ export function classifyReviewItem(item: ReviewItem): ReviewColumn {
 }
 
 /** Risk descending, then most-recent first. */
-export function sortReviewItems(items: ReviewItem[]): ReviewItem[] {
+function sortReviewItems(items: ReviewItem[]): ReviewItem[] {
 	return [...items].sort((left, right) => {
 		const risk = (RISK_RANK[right.riskLevel ?? ''] ?? 0) - (RISK_RANK[left.riskLevel ?? ''] ?? 0);
 		if (risk !== 0) return risk;

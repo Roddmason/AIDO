@@ -8,14 +8,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-	type ArtifactPayload,
-	cancelJob,
-	downloadEvidenceArtifact,
-	fetchEvidenceArtifact,
-	retryJob,
-} from '../../api/client';
-import type { Artifact, Overview } from '../../api/types';
+import { cancelJob, retryJob } from '../../api/client';
+import type { Overview } from '../../api/types';
 import {
 	StatusChip as Badge,
 	DataTable,
@@ -29,6 +23,7 @@ import { artifactDisplayName, artifactMimeType, artifactSizeLabel } from '../../
 import { findPatchArtifact } from '../../lib/diff';
 import { shortId, toneForStatus } from '../../lib/format';
 import { redactVisibleText } from '../../lib/redaction';
+import { useArtifactPreview } from '../review/useArtifactPreview';
 import { WorkflowRunTimeline } from './WorkflowRunTimeline';
 import {
 	buildWorkflowTimeline,
@@ -63,12 +58,16 @@ export function RunDetail({
 }) {
 	const { t } = useI18n();
 	const [activeTab, setActiveTab] = useState<RunDetailTab>('overview');
-	const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
-	const [previewPayload, setPreviewPayload] = useState<ArtifactPayload | null>(null);
-	const [previewLoadingId, setPreviewLoadingId] = useState('');
-	const [downloadLoadingId, setDownloadLoadingId] = useState('');
-	const [previewError, setPreviewError] = useState('');
-	const previewRequestRef = useRef(0);
+	const {
+		artifact: previewArtifact,
+		payload: previewPayload,
+		loadingId: previewLoadingId,
+		downloadingId: downloadLoadingId,
+		error: previewError,
+		openPreview,
+		download: downloadArtifact,
+		clear: clearPreview,
+	} = useArtifactPreview(token);
 	const [jobMutationReason, setJobMutationReason] = useState('');
 	const [jobMutationBusyId, setJobMutationBusyId] = useState('');
 	const [jobMutationError, setJobMutationError] = useState('');
@@ -93,9 +92,7 @@ export function RunDetail({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runId is the intended reset trigger.
 	useEffect(() => {
 		setActiveTab('overview');
-		setPreviewArtifact(null);
-		setPreviewPayload(null);
-		setPreviewError('');
+		clearPreview();
 		setJobMutationReason('');
 		setJobMutationError('');
 	}, [runId]);
@@ -104,63 +101,12 @@ export function RunDetail({
 		if (!previewArtifact) return undefined;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
-				setPreviewArtifact(null);
-				setPreviewPayload(null);
-				setPreviewError('');
+				clearPreview();
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [previewArtifact]);
-
-	const openPreview = async (artifact: Artifact) => {
-		const artifactId = String(artifact.id ?? '');
-		const evidenceId = String(artifact.evidencePackageId ?? '');
-		if (!artifactId || !evidenceId) {
-			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
-			return;
-		}
-		const generation = ++previewRequestRef.current;
-		setPreviewArtifact(artifact);
-		setPreviewPayload(null);
-		setPreviewError('');
-		setPreviewLoadingId(artifactId);
-		try {
-			const payload = await fetchEvidenceArtifact(token, evidenceId, artifactId);
-			if (previewRequestRef.current === generation) setPreviewPayload(payload);
-		} catch (error) {
-			if (previewRequestRef.current === generation)
-				setPreviewError(
-					error instanceof Error
-						? error.message
-						: t('app.workflows.errArtifactPreview', 'Artifact preview failed.'),
-				);
-		} finally {
-			if (previewRequestRef.current === generation) setPreviewLoadingId('');
-		}
-	};
-
-	const downloadArtifact = async (artifact: Artifact) => {
-		const artifactId = String(artifact.id ?? '');
-		const evidenceId = String(artifact.evidencePackageId ?? '');
-		if (!artifactId || !evidenceId) {
-			setPreviewError(t('app.workbench.evidence.incomplete', 'Artifact metadata is incomplete.'));
-			return;
-		}
-		setPreviewError('');
-		setDownloadLoadingId(artifactId);
-		try {
-			await downloadEvidenceArtifact(token, evidenceId, artifactId, artifactDisplayName(artifact));
-		} catch (error) {
-			setPreviewError(
-				error instanceof Error
-					? error.message
-					: t('app.workbench.evidence.downloadError', 'Artifact download failed.'),
-			);
-		} finally {
-			setDownloadLoadingId('');
-		}
-	};
+	}, [previewArtifact, clearPreview]);
 
 	const runJobMutation = async (op: 'retry' | 'cancel', jobId: string, reason: string) => {
 		if (!reason.trim()) {
@@ -1005,9 +951,7 @@ export function RunDetail({
 				label={t('ui.static.workflow.artifact.preview.df9b22a5', 'Workflow artifact preview')}
 				open={Boolean(previewArtifact)}
 				onClose={() => {
-					setPreviewArtifact(null);
-					setPreviewPayload(null);
-					setPreviewError('');
+					clearPreview();
 				}}
 			>
 				<div className="drawer-body">

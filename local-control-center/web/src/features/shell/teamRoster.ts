@@ -74,7 +74,7 @@ function availabilityStatus(profile: AgentProfile): string {
  * a runtime that stopped working. Reading its reason as a block would file the whole unwired bench
  * under Blocked and drown the agents an operator can actually unstick.
  */
-export function isAgentBlocked(profile: AgentProfile): boolean {
+function isAgentBlocked(profile: AgentProfile): boolean {
 	if (profile.projectOverride?.status === 'disabled') return true;
 	const status = availabilityStatus(profile);
 	if (status === 'configuration_required') return false;

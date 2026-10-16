@@ -94,7 +94,7 @@ const AUTO_ROUTING_MODEL = '*';
 /** Ids per bulk request: a 1000+ model gateway saves in a few batches with visible progress. */
 const MODEL_SAVE_BATCH = 500;
 
-export function orderedRoleModels(providerId: string, models: string[]): string[] {
+function orderedRoleModels(providerId: string, models: string[]): string[] {
 	if (providerId !== 'gemini') return models;
 	const priority = new Map<string, number>(
 		GEMINI_MODEL_PRIORITY.map((model, index) => [model, index]),
@@ -312,7 +312,7 @@ export function AddProviderWizard({
 	const entry: ProviderCatalogEntry | undefined = catalogEntry(providerId);
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open) return undefined;
 		const first = initialProviderId ?? WIZARD_PROVIDERS[0]?.id ?? '';
 		const seedEntry = catalogEntry(first);
 		setStep('provider');
@@ -329,18 +329,33 @@ export function AddProviderWizard({
 		setRuntimeValidation(null);
 		setError('');
 		setReenableRemote(true);
+		let cancelled = false;
 		void getCredentials()
-			.then((payload) => setBackends(payload.backends))
-			.catch(() => setBackends([]));
+			.then((payload) => {
+				if (!cancelled) setBackends(payload.backends);
+			})
+			.catch(() => {
+				if (!cancelled) setBackends([]);
+			});
 		void getModelGatewayRolePolicies()
-			.then((payload) => setRolePolicies(payload.rolePolicies))
-			.catch(() => setRolePolicies([]));
+			.then((payload) => {
+				if (!cancelled) setRolePolicies(payload.rolePolicies);
+			})
+			.catch(() => {
+				if (!cancelled) setRolePolicies([]);
+			});
 		void getSettings('')
 			.then((payload) => {
+				if (cancelled) return;
 				const flag = payload.general.find((item) => item.key === 'runtime.remote.enabled');
 				setRemoteRuntimeDisabled(flag?.value === false);
 			})
-			.catch(() => setRemoteRuntimeDisabled(false));
+			.catch(() => {
+				if (!cancelled) setRemoteRuntimeDisabled(false);
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [
 		open,
 		initialProviderId,

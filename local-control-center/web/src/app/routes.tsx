@@ -99,7 +99,7 @@ interface RouteEntry {
 }
 
 /** The single source of truth mapping each route to its (possibly lazy) page. */
-export const routeTable: Record<AppRoute, RouteEntry> = {
+const routeTable: Record<AppRoute, RouteEntry> = {
 	threads: {
 		render: (ctx) => <ShellPage ctx={ctx} />,
 		preload: importShell,

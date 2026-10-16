@@ -16,7 +16,7 @@ import { Button, Checkbox } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 
 /** Rows mounted per page; 200 checkboxes stay smooth even on modest Windows laptops. */
-export const PAGE_SIZE = 200;
+const PAGE_SIZE = 200;
 
 export type SelectableModel = {
 	/** Catalog id (`provider:model`), the selection key. */

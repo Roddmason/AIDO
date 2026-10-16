@@ -38,6 +38,7 @@ import {
 import { useI18n } from '../../i18n/I18nProvider';
 import { type AsyncError, resolveAsyncError, toAsyncError } from '../../lib/asyncError';
 import { toneForStatus } from '../../lib/format';
+import { mergeNewestById, upsertNewestById } from '../../lib/records';
 
 const runtimeModeOptions: AgentRuntimeMode[] = [
 	'api',
@@ -71,29 +72,6 @@ const agentRoles: AgentRole[] = [
 	'researcher',
 	'release_manager',
 ];
-
-function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
-	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
-	return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	records: T[],
-	incoming: T,
-) {
-	const existing = records.find((record) => record.id === incoming.id);
-	if (existing && recordTimestamp(existing) > recordTimestamp(incoming)) return records;
-	return existing
-		? records.map((record) => (record.id === incoming.id ? incoming : record))
-		: [incoming, ...records];
-}
-
-function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	current: T[],
-	incoming: T[],
-) {
-	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
-}
 
 function numericLabel(value: unknown, fallback: string) {
 	if (value === null || value === undefined || value === '') return fallback;

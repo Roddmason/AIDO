@@ -77,6 +77,7 @@ export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
 	const tokenRef = useRef('');
+	const requestIdRef = useRef(0);
 	const controllersRef = useRef<Set<AbortController>>(new Set());
 	const { t } = useI18n();
 	const tRef = useRef(t);
@@ -84,6 +85,8 @@ export function useControlPlane() {
 
 	const refresh = useCallback(async (silent = false) => {
 		const controller = new AbortController();
+		requestIdRef.current += 1;
+		const requestId = requestIdRef.current;
 		let secondaryStarted = false;
 		controllersRef.current.add(controller);
 		if (!silent) setState((current) => ({ ...current, loading: true, error: '' }));
@@ -123,6 +126,7 @@ export function useControlPlane() {
 			]);
 			if (!mountedRef.current) return;
 			tokenRef.current = handshake.token;
+			if (requestId !== requestIdRef.current) return;
 			setState((current) => ({
 				...current,
 				token: handshake.token,
@@ -136,7 +140,7 @@ export function useControlPlane() {
 			void refreshSecondaryState();
 		} catch (error) {
 			if (controller.signal.aborted) return;
-			if (!mountedRef.current) return;
+			if (!mountedRef.current || requestId !== requestIdRef.current) return;
 			const message =
 				error instanceof Error
 					? error.message

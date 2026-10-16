@@ -3383,10 +3383,6 @@
       "en": "Security findings preview failed.",
       "es": "No se pudo previsualizar los hallazgos de seguridad."
     },
-    "app.pages.errArtifactPreview": {
-      "en": "Artifact preview failed.",
-      "es": "No se pudo previsualizar el artefacto."
-    },
     "app.pages.evidenceLoading": {
       "en": "Loading",
       "es": "Cargando"
@@ -3598,10 +3594,6 @@
     "app.workflows.errQueueOp": {
       "en": "Queue operation failed.",
       "es": "La operación sobre la cola falló."
-    },
-    "app.workflows.errArtifactPreview": {
-      "en": "Artifact preview failed.",
-      "es": "La vista previa del artefacto falló."
     },
     "app.workflows.ariaGraphFor": {
       "en": "Workflow graph for",

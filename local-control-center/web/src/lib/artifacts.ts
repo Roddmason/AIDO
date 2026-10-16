@@ -8,7 +8,7 @@ import type { ArtifactPayload } from '../api/client';
 import type { Artifact, Dictionary } from '../api/types';
 
 /** Devuelve el `metadata` como diccionario, o `{}` si no es un objeto válido. */
-export function artifactMetadata(artifact: Artifact): Dictionary {
+function artifactMetadata(artifact: Artifact): Dictionary {
 	return (
 		artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}
 	) as Dictionary;

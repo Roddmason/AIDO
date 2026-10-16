@@ -151,6 +151,10 @@ def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+CANCELLABLE_JOB_STATUSES = frozenset({"queued", "resource_wait", "running", "approval_required"})
+"""Estados activos desde los que un job puede pasar a ``cancelled``."""
+
+
 class JobsRepository:
     """Acceso a `jobs`, `job_runs` y `action_requests` sobre el connection del caller.
 
@@ -290,6 +294,27 @@ class JobsRepository:
         else:
             params = (int(limit),) if limit is not None else ()
             rows = self._query(f"SELECT * FROM jobs {order}", params)
+        return [row_to_job(row) for row in rows]
+
+    def list_thread_jobs(
+        self, *, project_id: str | None = None, statuses: tuple[str, ...] | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista los jobs ligados a un hilo (``payload.threadId`` presente), filtrando en SQL.
+
+        ``statuses`` restringe por estado; el orden es del más reciente al más antiguo.
+        """
+        clauses = ["json_extract(payload, '$.threadId') IS NOT NULL"]
+        params: list[Any] = []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if statuses:
+            clauses.append(f"status IN ({','.join('?' for _ in statuses)})")
+            params.extend(statuses)
+        rows = self._query(
+            f"SELECT * FROM jobs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC",
+            tuple(params),
+        )
         return [row_to_job(row) for row in rows]
 
     def list_jobs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
@@ -712,18 +737,38 @@ class JobsRepository:
         )
         return {"job": job, "actionRequest": self.get_action_request(action_id), "auditEvent": audit}
 
+    def is_cancellable(self, job_id: str) -> bool:
+        """Indica si el job sigue en un estado activo que ``cancel_job`` acepta."""
+        return self.get_job(job_id)["status"] in CANCELLABLE_JOB_STATUSES
+
     def cancel_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
-        """Cancela el job, libera su lease y deja evento `job.cancelled` más auditoría."""
+        """Cancela un job activo y deja evento `job.cancelled` más auditoría.
+
+        Un job `running` conserva su lease: el runner la necesita para cerrar la ejecución cancelada
+        (`require_fence`); el resto la libera.
+
+        Raises:
+            ValueError: si el job ya está en estado terminal.
+        """
         job = self.get_job(job_id)
         from local_control_center.process_supervision.repository import ManagedProcessRepository
 
         ManagedProcessRepository(self.connection).request_execution_cancel(
             job_id, reason=reason or "cancelled_by_operator"
         )
-        self.connection.execute(
-            "UPDATE jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+        cancelled = self.connection.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelled',
+                lease_owner = CASE WHEN status = 'running' THEN lease_owner END,
+                lease_expires_at = CASE WHEN status = 'running' THEN lease_expires_at END,
+                updated_at = ?
+            WHERE id = ? AND status IN ('queued', 'resource_wait', 'running', 'approval_required')
+            """,
             (utc_now(), job_id),
         )
+        if cancelled.rowcount != 1:
+            raise ValueError(f"Job {job_id} is {job['status']} and cannot be cancelled.")
         self.record_event(
             project_id=job["projectId"], job_id=job_id, event_type="job.cancelled", payload={"reason": reason}
         )
@@ -822,8 +867,10 @@ class JobsRepository:
         """
         timestamp = utc_now()
         run_id = f"run-{uuid.uuid4()}"
+        if self.connection.in_transaction:
+            raise RuntimeError("claim_next_job cannot run inside an open transaction.")
+        self.connection.execute("BEGIN IMMEDIATE")
         try:
-            self.connection.execute("BEGIN IMMEDIATE")
             if leader_fencing_token is not None and not self._worker_fence_is_active(
                 worker_id=worker_id,
                 leader_fencing_token=leader_fencing_token,

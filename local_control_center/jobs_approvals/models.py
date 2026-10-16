@@ -23,16 +23,6 @@ SENSITIVE_JOB_KINDS = {
 }
 
 
-JOB_STATUSES = {
-    "queued",
-    "resource_wait",
-    "running",
-    "approval_required",
-    "completed",
-    "approved",
-    "failed",
-    "cancelled",
-}
 JobStatus = Literal[
     "queued",
     "resource_wait",

@@ -246,7 +246,9 @@ class ExecutionRepository:
                     execution_id,
                 ),
             )
-            JobsRepository(self.connection).cancel_job(execution_id, reason=reason)
+            jobs = JobsRepository(self.connection)
+            if jobs.is_cancellable(execution_id):
+                jobs.cancel_job(execution_id, reason=reason)
             self.event(execution_id, f"execution.{status}", {"reason": reason})
         return self.get(execution_id)
 

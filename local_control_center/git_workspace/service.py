@@ -248,15 +248,35 @@ def _porcelain_path(raw_path: str) -> str:
     return path
 
 
+def _porcelain_entries(stdout: str) -> list[tuple[str, str, str]]:
+    """Normaliza la salida porcelain a tuplas ``(estado, ruta, línea legible)``.
+
+    Con ``-z`` (separador NUL) las rutas llegan crudas, sin comillas ni escapes, y un rename aporta
+    el destino en el registro y el origen en el siguiente; sin NUL se parsea el formato por líneas.
+    """
+    entries: list[tuple[str, str, str]] = []
+    if "\0" not in stdout:
+        return [
+            (line[:2], _porcelain_path(line[3:]), line) for line in _split_lines(stdout) if len(line) >= 4
+        ]
+    records = iter(stdout.split("\0"))
+    for record in records:
+        if len(record) < 4:
+            continue
+        status, path = record[:2], record[3:]
+        if "R" in status or "C" in status:
+            origin = next(records, "")
+            entries.append((status, path, f"{status} {origin} -> {path}"))
+        else:
+            entries.append((status, path, record))
+    return entries
+
+
 def _parse_porcelain(stdout: str) -> dict[str, list[str]]:
     changed: list[str] = []
     untracked: list[str] = []
     staged: list[str] = []
-    for line in _split_lines(stdout):
-        if len(line) < 4:
-            continue
-        status = line[:2]
-        path = _porcelain_path(line[3:])
+    for status, path, _line in _porcelain_entries(stdout):
         if not path:
             continue
         index_status, worktree_status = status[0], status[1]
@@ -741,7 +761,7 @@ class GitWorkspaceService:
         project_id = str(ctx.project["id"])
         traces: list[dict[str, Any]] = []
         try:
-            porcelain_result = self._run_git(ctx=ctx, op=op, args=["status", "--porcelain=v1", "-uall"])
+            porcelain_result = self._run_git(ctx=ctx, op=op, args=["status", "--porcelain=v1", "-z", "-uall"])
             traces.append(porcelain_result.trace)
             unavailable = self._repo_unavailable(ctx=ctx, command=porcelain_result)
             if unavailable:
@@ -773,7 +793,7 @@ class GitWorkspaceService:
                 "localBranches": local_branches,
                 "remoteBranches": remote_branches,
                 "dirty": bool(parsed["changedFiles"] or parsed["untrackedFiles"] or parsed["stagedFiles"]),
-                "porcelain": _split_lines(porcelain_result.stdout),
+                "porcelain": [line for _status, _path, line in _porcelain_entries(porcelain_result.stdout)],
                 "changedFiles": parsed["changedFiles"],
                 "untrackedFiles": parsed["untrackedFiles"],
                 "stagedFiles": parsed["stagedFiles"],

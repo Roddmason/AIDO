@@ -68,12 +68,6 @@ ThreadMessageKind = Literal[
 THREAD_DECISION_STATUSES = ("pending", "resolved", "dismissed")
 ThreadDecisionStatus = Literal["pending", "resolved", "dismissed"]
 
-THREAD_SIMILARITY_ACTIONS = (
-    "continue_existing",
-    "improve_existing",
-    "performance_pass",
-    "create_new_anyway",
-)
 ThreadSimilarityAction = Literal[
     "continue_existing",
     "improve_existing",

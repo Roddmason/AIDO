@@ -105,6 +105,14 @@ class ConcurrentWorker:
             next_job = jobs.peek_next_job()
             if next_job is None:
                 return None
+            workload_class: WorkloadClass | None = None
+            if session is None:
+                try:
+                    workload_class = _workload_class_for_job(next_job, connection=connection)
+                except JobExecutionUnavailable as error:
+                    return self._fail_unclassifiable_job(
+                        jobs, next_job, error, worker_id=worker_id, fencing_token=fencing_token
+                    )
             admission = (
                 ResourceAdmissionDecision(
                     status="admitted",
@@ -117,7 +125,7 @@ class ConcurrentWorker:
                 else governor.admit(
                     ResourceAdmissionRequest(
                         execution_id=next_job["id"],
-                        workload_class=_workload_class_for_job(next_job, connection=connection),
+                        workload_class=workload_class,
                         owner_id=worker_id,
                         job_id=next_job["id"],
                         lease_seconds=max(1, self.lease_ms // 1000),
@@ -179,51 +187,99 @@ class ConcurrentWorker:
                             db_path=self.db_path,
                             worker_id=worker_id,
                         )
-                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
-                            claimed["job"]["id"]
-                        )
-                        return jobs.complete_job_run(
-                            job_id=claimed["job"]["id"],
-                            run_id=claimed["run"]["id"],
-                            status="cancelled" if cancellation else "completed",
-                            summary=cancellation or execution["summary"],
+                        return self._close_run(
+                            connection,
+                            claimed,
+                            status="completed",
+                            summary=execution["summary"],
                             metadata=execution["metadata"],
-                            worker_id=worker_id if fencing_token is not None else None,
-                            leader_fencing_token=fencing_token,
+                            worker_id=worker_id,
+                            fencing_token=fencing_token,
                         )
                     except JobExecutionUnavailable as error:
-                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
-                            claimed["job"]["id"]
-                        )
-                        return jobs.complete_job_run(
-                            job_id=claimed["job"]["id"],
-                            run_id=claimed["run"]["id"],
-                            status="cancelled" if cancellation else "failed",
-                            summary=cancellation or error.summary,
+                        return self._close_run(
+                            connection,
+                            claimed,
+                            status="failed",
+                            summary=error.summary,
                             metadata={"status": error.status, **error.metadata},
-                            worker_id=worker_id if fencing_token is not None else None,
-                            leader_fencing_token=fencing_token,
+                            worker_id=worker_id,
+                            fencing_token=fencing_token,
                         )
                     except StaleWorkerFenceError:
                         return None
                     except Exception as error:
-                        cancellation = ManagedProcessRepository(connection).cancellation_reason(
-                            claimed["job"]["id"]
-                        )
-                        return jobs.complete_job_run(
-                            job_id=claimed["job"]["id"],
-                            run_id=claimed["run"]["id"],
-                            status="cancelled" if cancellation else "failed",
-                            summary=cancellation or str(error),
+                        return self._close_run(
+                            connection,
+                            claimed,
+                            status="failed",
+                            summary=str(error),
                             metadata={"error": str(error)},
-                            worker_id=worker_id if fencing_token is not None else None,
-                            leader_fencing_token=fencing_token,
+                            worker_id=worker_id,
+                            fencing_token=fencing_token,
                         )
             finally:
                 if session is None:
                     governor.release(resource_lease.id, reason="execution_finished")
         finally:
             connection.close()
+
+    def _fail_unclassifiable_job(
+        self,
+        jobs: JobsRepository,
+        job: dict,
+        error: JobExecutionUnavailable,
+        *,
+        worker_id: str,
+        fencing_token: int | None,
+    ) -> dict | None:
+        """Reclama y falla un job sin clasificación de carga para que no bloquee la cabeza de la cola."""
+        try:
+            claimed = jobs.claim_next_job(
+                worker_id=worker_id,
+                lease_ms=self.lease_ms,
+                leader_fencing_token=fencing_token,
+                job_id=job["id"],
+            )
+        except StaleWorkerFenceError:
+            return None
+        if not claimed:
+            return None
+        return self._close_run(
+            jobs.connection,
+            claimed,
+            status="failed",
+            summary=error.summary,
+            metadata={"status": error.status, **error.metadata},
+            worker_id=worker_id,
+            fencing_token=fencing_token,
+        )
+
+    @staticmethod
+    def _close_run(
+        connection: Any,
+        claimed: dict,
+        *,
+        status: str,
+        summary: str,
+        metadata: dict,
+        worker_id: str,
+        fencing_token: int | None,
+    ) -> dict | None:
+        """Cierra el run honrando una cancelación pendiente; `None` si el fence de liderazgo se perdió."""
+        cancellation = ManagedProcessRepository(connection).cancellation_reason(claimed["job"]["id"])
+        try:
+            return JobsRepository(connection).complete_job_run(
+                job_id=claimed["job"]["id"],
+                run_id=claimed["run"]["id"],
+                status="cancelled" if cancellation else status,
+                summary=cancellation or summary,
+                metadata=metadata,
+                worker_id=worker_id if fencing_token is not None else None,
+                leader_fencing_token=fencing_token,
+            )
+        except StaleWorkerFenceError:
+            return None
 
     def _resource_snapshot(self, connection: Any) -> ResourceSnapshot:
         if self.resource_snapshot is not None:
@@ -325,7 +381,14 @@ def _workload_class_for_job(job: dict[str, Any], *, connection: Any | None = Non
     """
     kind = str(job.get("kind") or "")
     if kind == "operation.execute":
-        return job["payload"]["workloadClass"]
+        workload_class = (job.get("payload") or {}).get("workloadClass")
+        if not workload_class:
+            raise JobExecutionUnavailable(
+                status="configuration_required",
+                summary="Operation job is missing its workloadClass.",
+                metadata={"kind": kind},
+            )
+        return workload_class
     if connection is not None and kind in {
         THREAD_PRODUCT_LOOP_JOB_KIND,
         THREAD_RESEARCH_JOB_KIND,
@@ -741,6 +804,16 @@ def _execute_thread_research_job(
     query = str(payload.get("query") or "").strip()
     workspace_id = str(payload.get("workspaceId") or "").strip()
     if not thread_id or not project_id or not query or not workspace_id:
+        if thread_id:
+            _finish_thread_after_research(
+                threads=ThreadsRepository(connection),
+                thread_id=thread_id,
+                job_id=job["id"],
+                status="blocked",
+                reason="Research needs a workspace-owned thread; the job has no workspaceId.",
+                report_artifact_id=None,
+                event_type="blocked",
+            )
         raise JobExecutionUnavailable(
             status="configuration_required",
             summary="Thread research job is missing threadId, projectId, query, or workspaceId.",
@@ -753,6 +826,17 @@ def _execute_thread_research_job(
         )
 
     threads = ThreadsRepository(connection)
+    if _thread_job_was_cancelled(threads, job["id"]):
+        threads.record_event(
+            thread_id=thread_id,
+            type="worker_aborted",
+            agent_role="researcher",
+            payload={"jobId": job["id"], "reason": "Job was cancelled before the research started."},
+        )
+        return {
+            "summary": "Research was cancelled before it started.",
+            "metadata": {"kind": job["kind"], "threadId": thread_id, "researchStatus": "cancelled"},
+        }
     threads.set_status(thread_id, "running")
     threads.record_event(
         thread_id=thread_id,

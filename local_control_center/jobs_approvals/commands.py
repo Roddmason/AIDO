@@ -20,6 +20,8 @@ from .repository import JobsRepository
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_JOB_KIND_PREFIXES = ("operation.", "thread.")
+
 
 def required_reason(body: dict[str, Any]) -> str:
     """Extrae y normaliza la razón del cuerpo.
@@ -39,7 +41,15 @@ def list_jobs(jobs: JobsRepository, events: EventBus) -> dict[str, Any]:
 
 
 def create_job(jobs: JobsRepository, body: dict[str, Any]) -> dict[str, Any]:
-    """Encola un job a partir del request, mapeando los alias camelCase a los argumentos del repositorio."""
+    """Encola un job a partir del request, mapeando los alias camelCase a los argumentos del repositorio.
+
+    Raises:
+        HTTPException: 422 si el kind es interno (operaciones y ejecuciones de hilos), que solo encolan los servicios.
+    """
+    if str(body["kind"]).startswith(INTERNAL_JOB_KIND_PREFIXES):
+        raise HTTPException(
+            status_code=422, detail=f"Job kind {body['kind']} cannot be created through the API."
+        )
     return jobs.create_job(
         project_id=body["projectId"],
         kind=body["kind"],
@@ -57,7 +67,10 @@ def approve_job(jobs: JobsRepository, job_id: str, body: dict[str, Any]) -> dict
 
 def cancel_job(jobs: JobsRepository, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
     """Cancela el job y libera su lease; la razón es opcional."""
-    return jobs.cancel_job(job_id, reason=body.get("reason", ""))
+    try:
+        return jobs.cancel_job(job_id, reason=body.get("reason", ""))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def retry_job(jobs: JobsRepository, job_id: str, body: dict[str, Any]) -> dict[str, Any]:

@@ -556,3 +556,40 @@ def test_slow_injected_provider_does_not_block_http_reads_or_cancel(tmp_path):
         assert not thread.is_alive()
         assert results[0]["status"] == "cancelled"
     runtime.close()
+
+
+def test_request_cancel_tolerates_job_already_terminal(tmp_path):
+    from local_control_center.executions.repository import ExecutionRepository
+    from local_control_center.shared.db import open_sqlite_connection
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    try:
+        with (
+            TestClient(create_app(runtime=runtime, static_dir=None)),
+            closing(open_sqlite_connection(runtime.db_path)) as connection,
+            connection,
+        ):
+            repository = ExecutionRepository(connection)
+            execution = repository.enqueue(
+                operation="test.cancel_after_job_closed",
+                workload_class="qa_light",
+                arguments={},
+                project_id=None,
+                cwd=str(tmp_path),
+                result_status_code=200,
+            )
+            execution_id = execution["executionId"]
+            connection.execute("UPDATE jobs SET status='completed' WHERE id=?", (execution_id,))
+            connection.execute(
+                "UPDATE operational_executions SET status='running' WHERE id=?", (execution_id,)
+            )
+
+            cancelled = repository.request_cancel(execution_id, reason="operator test")
+
+            assert cancelled["status"] == "cancel_requested"
+            job_status = connection.execute("SELECT status FROM jobs WHERE id=?", (execution_id,)).fetchone()[
+                0
+            ]
+            assert job_status == "completed"
+    finally:
+        runtime.close()

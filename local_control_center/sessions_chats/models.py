@@ -14,14 +14,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class SessionCreateRequest(BaseModel):
-    """Cuerpo para abrir una sesión; solo `projectId` es obligatorio."""
-
-    project_id: str = Field(alias="projectId")
-    name: str | None = None
-    team_id: str | None = Field(default=None, alias="teamId")
-
-
 class SessionRecord(BaseModel):
     """Sesión persistida tal como se expone al cliente (camelCase, con timestamps y estado)."""
 
@@ -35,25 +27,10 @@ class SessionRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
-class SessionResponse(BaseModel):
-    """Envoltura de la sesión devuelta tras crearla."""
-
-    session: SessionRecord
-
-
 class SessionsListResponse(BaseModel):
     """Listado de sesiones devuelto por el endpoint de consulta."""
 
     sessions: list[SessionRecord]
-
-
-class ChatCreateRequest(BaseModel):
-    """Cuerpo para crear un chat; el `prompt` es obligatorio y el `sessionId` opcional."""
-
-    project_id: str = Field(alias="projectId")
-    session_id: str | None = Field(default=None, alias="sessionId")
-    prompt: str
-    title: str | None = None
 
 
 class ChatRecord(BaseModel):
@@ -68,12 +45,6 @@ class ChatRecord(BaseModel):
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
-
-
-class ChatResponse(BaseModel):
-    """Envoltura del chat devuelto tras crearlo."""
-
-    chat: ChatRecord
 
 
 class ChatsListResponse(BaseModel):

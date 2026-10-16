@@ -203,17 +203,6 @@ class WorkerLeadershipRepository:
         )
         return cursor.rowcount == 1
 
-    def is_active(self, *, owner_id: str, fencing_token: int, now: str | None = None) -> bool:
-        """Comprueba el fence actual sin renovar la lease."""
-        row = self.connection.execute(
-            """
-            SELECT 1 FROM worker_leader_leases
-            WHERE instance_id = ? AND owner_id = ? AND fencing_token = ? AND expires_at > ?
-            """,
-            (self.instance_id, owner_id, int(fencing_token), now or utc_now()),
-        ).fetchone()
-        return row is not None
-
     def current(self) -> dict[str, Any] | None:
         """Devuelve la lease singleton sin inferir que una lease vencida siga vigente."""
         row = self.connection.execute(

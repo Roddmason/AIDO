@@ -371,6 +371,8 @@ class ThreadsRepository:
             current = self.get_thread(thread_id)
             if current["deletedAt"] or current["status"] == "deleted":
                 raise ValueError("Deleted thread cannot be unarchived")
+            if current["status"] != "archived":
+                raise ValueError("Only archived threads can be unarchived")
             self.connection.execute(
                 """
                 UPDATE project_threads

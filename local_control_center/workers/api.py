@@ -123,10 +123,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             )
             if state == "paused":
                 threads = ThreadsRepository(connection)
-                for job in JobsRepository(connection).list_jobs():
+                for job in JobsRepository(connection).list_thread_jobs(statuses=("queued",)):
                     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
                     thread_id = str(payload.get("threadId") or "").strip()
-                    if job["status"] == "queued" and thread_id:
+                    if thread_id:
                         threads.record_event(
                             thread_id=thread_id,
                             type="worker_paused",

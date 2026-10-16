@@ -290,7 +290,7 @@ class ModelCatalogListResponse(BaseModel):
 
 
 MAX_BULK_MODEL_IDS = 10_000
-""": Tope de ids por request masivo: cubre catálogos de gateway (OmniRoute anuncia >1000) con margen."""
+"""Tope de ids por request masivo: cubre catálogos de gateway (OmniRoute anuncia >1000) con margen."""
 
 
 class ProviderModelsBulkPatchRequest(GatewayStrictModel):
@@ -995,7 +995,7 @@ class DiscoverModelsResponse(BaseModel):
 
     models: list[ModelCatalogRecord]
     recommended_models: list[str] | None = Field(default=None, alias="recommendedModels")
-    """: Modelos de la allowlist curada del gateway (``None`` si el proveedor no tiene una): la UI : ofrece
+    """Modelos de la allowlist curada del gateway (``None`` si el proveedor no tiene una): la UI ofrece
     "Seleccionar recomendados" sin preseleccionar el catálogo completo.
     """
 

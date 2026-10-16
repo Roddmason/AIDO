@@ -21,9 +21,9 @@ from local_control_center.agents.provider_accounts import ProviderAccountStore
 
 RUNTIME_TEAM_FRESHNESS_SECONDS = 30 * 60
 MODEL_RUNTIME_KINDS = frozenset({"api", "gateway", "local"})
-""": Tipos de runtime cuya validación se lleva por (provider, modelo) habilitado."""
+"""Tipos de runtime cuya validación se lleva por (provider, modelo) habilitado."""
 REMOTE_MODEL_RUNTIME_KINDS = frozenset({"api", "gateway"})
-""": Runtimes remotos de modelo: el gate de un equipo sin ``roleModels`` los evalúa por cualquier modelo :
+"""Runtimes remotos de modelo: el gate de un equipo sin ``roleModels`` los evalúa por cualquier modelo
 habilitado. Un local sella ``roleModels`` y un equipo legado sin ellos conserva el gate por runtime.
 """
 

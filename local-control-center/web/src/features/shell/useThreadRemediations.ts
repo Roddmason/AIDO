@@ -106,9 +106,7 @@ export function useThreadRemediations(
 			if (currentThreadRef.current !== threadId) return;
 			setRemediations(response.remediations);
 			setError(false);
-		} catch {
-			// A failed background refetch keeps the last known cards rather than blanking the panel.
-		}
+		} catch {}
 	}, [threadId]);
 
 	const execute = useCallback(

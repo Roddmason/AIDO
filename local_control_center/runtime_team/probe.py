@@ -69,9 +69,9 @@ OPERATOR_APPROVAL_AUDIT_ACTION = "runtime.validation.operator_approved"
 _STABLE_CODE = re.compile(r"[a-z0-9_.:-]+")
 _TIMEOUT_TEXT = re.compile(r"timed? ?out|timeout", re.IGNORECASE)
 _ATTEMPT_KEYS = ("model", "status", "reason", "evidence", "latencyMs", "httpStatus")
-""": Campos de cada intento que viajan en ``attempts``."""
+"""Campos de cada intento que viajan en ``attempts``."""
 RECENT_FAILURE_SECONDS = 30 * 60
-""": Ventana en la que una falla de un modelo lo manda al final de los candidatos automáticos."""
+"""Ventana en la que una falla de un modelo lo manda al final de los candidatos automáticos."""
 VALIDATION_MAX_TOKENS = 1024
 VALIDATION_JSON_PROMPT = 'Reply with exactly this JSON object and nothing else: {"ok": true}'
 VALIDATION_RESPONSE_FORMAT = {
@@ -90,17 +90,17 @@ VALIDATION_RESPONSE_FORMAT = {
 DEFERRED_VALIDATION_CAUSES = TRANSIENT_LOCAL_RUNTIME_CAUSES | frozenset({"insufficient_time_for_model_load"})
 HTTP_BAD_REQUEST = 400
 MAX_AUTO_VALIDATION_ATTEMPTS = 5
-""": Tope de modelos que prueba una validación sin modelo pedido en una cuenta de API/gateway."""
+"""Tope de modelos que prueba una validación sin modelo pedido en una cuenta de API/gateway."""
 VALIDATION_TIME_BUDGET_SECONDS = 25.0
-""": Presupuesto total de una validación remota: la cola del operador nunca espera más que esto."""
+"""Presupuesto total de una validación remota: la cola del operador nunca espera más que esto."""
 VALIDATION_ATTEMPT_TIMEOUT_SECONDS = 12.0
-""": Tope de cada intento: un upstream colgado no se come el presupuesto de los demás candidatos."""
+"""Tope de cada intento: un upstream colgado no se come el presupuesto de los demás candidatos."""
 _MIN_ATTEMPT_SECONDS = 2.0
-""": Por debajo de este margen no se lanza otro intento (no alcanzaría a responder)."""
+"""Por debajo de este margen no se lanza otro intento (no alcanzaría a responder)."""
 _PROVIDER_LEVEL_CAUSES = frozenset({"provider_unreachable"})
-""": Causas a nivel de proveedor: probar otro modelo del mismo endpoint no cambiaría el resultado. Solo :
-cuentan cuando el endpoint no respondió HTTP: un gateway que contesta 504 "upstream timed out" sí : es
-alcanzable y otro upstream puede andar.
+"""Causas a nivel de proveedor: probar otro modelo del mismo endpoint no cambiaría el resultado. Solo cuentan
+cuando el endpoint no respondió HTTP: un gateway que contesta 504 "upstream timed out" sí es alcanzable y
+otro upstream puede andar.
 """
 
 

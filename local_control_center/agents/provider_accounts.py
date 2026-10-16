@@ -163,7 +163,7 @@ MODEL_CATALOG_COLUMNS = """
     disabled_reason, disabled_detail
 """
 VALIDATION_FAILED_REASON = "validation_failed"
-""": ``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó."""
+"""``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó."""
 PRICING_SNAPSHOT_COLUMNS = """
     id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
     output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,

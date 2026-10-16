@@ -62,17 +62,17 @@ from .validation import (
 )
 
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 502, 503, 504})
-""": Estados HTTP transitorios: el modelo puede andar en otro momento, no se descarta."""
+"""Estados HTTP transitorios: el modelo puede andar en otro momento, no se descarta."""
 MIN_MODEL_SECONDS = 2.0
-""": Por debajo de este margen no se lanza otra prueba (no alcanzaría a responder)."""
+"""Por debajo de este margen no se lanza otra prueba (no alcanzaría a responder)."""
 CONTROL_INTERVAL_SECONDS = 0.5
-""": Cada cuánto el hilo principal revisa cancelación, switch del proveedor, cuota y presupuesto."""
+"""Cada cuánto el hilo principal revisa cancelación, switch del proveedor, cuota y presupuesto."""
 CLEANUP_SECONDS = 30
-""": Margen reservado dentro del sobre de la ejecución para persistir el cierre."""
+"""Margen reservado dentro del sobre de la ejecución para persistir el cierre."""
 WORKER_GRACE_SECONDS = 15.0
-""": Espera extra por hilos colgados tras el presupuesto; son daemon y no retienen el proceso."""
+"""Espera extra por hilos colgados tras el presupuesto; son daemon y no retienen el proceso."""
 STALE_RUN_SECONDS = 15 * 60
-""": Una corrida ``running`` sin avance por más que esto (y sin ejecución viva) se informa interrumpida."""
+"""Una corrida ``running`` sin avance por más que esto (y sin ejecución viva) se informa interrumpida."""
 _DETAIL_LIMIT = min(EVIDENCE_LIMIT, 500)
 _WORKER_DONE = object()
 

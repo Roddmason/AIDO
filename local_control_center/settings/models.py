@@ -37,7 +37,7 @@ class ResolvedSetting(_Aliased):
     inherited: bool
     source: Literal["default", "general", "project"]
     assigned_by: Literal["operator", "auto"] = Field(default="operator", alias="assignedBy")
-    """: Quien asigno el valor efectivo. Eje distinto de ``origin``, que dice de que ambito salio: : un valor
+    """Quien asigno el valor efectivo. Eje distinto de ``origin``, que dice de que ambito salio: un valor
     puede venir del proyecto y haberlo puesto la deteccion, o la persona.
     """
     editable_scopes: list[str] = Field(alias="editableScopes")

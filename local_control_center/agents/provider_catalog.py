@@ -60,7 +60,7 @@ class ProviderCatalogEntry:
     pricing_mode: PricingMode = "unknown"
     aliases: tuple[str, ...] = ()
     excluded_model_prefixes: tuple[str, ...] = ()
-    """: Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del : operador): el
+    """Prefijos de modelo que el sync nunca habilita (regla de proyecto, no preferencia del operador): el
     sync los omite y apaga los que un sync anterior dejó habilitados.
     """
     local_profile: LocalRuntimeProfile | None = None

@@ -118,7 +118,6 @@ def trigger_health_checks(
         try:
             response = client.post(path) or {}
         except HealthRefreshError as error:
-            # Un runtime sin contrato de health-check (la ruta manual) no invalida a los demas.
             print(f"  - {label}: no acepta health-check ({str(error)[-90:]})")
             continue
         execution_id = str(response.get("executionId") or "")

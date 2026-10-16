@@ -29,15 +29,16 @@ from .git_worktrees import _ensure_control_workspace, remove_git_worktree, run_b
 from .locations import legacy_workspaces_root, project_workspaces_root
 from .repository import ACTIVE_WORKSPACE_STATUSES, WorkspacesRepository, row_to_workspace
 
-# Ventana de gracia: un workspace tocado hace menos de esto nunca es candidato, para no competir
-# con runs en vuelo cuyo estado terminal todavía no se persiste.
 FRESH_WORKSPACE_GRACE_HOURS = 24.0
+"""Ventana de gracia: un workspace tocado hace menos de esto nunca es candidato, para no competir con runs en
+vuelo cuyo estado terminal todavía no se persiste.
+"""
 
-# task_id que el product loop deriva del hilo (``stable_task_suffix``): la única evidencia de dueño
-# que enlaza un workspace con su hilo.
 _PRODUCT_TASK_PATTERN = re.compile(r"^product-(?:loop|owner)-(?P<suffix>[a-z0-9]{1,12})$")
+"""task_id que el product loop deriva del hilo (``stable_task_suffix``): la única evidencia de dueño que
+enlaza un workspace con su hilo.
+"""
 
-# Estados de workflow_runs que cuentan como terminales aunque ``completed_at`` quede nulo.
 _TERMINAL_WORKFLOW_STATUSES = {
     "completed",
     "failed",
@@ -46,6 +47,7 @@ _TERMINAL_WORKFLOW_STATUSES = {
     "runtime_unavailable",
     "cancelled",
 }
+"""Estados de workflow_runs que cuentan como terminales aunque ``completed_at`` quede nulo."""
 
 _CLEANUP_TASK_ID = "workspace-cleanup"
 
@@ -162,7 +164,6 @@ def _classify_workspace(
         return None
     workspace_path = Path(workspace["path"]).resolve(strict=False)
     if not _is_under_any(workspace_path, workspace_roots):
-        # Protege los control workspaces (su path es la raíz del repo real) y cualquier fila rara.
         return None
 
     reason: str | None = None
@@ -210,10 +211,6 @@ def _collect_state(connection: sqlite3.Connection, *, root: Path, project_id: st
     """Estado compartido de plan/aplicación: candidatos, huérfanos físicos y contexto del repo."""
     project = _project_row(connection, project_id)
     repo_path = Path(project["path"]).resolve(strict=False)
-    # Dos fronteras: la del propio proyecto (donde viven los workspaces desde `aab5bab2`) y la
-    # legacy del sistema, para poder retirar lo que quedo de la ubicacion anterior. Mirar solo
-    # la legacy dejaba fuera a TODO workspace nuevo: la limpieza no encontraba un solo
-    # candidato y los huerfanos se acumulaban sin techo.
     workspace_roots = _workspace_roots(root, repo_path)
     fresh_cutoff = iso_after_seconds(utc_now(), -FRESH_WORKSPACE_GRACE_HOURS * 3600)
     placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)

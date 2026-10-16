@@ -57,7 +57,6 @@ class ArtifactCapture:
             if not re.search(r"(?:Bearer|password\s*=)\s*$", self.pending[:line_boundary], re.I):
                 cutoff = max(cutoff, line_boundary)
         else:
-            # No escribir un PEM incompleto, aunque su tamaño exceda el patrón habitual.
             begin = self.pending.index("-----BEGIN")
             if "PRIVATE KEY-----" in self.pending[begin:] and "-----END" not in self.pending[begin:]:
                 cutoff = min(cutoff, begin)
@@ -69,7 +68,6 @@ class ArtifactCapture:
             self._write_clean(self.pending[:cutoff])
             self.pending = self.pending[cutoff:]
         if len(self.pending) > 1024 * 1024:
-            # Una credencial sin delimitador no puede crecer sin límite ni salir parcialmente.
             self.pending = "[redacted oversized sensitive output]"
             self.truncated = True
             self.failure_event.set()

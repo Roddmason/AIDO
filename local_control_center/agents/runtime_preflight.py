@@ -144,7 +144,6 @@ def _round_robin(models: list[dict[str, Any]]):
 def _recent_failure(connection, provider: str, model: str, fingerprint: str):
     if provider in QuotaManager(connection).providers_in_cooldown():
         return "provider_quota_cooldown", None
-    # Authentication failures exclude the account across roles, threads and models.
     status = provider_authentication_failure(connection, provider, fingerprint)
     if status:
         return "provider_authentication_cooldown", status
@@ -478,7 +477,6 @@ def prevalidate_candidates(
                         output_tokens=OUTPUT_TOKEN_LIMIT,
                     )
                     estimate = pricing["estimatedCostUsd"]
-                    # Partial prices must not turn an unknown output rate into zero.
                     prices = connection.execute(
                         "SELECT input_price_per_mtok,output_price_per_mtok FROM model_catalog WHERE provider_id=? AND model=?",
                         (provider, model_id),
@@ -524,8 +522,6 @@ def prevalidate_candidates(
                             connection,
                             model=model,
                             runtime_status=runtime_statuses.get(provider) or {},
-                            # Only known spending is deducted; unknown authorization
-                            # still does not establish an actual monetary ceiling.
                             request=replace(request, budget_remaining_usd=remaining_budget),
                         )
                     else:
@@ -549,8 +545,6 @@ def prevalidate_candidates(
                     attempted_cli_accounts.add(provider)
                     evidence["budgetCostUnknown"] |= actual_cost is None
                 elif estimate is None:
-                    # Missing or partial catalog prices cannot establish final cost,
-                    # including when a gateway reports a partial computed amount.
                     evidence["budgetCostUnknown"] = True
                 evidence["knownBudgetSpentUsd"] += max(float(estimate or 0), float(actual_cost or 0))
                 rejection = model_validation_rejection(connection, provider, model_id)

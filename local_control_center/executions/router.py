@@ -93,7 +93,6 @@ class ExecutionRouter(APIRouter):
                 result_status_code=status_code,
             )
 
-        # wraps conserva strings forward-ref del módulo original; resolverlos evita contexto incorrecto.
         enqueue.__signature__ = signature.replace(
             parameters=[
                 value.replace(annotation=hints.get(name, value.annotation))

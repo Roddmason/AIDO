@@ -73,7 +73,6 @@ const VALIDATION_META: Record<
 		labelKey: 'app.localRuntime.validation.validated',
 		fallback: 'Validated',
 	},
-	// A deferred validation (model loading, endpoint busy) is not a failure: neutral pending icon.
 	deferred: {
 		Icon: CircleDashed,
 		tone: 'warn',

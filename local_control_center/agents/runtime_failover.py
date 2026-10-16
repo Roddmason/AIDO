@@ -47,10 +47,10 @@ class FailureClass(StrEnum):
     UNKNOWN = "unknown"
 
 
-#: Solo estas clases justifican reintentar en otro proveedor.
 FAILOVER_ELIGIBLE = frozenset(
     {FailureClass.QUOTA, FailureClass.TRANSPORT, FailureClass.AUTHENTICATION, FailureClass.PROVIDER_REQUEST}
 )
+""": Solo estas clases justifican reintentar en otro proveedor."""
 
 
 def looks_like_quota_exhaustion(output: str) -> bool:

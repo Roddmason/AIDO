@@ -28,7 +28,6 @@ from local_control_center.agents.local_runtime_causes import LocalRuntimeCause
 from local_control_center.agents.providers.http_transport import ResponseTooLargeError
 from local_control_center.shared.redaction import redact_secrets
 
-#: Causas estables de fallo de runtime. La UI mapea cada una a copia traducida y a su remediación.
 RuntimeFailureCause = Literal[
     "auth_expired",
     "auth_missing",
@@ -38,12 +37,11 @@ RuntimeFailureCause = Literal[
     "model_not_found",
     "unknown",
 ]
+""": Causas estables de fallo de runtime. La UI mapea cada una a copia traducida y a su remediación."""
 
-#: Tope de la evidencia que se persiste y se muestra; el stderr de un CLI puede ser enorme.
 EVIDENCE_LIMIT = 1000
+""": Tope de la evidencia que se persiste y se muestra; el stderr de un CLI puede ser enorme."""
 
-# Orden = prioridad: la primera causa que matchea gana. `auth_expired` va antes que `auth_missing`
-# porque un token vencido también menciona "authenticate", y el remedio difiere (re-login vs login).
 _CAUSE_PATTERNS: tuple[tuple[RuntimeFailureCause, re.Pattern[str]], ...] = (
     (
         "auth_expired",
@@ -75,12 +73,15 @@ _CAUSE_PATTERNS: tuple[tuple[RuntimeFailureCause, re.Pattern[str]], ...] = (
     ),
     ("model_not_found", re.compile(r"model .{0,80}not found|unknown model|no such model", re.IGNORECASE)),
 )
+"""Orden = prioridad: la primera causa que matchea gana. `auth_expired` va antes que `auth_missing` porque un
+token vencido también menciona "authenticate", y el remedio difiere (re-login vs login).
+"""
 
-# "try again at Aug 14th, 2026 8:52 AM." -> el cliente necesita saber cuándo vuelve el servicio.
 _RETRY_AFTER_PATTERN = re.compile(r"try again at\s+(?P<when>[^.\n]+)", re.IGNORECASE)
+""""try again at Aug 14th, 2026 8:52 AM." -> el cliente necesita saber cuándo vuelve el servicio."""
 
-# Señales de que hubo un fallo aunque el proceso haya terminado con código 0.
 _FAILURE_MARKERS = re.compile(r"^\s*(error|fatal)\b|\berror:", re.IGNORECASE | re.MULTILINE)
+"""Señales de que hubo un fallo aunque el proceso haya terminado con código 0."""
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,6 @@ def classify_runtime_failure(
     """
     combined = f"{stderr}\n{stdout}".strip()
     if not combined:
-        # Sin salida: solo es fallo si el proceso lo declaró con un código distinto de cero.
         if return_code not in (None, 0):
             return RuntimeFailure(
                 runtime_id=runtime_id, cause="unknown", evidence="", return_code=return_code
@@ -147,7 +147,6 @@ def classify_runtime_failure(
             break
 
     if matched_cause is None:
-        # Sin causa conocida, solo es fallo si el proceso lo declaró (rc != 0) o gritó ERROR/FATAL.
         declared = return_code not in (None, 0) or _FAILURE_MARKERS.search(combined) is not None
         if not declared:
             return None
@@ -166,8 +165,8 @@ def classify_runtime_failure(
     )
 
 
-#: Tope de la evidencia de un fallo local que viaja en la razón del resultado.
 LOCAL_EVIDENCE_LIMIT = 300
+""": Tope de la evidencia de un fallo local que viaja en la razón del resultado."""
 
 _LOCAL_LOAD_FAILED_PATTERN = re.compile(
     r"failed to load|error loading model|could not load model|unable to load model"

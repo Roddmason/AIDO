@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
-# `thread_decisions.metadata.source` de las preguntas y decisiones que levanta el ProductOwnerAgent
-# (agents/product_owner_agent.py::PRODUCT_OWNER_AGENT_ID). Solo estas admiten selección múltiple y
-# texto libre en `_answer_question`; el resto (similitud, funcionalidad existente, intake) son
-# excluyentes por semántica y siguen exigiendo una sola opción exacta.
 PRODUCT_OWNER_DECISION_SOURCE = "product_owner_agent"
+"""`thread_decisions.metadata.source` de las preguntas y decisiones que levanta el ProductOwnerAgent
+(agents/product_owner_agent.py::PRODUCT_OWNER_AGENT_ID). Solo estas admiten selección múltiple y texto
+libre en `_answer_question`; el resto (similitud, funcionalidad existente, intake) son excluyentes por
+semántica y siguen exigiendo una sola opción exacta.
+"""
 
 
 def answer_options(*, decision: dict[str, Any], action_payload: dict[str, Any]) -> list[str]:

@@ -94,7 +94,6 @@ def request_session(context, action, *, managed_process_id=None):
         "fencingToken": context.fencing_token,
         "managedProcessId": managed_process_id,
     }
-    # A local authenticated pipe, not an HTTP endpoint or a pickle command protocol.
     with Client(value["address"], family="AF_PIPE", authkey=None) as channel:
         server = ctypes.c_ulong()
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)

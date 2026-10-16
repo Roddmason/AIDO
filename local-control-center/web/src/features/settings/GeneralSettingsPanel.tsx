@@ -19,8 +19,6 @@ export function GeneralSettingsPanel({ ctx }: { ctx: SectionContext }) {
 		value: item.code,
 		label: item.nativeName || item.name || item.code,
 	}));
-	// Until the catalog lands there is no default to compare against, so the row reads
-	// as the catalog default rather than claiming an override the operator never made.
 	const isCatalogDefault = !catalog || language === catalog.defaultLanguage;
 
 	return (

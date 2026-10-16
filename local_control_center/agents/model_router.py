@@ -341,8 +341,6 @@ class ModelRouter:
         except Exception:
             if runtime_selection:
                 return self._blocked_jev_selection("selection_unavailable")
-            # El preview nunca debe devolver 500 por un perfil corrupto o un contrato roto del
-            # manager: se degrada al scorer clásico y queda traza para diagnosticar.
             logger.warning(
                 "AI resource preview failed for role %s; falling back to the classic scorer",
                 request.role,
@@ -408,9 +406,6 @@ class ModelRouter:
             budget_remaining_usd=request.budget_remaining_usd,
             allow_unknown_cost=bool(role_policy.get("allowUnknownCost", False)),
             require_approval_for_unknown_cost=bool(role_policy.get("requireApprovalForUnknownCost", True)),
-            # In the AI-resource path the approval verdict comes from that manager alone (see
-            # `_ai_decision_to_routing_preview`). Hand it the role's premium threshold or an expensive
-            # pick would slip through here while the classic path below still gates it.
             require_approval_over_usd=self._premium_threshold(role_policy),
             workflow_run_id=request.workflow_run_id,
             workflow_step_id=request.workflow_step_id,
@@ -482,10 +477,6 @@ class ModelRouter:
         return float(threshold)
 
     def _has_ai_resource_profiles(self) -> bool:
-        # 'model_catalog' es lo que persiste _materialize_catalog_model_performance al observar
-        # llamadas reales; sin él, en una instalación real este guard nunca se activaba y el
-        # preview usaba un motor distinto al del product loop. Las BDs scratch (tests, specs)
-        # no tienen filas y siguen entrando por el scorer clásico.
         row = self.connection.execute(
             """
             SELECT 1
@@ -800,9 +791,6 @@ class ModelRouter:
             capability_score += 0.15
         rank = min(
             preferred_rank.get((provider["providerId"], model["model"]), 999),
-            # Comodines compartidos con AIResourceManager ("*" del wizard/setup_omniroute,
-            # "auto_best_available" de las migraciones): sin ellos el preferred del rol no
-            # aporta rank alguno.
             *(preferred_rank.get((provider["providerId"], wildcard), 999) for wildcard in MODEL_WILDCARDS),
         )
         role_fit_score = max(0.0, 1.0 - (rank * 0.12)) if rank != 999 else 0.45

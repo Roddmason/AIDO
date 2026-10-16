@@ -190,8 +190,6 @@ def _resolve(
 
     def automatic_order(role: str) -> tuple[str, ...]:
         if role in DERIVED_TEAM_ROLES:
-            # GLOBAL_TEAM_ROLES pone al PO primero; si ese orden cambiara, un rol derivado sin PO resuelto
-            # queda vacío en vez de lanzar KeyError.
             product_owner = roles.get("product_owner")
             return product_owner.effective if product_owner else ()
         eligible = [item.provider_id for item in ranked if role in item.eligible_roles]
@@ -206,7 +204,6 @@ def _resolve(
             source = "inherited" if role in DERIVED_TEAM_ROLES else "automatic"
             roles[role] = RoleAssignment(role, (), automatic_order(role), source)
             continue
-        # Manual: el orden del operador, sin reordenar por frescura ni descartar lo vencido.
         effective = tuple(provider_id for provider_id in configured if provider_id in eligible)
         invalid = tuple(provider_id for provider_id in configured if provider_id not in eligible)
         if not effective:

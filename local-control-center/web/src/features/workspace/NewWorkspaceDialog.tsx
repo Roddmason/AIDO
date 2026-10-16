@@ -128,7 +128,6 @@ export function NewWorkspaceDialog({
 						<fieldset
 							className="workspace-mode-grid"
 							aria-label={t('app.workspace.mode.aria', 'Workspace source')}
-							// Reset the <fieldset> user-agent chrome so the grid box matches the prior <div>.
 							style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
 						>
 							<button

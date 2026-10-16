@@ -736,10 +736,6 @@ class GitWorkspaceService:
                 ),
                 None,
             )
-        # The project must own its OWN repository: require a `.git` at the project root. Without this,
-        # a project folder nested inside another repo (e.g. inside AIDO's checkout) would make every git
-        # command walk UP to the parent repo and report the WRONG project's branches. `.git` is a dir for
-        # a normal clone and a file for a worktree/submodule, so `.exists()` accepts both.
         if not (ctx.root / ".git").exists():
             return (
                 self._base_unavailable_response(ctx=ctx, reason="Project path is not a Git repository."),

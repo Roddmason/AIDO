@@ -67,7 +67,6 @@ export function WorkspaceCard({
 						{pendingReviews} {t('app.home.pending', 'pending')}
 					</span>
 				) : null}
-				{/* The current project is tagged in the stats row, so the name keeps the full head width. */}
 				{selected ? (
 					<span className="home-project-current">{t('app.home.selected', 'Selected')}</span>
 				) : null}

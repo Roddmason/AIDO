@@ -25,8 +25,6 @@ class AzureOpenAIProvider(OpenAICompatibleProvider):
         base_url: str | None = None,
         credential_ref: str | None = None,
     ):
-        # La base URL de Azure es específica del recurso; no hay default ni fallback por entorno
-        # (a diferencia del proveedor OpenAI-compatible genérico), así que se resuelve solo del arg.
         super().__init__(
             provider_id=provider_id,
             base_url=base_url or "",

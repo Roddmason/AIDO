@@ -82,8 +82,6 @@ def run_docker_capture(
         with execution_scope(
             replace(context, execution_id=context.execution_id or name, resource_lease_id=lease_id)
         ):
-            # La etapa supervisada declara el MISMO perfil que la lease: si no coinciden, el
-            # guard de "etapa pesada requiere reserva pesada" rechaza el contenedor entero.
             return run_supervised_capture(
                 command,
                 cwd=cwd,

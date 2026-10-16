@@ -40,7 +40,6 @@ _METADATA_ENUMS = {
     ),
     "capability": frozenset({"code", "reasoning", "tools", "search", "vision", "json", "general"}),
     "locality": frozenset({"local", "remote"}),
-    # Explicit egress allowlist from team_scheduler.scheduler.ALL_ROLES; new roles require review.
     "role": frozenset(
         {
             "aido_lead",
@@ -255,7 +254,6 @@ class JevDecisionProvider:
         ):
             raise ProviderError("invalid_config")
         body, mapping = _request_payload(request, self.config.model)
-        # Only environment references resolve synchronously without blocking OS/network IO.
         if not re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", self.config.api_key_reference):
             raise ProviderError("credential_unavailable")
         try:

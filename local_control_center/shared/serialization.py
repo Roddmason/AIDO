@@ -28,8 +28,6 @@ def publish_json_exclusive(path: Path, value: Any) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        # Same-filesystem hard link is atomic and fails if destination exists (NTFS/POSIX).
-        # Unsupported filesystems fail closed; never fall back to replace/copy-overwrite.
         os.link(temporary, path)
     finally:
         if temporary is not None:

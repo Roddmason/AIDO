@@ -73,9 +73,6 @@ def ensure_thread_and_similarity(
                 "requestMeta": request_meta,
                 "planOnly": plan_only,
                 "evidencePackageIds": [],
-                # Re-entry durable: True mientras el run ejecuta; _run_result lo apaga en todo
-                # cierre controlado. Un True huerfano tras un crash marca el loop como
-                # interrumpido y el proximo run del hilo lo supersede.
                 "runActive": True,
             }
         },

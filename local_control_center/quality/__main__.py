@@ -115,13 +115,11 @@ def _run(
                 environment={
                     **environment,
                     "AIDO_QUALITY_DB_PATH": str(db_path.resolve()),
-                    # Nested tools also use the general runtime resolver, not only the quality CLI.
                     "LOCAL_CONTROL_CENTER_DB": str(db_path.resolve()),
                 },
             )
             break
         except ResourceWaitError as error:
-            # Admission failed before spawn. Never retry a command that actually executed.
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise
@@ -284,7 +282,6 @@ def main(argv: list[str] | None = None) -> int:
                     for index, path in enumerate(untracked)
                 )
                 if args.base != "HEAD":
-                    # Git receives the revision as one argument; never as a shell command.
                     plan.append(
                         QualityStep(
                             "secrets-branch",

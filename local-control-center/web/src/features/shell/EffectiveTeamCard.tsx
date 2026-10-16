@@ -23,9 +23,7 @@ function useSealedTeam(threadId: string | null) {
 			.then((response) => {
 				if (!controller.signal.aborted) setSealed(response);
 			})
-			.catch(() => {
-				// The sealed view is additive: without it the card still shows the current team.
-			});
+			.catch(() => {});
 		return () => controller.abort();
 	}, [threadId]);
 	return sealed;
@@ -51,8 +49,6 @@ export function EffectiveTeamCard({
 	const { t } = useI18n();
 	const { data } = useRuntimeTeam(projectId, true);
 	const sealed = useSealedTeam(threadId);
-	// A thread with its own team overrides every role: a role it does not assign follows the thread's
-	// own Product Owner (`role_allowlist`), never the global team.
 	const threadTeam = readRuntimeTeam(threadMetadata);
 	const threadRoles: Record<string, string | undefined> = threadTeam?.roleRuntimes ?? {};
 	if (!data) return null;

@@ -122,7 +122,6 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 	}, [removal]);
 
 	const notifyResult = (title: string, body?: string) => notify({ title, body, tone: 'ok' });
-	// A failing vault/transport may echo its input. Never put that response into a toast.
 	const notifyError = (_err: unknown) =>
 		notify({
 			title: t('settings.credentials.operationFailed', 'Credential operation failed'),

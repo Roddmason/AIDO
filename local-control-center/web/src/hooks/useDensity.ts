@@ -61,8 +61,6 @@ export function useDensity() {
 	}, []);
 
 	const toggleDensity = useCallback(() => {
-		// Reads storage (not stale state) and persists outside the updater so the
-		// cross-instance sync event never fires mid-render.
 		const next: Density = readStoredDensity() === 'comfortable' ? 'compact' : 'comfortable';
 		persistDensity(next);
 		setDensityState(next);

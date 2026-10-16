@@ -91,7 +91,6 @@ def workspace_paths(workspace_path: Path) -> list[str]:
             ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=workspace_path
         )
     except OSError as error:
-        # Incluye ``ResourceWaitError``: el contexto es opcional y nunca bloquea la historia.
         logger.warning("DeveloperAgent repository context unavailable: %s", type(error).__name__)
         return []
     if completed.returncode != 0:

@@ -109,7 +109,6 @@ export function RuntimeSetupInspectorCard({
 				<RefreshCw aria-hidden="true" size={15} />
 				{t('app.runtime.refresh', 'Refresh health')}
 			</button>
-			{/* With nothing executable, advancing to setup is the recovery path — promote it. */}
 			<button
 				className={executableCount === 0 ? 'button primary' : 'button'}
 				type="button"

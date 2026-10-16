@@ -72,15 +72,11 @@ export function ThreadBlockerList({
 	const persisted = excludeBlockerTypes?.length
 		? handle.cards.filter((card) => !excludeBlockerTypes.includes(card.blockerType))
 		: handle.cards;
-	// A blocked run with no persisted remediation still gets a card: raw console text is not a fix.
-	// Only a successful read can establish that no repair action exists.
 	const showFallback =
 		persisted.length === 0 && Boolean(fallback) && !handle.loading && !handle.error;
 	const cards =
 		showFallback && fallback ? [buildFallbackCard(fallback.stage, fallback.reason)] : persisted;
 
-	// A failed read is itself actionable: hiding it would leave the operator with stale or missing
-	// repair actions and no way to distinguish that from a healthy thread.
 	if (cards.length === 0 && !handle.error) return null;
 
 	return (
@@ -192,7 +188,6 @@ function researchCandidates(action: BlockerActionModel): ResearchCandidate[] {
 			{
 				researchRunId: record.researchRunId,
 				label: typeof record.label === 'string' ? record.label : record.researchRunId,
-				// The backend validates scope, technical decisions and citations; ready alone is insufficient.
 				eligible: record.eligible === true,
 				reason: typeof record.reason === 'string' ? record.reason : undefined,
 			},
@@ -269,8 +264,6 @@ function RuntimeRiskReview({
 					)
 				: '';
 	const busy = handle.busyId !== null;
-	// A refresh must return a new server snapshot before consent can be given again. A click or a
-	// failed refresh alone does not make the proposal that failed safe to approve.
 	const mustRefresh =
 		failedReview !== null &&
 		(failedReview.refreshFrom === null ||
@@ -465,10 +458,6 @@ function ThreadBlockerCard({
 	const [primaryAction, ...secondaryActions] = card.actions;
 	const hasDestructiveAction = card.actions.some((action) => action.confirmationRequired);
 	const detail = detailsText(card);
-	// `cause` is the raw runtime string, which for some blockers is an internal validator message the
-	// operator cannot act on (e.g. "questions[1].defaultDecision must be one of options"). When the
-	// backend classified the blocker well enough to have human copy for it, that copy is the fact we
-	// show; the raw string always stays reachable in the technical disclosure rather than replacing it.
 	const humanCause = card.causeKey ? t(card.causeKey, card.causeFallback ?? '') : '';
 	const rawCause = card.reason || card.cause;
 	const technicalReason = rawCause && rawCause !== (humanCause || card.cause) ? rawCause : '';
@@ -610,8 +599,6 @@ function ThreadBlockerCard({
 			onOpenSettings(action.section, settingsProviderId(action));
 			return;
 		}
-		// `execute` refuses a destructive action without an explicit confirmation, so ask for it here
-		// instead of letting the button fail with a "needs another step" toast forever.
 		if (action.confirmationRequired) {
 			setPendingConfirmation(action);
 			return;

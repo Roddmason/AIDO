@@ -138,11 +138,6 @@ export function useThreadInspectorData(
 		(signal: AbortSignal) => getAgentProfiles(projectId ?? undefined, signal),
 		[projectId],
 	);
-	// The roster comes from the agent-profiles endpoint, not from the overview snapshot: only this
-	// endpoint resolves each profile against the runtimes actually detected on this machine and joins
-	// the project override. Overview serves the profile rows straight from the repository, so every
-	// agent would arrive with the `unknown` availability default and the whole team would read as
-	// unconfigured.
 	const roster = useLazyResource<AgentProfilesResponse>(projectId, tab === 'team', loadRoster);
 
 	const loadCost = useCallback(
@@ -156,8 +151,6 @@ export function useThreadInspectorData(
 		(signal: AbortSignal) => getThreadMemory(threadId ?? '', signal),
 		[threadId],
 	);
-	// The title is part of the key: renaming the thread refetches instead of serving the
-	// recall computed for the old title (the backend re-indexes the thread per request).
 	const memory = useLazyResource<ThreadMemoryRecallResponse>(
 		threadId && memoryTitle ? `${threadId}:${memoryTitle}` : null,
 		tab === 'memory',

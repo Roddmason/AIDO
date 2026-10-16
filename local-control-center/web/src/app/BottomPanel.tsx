@@ -89,8 +89,6 @@ export function BottomPanel({
 
 	const streamThreadId = collapsed || activeTab !== 'logs' ? null : threadId;
 	const { events: threadEvents, error: streamError } = useThreadEventStream(streamThreadId);
-	// Same grouping ThreadExecutionPanel applies: a blocked product loop leaves several `blocked`/
-	// `state_changed` events milliseconds apart, and this dock has no messages to interleave.
 	const consoleEntries = useMemo(
 		() => groupConsoleFailures(mergeConsoleEntries(threadEvents, [])),
 		[threadEvents],
@@ -119,9 +117,6 @@ export function BottomPanel({
 	);
 
 	const logsBody = () => {
-		// El pane desktop deja montado a su hijo aunque esté colapsado (solo lo oculta por CSS):
-		// renderizar las filas ahí dejaría cientos de nodos invisibles en el árbol accesible y en
-		// los locators de cualquier otra superficie.
 		if (collapsed) return null;
 		if (streamError) {
 			return (

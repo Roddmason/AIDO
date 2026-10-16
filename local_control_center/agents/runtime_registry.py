@@ -132,8 +132,6 @@ def developer_codex_extra_args() -> list[str]:
     ):
         args.extend(["--config", setting])
     if sys.platform == "win32":
-        # Codex otherwise downgrades workspace-write to read-only on Windows.
-        # Restricted-token backend: no elevation or machine-wide sandbox setup.
         args.extend(["--config", 'windows.sandbox="unelevated"'])
     for feature in (
         "apps",
@@ -439,8 +437,6 @@ def developer_agent_prompt(
         else "No QA commands were provided."
     )
     constitution_block = f"{constitution}\n\n" if constitution else ""
-    # The loop runs one developer run per story with the whole request as the instruction: without
-    # the scope line the model redid every story in each run (bigger outputs, repetition loops).
     spec_block = (
         "User story spec (source of truth for acceptance):\n"
         + story_specs
@@ -933,19 +929,21 @@ def login_command_for(runtime_id: str) -> str:
     return str(getattr(runtime_class, "login_command", "") or "") if runtime_class else ""
 
 
-# La detección de un runtime CLI ejecuta `<binario> --version` por subprocess (~4 s en frío para
-# el set completo en Windows) y su resultado —presencia y versión de un binario— es estable en
-# ventanas cortas. Se cachea por `(runtime_id, executable)` con TTL para que el polling del shell
-# (~cada 5 s) no repita el probe en cada request ni lo retenga bajo el lock global que serializa el
-# acceso al runtime del control-plane. El costo real vive aquí; el rollup de estado se deriva de la BD.
 _DETECTION_CACHE_TTL_SECONDS = 30.0
+"""La detección de un runtime CLI ejecuta `<binario> --version` por subprocess (~4 s en frío para el set
+completo en Windows) y su resultado —presencia y versión de un binario— es estable en ventanas cortas. Se
+cachea por `(runtime_id, executable)` con TTL para que el polling del shell (~cada 5 s) no repita el probe
+en cada request ni lo retenga bajo el lock global que serializa el acceso al runtime del control-plane. El
+costo real vive aquí; el rollup de estado se deriva de la BD.
+"""
 _detection_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
 _detection_cache_lock = threading.Lock()
 
-# El probe de auth nativa también lanza un subprocess (`claude auth status` / `codex login status`)
-# y su veredicto es estable en ventanas cortas; se cachea aparte de la detección porque solo se
-# consulta mientras la cuenta no está validada y no debe repetirse en cada poll del shell.
 _AUTH_CACHE_TTL_SECONDS = 60.0
+"""El probe de auth nativa también lanza un subprocess (`claude auth status` / `codex login status`) y su
+veredicto es estable en ventanas cortas; se cachea aparte de la detección porque solo se consulta mientras
+la cuenta no está validada y no debe repetirse en cada poll del shell.
+"""
 _auth_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
 
 

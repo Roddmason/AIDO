@@ -45,9 +45,10 @@ class ResourceSnapshot(_AliasedModel):
     commit_limit_bytes: int | None = Field(default=None, alias="commitLimitBytes", ge=0)
     swap_or_pagefile_used_bytes: int = Field(alias="swapOrPagefileUsedBytes", ge=0)
     disk_free_bytes: dict[str, int] = Field(alias="diskFreeBytes")
-    #: Capacidad total por volumen. Sin esto un piso solo puede expresarse en valor absoluto,
-    #: y un absoluto no significa lo mismo en un disco de 256 GB que en uno de 2 TB.
     disk_total_bytes: dict[str, int] = Field(default_factory=dict, alias="diskTotalBytes")
+    """: Capacidad total por volumen. Sin esto un piso solo puede expresarse en valor absoluto, : y un
+    absoluto no significa lo mismo en un disco de 256 GB que en uno de 2 TB.
+    """
     disk_read_bytes_per_second: float = Field(alias="diskReadBytesPerSecond", ge=0)
     disk_write_bytes_per_second: float = Field(alias="diskWriteBytesPerSecond", ge=0)
     gpu_utilization_percent: float | None = Field(default=None, alias="gpuUtilizationPercent", ge=0, le=100)
@@ -78,9 +79,6 @@ class ResourceSnapshot(_AliasedModel):
             "commit_limit_bytes": None,
             "swap_or_pagefile_used_bytes": 0,
             "disk_free_bytes": disk_free,
-            # Sin capacidad declarada el piso cae al absoluto, que es como se comportaba antes
-            # de que existiera el componente porcentual. Derivarla de lo libre haria que el
-            # porcentaje quedara siempre satisfecho y silenciaria los tests que fuerzan rechazo.
             "disk_total_bytes": disk_total if disk_total is not None else {},
             "disk_read_bytes_per_second": 0.0,
             "disk_write_bytes_per_second": 0.0,
@@ -114,7 +112,6 @@ class WorkloadProfile(_AliasedModel):
 
     @model_validator(mode="after")
     def _request_fits_under_cap(self) -> WorkloadProfile:
-        # Como en Kubernetes: reservar sobre el tope aparta memoria que el Job Object nunca deja usar.
         if self.memory_request_bytes is not None and self.memory_request_bytes > self.memory_limit_bytes:
             raise ValueError("memory_request_bytes cannot exceed memory_limit_bytes")
         return self

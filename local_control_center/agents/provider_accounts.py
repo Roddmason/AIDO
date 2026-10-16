@@ -162,8 +162,8 @@ MODEL_CATALOG_COLUMNS = """
     reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at,
     disabled_reason, disabled_detail
 """
-#: ``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó.
 VALIDATION_FAILED_REASON = "validation_failed"
+""": ``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó."""
 PRICING_SNAPSHOT_COLUMNS = """
     id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
     output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,
@@ -450,7 +450,6 @@ class ProviderAccountStore:
             ),
         )
         if existing is None:
-            # Un alta explícita revive la cuenta: el tombstone solo impide que la resuciten las semillas.
             clear_provider_tombstone(self.connection, provider_id)
         return self.get_provider_account(provider_id)
 
@@ -675,7 +674,6 @@ class ProviderAccountStore:
                 preserve_operator_enabled,
             ),
         )
-        # Un modelo que queda habilitado ya no está descartado: la marca de validación se retira.
         self.connection.execute(
             """UPDATE model_catalog SET disabled_reason = NULL, disabled_detail = NULL
                WHERE provider_id = ? AND model = ? AND enabled = 1 AND disabled_reason IS NOT NULL""",

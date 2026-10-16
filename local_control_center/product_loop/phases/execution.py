@@ -361,18 +361,10 @@ def execute_developer_phase(
         "taskId": task_id,
         "instruction": instruction,
         "storySpecs": coordinator._story_specs_for_tasks(agent_tasks),
-        # teamSchedule/agentAssignments/agentTasks stay out on purpose: the runner never reads them
-        # (nothing under local_control_center/agents/ references these keys), they already live in
-        # durableRun.teamSchedule/agentTasks, and agent_runs.input would otherwise duplicate several
-        # MB of the same schedule/assignments on every developer run of the loop.
         "productOwnerOutputId": product_owner_output_record["id"],
         "backlogArtifactId": backlog_artifact["id"],
         "preferredRuntime": effective_preferred_runtime,
         "qaCommands": qa_commands or [],
-        # The loop's delivery approval is the human gate for its stories. A per-story patch
-        # approval was never resolved by anyone: each story left an orphan
-        # agent.developer.approve_patch pending in Approvals (the loop already treats
-        # completed and evidence_ready alike).
         "requireApproval": False,
         "resourceSelection": execution_resource,
         "metadata": {"loopId": loop["id"], "projectThreadId": thread.get("id")},
@@ -567,8 +559,6 @@ def capture_review_evidence(
                 )
             return blocked_result
     if not review["changedFiles"]:
-        # Un rework no repite el cambio ya commiteado de la historia: si QA sigue fallando, decide
-        # el gate de QA (rondas y causa real), no el guard de "sin trabajo".
         rework_still_failing_qa = run.rework_round > 0 and runtime_status == "qa_failed"
         if run.active_story_tasks is not None and (
             runtime_status in {"completed", "evidence_ready"} or rework_still_failing_qa

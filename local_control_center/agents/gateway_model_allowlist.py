@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OMNIROUTE_MODELS_FILE = REPO_ROOT / "scripts" / "omniroute_models.json"
-#: Archivo de allowlist por id de catálogo de gateway.
 GATEWAY_MODEL_ALLOWLIST_FILES: Mapping[str, Path] = {"omniroute": OMNIROUTE_MODELS_FILE}
-#: Metadatos de la allowlist que el sync copia a la fila del catálogo (el gateway no los informa).
+""": Archivo de allowlist por id de catálogo de gateway."""
 _ALLOWLIST_METADATA_FIELDS = ("supportsTools", "supportsJson", "supportsReasoning")
+""": Metadatos de la allowlist que el sync copia a la fila del catálogo (el gateway no los informa)."""
 _ALLOWLIST_LIMIT_FIELDS = ("contextWindow", "maxOutputTokens")
 
 

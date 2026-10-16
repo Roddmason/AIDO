@@ -63,10 +63,11 @@ from .memory_recall import ThreadMemoryRecallService
 from .repository import ThreadLifecycleError, ThreadsRepository
 from .similarity import ThreadMemoryService, ThreadSimilarityService
 
-# El detalle del hilo viaja completo en cada apertura; estas cotas conservan solo el tail
-# reciente de las colecciones que crecen sin techo. El stream incremental
-# ``GET /threads/{id}/events`` (afterSeq + limit) sigue cubriendo el historial completo.
 THREAD_DETAIL_MESSAGE_TAIL = 500
+"""El detalle del hilo viaja completo en cada apertura; estas cotas conservan solo el tail reciente de las
+colecciones que crecen sin techo. El stream incremental ``GET /threads/{id}/events`` (afterSeq + limit)
+sigue cubriendo el historial completo.
+"""
 THREAD_DETAIL_EVENT_TAIL = 500
 THREAD_DETAIL_ARTIFACT_TAIL = 300
 
@@ -561,10 +562,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         resolution_text = _combined_resolution_text(body)
         if not resolution_text:
             raise HTTPException(status_code=422, detail="resolution, selectedOptions or freeText is required")
-        # Only forward the structured answer when the caller actually used it: an explicit-only
-        # `resolution` (legacy clients, other callers of resolve_thread_decision) must keep matching
-        # as one combined string, not an empty selectedOptions=[] that would look "structured but
-        # empty" to _answer_question and reject a perfectly valid plain answer.
         has_structured_answer = bool(body.selected_options) or bool((body.free_text or "").strip())
         try:
             result = BlockerRemediationService(
@@ -576,9 +573,6 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 resolution=resolution_text,
                 decided_by=body.decided_by,
                 platform=platform,
-                # Structured, not just the joined-text fallback above: lets _answer_question validate
-                # each selected option individually and accept free text for Product Owner decisions
-                # even when options are offered, instead of matching the combined string as a whole.
                 selected_options=body.selected_options if has_structured_answer else None,
                 free_text=body.free_text if has_structured_answer else None,
             )

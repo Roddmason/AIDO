@@ -166,7 +166,7 @@ def _compact_resource_blockers(blockers: list[Any]) -> tuple[list[Any], int]:
     for index in failed_first:
         if index in kept_indexes:
             continue
-        blocker_bytes = len(json_dumps(compacted[index]).encode()) + 1  # + separador ","
+        blocker_bytes = len(json_dumps(compacted[index]).encode()) + 1
         if kept_indexes and used_bytes + blocker_bytes > RESOURCE_BLOCKERS_BUDGET_BYTES:
             continue
         kept_indexes.add(index)

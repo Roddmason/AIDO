@@ -158,8 +158,6 @@ class HostResourceGovernor:
                 snapshot=snapshot,
             )
 
-        # Each lease is one independent CPU budget, including essential control-plane roots.
-        # Their memory remains funded by the existing host headroom; never double-count it.
         reserved_cpu = sum(lease.cpu_limit_percent for lease in active)
         cpu_exceeded = reserved_cpu + profile.cpu_limit_percent > policy.max_cpu_percent
         if profile.essential and cpu_exceeded:
@@ -223,7 +221,6 @@ class HostResourceGovernor:
                 "aggregate_cpu_budget",
                 "Combined workload CPU limits exceed the configured aggregate CPU budget.",
             )
-        # Conservador: la muestra no atribuye consumo actual a cada reserva viva.
         reserved_memory = sum(
             lease.memory_limit_bytes if lease.memory_request_bytes is None else lease.memory_request_bytes
             for lease in non_control_active
@@ -366,8 +363,6 @@ class HostResourceGovernor:
             try:
                 usage = usage_source()
             except Exception as error:
-                # Sin medición no se puede priorizar por exceso: se vuelve al criterio sin uso (todas
-                # las no esenciales candidatas, la más reciente primero), nunca a dejar de desalojar.
                 diagnostic_event(
                     "resources.eviction_usage_unavailable", component="governor", level="WARNING", error=error
                 )

@@ -191,7 +191,6 @@ class MemoryRepository:
         if limit is None:
             rows = self._query(f"SELECT * FROM memory_items {where} ORDER BY created_at ASC", params)
         else:
-            # Tail: trae los N más recientes en DESC determinista y los invierte a ASC.
             rows = list(
                 reversed(
                     self._query(

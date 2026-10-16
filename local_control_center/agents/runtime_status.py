@@ -50,16 +50,18 @@ from .runtime_registry import RuntimeRegistry
 
 RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual", "local"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
-# Una cuenta CLI validada se re-sondea pasado este TTL para captar credenciales que vencieron
-# después de la validación (p.ej. token OAuth de Claude): sin esto el veredicto queda pegado
-# healthy para siempre y el indicador proactivo mostraría "verde-falso". El cache de 60s del
-# RuntimeRegistry acota la frecuencia real de subprocess muy por debajo de este TTL.
 CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS = 300
+"""Una cuenta CLI validada se re-sondea pasado este TTL para captar credenciales que vencieron después de la
+validación (p.ej. token OAuth de Claude): sin esto el veredicto queda pegado healthy para siempre y el
+indicador proactivo mostraría "verde-falso". El cache de 60s del RuntimeRegistry acota la frecuencia real
+de subprocess muy por debajo de este TTL.
+"""
 PRESENT_CREDENTIAL_STATUSES = frozenset({"configured", "unverified"})
 """Una ref presente y bien formada cuenta como configurada; leer su valor es verificacion."""
-# Runtimes autónomos de edición de código: su único propósito es mutar el workspace,
-# así que sin la capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
 CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
+"""Runtimes autónomos de edición de código: su único propósito es mutar el workspace, así que sin la
+capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
+"""
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
 OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
@@ -250,8 +252,6 @@ def _api_required_configuration(account: dict[str, Any]) -> list[str]:
 def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
     required_configuration = _api_required_configuration(account)
     credential_status = str(account.get("credentialStatus") or "unknown")
-    # Misma ref que usa la ejecución (``preferred_credential_ref``): el estado no puede decir "falta
-    # la variable" cuando la credencial vigente es otra (keyring del account o env de runtime).
     account_ref = str(account.get("credentialRef") or "")
     runtime_configuration = runtime_provider_configuration(str(account["providerId"]))
     env_ref = (
@@ -269,9 +269,6 @@ def _api_account_configuration(connection: sqlite3.Connection, account: dict[str
         "hasModel": "model" not in required_configuration
         or _has_enabled_model(connection, str(account["providerId"])),
         "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
-        # Una ref en keyring resuelve 'unverified' SIEMPRE con fetch=False: no leemos el secreto
-        # a proposito. Tratarla como ausente le pedia al operador reingresar lo que ya configuro,
-        # y sin health check previo el bucle no salia nunca. Verificar es otro estado, no este.
         "hasCredential": "apiKey" not in required_configuration
         or credential_status in PRESENT_CREDENTIAL_STATUSES,
         "credentialStatus": credential_status,
@@ -424,7 +421,6 @@ def _api_provider_status(
         capabilities=capabilities or ["chat"],
         required_configuration=required_configuration,
         configuration_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
-        # Approval is contextual (resource/cost/risk policy), not an intrinsic provider property.
         requires_approval=False,
     )
     payload["providerFamily"] = str(account.get("providerFamily") or "")
@@ -474,7 +470,6 @@ def _cli_provider_status(
     executable_source: str | None = None,
 ) -> dict[str, Any]:
     detected = detection.get("status") == "installed"
-    # El switch del operador es autoritativo: sin el campo (llamadas directas) no bloquea.
     provider_enabled = bool(account.get("enabled", True))
     installation_enabled = bool((runtime_installation or {}).get("enabled"))
     account_enabled = bool((runtime_account or {}).get("enabled", False))
@@ -485,8 +480,6 @@ def _cli_provider_status(
     fresh_version = str(detection.get("version") or "").strip() if detected else ""
     version = fresh_version or None
     if detected and not version:
-        # El binario sigue presente pero el probe de versión no respondió (p. ej. timeout bajo
-        # carga): usa la última versión persistida en vez de declarar el runtime no disponible.
         version = (runtime_installation or {}).get("detectedVersion") or None
     command_configured = bool(detection.get("executable"))
     configured = bool(command_configured or (configuration and configuration.configured) or detected)
@@ -512,16 +505,11 @@ def _cli_provider_status(
     can_edit_workspace = bool(
         can_run_prompt and can_code_edit and issue_to_patch_argv_error is None and command_matches_provider
     )
-    # ``executable`` means the provider can execute a prompt. Mutation is a separate capability:
-    # DeveloperAgent must additionally require ``canEditWorkspace``/``code_edit``. Los runtimes
-    # de edición autónoma (openhands/swe_agent) no tienen uso sin esa capability: el contrato de
-    # release exige que permanezcan no ejecutables hasta que el operador la habilite.
     executable = (
         can_edit_workspace if str(account["providerId"]) in CODE_EDIT_GATED_RUNTIME_IDS else can_run_prompt
     )
     validation_expired = False
     if not configured and configuration is not None:
-        # Código al frente: la web lo traduce ("Not detected yet: run Detect & check…").
         reason = (
             f"{CLI_NOT_DETECTED_REASON_CODE}: CLI not detected on this machine ({configuration.reason}) "
             "Run Detect & check to find it."
@@ -585,7 +573,6 @@ def _cli_provider_status(
             executable_source=executable_source,
             policy_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
         ),
-        # Approval is contextual (resource/cost/risk policy), not an intrinsic provider property.
         requires_approval=False,
     )
     if validation_expired:
@@ -812,9 +799,6 @@ class RuntimeStatusService:
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
         context = CURRENT_EXECUTION.get()
-        # A request correlation scope is not a worker execution or permission to probe.
-        # ``offline`` nunca sondea, ni en el job runner: lo usa quien lee el estado dentro de una
-        # transacción SQLite (p. ej. el sellado del equipo de IA global), donde el I/O externo está vetado.
         self.allow_probes = not offline and (allow_probes or bool(context and context.in_job_runner))
         self.probe_runtime_ids = probe_runtime_ids
         self.force_native_auth_refresh = force_native_auth_refresh
@@ -942,7 +926,6 @@ class RuntimeStatusService:
             for provider_id in CLI_RUNTIME_IDS | set(MODEL_PROVIDER_FAMILIES)
         }
         runtime_repo = RuntimeConfigRepository(self.connection)
-        # Seal before reading the command/account snapshot, not after detect has run.
         configuration_fingerprints = {
             runtime_id: provider_configuration_fingerprint(self.connection, runtime_id)
             for runtime_id in CLI_RUNTIME_IDS
@@ -1008,7 +991,6 @@ class RuntimeStatusService:
                 self._persist_fresh_cli_version(
                     runtime_repo, runtime_installations, runtime_id, detections[runtime_id]
                 )
-                # Our own version update is valid only after the pre-detection seal matched.
                 fingerprint = provider_configuration_fingerprint(self.connection, runtime_id)
             self._validate_cli_native_auth(
                 runtime_repo,
@@ -1181,9 +1163,6 @@ class RuntimeStatusService:
                 status["reason"] = (
                     "Provider quota is exhausted; it stays unavailable until its cooldown expires."
                 )
-                # El blockerType se calculó con executable=True (=> None); tras demotar hay que
-                # recomputarlo para que la UI muestre el chip. Solo cuando venía ejecutable: si ya
-                # estaba caído, conserva su blockerType previo, más específico que el de cuota.
                 status["blockerType"] = _runtime_blocker_type(
                     kind=str(status.get("kind") or ""),
                     detected=bool(status.get("detected")),
@@ -1208,7 +1187,6 @@ class RuntimeStatusService:
             for row in self.connection.execute(
                 "SELECT DISTINCT provider_id FROM provider_execution_leases "
                 "WHERE state IN ('active', 'dispatched') AND expires_at > ?",
-                # Mismo formato que escribe QuotaManager (``datetime.isoformat``), no ``utc_now`` ('Z').
                 (datetime.now(UTC).isoformat(),),
             ).fetchall()
         }
@@ -1226,7 +1204,6 @@ class RuntimeStatusService:
             if provider["id"] in ollama_provider_ids or str(provider["id"]).startswith("ollama-")
         ]
         ollama = next((provider for provider in ollama_providers if provider["id"] == "ollama"), None)
-        # Un Ollama apagado por el operador no representa al grupo aunque su daemon responda.
         ollama_available = next(
             (provider for provider in ollama_providers if provider["available"] and provider.get("enabled")),
             None,

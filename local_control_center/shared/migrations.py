@@ -134,9 +134,6 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
 
 def _initialize_platform_schema_unlocked(connection: sqlite3.Connection) -> None:
     """Cuerpo de :func:`initialize_platform_schema`, ya bajo el lock de migración."""
-    # Completitud, no sólo la versión tope: una base a la que le falta una fase intermedia debe
-    # repararse (test_operational_recovery). Se vuelve a mirar bajo el lock: otro proceso pudo haber
-    # migrado mientras este esperaba.
     if _schema_is_current(connection):
         return
     init_base_schema(connection)
@@ -1964,8 +1961,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         ),
         ("openhands", "openhands", "OpenHands", "cli", "cli", "", "", 0, "manual", "unknown"),
         ("swe_agent", "swe_agent", "SWE-agent", "cli", "cli", "", "", 0, "manual", "unknown"),
-        # OpenAI-compatible API providers with preconfigured base URLs (verified against official docs):
-        # only an API key is needed to enable them from the Providers & CLI setup catalog.
         (
             "deepseek",
             "deepseek",
@@ -2026,8 +2021,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "none",
             "unknown",
         ),
-        # Azure OpenAI speaks the OpenAI dialect but authenticates with an api-key header and a
-        # per-resource endpoint, so the base URL is supplied by the operator (no default is possible).
         (
             "azure_openai",
             "azure_openai",
@@ -2040,8 +2033,6 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "none",
             "unknown",
         ),
-        # Remote Ollama reuses the Ollama adapter (apiFormat=ollama) but always needs the operator's
-        # server URL and, when the deployment is authenticated, a bearer credential.
         (
             "ollama_remote",
             "ollama_remote",
@@ -4037,11 +4028,6 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
             """,
             (kind, json_dumps(capabilities), json_dumps(preferred_roles), timestamp, runtime_id),
         )
-        # Optional autonomous code-editing CLIs stay GATED: their capabilities are recorded on the
-        # installation/account for discovery, but are NOT enabled in runtime_capabilities by default.
-        # Enabling them here would advertise code_edit/issue_to_patch and make these runtimes
-        # executable without an explicit developer_agent grant, violating the release safety contracts
-        # (test_openhands_swe_agent_release_contracts). Least-privilege; confirmed by security review.
         if runtime_id in ("openhands", "swe_agent"):
             continue
         for capability in capabilities:
@@ -4072,11 +4058,6 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
             json_dumps(["analyst", "technical_lead"]),
         ),
     )
-    # openhands/swe_agent native accounts are seeded DISABLED (enabled=0): defense-in-depth so that
-    # neither the capability gate nor the account gate is open by default for these autonomous
-    # code-editing runtimes. Enabling requires explicit operator action (and, per security review, an
-    # audit event once an enable/disable API exists — see update_runtime_account). is_default stays 1
-    # so operator tooling can still resolve the account.
     for runtime_id, label, capabilities, preferred_roles in [
         ("openhands", "Local OpenHands CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
         ("swe_agent", "Local SWE-agent CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
@@ -6122,8 +6103,6 @@ def init_phase56_schema(connection: sqlite3.Connection) -> None:
                     ),
                 )
 
-        # El seed de gemini:* usa columnas de la fase 54; una BD que re-entra
-        # desde la fase 53 aún no las tiene, así que se garantizan idempotentes.
         _add_column_if_missing(
             connection,
             "provider_limits",
@@ -6710,8 +6689,6 @@ def init_phase67_schema(connection: sqlite3.Connection) -> None:
                     "UPDATE runtime_preferences SET default_profiles=? WHERE id=?",
                     (json_dumps(normalized), row["id"]),
                 )
-        # Una versión de desarrollo anterior apuntaba a una columna inexistente. La reparación
-        # conserva filas y no convierte receipts fallidos en validados; toda FK debe seguir válida.
         foreign_keys = connection.execute("PRAGMA foreign_key_list(codex_smoke_receipts)").fetchall()
         if any(row[4] != "managed_process_id" for row in foreign_keys):
             connection.execute("ALTER TABLE codex_smoke_receipts RENAME TO codex_smoke_receipts_legacy")

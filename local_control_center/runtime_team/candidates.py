@@ -56,7 +56,6 @@ class RuntimeTeamCandidatesService:
         caliente la caché compartida que ``resolve_team_role_models`` consulta sin esperar, así la vista
         previa de ``suggestedRoleModels`` usa los mismos estados que ``loadedModels``.
         """
-        # ``facts`` ya cargados (``describe_global_team``) evitan recalcular el estado de runtimes.
         if facts is None:
             facts = load_runtime_facts(self.connection, project_id=project_id)
         store = ProviderAccountStore(self.connection)
@@ -65,8 +64,6 @@ class RuntimeTeamCandidatesService:
             for account in store.list_provider_accounts()
             if str(account["providerId"]) in facts
         }
-        # Un runtime de modelo vale como validado por cualquiera de sus modelos habilitados: la falla de
-        # otro modelo del mismo servidor o gateway no lo saca del reparto (misma regla que el sellado).
         states = {
             provider_id: account_validation_state(
                 self.connection, provider_id, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS

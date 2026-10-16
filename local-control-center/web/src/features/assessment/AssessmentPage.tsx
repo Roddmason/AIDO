@@ -360,7 +360,6 @@ export function AssessmentPage({
 				)}
 			/>
 
-			{/* Run action bar */}
 			<Surface flat>
 				<div className="toolbar">
 					<Button
@@ -387,7 +386,6 @@ export function AssessmentPage({
 				</div>
 			</Surface>
 
-			{/* Run error */}
 			{runError && (
 				<ErrorState
 					title={t('app.assessment.runErrorTitle', 'Assessment failed')}
@@ -400,7 +398,6 @@ export function AssessmentPage({
 				/>
 			)}
 
-			{/* Load error */}
 			{loadError && (
 				<ErrorState
 					title={t('app.assessment.loadErrorTitle', 'Could not load assessment')}
@@ -413,7 +410,6 @@ export function AssessmentPage({
 				/>
 			)}
 
-			{/* Loading skeleton */}
 			{loading && !assessment && (
 				<>
 					<Skeleton
@@ -425,7 +421,6 @@ export function AssessmentPage({
 				</>
 			)}
 
-			{/* Empty state: no project selected */}
 			{!loading && noProject && !loadError && (
 				<Surface flat>
 					<EmptyState
@@ -438,7 +433,6 @@ export function AssessmentPage({
 				</Surface>
 			)}
 
-			{/* Empty state: project selected but no assessments yet */}
 			{!loading && !noProject && !assessment && !loadError && (
 				<Surface flat>
 					<EmptyState
@@ -451,7 +445,6 @@ export function AssessmentPage({
 				</Surface>
 			)}
 
-			{/* Assessment summary */}
 			{assessment && !loading && (
 				<>
 					<Surface title={t('app.assessment.summarySection', 'Latest assessment')}>

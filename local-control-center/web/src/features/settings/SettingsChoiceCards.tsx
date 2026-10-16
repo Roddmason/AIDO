@@ -98,15 +98,9 @@ export function SettingChoiceCards({
 	const labelId = useId();
 	const [pending, setPending] = useState(false);
 	const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-	// Synchronous in-flight guard: `pending` lags one render behind, so fast repeats
-	// could otherwise fire concurrent PUTs for the same setting.
 	const inFlightRef = useRef(false);
-	// The card to refocus once a commit re-enables the grid (native `disabled` drops
-	// focus to <body> mid-write); null when no refocus is pending.
 	const refocusValueRef = useRef<string | null>(null);
 
-	// Restore keyboard focus to the activated card after the write completes. Runs on
-	// every pending -> false transition; the ref gates it to real commits only.
 	useEffect(() => {
 		if (pending || refocusValueRef.current === null) return;
 		const target = cardRefs.current[refocusValueRef.current];
@@ -119,9 +113,6 @@ export function SettingChoiceCards({
 	const scope: SettingScope = setting.editableScopes.includes('project') ? 'project' : 'general';
 	const current = typeof setting.value === 'string' ? setting.value : (options[0]?.value ?? '');
 	const canRevert = scope === 'project' ? !setting.inherited : setting.origin === 'general';
-	// Roving tab stop: the selected card owns it, but if the stored value has drifted
-	// outside the current option set the first card owns it — never leave the group
-	// with no reachable tab stop.
 	const currentIndex = options.findIndex((option) => option.value === current);
 	const activeIndex = currentIndex >= 0 ? currentIndex : 0;
 
@@ -217,7 +208,6 @@ export function SettingChoiceCards({
 									{t(option.titleKey, option.titleFallback)}
 								</span>
 								{selected ? (
-									/* aria-hidden: the radio already announces its checked state. */
 									<span className="settings-choice-flag" aria-hidden="true">
 										<Check aria-hidden="true" size={14} />
 										{t('app.settings.autonomy.selected', 'Selected')}
@@ -244,7 +234,6 @@ export function SettingChoiceCards({
 					</button>
 				) : null}
 			</div>
-			{/* Save progress announced to screen readers; visual state is the disabled cards. */}
 			<span className="sr-only" role="status">
 				{pending ? t('app.settings.status.saving', 'Saving...') : ''}
 			</span>

@@ -118,8 +118,6 @@ def _stop_child(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     try:
-        # Snapshot only this launcher's descendants before terminating the redirector/root.
-        # psutil Process objects retain creation-time identity and reject recycled PIDs.
         descendants = psutil.Process(process.pid).children(recursive=True)
     except psutil.NoSuchProcess:
         descendants = []

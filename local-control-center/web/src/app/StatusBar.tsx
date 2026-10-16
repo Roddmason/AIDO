@@ -78,18 +78,12 @@ export function StatusBar({
 			role="contentinfo"
 			aria-label={t('app.global.globalStatus', 'Global status')}
 		>
-			{/* Compact labels keep the bar on one line at 1280px: the short word is what is seen, the full
-			    phrase is the tooltip and the screen-reader text (sr-only), so nothing is lost. */}
 			<span className="status-bar-item" title={apiLabel}>
 				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
-				<span aria-hidden="true">
-					{/* Acronym, identical in every language (like the AIDO Studio wordmark). */}
-					{status.connected ? 'API' : apiLabel}
-				</span>
+				<span aria-hidden="true">{status.connected ? 'API' : apiLabel}</span>
 				<span className="sr-only">{apiLabel}</span>
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
-				{/* The name alone identifies the project (the sidebar says it is one); the word stays for SR. */}
 				<span className="sr-only">{t('app.statusBar.project', 'Project')}</span>
 				<strong className="status-bar-project">{projectName}</strong>
 			</span>
@@ -108,8 +102,6 @@ export function StatusBar({
 			>
 				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
 				{!runtimeAlerts.length && status.executableRuntimes === 0 ? (
-					/* Nothing can run: the count itself is the way to set runtimes up (it used to be followed
-					   by a separate "Set up runtimes" link, a second slot for the same action). */
 					<a
 						className="settings-console-link"
 						href="#settings-runtime"
@@ -164,7 +156,6 @@ export function StatusBar({
 				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
 				{status.recordedCost === null ? (
 					<>
-						{/* An unknown cost reads as an em dash; the word stays in the tooltip and for SR. */}
 						<strong aria-hidden="true">—</strong>
 						<span className="sr-only">{t('app.statusBar.unavailable', 'unavailable')}</span>
 					</>

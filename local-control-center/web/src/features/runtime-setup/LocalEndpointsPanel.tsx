@@ -114,7 +114,6 @@ export function LocalEndpointsPanel({
 		setBusyAction(`${endpointId}:toggle`);
 		try {
 			await patchLocalEndpoint(token, endpointId, { enabled });
-			// The switch changes every scope's AI team: drop the cached teams.
 			invalidateRuntimeTeamCache();
 			notify({
 				title: enabled
@@ -309,8 +308,6 @@ function LocalEndpointCard({
 	const anyBusy = busyAction !== null;
 	const rawFailure = card.failureReason ? redactVisibleSecret(card.failureReason) : '';
 
-	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
-	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
 		<article className="card card--static provider-card" data-tone={card.healthTone}>
 			<div className="card-header">
@@ -393,7 +390,6 @@ function LocalEndpointCard({
 				>
 					{t('app.localRuntime.panel.sync', 'Sync models')}
 				</Button>
-				{/* Same row anatomy as the Ollama card: two labelled actions, then icon buttons. */}
 				<span className="provider-card-icon-actions">
 					<Tooltip label={t('app.localRuntime.panel.edit', 'Edit')}>
 						<IconButton

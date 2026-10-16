@@ -21,8 +21,6 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	if (event.key !== 'Escape') return;
 	const topmost = closeHandlers[closeHandlers.length - 1];
 	if (!topmost) return;
-	// Only the most-recently-opened overlay consumes the press; stop any sibling
-	// window listener so a single Escape never dismisses more than one layer.
 	event.stopImmediatePropagation();
 	topmost();
 }

@@ -75,8 +75,6 @@ class QualityPaths:
 
     def environment(self, source: dict[str, str]) -> dict[str, str]:
         """Return child-only settings without mutating the user's environment."""
-        # Node warns when NO_COLOR coexists with FORCE_COLOR. Playwright forces
-        # the latter in workers, so translate the inherited preference once.
         child = {key: value for key, value in source.items() if key != "NO_COLOR"}
         child["FORCE_COLOR"] = "0" if "NO_COLOR" in source else source.get("FORCE_COLOR", "0")
         return {
@@ -94,7 +92,6 @@ class QualityPaths:
         self, argv: tuple[str, ...], source: dict[str, str]
     ) -> tuple[tuple[str, ...], dict[str, str]]:
         """Allocate one attempt with structured pytest paths and independent fixtures."""
-        # Never parse Windows paths through PYTEST_ADDOPTS/shlex. Reject destructive inherited destinations.
         if any(
             option in source.get("PYTEST_ADDOPTS", "") for option in ("--basetemp", "--junit", "cache_dir")
         ):

@@ -436,21 +436,13 @@ def seal_thread_runtime_team(
     previous_global = stamped.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY, None)
     effective = _effective_thread_runtime_team(connection, project_id=project_id, thread_id=thread_id)
     if effective is None:
-        # Import diferido: global_team importa facts/roles y podría llegar a importar este módulo.
         from .global_team import resolve_global_team
 
-        # Por defecto (envío, retry del operador) se recalcula y cualquier valor entrante se descarta.
-        # Los re-sellados internos (revisión de riesgo, continuación de investigación) piden
-        # ``refresh_global_team=False``: conservan el snapshot del run (o ninguno, si no lo tenía) sin
-        # leer el inventario de runtimes, para ver exactamente la misma metadata en cada paso.
         if not refresh_global_team:
             if global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: previous_global}) is not None:
                 stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY] = previous_global
             return stamped
-        # offline: el envío también corre en una transacción; se lee el estado persistido, sin sondear.
         snapshot = resolve_global_team(connection, project_id=project_id, offline=True).sealed()
-        # Como el equipo por hilo: los roles asignados a un runtime local sellan su modelo validado (30
-        # min) con las capacidades del rol; sin modelo resoluble el rol usa la selección determinista.
         role_models = resolve_team_role_models(connection, snapshot["roleRuntimes"])
         if role_models:
             snapshot[ROLE_MODELS_KEY] = role_models
@@ -588,8 +580,6 @@ def role_allowlist(
     team = runtime_team_of(request_meta)
     if team is None:
         if global_team_of(request_meta) is not None:
-            # Vacío se queda vacío (falla cerrado, como un equipo por hilo estrechado a nada): ``None``
-            # significaría "sin restricción" y el run usaría un proveedor que el operador no eligió.
             return global_role_order(request_meta, team_role)
         return [product_owner_provider_id] if product_owner_provider_id else None
     role_runtimes = team[ROLE_RUNTIMES_KEY]
@@ -608,7 +598,6 @@ def role_model_pins(request_meta: Mapping[str, Any] | None, team_role: str | Non
     """
     team = runtime_team_of(request_meta)
     if team is None:
-        # Equipo global: el modelo sellado del rol fija el modelo solo en su proveedor asignado.
         global_team = global_team_of(request_meta)
         if global_team is None or not team_role:
             return {}

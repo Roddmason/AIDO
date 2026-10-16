@@ -186,7 +186,6 @@ class RemediationActionsRepository:
     def list_for_thread(self, thread_id: str, *, summary: bool = False) -> list[dict[str, Any]]:
         """List every action in stable order, optionally projecting large display-only evidence."""
         if summary:
-            # Project inside SQLite: Python must never parse/redact the omitted evidence on display reads.
             rows = self.connection.execute(
                 """
                 SELECT id, project_id, thread_id, loop_id, stage, blocker_type, title, description,

@@ -50,11 +50,11 @@ def live_memory_by_lease(connection: sqlite3.Connection) -> dict[str, int]:
 def _tree_rss_bytes(root_pid: int, root_create_time: float) -> int:
     """RSS actual de un árbol nativo; degrada a 0 ante cualquier identidad o acceso no verificable."""
     if not root_pid or not root_create_time:
-        return 0  # Sin PID o sin hora de creación registrada no hay identidad que verificar.
+        return 0
     try:
         root = psutil.Process(root_pid)
         if abs(root.create_time() - root_create_time) >= _IDENTITY_TOLERANCE_SECONDS:
-            return 0  # PID reutilizado: no es el árbol que managed_processes registró.
+            return 0
         members = [root, *root.children(recursive=True)]
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return 0

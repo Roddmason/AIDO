@@ -44,9 +44,10 @@ CATALOG_PROVIDER_ID = "omniroute"
 DEFAULT_API_BASE = "http://localhost:4310"
 DEFAULT_GATEWAY_URL = "http://localhost:20128/v1"
 DEFAULT_MODELS_FILE = OMNIROUTE_MODELS_FILE
-# `chat` es obligatorio para ejecutar y las filas por provider_id ocultan por completo las de la
-# familia, así que se siembra junto a las que habilitan los roles de build (code) y review.
 RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
+"""`chat` es obligatorio para ejecutar y las filas por provider_id ocultan por completo las de la familia,
+así que se siembra junto a las que habilitan los roles de build (code) y review.
+"""
 BLOCKING_PROJECT_RUNTIME_MODES = {"cli", "ollama", "manual"}
 PREFERRED_MODEL_WILDCARD = "*"
 
@@ -144,8 +145,6 @@ def upsert_account(client: ControlPlaneClient, *, gateway_url: str, credential_r
         "baseUrl": gateway_url,
         "enabled": True,
         "pricingMode": "free",
-        # El gateway corre en localhost pero reenvía a proveedores externos: sin este marcador AIDO
-        # lo clasifica como local y le atribuye privacidad local_private, que sería falso.
         "metadata": {"endpointKind": "remote", "gateway": "omniroute"},
     }
     if credential_ref:
@@ -228,8 +227,6 @@ def curate_models(client: ControlPlaneClient, allowlist: list[dict[str, Any]]) -
         if entry.get("maxOutputTokens"):
             patch["maxOutputTokens"] = int(entry["maxOutputTokens"])
         client.write("PATCH", f"/api/v1/model-gateway/models/{PROVIDER_ID}:{model}", patch)
-        # Precio cero explícito y no "desconocido": con costo conocido el gate de costo desconocido
-        # no aplica y el failover considera al candidato asequible en vez de descartarlo.
         client.write(
             "POST",
             "/api/v1/model-gateway/pricing-snapshots",

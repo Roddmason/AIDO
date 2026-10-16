@@ -148,7 +148,6 @@ export function TeamActivityCard({ entry, token }: { entry: TeamActivityEntry; t
 				{artifact ? (
 					<div className="activity-field">
 						<dt>{t('app.teamActivity.artifact', 'Completed artifact')}</dt>
-						{/* title mirrors the visible text so the full value survives truncation. */}
 						<dd
 							className="mono activity-truncate"
 							title={`${artifact.kind} · ${artifact.name || artifact.path || artifact.artifactId}`}

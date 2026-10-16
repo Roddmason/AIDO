@@ -202,8 +202,8 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
 
 TEST_PROMPT_MESSAGE = "Reply with the single word: ok."
 TEST_PROMPT_SAMPLE_LIMIT = 280
-#: Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida.
 TEST_PROMPT_ERROR_BODY_LIMIT = 400
+""": Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida."""
 
 
 def _resolve_test_prompt_model(
@@ -327,8 +327,6 @@ def _run_provider_test_prompt(
             "detail": f"HTTP {error.status_code}: {error.code}" if error.status_code is not None else None,
         }
     except Exception as error:
-        # Any provider/network failure is surfaced as a redacted test result, never raised, so the
-        # test action degrades gracefully and never leaks the secret in a stack trace.
         if invoked and isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError)):
             record_model_execution(
                 connection,
@@ -561,8 +559,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             health_status = "healthy"
             last_error = ""
         elif installed:
-            # El binario existe pero el probe de versión no respondió (p. ej. timeout bajo carga):
-            # degradar, no declarar offline, y nunca guardar el mensaje de éxito como error.
             health_status = "degraded"
             last_error = "CLI was detected but the version probe did not return a usable version."
         else:
@@ -722,11 +718,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"providerId": account_provider_id, "enabled": body.enabled, "updated": updated}
 
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
-    # Diagnostico del propio control plane, no carga de inferencia: una request HTTP corta.
-    # Si el gobernador lo frena por CPU/memoria/disco, la evidencia de salud (TTL 300 s) no se
-    # renueva nunca, todo runtime configurado cae en health_check_required y la UI termina
-    # pidiendo reconfigurar lo que ya esta configurado. `control_plane` es esencial, asi que
-    # sigue respetando el presupuesto agregado de CPU pero ignora los umbrales transitorios.
     @queued_operation("models.provider_health_check", workload_class="control_plane")
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check del proveedor, registra el resultado y activa cooldown si hubo 429."""
@@ -1520,11 +1511,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return {"detection": detection}
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
-    # Diagnostico del propio control plane, no carga de inferencia: un `--version` en subproceso.
-    # Si el gobernador lo frena por CPU/memoria/disco, la evidencia de salud (TTL 300 s) no se
-    # renueva nunca, todo runtime configurado cae en health_check_required y la UI termina
-    # pidiendo reconfigurar lo que ya esta configurado. `control_plane` es esencial, asi que
-    # sigue respetando el presupuesto agregado de CPU pero ignora los umbrales transitorios.
     @queued_operation("models.health_cli_runtime", workload_class="control_plane")
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""

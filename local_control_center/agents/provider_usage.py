@@ -85,7 +85,7 @@ def _parse_time(value: Any) -> datetime | None:
         return None
     if isinstance(value, int | float):
         seconds = float(value)
-        if seconds > 10_000_000_000:  # epoch en milisegundos
+        if seconds > 10_000_000_000:
             seconds /= 1000
         return datetime.fromtimestamp(seconds, tz=UTC)
     text = str(value).strip()
@@ -107,7 +107,7 @@ def _percent(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if number != number:  # NaN
+    if number != number:
         return None
     return max(0.0, min(100.0, number))
 
@@ -299,11 +299,6 @@ def general_threshold(connection: sqlite3.Connection) -> float:
     value = resolve_setting_value(connection=connection, key=THRESHOLD_SETTING_KEY, project_id=None)
     percent = _percent(value)
     return percent if percent is not None and percent >= 1 else DEFAULT_THRESHOLD_PERCENT
-
-
-# ---------------------------------------------------------------------------------------------------
-# Colectores: devuelven ventanas o levantan ``UsageUnavailable`` con una causa legible.
-# ---------------------------------------------------------------------------------------------------
 
 
 class UsageUnavailableError(RuntimeError):

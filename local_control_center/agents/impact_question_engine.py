@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_QUESTION_CATEGORY = "scope"
 CATEGORY_ALIASES = {
-    # nonfunctional
     "performance": "nonfunctional",
     "scalability": "nonfunctional",
     "reliability": "nonfunctional",
@@ -52,7 +51,6 @@ CATEGORY_ALIASES = {
     "nfr": "nonfunctional",
     "resilience": "nonfunctional",
     "capacity": "nonfunctional",
-    # ux
     "usability": "ux",
     "design": "ux",
     "ui": "ux",
@@ -61,7 +59,6 @@ CATEGORY_ALIASES = {
     "accessibility": "ux",
     "a11y": "ux",
     "interaction": "ux",
-    # scope
     "functional": "scope",
     "feature": "scope",
     "features": "scope",
@@ -70,7 +67,6 @@ CATEGORY_ALIASES = {
     "requirement": "scope",
     "requirements": "scope",
     "boundaries": "scope",
-    # delivery
     "timeline": "delivery",
     "schedule": "delivery",
     "cost": "delivery",
@@ -86,7 +82,6 @@ CATEGORY_ALIASES = {
     "effort": "delivery",
     "estimate": "delivery",
     "estimation": "delivery",
-    # compliance
     "legal": "compliance",
     "regulatory": "compliance",
     "regulation": "compliance",
@@ -99,7 +94,6 @@ CATEGORY_ALIASES = {
     "governance": "compliance",
     "policy": "compliance",
     "licensing": "compliance",
-    # risk
     "security": "risk",
     "threat": "risk",
     "vulnerability": "risk",
@@ -108,7 +102,6 @@ CATEGORY_ALIASES = {
     "dependency": "risk",
     "dependencies": "risk",
     "uncertainty": "risk",
-    # data
     "database": "data",
     "storage": "data",
     "schema": "data",
@@ -118,7 +111,6 @@ CATEGORY_ALIASES = {
     "data retention": "data",
     "persistence": "data",
     "migration": "data",
-    # integration
     "api": "integration",
     "apis": "integration",
     "third party": "integration",
@@ -130,7 +122,6 @@ CATEGORY_ALIASES = {
     "webhooks": "integration",
     "connectivity": "integration",
     "interface": "integration",
-    # users
     "user": "users",
     "persona": "users",
     "personas": "users",
@@ -193,8 +184,8 @@ def _required_text(item: dict[str, Any], key: str, *, index: int) -> str:
     return value
 
 
-# Guillemets and curly quotes, escaped so the source stays free of ambiguous glyphs.
 _QUOTE_CHARS = "\u00ab\u00bb\u201c\u201d\u2018\u2019"
+"""Guillemets and curly quotes, escaped so the source stays free of ambiguous glyphs."""
 
 
 def _option_key(text: str) -> str:

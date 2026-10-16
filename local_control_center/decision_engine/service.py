@@ -134,7 +134,6 @@ class ShadowDecisionEngine:
             )
         finally:
             if selecting:
-                # Holding a run is not a deterministic/provider fallback.
                 receipt["fallbackUsed"] = False
                 receipt["fallbackReason"] = None
             receipt["latencyMs"] = (time.perf_counter() - started) * 1000

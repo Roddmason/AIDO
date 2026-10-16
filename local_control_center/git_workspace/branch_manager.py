@@ -122,8 +122,6 @@ class GitBranchManager:
         self.service = service
         self.connection = service.connection
 
-    # ------------------------------------------------------------------ plumbing
-
     def _setting(self, key: str, project_id: str) -> str:
         value = resolve_setting_value(connection=self.connection, key=key, project_id=project_id)
         return str(value or "").strip()
@@ -196,8 +194,6 @@ class GitBranchManager:
         response["policyDecisionIds"] = self._policy_ids(state.traces)
         self.service._finish_operation(state.op, status=response["status"], output=response)
         return response
-
-    # ------------------------------------------------------------------ inventory
 
     def _aido_workspaces(self, project_id: str) -> dict[str, list[dict[str, Any]]]:
         placeholders = ",".join("?" for _ in ACTIVE_AIDO_WORKSPACE_STATUSES)
@@ -276,7 +272,6 @@ class GitBranchManager:
         integration_ref = local_refs.get(integration)
         integration_target = f"refs/heads/{integration}" if integration_ref else None
         if integration_target is None:
-            # Sin la rama local, la remote-tracking (origin/dev) sigue siendo una base honesta.
             for remote in remotes:
                 candidate = next(
                     (item for item in refs if item["refname"] == f"refs/remotes/{remote}/{integration}"), None
@@ -323,7 +318,6 @@ class GitBranchManager:
                     if mainline and len(parts) > 2 and parts[2].split()[:1] and parts[2].split()[0].isdigit():
                         ahead_vs_main[parts[0]] = int(parts[2].split()[0])
             else:
-                # Git < 2.41 no conoce %(ahead-behind); se cae a rev-list por rama.
                 for item in refs:
                     rev = self._git(
                         state,
@@ -580,8 +574,6 @@ class GitBranchManager:
             },
         )
 
-    # ------------------------------------------------------------------ mutations
-
     def _action_response(
         self,
         state: _RunState,
@@ -707,7 +699,6 @@ class GitBranchManager:
             if branch["mergeState"] == "merged":
                 result = self._git(state, ["branch", "--delete", name], git_operation="delete_branch")
                 if result.return_code != 0 and NOT_FULLY_MERGED_MARKER in result.stderr:
-                    # `-d` mide contra HEAD/upstream; el inventario ya verificó que está en la integración.
                     result = self._git(state, ["branch", "-D", name], git_operation="delete_branch")
             elif name in force:
                 forced = True

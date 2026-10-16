@@ -145,7 +145,6 @@ class ProductLoopDeliveryService:
         effective_mode = mode
         degraded_from: str | None = None
         if mode in PR_MODES and not has_remote:
-            # Sin remoto no puede existir un PR: se degrada a merge local con aviso explícito.
             effective_mode = "direct_push"
             degraded_from = mode
 
@@ -171,8 +170,6 @@ class ProductLoopDeliveryService:
                 project_id=project_id,
             )
             if merged.get("status") == "base_branch_missing":
-                # La base configurada no existe en este repo: aterrizar en la rama de origen real
-                # del worktree (la misma de la que se forkeó), si la hay.
                 source_branch = str(worktree_meta.get("sourceBranch") or "").strip()
                 if source_branch and source_branch != base_branch:
                     base_branch = source_branch
@@ -207,8 +204,6 @@ class ProductLoopDeliveryService:
             result["status"] = "landed"
             return result
 
-        # Modos de PR: publicar la rama de trabajo y, en auto_pr, dejar que el Technical Lead
-        # apruebe y mergee el PR sin humano (gateado por QA/Security y opcionalmente CI verde).
         result["push"] = push_branch_to_remote(
             repo_path=repo_path,
             remote=remote,
@@ -230,14 +225,11 @@ class ProductLoopDeliveryService:
         gate = technical_lead_gate(loop)
         result["technicalLeadGate"] = gate
         if not gate["approve"]:
-            # LT o QA encontraron algo: se itera sobre la MISMA rama publicada, sin merge.
             result["status"] = "lt_rejected"
             return result
         try:
             config = github_pull_request_config_from_env()
         except GitHubPullRequestConfigError as error:
-            # Sin credenciales de PR no hay merge automático: la rama queda publicada y el
-            # aterrizaje espera un humano (equivale a manual_pr, con el motivo explícito).
             result["status"] = "pending_manual_pr"
             result["reason"] = str(error)
             return result
@@ -257,7 +249,6 @@ class ProductLoopDeliveryService:
             ci = get_github_combined_status(config, ref=head_commit)
             result["ciStatus"] = ci
             if ci.get("state") != "success":
-                # El PR queda abierto esperando el verde de CI; no se mergea sin evidencia.
                 result["status"] = "pr_created_ci_pending"
                 return result
         merged = merge_github_pull_request(config, number=int(pull_request["number"]))

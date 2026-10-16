@@ -62,7 +62,7 @@ def _resolved_process_executable(pid: int) -> str | None:
     try:
         return psutil.Process(pid).exe()
     except psutil.Error:
-        return None  # Missing identity remains UNKNOWN, never evidence of no spawn.
+        return None
 
 
 class ExecutionCancelled(RuntimeError):
@@ -83,8 +83,6 @@ def safe_command_summary(argv: list[str]) -> list[str]:
     """Devuelve un resumen apto para auditoría sin contenido libre del operador."""
     if not argv:
         return []
-    # Un valor libre puede parecer un flag (incluso después de --prompt).
-    # La autorización conserva un hash exacto separado; el display nunca necesita sus valores.
     return [Path(argv[0]).name, *(["[argument]"] * (len(argv) - 1))]
 
 
@@ -337,7 +335,6 @@ class ProcessSupervisorService:
             if set(argv).intersection(
                 {"quality", "quality:fast", "quality:story", "quality:pr", "quality:release"}
             ) and Path(argv[0]).stem.lower() in {"node", "corepack", "pnpm", "npm"}:
-                # Routing only; quality validates native ancestor identity before borrowing its lease.
                 environment = dict(popen_kwargs.get("env") or os.environ)
                 environment["AIDO_QUALITY_DB_PATH"] = str(self.db_path.resolve())
                 popen_kwargs["env"] = environment
@@ -348,8 +345,6 @@ class ProcessSupervisorService:
                     if self.context and self.context.aggregate_managed_process_id:
                         from .session_client import RemoteNativeCapture
 
-                        # The authorized creator must reconcile a concrete suspended identity,
-                        # not infer from root_pid=0 or accept a PID supplied over the pipe.
                         with closing(open_sqlite_connection(self.db_path)) as connection:
                             connection.execute(
                                 "UPDATE managed_processes SET root_pid=?, root_create_time=? WHERE managed_process_id=?",
@@ -501,8 +496,6 @@ class ProcessSupervisorService:
                 stats.cancelled |= cancelled
                 stats.termination_reason = stats.termination_reason or termination_reason
                 managed.terminal_stats = stats
-                # SQL and handle closure can fail after the native exit was already observed.
-                # This independent receipt is evidence, never authority to release a durable lease.
                 managed.terminal_outcome = {
                     "managedProcessId": managed.managed_process_id,
                     "executionId": managed.execution_id,
@@ -575,8 +568,6 @@ class ProcessSupervisorService:
                 )
                 raise
             finally:
-                # Una falla de evidencia no puede mantener un árbol ejecutando sin control.
-                # Su registro y lease permanecen recuperables, sin inventar un resultado terminal.
                 if managed.native_capture is not None and not managed.native_capture.closed:
                     try:
                         managed.native_capture.finish()
@@ -622,7 +613,6 @@ class ProcessSupervisorService:
 
     def _reserve_native_root(self, spec: ProcessLaunchSpec, lease_id: str) -> None:
         """Reserva antes del spawn; sólo un descendiente nativo puede compartir un presupuesto vivo."""
-        # Identidades OS fuera de la transacción. La creación de procesos también queda fuera.
         ancestors = {p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]}
         with (
             closing(open_sqlite_connection(self.db_path)) as connection,
@@ -639,8 +629,6 @@ class ProcessSupervisorService:
                 for row in rows
             )
             if separate_root and self.context and self.context.aggregate_managed_process_id:
-                # The launcher owns an actual aggregate bound; siblings do not create new
-                # independent capacity. Unknown/pre-spawn identities remain fail-closed.
                 from .launcher_session import LauncherCaptureSession
 
                 aggregate = self.context.aggregate_managed_process_id
@@ -714,15 +702,11 @@ class ProcessSupervisorService:
         return stopped
 
     def _watch_controls(self, managed: SupervisedProcess) -> None:
-        # Thread targets do not inherit ContextVar. Restore the captured immutable identity explicitly.
         with execution_scope(
             self.context or ProcessExecutionContext(db_path=self.db_path, execution_id=managed.execution_id)
         ):
             phase = "connection_open"
             try:
-                # WAL mode is persistent. One dedicated autocommit connection avoids
-                # reconfiguring it (and last-close/open contention) on every poll.
-                # Reads still observe fresh cancellation, leases and leadership.
                 with closing(open_sqlite_connection(self.db_path, busy_timeout_ms=250)) as connection:
                     phase = "watch_loop"
                     self._watch_control_loop(managed, connection)
@@ -765,7 +749,6 @@ class ProcessSupervisorService:
                         reason = reason or "resource_lease_lost"
                     if reason:
                         self._stop_for_control(managed, reason)
-                        # Cancellation persistence must never delay containment or mask its cause.
                         phase = "cancel_persist"
                         connection.execute("PRAGMA busy_timeout = 0")
                         repository.request_execution_cancel(managed.execution_id, reason=reason)
@@ -780,12 +763,6 @@ class ProcessSupervisorService:
                         else:
                             pressure_since = None
                         sustained = 0.0 if pressure_since is None else time.monotonic() - pressure_since
-                        # Bajo el piso, el gobernador global ya desaloja gradualmente (una lease a la
-                        # vez, la que más excede su uso real; ver HostResourceGovernor.
-                        # violations_for_snapshot y ADR-005). Este vigilante local sólo actúa si es
-                        # una emergencia (mitad del piso), si ese gobernador no está corriendo, o si
-                        # la presión ya dura más de PRESSURE_ESCALATION_SECONDS pese a estar activo
-                        # (late, pero no logra liberar memoria a tiempo): un latido no prueba eficacia.
                         if (
                             not workload_profile(managed.workload_class).essential
                             and available < floor
@@ -842,8 +819,6 @@ class ProcessSupervisorService:
                     busy_since = busy_since if busy_since is not None else time.monotonic()
                     if time.monotonic() - busy_since < _CONTROL_BUSY_WINDOW_SECONDS:
                         self._log_control_error(managed, error, phase, "retry_heartbeat")
-                        # Retry only the rolled-back lease transaction. Re-read fence, cancellation
-                        # and lease expiry on every iteration; never replay the external command.
                         continue
                 self._log_control_error(managed, error, phase, "stop")
                 self._stop_for_control(
@@ -918,7 +893,6 @@ class ProcessSupervisorService:
                 "remainingDescendants": stats.remaining_descendant_count,
             },
         )
-        # Telemetry is best-effort. Leadership/cancel/lease reads above remain fail-closed.
         connection.execute("PRAGMA busy_timeout = 0")
         try:
             connection.execute(
@@ -1080,7 +1054,6 @@ def run_probe_command(
 ) -> Any:
     """Ejecuta un probe read-only explícito desde el único módulo autorizado a invocar runners."""
     assert_external_boundary()
-    # Los callers de probes también validan; este límite rechaza comandos productivos directos.
     permitted = len(argv) == 2 and argv[1] in {"--version", "-V", "version", "--help"}
     permitted |= tuple(argv[1:]) in {("auth", "status", "--json"), ("login", "status"), ("exec", "--help")}
     if not permitted:

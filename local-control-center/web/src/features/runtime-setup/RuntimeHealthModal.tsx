@@ -94,8 +94,6 @@ export function RuntimeHealthModal({
 											<dd>{t(copy.impactKey, copy.impactFallback)}</dd>
 										</div>
 									) : null}
-									{/* The sign-in command is one more fact of the same list: its label aligns with
-									    Cause and Impact (it used to sit in a second, misaligned block of bare dt/dd). */}
 									{alert.loginCommand ? (
 										<div>
 											<dt>{t('app.runtime.health.loginCommand', 'Sign in from your terminal')}</dt>

@@ -127,14 +127,15 @@ class CliRuntime(ABC):
 
     runtime_id: str
     display_name: str
-    # Subcomando de solo lectura que reporta el estado de login nativo (None = sin probe).
     auth_status_argv: tuple[str, ...] | None = None
-    # Instrucción accionable que se muestra cuando el CLI no está autenticado.
+    """Subcomando de solo lectura que reporta el estado de login nativo (None = sin probe)."""
     login_hint: str = ""
-    # Comando exacto de login, como dato y no dentro de una frase, para que la UI lo ofrezca
-    # copiable. Vacío cuando el runtime no tiene un login interactivo: prometer un comando que
-    # no existe manda al operador a un callejón sin salida.
+    """Instrucción accionable que se muestra cuando el CLI no está autenticado."""
     login_command: str = ""
+    """Comando exacto de login, como dato y no dentro de una frase, para que la UI lo ofrezca copiable. Vacío
+    cuando el runtime no tiene un login interactivo: prometer un comando que no existe manda al operador a
+    un callejón sin salida.
+    """
 
     def __init__(self, *, executable: str, connection: sqlite3.Connection | None = None):
         self.executable = executable
@@ -229,11 +230,6 @@ class CliRuntime(ABC):
                 message=str(result.get("reason") or "Auth status probe did not complete."),
             )
         parsed = self._parse_auth_probe(result)
-        # El probe puede reportar 'authenticated' con una credencial ya vencida (p.ej.
-        # `claude auth status` confía en un token expirado en disco): cruzamos el veredicto
-        # positivo con la verdad local. El hook solo degrada ante evidencia concluyente de
-        # vencimiento; sin evidencia devuelve None y el veredicto del probe se respeta, de modo
-        # que un archivo ausente/ilegible nunca convierte authenticated en unknown.
         if parsed.status == "authenticated":
             invalidation = self._local_auth_invalidation(parsed)
             if invalidation is not None:

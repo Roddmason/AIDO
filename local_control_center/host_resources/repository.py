@@ -203,7 +203,6 @@ class ResourceRepository:
             """,
             (now_value, reason, lease_id),
         )
-        # La lease ya no está activa: sus violaciones abiertas dejan de tener efecto (ver ADR-005).
         self.resolve_violations_for_lease(lease_id, now_iso=now_value)
         return self.get_lease(lease_id)
 
@@ -256,9 +255,6 @@ class ResourceRepository:
         )
         moment = utc_now()
         snapshot_json = json_dumps(decision.snapshot.model_dump(by_alias=True))
-        # Un veredicto identico repetido no es informacion nueva: los dos lectores que existen
-        # piden la fila mas reciente, asi que insertar otra solo escribe. Se actualiza la que ya
-        # esta, conservando `created_at` para no reiniciar el reloj de la espera.
         latest = self.connection.execute(
             """
             SELECT rowid, status, reason_code FROM resource_admission_decisions

@@ -517,8 +517,6 @@ class QAAgentRunner:
         policy_decisions: list[dict[str, Any]] = []
         for index, command in enumerate(normalized):
             if command["unresolvedReason"]:
-                # Sin lockfile no hay como instalar de forma determinista: se registra el
-                # bloqueo directo, sin intentar ejecutar el argv marcador via el broker.
                 result, command_artifacts = self._unresolved_command_result(
                     project_id=project_id, command=command, index=index
                 )

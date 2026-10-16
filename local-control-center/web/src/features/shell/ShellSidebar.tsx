@@ -78,9 +78,6 @@ export function ShellSidebar({
 	const [branchesTarget, setBranchesTarget] = useState<Project | null>(null);
 	const projects = overview.projects.filter((project) => project.status === 'active');
 
-	// Archived headers live outside the overview (its list excludes them), so the toggle drives its own
-	// read; the fingerprint of active-thread ids re-pulls it after archive/unarchive (the set changes)
-	// without refetching on every 5s overview poll, which hands us a fresh object carrying the same ids.
 	const archivedSyncKey = overview.threads.map((thread) => thread.id).join('\u0000');
 	// biome-ignore lint/correctness/useExhaustiveDependencies: archivedSyncKey is the intended trigger (active-thread-set fingerprint), a dependency by design not read inside the effect body.
 	useEffect(() => {
@@ -183,8 +180,6 @@ export function ShellSidebar({
 						}),
 					{ awaitRefresh: false },
 				);
-				// Re-seeding the first user message is what makes the copy a *new loop*: the coordinator
-				// re-runs intake on it. A bare thread (no user message yet) duplicates as an empty shell.
 				const firstUserMessage = detail.messages.find((message) => message.kind === 'user');
 				if (firstUserMessage) {
 					await mutate(

@@ -94,12 +94,11 @@ def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
     return text[:limit] + "\n[truncated]"
 
 
-# Tope serializado por item de colección: cierra el agujero de payloads anidados vía API que el
-# bound por-string no ve (un dict/lista gigante dentro de un item pasaba entero al prompt).
 ITEM_SERIALIZED_LIMIT_CHARS = 8_000
+"""Tope serializado por item de colección: cierra el agujero de payloads anidados vía API que el bound por-
+string no ve (un dict/lista gigante dentro de un item pasaba entero al prompt).
+"""
 
-# Whitelists solo-prompt por colección: campos que el modelo usa para revisar. Los ids internos
-# (argv, toolCallId, permissionDecisionId, metadata) siguen en el input_payload persistido.
 _TEST_RESULT_PROMPT_KEYS = (
     "id",
     "label",
@@ -114,6 +113,9 @@ _TEST_RESULT_PROMPT_KEYS = (
     "outputRef",
     "outputRefs",
 )
+"""Whitelists solo-prompt por colección: campos que el modelo usa para revisar. Los ids internos (argv,
+toolCallId, permissionDecisionId, metadata) siguen en el input_payload persistido.
+"""
 _RELEVANT_DOC_PROMPT_KEYS = ("id", "title", "content")
 _RISK_PROMPT_KEYS = ("id", "title", "description", "severity", "mitigation", "status", "evidenceRefs")
 _WORKFLOW_CONTEXT_PROMPT_KEYS = ("workflowKind", "attempt", "title")
@@ -162,7 +164,6 @@ def _bounded_items(
 
 
 def _json_object_from_text(content: str) -> dict[str, Any]:
-    # El texto puede venir crudo del canal transitorio: se redacta ya parseado, antes de validar y persistir.
     try:
         payload = redact_secrets(json.loads(json_candidate_text(content)))
     except json.JSONDecodeError as error:
@@ -471,7 +472,6 @@ class ArchitectAgentRunner:
             "relevantDocs": _bounded_items(payload.get("relevantDocs") or [], keys=_RELEVANT_DOC_PROMPT_KEYS),
             "testResults": _bounded_items(payload.get("testResults") or [], keys=_TEST_RESULT_PROMPT_KEYS),
             "riskRegister": _bounded_items(payload.get("riskRegister") or [], keys=_RISK_PROMPT_KEYS),
-            # Calculado del payload CRUDO (no de las vistas): la poda del prompt no cambia el grounding.
             "allowedEvidenceRefs": sorted(_collect_input_evidence_refs(payload)),
         }
         return [

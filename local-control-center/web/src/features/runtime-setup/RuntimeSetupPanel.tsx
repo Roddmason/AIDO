@@ -161,18 +161,14 @@ export function RuntimeSetupPanel({
 			setAccounts(providerPayload.providers);
 			setModels(modelPayload.models);
 			setRolePolicies(rolePayload.rolePolicies);
-		} catch {
-			// Read-only enrichment: a failed gateway fetch leaves cards on their runtime-diagnostic data.
-		}
+		} catch {}
 	}, []);
 
 	/** Usage quota per provider (read-only; the worker refreshes it, a failure keeps the last one). */
 	const loadUsage = useCallback(async () => {
 		try {
 			setUsage(await getProviderUsage());
-		} catch {
-			// Enrichment only: cards without usage keep working.
-		}
+		} catch {}
 	}, []);
 
 	/** Reads Claude/Codex usage now; the suspension it may cause changes every AI team. */
@@ -193,7 +189,6 @@ export function RuntimeSetupPanel({
 		}
 	};
 
-	// The general quota threshold lives in Settings: re-read usage when the operator changes it.
 	useEffect(() => {
 		const onSettingChanged = (event: Event) => {
 			const key = (event as CustomEvent<string>).detail;
@@ -367,7 +362,6 @@ export function RuntimeSetupPanel({
 		setBusyAction(`${providerId}:toggle`);
 		try {
 			await patchModelGatewayProvider(token, providerId, { enabled });
-			// The switch changes every scope's AI team: drop the cached teams.
 			invalidateRuntimeTeamCache();
 			await Promise.all([onRefresh(), loadGateway()]);
 			notify({
@@ -677,15 +671,11 @@ function ProviderCard({
 
 	const status = provider.status;
 	const isCli = provider.kind === 'cli';
-	// A gateway announces every upstream it can route; with none of them enabled the backend only says
-	// "model not configured", so the card tells the operator what to do instead.
 	const needsModelSelection = Boolean(
 		setup?.enabled &&
 			catalogEntry(provider.id)?.providerType === 'gateway' &&
 			setup.enabledModelCount === 0,
 	);
-	// The backend reason leads with a machine code (`provider_disabled: …`); the card shows its plain
-	// copy and keeps the raw text in the tooltip and under Configuration details.
 	const rawReason = redactVisibleSecret(
 		status?.reason ?? provider.config?.reason,
 		t('app.runtime.card.noReason', 'No status reported yet.'),
@@ -698,7 +688,6 @@ function ProviderCard({
 		: describeCardReason(rawReason, t);
 	const reasonTranslated = reason !== rawReason;
 	const variables = provider.config?.variables ?? [];
-	// The manual operator is a switch, not a runtime: there is nothing to probe or configure.
 	const isManual = provider.kind === 'manual';
 	const configurable = !isCli && !isManual && catalogEntry(provider.id) !== undefined;
 	const capabilities = catalogEntry(provider.id)?.capabilities ?? status?.capabilities ?? [];
@@ -772,7 +761,6 @@ function ProviderCard({
 							: t('app.providers.credential.missing', 'no credential')}
 					</Badge>
 				) : null}
-				{/* "Not checked" adds nothing next to the state badge; the Health check detail still says so. */}
 				{setup && setup.healthStatus !== 'unknown' ? (
 					<Badge tone={setup.healthStatus === 'healthy' ? 'ok' : 'warn'}>
 						{healthStatusLabel(redactVisibleSecret(setup.healthStatus), t)}
@@ -831,8 +819,6 @@ function ProviderCard({
 			) : null}
 
 			{status ? (
-				/* Readiness reads as a checklist, not as four more status pills: the icon and tone carry
-				   yes/no, and the hidden suffix gives screen readers the same answer. */
 				<ul
 					className="provider-readiness"
 					aria-label={t('app.providers.card.readiness', 'Readiness')}
@@ -918,9 +904,6 @@ function ProviderCard({
 					type="button"
 					aria-expanded={open}
 					aria-controls={detailsId}
-					// Icon-only toggle: with a visible label, three actions plus "Configuration details" never
-					// fit the row of a 23rem card and the toggle wrapped alone onto a second line. The name
-					// stays on aria-label (and the tooltip), so tests and screen readers keep it.
 					aria-label={detailsLabel}
 					title={detailsLabel}
 					onClick={() => setOpen((value) => !value)}
@@ -985,8 +968,6 @@ function ProviderCard({
 					<section className="stack compact">
 						<h5 className="field-label">{t('app.runtime.card.command', 'Command detected')}</h5>
 						{status?.detectedCommand ? (
-							/* Executable paths are unbreakable tokens: without anywhere-wrap this line sets the
-							   whole card's min-content width and forces a sideways scroll on the card grid. */
 							<span className="mono" style={{ overflowWrap: 'anywhere' }}>
 								{redactVisibleSecret(status.detectedCommand)}
 								{status.version ? ` · ${redactVisibleSecret(status.version)}` : ''}

@@ -74,8 +74,6 @@ export function RuntimeBody({
 }) {
 	const { t } = useI18n();
 	const [gatewayRevision, setGatewayRevision] = useState(0);
-	// Endpoint cards use the same switch as provider cards, so they also show "In use" while a running
-	// call holds the endpoint (the runtime snapshot is the only source of that lease state).
 	const inUseProviderIds = useMemo(
 		() =>
 			new Set(

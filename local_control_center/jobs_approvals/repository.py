@@ -198,7 +198,6 @@ class JobsRepository:
         payload = redact_secrets(payload or {})
         from local_control_center.shared.diagnostics import context_fields
 
-        # Override untrusted payload correlation with the server's HTTP context.
         payload = {
             **payload,
             "diagnosticContext": {k: v for k, v in context_fields().items() if k == "requestId"},
@@ -431,7 +430,6 @@ class JobsRepository:
                     "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
                 )
             else:
-                # Tail: trae las N más recientes en DESC determinista y las invierte a ASC.
                 rows = list(
                     reversed(
                         self._query(
@@ -1216,8 +1214,6 @@ class JobsRepository:
     ) -> dict[str, Any]:
         """Cierra un run dentro de la transacción ya validada por ``complete_job_run``."""
         job_status = status if status in {"completed", "cancelled"} else "failed"
-        # A cancel the operator already issued is the truth: keep it, or the audit trail would claim the
-        # stopped job finished and `_thread_job_was_cancelled` would stop seeing the cancellation.
         if self.get_job(job_id)["status"] == "cancelled":
             job_status = "cancelled"
             status = "cancelled"
@@ -1307,7 +1303,6 @@ class JobsRepository:
         if limit is None:
             rows = self._query(f"SELECT * FROM job_runs {where} ORDER BY started_at ASC", base_params)
         else:
-            # Tail: trae los N más recientes en DESC determinista y los invierte a ASC.
             rows = list(
                 reversed(
                     self._query(

@@ -129,7 +129,7 @@ export function ModelValidationRun({
 			if (mounted.current) setStatus(next);
 			return next;
 		} catch {
-			return null; // read-only enrichment: the button keeps working without a status
+			return null;
 		}
 	}, [providerId]);
 

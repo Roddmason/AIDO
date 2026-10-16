@@ -42,7 +42,6 @@ SOURCE_TREES: tuple[tuple[Path, tuple[str, ...]], ...] = (
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
 
-# Familias que el frontend construye por interpolación; la clave completa nunca es un literal.
 DYNAMIC_PREFIXES: tuple[str, ...] = (
     "app.runtime.failure.",
     "app.settings.enum.",
@@ -51,6 +50,7 @@ DYNAMIC_PREFIXES: tuple[str, ...] = (
     "app.threads.remediation.blocker.",
     "app.threads.stepState.",
 )
+"""Familias que el frontend construye por interpolación; la clave completa nunca es un literal."""
 
 
 def collect_tokens() -> set[str]:

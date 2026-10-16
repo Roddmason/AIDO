@@ -96,9 +96,6 @@ from local_control_center.shared.time import iso_after_seconds, utc_now
 from local_control_center.team_scheduler.scheduler import schedule_team
 from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.threads.similarity import SIMILARITY_ACTIONS, ThreadMemoryService
-
-# Seam de test re-exportado a propósito: las fases lo importan diferido desde este módulo para que
-# monkeypatch.setattr(coordinator, "capture_git_diff", ...) siga interceptando la captura del diff.
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff as capture_git_diff
 
 from .delivery import (
@@ -209,17 +206,15 @@ _diff_ref_from_review = diff_ref_from_review
 _diff_summary_from_review = diff_summary_from_review
 _bounded_instruction = bounded_instruction
 
-# Tope de comandos QA fallidos detallados en el feedback de rework; el resto se reporta como conteo.
 REWORK_FEEDBACK_COMMAND_LIMIT = 8
-# Estados donde el loop entrego control al operador y espera su accion: nunca se supersedan como
-# runs interrumpidos, aunque su marcador runActive haya quedado colgado (defensa del re-entry
-# durable frente a un _clear_run_active best-effort fallido).
+"""Tope de comandos QA fallidos detallados en el feedback de rework; el resto se reporta como conteo."""
 _OPERATOR_WAIT_STATES = {"awaiting_user", "awaiting_approval", AWAITING_FEEDBACK_STATE, BLOCKED_STATE}
-# Landing states of an abort itself: checking for cancellation again here would recurse forever.
+"""Estados donde el loop entrego control al operador y espera su accion: nunca se supersedan como runs
+interrumpidos, aunque su marcador runActive haya quedado colgado (defensa del re-entry durable frente a un
+_clear_run_active best-effort fallido).
+"""
 _ABORT_EXEMPT_STATES = {BLOCKED_STATE, CANCELLED_STATE}
-# Contrato de salida de _run_user_message: todo status que un run puede retornar. El worker y los
-# gates de taxonomía (test_product_loop_result_taxonomy.py) enumeran contra esta tupla, así que un
-# status nuevo obliga a decidir su ruteo (hilo/evento/veredicto) en el mismo commit.
+"""Landing states of an abort itself: checking for cancellation again here would recurse forever."""
 RUN_RESULT_STATUSES = (
     "awaiting_approval",
     "awaiting_user",
@@ -230,8 +225,10 @@ RUN_RESULT_STATUSES = (
     "plan_ready",
     "reworking",
 )
-# Statuses de etapa que representan un cierre sano: producen veredicto de evidencia "passed".
-# Cualquier status fuera de este set cae al lado bloqueado (severidad high) a propósito.
+"""Contrato de salida de _run_user_message: todo status que un run puede retornar. El worker y los gates de
+taxonomía (test_product_loop_result_taxonomy.py) enumeran contra esta tupla, así que un status nuevo
+obliga a decidir su ruteo (hilo/evento/veredicto) en el mismo commit.
+"""
 RUN_EVIDENCE_PASSED_STATUSES = frozenset(
     {
         "completed",
@@ -244,6 +241,9 @@ RUN_EVIDENCE_PASSED_STATUSES = frozenset(
         "plan_ready",
     }
 )
+"""Statuses de etapa que representan un cierre sano: producen veredicto de evidencia "passed". Cualquier
+status fuera de este set cae al lado bloqueado (severidad high) a propósito.
+"""
 FEEDBACK_ACTIONS = set(FEEDBACK_ACTION_VALUES)
 FEEDBACK_CLASSIFICATIONS = set(FEEDBACK_CLASSIFICATION_VALUES)
 TARGET_CLASSIFICATIONS = {
@@ -349,7 +349,6 @@ class ProductLoopCoordinator:
         self.evidence = EvidenceRepository(connection)
         self.events = EventBus(connection)
         self.jobs = JobsRepository(connection)
-        # Set only for the duration of a `run_user_message` that was given a cancellation signal.
         self._should_abort: Callable[[], bool] | None = None
 
     @staticmethod
@@ -416,7 +415,6 @@ class ProductLoopCoordinator:
                 and risk_review.get("loopId") == loop["id"]
             )
         ) and "requestMeta" in clean_updates:
-            # Research provenance stays immutable; execution uses the freshly resealed policy.
             clean_updates["effectiveRequestMeta"] = clean_updates.pop("requestMeta")
         durable = {**original, **clean_updates}
         ids = [str(item) for item in durable.get("evidencePackageIds", []) if str(item).strip()]
@@ -1132,9 +1130,6 @@ class ProductLoopCoordinator:
         ``fsm_patch`` se mezcla sobre ``context['fsm']`` en la misma transacción (lo usa la arista
         ``next_story`` para reiniciar ``reworkRounds`` por historia).
         """
-        # Cooperative cancellation checkpoint. Every durable stage advance funnels through here, so a
-        # cancel lands within one stage instead of letting the claimed worker run to completion beside
-        # its replacement run — which is what would make two Product Loops share a thread.
         if to_state not in _ABORT_EXEMPT_STATES and self._should_abort is not None and self._should_abort():
             raise _ProductLoopCancelled(loop["id"], thread_id)
         updated = self.transition(
@@ -1711,11 +1706,6 @@ class ProductLoopCoordinator:
         if not isinstance(raw_output, dict):
             reason = str(result.get("reason") or "").strip()
             if reason.startswith("ProductOwnerAgent"):
-                # ``reason`` ya es una oración completa con el mismo sujeto que el prefijo genérico
-                # (p. ej. "ProductOwnerAgent runtime output is not valid JSON."); anteponerlo duplicaba
-                # el motivo visible en la consola del hilo ("... must be a JSON object: ProductOwnerAgent
-                # runtime output is not valid JSON."). Un reason que no la describe (fallo de transporte,
-                # de validación de un campo puntual) sí necesita el prefijo para tener contexto.
                 raise ProductOwnerOutputValidationError(reason)
             suffix = f": {reason}" if reason else "."
             raise ProductOwnerOutputValidationError(f"ProductOwnerAgent output must be a JSON object{suffix}")
@@ -1781,9 +1771,6 @@ class ProductLoopCoordinator:
                 )
             return "needs_input"
         if status == "completed":
-            # The agent already applied requireBriefApproval and scope_is_clear (it returns
-            # brief_ready for those) and persisted the backlog; the model's own "brief_ready" label
-            # must not park the loop with nothing for the operator to act on (seen live).
             return "backlog_ready"
         if status == "scope_is_clear" or output_status == "scope_is_clear":
             return "brief_ready"
@@ -2683,8 +2670,6 @@ class ProductLoopCoordinator:
         policy_result["approvalOverride"] = {"approved": True, **approval}
         return {
             **decision,
-            # Preserve the immutable routing decision. The durable approval satisfies the gate,
-            # but it must not rewrite what AIResourceManager originally required/persisted.
             "approvalSatisfied": True,
             "decisionReason": (
                 f"{decision.get('decisionReason') or 'Selected AI resource.'} "
@@ -2710,10 +2695,6 @@ class ProductLoopCoordinator:
         enriched_roles: list[dict[str, Any]] = []
         blockers: list[dict[str, Any]] = []
         local_affinity: dict[str, str] = {}
-        # Sin equipo en el hilo, cada rol usa el orden del equipo global sellado; un run sellado antes
-        # del equipo global (sin snapshot) hereda el proveedor donde corrió el PO de este loop (evita
-        # que un candidato remoto que el operador nunca eligió compita en la ambigüedad de Jev, ver
-        # runtime_team.configuration.role_allowlist). Con equipo en el hilo no cambia nada.
         thread_has_team = runtime_team_of(request_meta) is not None
         po_provider_id = str((product_owner_selected_resource or {}).get("providerId") or "").strip() or None
         po_model = str((product_owner_selected_resource or {}).get("model") or "").strip()
@@ -2732,7 +2713,6 @@ class ProductLoopCoordinator:
             team_role = team_role_for(
                 role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
             )
-            # La continuación de un riesgo revisado reproduce el request aprobado: nunca recorre.
             walk = (
                 self._jev_provider_walk(project_id, request_meta, team_role)
                 if runtime_risk_review_id is None
@@ -2755,19 +2735,11 @@ class ProductLoopCoordinator:
                 walk,
                 **select_kwargs,
             )
-            # Herencia BLANDA: si el proveedor del PO no cubre las capacidades/política del rol, el
-            # rol se queda sin candidatos (no es la ambigüedad de Jev, que sí tiene candidatos) y se
-            # reintenta ese único rol con el conjunto completo, como antes de esta herencia. Se
-            # respeta la continuación de un riesgo ya revisado (``runtime_risk_review_id``): ese
-            # request debe reproducir exactamente el que el operador aprobó, sin ampliarlo.
             if (
                 runtime_risk_review_id is None
                 and not thread_has_team
                 and po_provider_id
                 and not decision.get("candidates")
-                # Con equipo global no se amplía a todo el catálogo: el orden automático ya trae a
-                # todos los elegibles activos y el explícito es la decisión del operador; el rol
-                # queda sin candidatos y el blocker de asignación lo dice.
                 and global_team_of(request_meta) is None
             ):
                 widened_request = self._team_resource_request(
@@ -2791,7 +2763,6 @@ class ProductLoopCoordinator:
                         "productOwnerProviderId": po_provider_id,
                         "reason": "no_candidates_for_product_owner_provider",
                     },
-                    # Con el hilo, si el bus de eventos falla el registro cae al hilo en vez de perderse.
                     thread_id=thread_id,
                 )
             decision = self._resource_decision_with_approval_override(
@@ -2938,8 +2909,6 @@ class ProductLoopCoordinator:
             role, kind=str(role_plan.get("kind") or ""), capabilities=role_plan.get("capabilities") or []
         )
         order, order_wildcards = role_routing_preferences(request_meta, team_role)
-        # El orden del equipo global rankea antes que los pins de la política del rol
-        # (``provider_order``): los pins solo eligen el modelo dentro del proveedor que va primero.
         preferred_provider_ids = [
             *order,
             *(provider_id for provider_id in policy["preferredProviderIds"] if provider_id not in order),
@@ -3164,7 +3133,6 @@ class ProductLoopCoordinator:
         allowed_provider_ids = restrict_to_allowlist(
             allowed_provider_ids, role_allowlist(request_meta, "product_owner")
         )
-        # Con equipo global el orden del PO manda sobre la preferencia persistida y la política.
         po_order, po_wildcards = role_routing_preferences(request_meta, "product_owner")
         preferred_provider_ids: list[str] = []
         ordered_contract_providers: list[str] = []
@@ -3178,8 +3146,6 @@ class ProductLoopCoordinator:
                 if str(row["provider_family"] or "") == runtime_family
                 or (runtime_family == "ollama" and str(row["api_format"] or "") == "ollama")
             )
-        # La preferencia persistida va primero: es lo que escribe la remediación switch_runtime, que
-        # hasta ahora reportaba éxito sobre un valor que nadie leía.
         for provider_id in [
             *po_order,
             *self._persisted_runtime_order(),
@@ -3188,9 +3154,6 @@ class ProductLoopCoordinator:
         ]:
             if provider_id in allowed_provider_ids and provider_id not in preferred_provider_ids:
                 preferred_provider_ids.append(provider_id)
-        # El rank duro del selector respeta la misma precedencia: runtime persistido (switch_runtime)
-        # primero, luego las entradas provider+model de la política del rol. El orden de contrato
-        # sigue siendo solo desempate provider-level vía preferred_provider_ids.
         preferred_resources = [
             *po_wildcards,
             *({"provider": provider_id, "model": ""} for provider_id in self._persisted_runtime_order()),
@@ -3212,8 +3175,6 @@ class ProductLoopCoordinator:
                 context_tokens_estimate=self._resource_context_tokens_estimate(request_meta),
                 required_capabilities=["chat"],
                 allowed_provider_ids=allowed,
-                # Un failover (con exclusiones) busca alternativas: el pin descartaría los demás
-                # modelos del mismo runtime y dejaría sin reintento al PO.
                 local_model_pins=(
                     {} if excluded_resources else role_model_pins(request_meta, "product_owner")
                 ),
@@ -3236,8 +3197,6 @@ class ProductLoopCoordinator:
             )
 
         routing_started = time.perf_counter()
-        # Con Jev en runtime_selection y un orden automático, se prueba de a un proveedor del orden
-        # (``_select_walking_providers``) para que Jev no desempate proveedores que nadie eligió.
         walk = [
             provider_id
             for provider_id in self._jev_provider_walk(project_id, request_meta, "product_owner")
@@ -3601,7 +3560,6 @@ class ProductLoopCoordinator:
         evidence_ref: str,
     ) -> dict[str, Any]:
         if product_owner_result.get("replayedFromLoopId"):
-            # Un plan reutilizado no llamó a ningún recurso: registrar un éxito inventaría evidencia.
             return {
                 "status": "not_applicable",
                 "loopId": loop_id,
@@ -4390,8 +4348,8 @@ class ProductLoopCoordinator:
                 thread_id=run.thread_id,
             )
 
-    # Intents/riesgos que ameritan revision de arquitectura post-diff (misma regla que _gates_for).
     _ARCHITECT_REVIEW_INTENTS = frozenset({"architecture", "refactor", "migration"})
+    """Intents/riesgos que ameritan revision de arquitectura post-diff (misma regla que _gates_for)."""
     _ARCHITECT_REVIEW_RISKS = frozenset({"high", "critical"})
 
     def _run_team_review_phase(self, run: _UserMessageRun) -> None:
@@ -4633,7 +4591,6 @@ class ProductLoopCoordinator:
         )
 
         try:
-            # Git checks can yield: re-read decisions and actual files before entering planning.
             loop = self.repository.get_loop(run.loop["id"])
             snapshot = resolution_snapshot(self.connection, loop)
             if snapshot != run.research_resolution["snapshot"]:
@@ -4889,8 +4846,6 @@ class ProductLoopCoordinator:
             for item in attempts
         ]
         policy = self._resource_role_policy(role)
-        # Instancia nueva: AIResourceManager memoiza el estado de runtimes por proyecto y no lo
-        # invalida, asi que reusar la anterior devolveria el mismo proveedor ya caido.
         manager = AIResourceManager(self.connection)
         try:
             if role == "product_owner":
@@ -4902,7 +4857,6 @@ class ProductLoopCoordinator:
                     excluded_resources=excluded,
                 )
             else:
-                # Con equipo global el failover recorre el orden del rol (asignado ya excluido).
                 order, order_wildcards = role_routing_preferences(
                     getattr(run, "request_meta", None), team_role_for(role)
                 )
@@ -4941,7 +4895,6 @@ class ProductLoopCoordinator:
                         require_approval_over_usd=policy["requiresApprovalOverUsd"],
                     )
 
-                # Con Jev y un orden automático, el failover también prueba de a un proveedor.
                 decision = self._select_walking_providers(
                     manager,
                     failover_request,
@@ -4969,8 +4922,6 @@ class ProductLoopCoordinator:
             return None
         next_runtime_id = str(selected.get("providerId") or "").strip()
         next_model = str(selected.get("model") or "").strip()
-        # Se compara el par y no solo el proveedor: una falla de transporte excluye un modelo
-        # puntual, asi que otro modelo del mismo endpoint sigue siendo un reintento legitimo.
         if not next_runtime_id or (next_runtime_id, next_model) == (provider_id, failed_model):
             return None
         self._record_local_model_switches(
@@ -5034,7 +4985,6 @@ class ProductLoopCoordinator:
             try:
                 raise_if_usage_suspended(getattr(self, "connection", None), current_payload)
                 result = runtime.run(current_payload)
-                # Product Owner has a read-only executor. Never replay partial developer output.
                 if role == "product_owner" and isinstance(result, dict) and result.get("output") is None:
                     details = result.get("runtimeResult") or {}
                     status = details.get("httpStatus")
@@ -5444,7 +5394,6 @@ class ProductLoopCoordinator:
                 actor=actor,
             )
             loop = self._record_delivery_approval_decision(loop, approval_effect)
-            # Queue the landing with the approval, atomically; its Git/network effects run in the worker.
             loop, landing_effect = self._queue_delivery_landing(loop, feedback_id=feedback_id)
             thread_effect = self._sync_delivery_feedback_thread_state(
                 loop=loop,

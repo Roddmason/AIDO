@@ -64,7 +64,6 @@ export async function requestCompletedOperation<
 		return response as TResponse;
 	}
 	const executionId = String(response.executionId);
-	// Bounded observation, not a timeout/cancellation of the server execution.
 	const deadline = Date.now() + 30 * 60 * 1000;
 	while (Date.now() < deadline) {
 		const execution: ExecutionResponse = await requestGeneratedOperation(

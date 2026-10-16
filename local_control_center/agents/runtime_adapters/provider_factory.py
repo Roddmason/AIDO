@@ -257,8 +257,6 @@ class ProviderFactoryAdapter:
                 reason=f"{self.display_name} execution requires input.messages.",
             )
         if not model:
-            # Solo la cuenta canonica (providerId == providerFamily) hereda el modelo
-            # configurado por entorno; los endpoints dedicados siguen fail-closed.
             configuration = runtime_provider_configuration_for_account(account)
             model = str(configuration.value("model") or "").strip() if configuration else ""
         if not model:
@@ -298,7 +296,6 @@ class ProviderFactoryAdapter:
                     timeoutSeconds=timeout_seconds,
                     deadlineMonotonic=time.monotonic() + timeout_seconds,
                     coldStartExpected=bool(cold_start),
-                    # Solo un runtime local transmite por stream: así se corta un bucle de repetición.
                     stream=local_runtime and bool(request.input.get("streamOutput")),
                 )
             )
@@ -313,12 +310,7 @@ class ProviderFactoryAdapter:
                 redacted=True,
             )
         except HTTPError as error:
-            # Un 429 sin registrar deja al provider luciendo sano y los agentes lo reeligen en cada
-            # intento; el cooldown persistido es lo que lo saca de la seleccion hasta que se repone.
             if error.code == _TOO_MANY_REQUESTS:
-                # El cooldown se indexa por el providerId canonico de la cuenta: get_provider_account
-                # resuelve por `provider_id OR id`, asi que usar el token del caller podria escribir
-                # una clave que la lectura de disponibilidad nunca vuelve a encontrar.
                 self._record_provider_rate_limit(
                     connection,
                     provider_id=str(account["providerId"]),
@@ -350,8 +342,6 @@ class ProviderFactoryAdapter:
                 started_at=started_at, cause=error.cause, evidence="", http_status=None, attempted=False
             )
         except ExecutionDeadlineExceeded:
-            # El deadline se agota al tomar el slot local, antes de cualquier request: no es un intento fallido
-            # del modelo y ningún failover puede renovarlo, así que sube hasta quien cierra la ejecución.
             raise
         except Exception as error:
             attempted = isinstance(error, (URLError, TimeoutError, ConnectionError))

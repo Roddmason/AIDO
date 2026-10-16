@@ -29,16 +29,13 @@ export function WorkerStatusItem({
 	const load = useCallback(async (signal?: AbortSignal) => {
 		try {
 			setStatus(await getWorkerStatus(signal));
-		} catch {
-			// The API link item already reports a lost connection; keep the last known state.
-		}
+		} catch {}
 	}, []);
 
 	useEffect(() => {
 		const controller = new AbortController();
 		void load(controller.signal);
 		const timer = window.setInterval(() => void load(), POLL_MS);
-		// A queued operation is the moment the operator needs to know the worker will not take it.
 		const onExecution = () => void load();
 		window.addEventListener('aido:execution', onExecution);
 		return () => {

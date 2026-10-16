@@ -49,16 +49,17 @@ ALLOWED_PARTS = {
     "tests_py",
     "tests_web",
 }
-# Tokens ofuscados con concatenacion EXPLICITA (operador +) para que el propio scanner
-# no se auto-marque y para sobrevivir a `ruff format`, que une literales adyacentes
-# (concatenacion implicita) pero NO los unidos por el operador +. Misma tecnica que el
-# mensaje de la regla shell+=True de mas abajo. (No deletrear los tokens en texto plano.)
 PROHIBITED_TOKENS = (
     "internal_" + "mo" + "ck",
     "mo" + "ck",
     "fa" + "ke",
     "dum" + "my",
 )
+"""Tokens ofuscados con concatenacion EXPLICITA (operador +) para que el propio scanner no se auto-marque y
+para sobrevivir a `ruff format`, que une literales adyacentes (concatenacion implicita) pero NO los unidos
+por el operador +. Misma tecnica que el mensaje de la regla shell+=True de mas abajo. (No deletrear los
+tokens en texto plano.)
+"""
 TOKEN_PATTERN = re.compile(
     r"(?i)(?<![A-Za-z0-9])(" + "|".join(re.escape(token) for token in PROHIBITED_TOKENS) + r")(?![A-Za-z0-9])"
 )

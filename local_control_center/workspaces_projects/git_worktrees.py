@@ -364,8 +364,6 @@ def create_git_worktree(
             source_branch_result["stdout"].strip() if source_branch_result["returnCode"] == 0 else None
         )
         if base_branch != "HEAD" and source_commit is None:
-            # La rama base configurada (p. ej. project.git.baseBranch=dev) no existe en este repo;
-            # se forkea de HEAD para no degradar el aislamiento git a copia de fuente.
             base_branch = "HEAD"
             head_commit_result = run_brokered_git(
                 connection=connection,
@@ -416,7 +414,6 @@ def create_git_worktree(
         return {"status": "degraded_not_git_repo"}
     source_commit = git_head_commit(repo_path, base_branch)
     if base_branch != "HEAD" and source_commit is None:
-        # La rama base configurada no existe en este repo; forkear de HEAD (ver path brokered).
         base_branch = "HEAD"
         source_commit = git_head_commit(repo_path, "HEAD")
     source_branch = git_current_branch(repo_path)
@@ -701,8 +698,6 @@ def merge_work_branch_into_base(
 
     base_tip = _repo_git(["rev-parse", base_branch], task="landing_base_tip")
     if base_tip["status"] == "blocked":
-        # El broker no ejecutó el rev-parse (política o capacidad): eso no prueba que la base falte,
-        # y tratarlo como faltante hacía aterrizar en la rama de origen del worktree, no en la base.
         return {
             "status": "git_blocked",
             "reason": base_tip["reason"],
@@ -825,7 +820,6 @@ def merge_work_branch_into_base(
         }
     first_parent = _landing_git(["rev-parse", f"{landing_branch}^1"], task="landing_first_parent")
     if first_parent["returnCode"] != 0 or first_parent["stdout"].strip() != base_tip["stdout"].strip():
-        # La base se movió mientras aterrizábamos: abortar antes de mover el ref (append-only).
         _cleanup_landing()
         return {
             "status": "base_moved_during_landing",
@@ -1085,10 +1079,6 @@ def capture_git_diff(
             args=["diff", "--stat", "--", "."],
             task_id=f"{task_id}.stat",
         )
-        # git diff captura evidencia inmutable de solo lectura: la salida puede superar el límite
-        # de truncación del sandbox (MAX_CAPTURE_CHARS=4000) y el broker no devuelve el contenido
-        # completo cuando promote_execution_result_outputs lo promueve a artefacto. Se usa
-        # run_git directamente para preservar el diff íntegro (condición de promote_large_git_patches).
         patch_direct = run_git(["-C", str(workspace_path), "diff", "--", "."])
         patch_returncode = patch_direct.returncode
         patch_stdout = patch_direct.stdout if patch_returncode == 0 else ""

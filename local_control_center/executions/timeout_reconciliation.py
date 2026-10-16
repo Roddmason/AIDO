@@ -255,7 +255,6 @@ def reconcile_product_loop_timeout(
             worker=details,
             interruptedExecution={**details, "reconciledAt": utc_now()},
         )
-        # The immediate transaction serializes scope checks with the FSM transition and UI evidence.
         if (
             connection.execute(
                 "UPDATE product_loops SET context=context WHERE id=? AND version=? AND context=?",

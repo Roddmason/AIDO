@@ -170,8 +170,6 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
             credential_required=not deployment_mode.startswith("self_hosted"),
             use_legacy_fallbacks=False,
         )
-        # The generic base class has legacy env fallbacks for falsy values. Endpoint-scoped
-        # NVIDIA accounts must retain their persisted empty state instead of inheriting them.
         self.base_url = resolved_base_url.rstrip("/")
         self.credential_ref = resolved_credential_ref
         self.connection = connection

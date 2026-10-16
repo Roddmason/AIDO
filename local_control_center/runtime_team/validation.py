@@ -20,11 +20,12 @@ from local_control_center.agents.model_execution_health import provider_configur
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 
 RUNTIME_TEAM_FRESHNESS_SECONDS = 30 * 60
-#: Tipos de runtime cuya validación se lleva por (provider, modelo) habilitado.
 MODEL_RUNTIME_KINDS = frozenset({"api", "gateway", "local"})
-#: Runtimes remotos de modelo: el gate de un equipo sin ``roleModels`` los evalúa por cualquier modelo
-#: habilitado. Un local sella ``roleModels`` y un equipo legado sin ellos conserva el gate por runtime.
+""": Tipos de runtime cuya validación se lleva por (provider, modelo) habilitado."""
 REMOTE_MODEL_RUNTIME_KINDS = frozenset({"api", "gateway"})
+""": Runtimes remotos de modelo: el gate de un equipo sin ``roleModels`` los evalúa por cualquier modelo :
+habilitado. Un local sella ``roleModels`` y un equipo legado sin ellos conserva el gate por runtime.
+"""
 
 
 @dataclass(frozen=True)

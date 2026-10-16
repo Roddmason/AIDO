@@ -89,9 +89,6 @@ def seal_operator_cost_decision(
     stamped = dict(metadata)
     requested_mode = str(stamped.get("teamMode") or stamped.get("team_mode") or "").strip().lower()
     if requested_mode in MODES:
-        # El operador eligio explicitamente: el hilo lo recuerda para los mensajes siguientes.
-        # Trabajar en un hilo es trabajar en un contexto; repetir su configuracion en cada
-        # mensaje es friccion pura.
         if thread_id:
             _remember_team_mode(connection, thread_id, requested_mode)
     else:

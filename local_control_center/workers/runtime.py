@@ -276,7 +276,7 @@ class LocalWorkerRuntime:
                     refresh_provider_usage(connection)
             finally:
                 connection.close()
-        except Exception as error:  # el uso es auxiliar: nunca frena la cola
+        except Exception as error:
             from local_control_center.shared.diagnostics import diagnostic_event
 
             diagnostic_event(
@@ -364,9 +364,6 @@ class LocalWorkerRuntime:
             return True
         self._ensure_leadership_watcher()
         if str(control["desiredState"]) == "running":
-            # En pausa los refrescos encolados no pueden correr y quedan a la cabeza de la cola:
-            # el "run once" que el operador pide para SU operación ejecutaba un health check en
-            # su lugar. Dentro de un job la salud rancia se renueva sola (RuntimeStatusService).
             self._refresh_runtime_health_if_due()
             self._refresh_provider_usage_if_due()
         self._resume_cooldown_blocked_threads_if_due()
@@ -665,8 +662,6 @@ class LocalWorkerRuntime:
                 self._record_queued_thread_event("worker_failed", {"reason": reason})
 
     def _run_batch_once(self, *, fencing_token: int | None = None) -> dict[str, Any]:
-        # A heartbeat may clear the mutable field mid-preflight. The OS loop must retain its
-        # acquired token so claim validation rejects a lost lease instead of accepting no fence.
         batch_fence = self._fencing_token if fencing_token is None else fencing_token
         if not self._batch_lock.acquire(blocking=False):
             self._status = "running"
@@ -803,7 +798,7 @@ class LocalWorkerRuntime:
                 incremental_vacuum_if_enabled(connection)
             finally:
                 connection.close()
-        except Exception as error:  # la retencion nunca debe interrumpir el batch
+        except Exception as error:
             diagnostic_event(
                 "worker.telemetry_prune.failed",
                 component="worker",

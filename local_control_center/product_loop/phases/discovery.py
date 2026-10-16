@@ -176,8 +176,6 @@ def run_discovery_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRu
         "idea": message_text,
         "preferredRuntime": product_owner_preferred_runtime or preferred_runtime,
         "model": product_owner_selected_resource.get("model"),
-        # Solo lo que el agente convierte en señales de prompt: el resultado completo del
-        # assessment (job/agentRun/artifact/decision) ya queda auditado en su propio slice.
         "assessment": redact_secrets(
             {
                 key: (assessment_result or {}).get(key)
@@ -201,8 +199,6 @@ def run_discovery_phase(coordinator: ProductLoopCoordinator, run: _UserMessageRu
     constitution_prompt = render_constitution_prompt(run.constitution)
     if constitution_prompt:
         product_owner_payload["constitution"] = constitution_prompt
-    # Sin la iniciativa del hilo el agente no ve el brief ni las preguntas ya formuladas, y
-    # vuelve a preguntar lo mismo en cada turno.
     thread_initiative = (
         coordinator.discovery.find_initiative_by_thread(project_id, thread_id) if thread_id else None
     )

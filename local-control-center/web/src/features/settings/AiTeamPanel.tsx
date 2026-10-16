@@ -41,7 +41,6 @@ export function AiTeamPanel({ ctx }: { ctx: SectionContext }) {
 	const { t } = useI18n();
 	const projectId = ctx.scope === 'project' ? ctx.scopeId : null;
 	const { data, failed, reload } = useRuntimeTeam(projectId, true);
-	// Per-role busy flags: concurrent writes to two roles must not unlock each other's row.
 	const [busyRoles, setBusyRoles] = useState<ReadonlySet<string>>(() => new Set());
 
 	const write = async (role: string, ids: string[] | null) => {
@@ -119,7 +118,6 @@ function RoleRow({
 	const source = AI_TEAM_SOURCE_LABEL[role.source] ?? AI_TEAM_SOURCE_LABEL.automatic;
 	const effective = role.effective ?? [];
 	const invalid = role.invalid ?? [];
-	// The editable list is the operator's own order at this scope; automatic/inherited roles start empty.
 	const own = role.source === scope ? (role.configured ?? []) : [];
 	const addable = (role.candidates ?? []).filter((id) => !own.includes(id));
 	const commit = (ids: string[]) => onWrite(ids.length ? ids : null);
@@ -129,11 +127,8 @@ function RoleRow({
 		next.splice(index + delta, 0, item);
 		commit(next);
 	};
-	// `automatic_fallback`: every provider the operator chose is switched off or not eligible, so the
-	// backend assigns the role automatically instead of leaving it empty.
 	const fallback = role.source === 'automatic_fallback';
 	const automatic = role.source === 'automatic' || role.source === 'inherited';
-	// Last own entry that is actually rendered: ids dropped as invalid never show a row to swap with.
 	const lastVisibleOwn = own.reduce(
 		(last, id, index) => (effective.includes(id) ? index : last),
 		-1,

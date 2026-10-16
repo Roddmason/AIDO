@@ -45,7 +45,7 @@ class WindowsJobObjectProcessSupervisor:
         scope = popen_kwargs.pop("resource_scope", {})
         native_spec = replace(spec, cpu_limit_percent=scope.get("nativeCpuPercent", spec.cpu_limit_percent))
         job = win32job.CreateJobObject(None, job_name(spec.managed_process_id))
-        if win32api.GetLastError() == 183:  # ERROR_ALREADY_EXISTS: never reconfigure a pre-existing Job.
+        if win32api.GetLastError() == 183:
             job.Close()
             raise OSError("Owned Job name already exists; refusing to change its limits")
         try:
@@ -148,7 +148,6 @@ class WindowsJobObjectProcessSupervisor:
             if process is not None:
                 with suppress(Exception):
                     win32job.TerminateJobObject(job, 1)
-                # La asignación puede fallar antes de que el Job Object posea la raíz suspendida.
                 with suppress(OSError):
                     process.kill()
                 with suppress(subprocess.TimeoutExpired):
@@ -180,7 +179,6 @@ class WindowsJobObjectProcessSupervisor:
         deadline = time.monotonic() + max(0.0, grace_seconds)
         while _active_pids(process.native_handle) and time.monotonic() < deadline:
             time.sleep(0.02)
-        # La raíz puede haber salido dejando descendientes dentro del Job Object.
         if _active_pids(process.native_handle):
             win32job.TerminateJobObject(process.native_handle, 1)
         root.wait(timeout=5)
@@ -220,8 +218,6 @@ class WindowsJobObjectProcessSupervisor:
             return
         process.native_handle.Close()
         process.released = True
-        # Popen.wait() caches the exit code but retains the process HANDLE until GC. Completed
-        # managed receipts can outlive the process; release that handle without invalidating a live wait.
         if process.process.poll() is not None:
             handle = getattr(process.process, "_handle", None)
             if handle is not None:
@@ -239,7 +235,7 @@ class WindowsJobObjectProcessSupervisor:
         from .service import ResourceWaitError
 
         inspected = []
-        for row in ancestors:  # outermost first, OS PID + creation identity checked by caller
+        for row in ancestors:
             try:
                 job = win32job.OpenJobObject(
                     win32job.JOB_OBJECT_QUERY, False, job_name(row["managed_process_id"])

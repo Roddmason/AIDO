@@ -30,9 +30,10 @@ from local_control_center.threads.contracts import (
     THREAD_STATUSES,
 )
 
-# Append-only tables whose per-thread ``sequence`` is computed by ``_next_sequence``. The set is an
-# allowlist so the table name can never reach the SQL string from anywhere but this module.
 _SEQUENCE_TABLES = frozenset({"thread_messages", "thread_agent_events"})
+"""Append-only tables whose per-thread ``sequence`` is computed by ``_next_sequence``. The set is an
+allowlist so the table name can never reach the SQL string from anywhere but this module.
+"""
 _ACTIVE_LIFECYCLE_BLOCKING_STATUSES = frozenset({"queued", "running"})
 _UNUSABLE_WORKSPACE_STATUSES = ("archived", "deleted")
 
@@ -157,7 +158,6 @@ class ThreadsRepository:
             raise KeyError(f"Thread not found: {thread_id}")
         return row["project_id"]
 
-    # -- threads ---------------------------------------------------------------
     def create_thread(
         self,
         *,
@@ -441,7 +441,6 @@ class ThreadsRepository:
         self._index_thread(thread_id)
         return self.get_thread(thread_id)
 
-    # -- messages --------------------------------------------------------------
     def append_message(
         self,
         *,
@@ -508,7 +507,6 @@ class ThreadsRepository:
             )
         return [row_to_message(row) for row in rows]
 
-    # -- artifacts -------------------------------------------------------------
     def attach_artifact(
         self,
         *,
@@ -567,7 +565,6 @@ class ThreadsRepository:
             )
         return [row_to_artifact(row) for row in rows]
 
-    # -- events ----------------------------------------------------------------
     def record_event(
         self,
         *,
@@ -649,7 +646,6 @@ class ThreadsRepository:
         ).fetchall()
         return [row_to_event(row) for row in rows]
 
-    # -- decisions -------------------------------------------------------------
     def create_decision(
         self,
         *,
@@ -760,7 +756,6 @@ class ThreadsRepository:
                 raise KeyError(f"Thread not found: {thread_id}")
             self._index_thread(thread_id)
 
-    # -- helpers ---------------------------------------------------------------
     def _index_thread(self, thread_id: str) -> None:
         from local_control_center.threads.similarity import ThreadSimilarityService
 

@@ -25,11 +25,12 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
-# Caché LRU de "¿este (loopId, versión) tiene durableRun.agentTasks no vacío?" para el tablero por
-# historia: sin esto, un hilo con varios loops (reintentos) sin tareas planificadas antes del que sí las
-# tiene volvía a leer el ``context`` completo de cada candidato (hasta ~29 MB medido) en cada sondeo del
-# tablero. La clave incluye la versión, así que nunca sirve una respuesta obsoleta.
 _PLANNED_LOOP_CACHE_CAPACITY = 256
+"""Caché LRU de "¿este (loopId, versión) tiene durableRun.agentTasks no vacío?" para el tablero por historia:
+sin esto, un hilo con varios loops (reintentos) sin tareas planificadas antes del que sí las tiene volvía
+a leer el ``context`` completo de cada candidato (hasta ~29 MB medido) en cada sondeo del tablero. La
+clave incluye la versión, así que nunca sirve una respuesta obsoleta.
+"""
 _planned_loop_cache: OrderedDict[tuple[str, str, int], dict[str, Any] | None] = OrderedDict()
 _planned_loop_cache_lock = threading.Lock()
 

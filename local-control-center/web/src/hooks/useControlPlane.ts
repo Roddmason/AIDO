@@ -162,9 +162,6 @@ export function useControlPlane() {
 	useEffect(() => {
 		mountedRef.current = true;
 		void refresh();
-		// Pestaña oculta: no hay nadie mirando el snapshot, asi que el tick no gasta red ni
-		// lock del backend; al volver a visible se refresca de inmediato para no mostrar
-		// datos de hace minutos.
 		const interval = window.setInterval(() => {
 			if (document.visibilityState === 'hidden') return;
 			void refresh(true);

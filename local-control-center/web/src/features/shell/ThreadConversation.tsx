@@ -223,10 +223,7 @@ export function ThreadConversation({
 	const latestEventSequence = eventStream.events.at(-1)?.sequence ?? 0;
 	const latestWorkerFailureSequence =
 		eventStream.events.findLast((event) => event.type === 'worker_failed')?.sequence ?? 0;
-	// Refetch the blocker remediations whenever a new execution event lands (a `blocked` event brings
-	// fresh repair actions) so the cards stay in sync with the live pipeline without manual polling.
 	const remediations = useThreadRemediations(activeThreadId, mutate, latestEventSequence);
-	// Development mode: the story board takes the main area once the loop executes stories.
 	const stageEvents = useMemo(
 		() => mergeConsoleEvents(detail?.events ?? [], eventStream.events),
 		[detail?.events, eventStream.events],
@@ -236,8 +233,6 @@ export function ThreadConversation({
 		eventStream.threadStatus ?? detail?.thread.status ?? '',
 	);
 	const board = useThreadBoard(activeThreadId, latestBoardRefreshSequence(stageEvents));
-	// The operator's layout choice per thread, seeded from localStorage and kept in state so a toggle
-	// re-renders at once; the storage write is best-effort (private windows fall back to automatic).
 	const [layoutPrefs, setLayoutPrefs] = useState<Record<string, ThreadLayoutPreference>>({});
 	const layoutPref = useMemo<ThreadLayoutPreference>(
 		() => (activeThreadId ? (layoutPrefs[activeThreadId] ?? readThreadLayout(activeThreadId)) : {}),
@@ -268,8 +263,6 @@ export function ThreadConversation({
 		() => updateLayout({ chatCollapsed: !chatCollapsed }),
 		[updateLayout, chatCollapsed],
 	);
-	// Unread transcript messages while the chat is folded: the count seen when it was last visible
-	// is the baseline, so a message that lands behind the board still gets noticed.
 	const transcriptCount = useMemo(
 		() =>
 			detail && detail.thread.id === activeThreadId
@@ -290,7 +283,6 @@ export function ThreadConversation({
 		chatCollapsed && activeThreadId && transcriptCount !== null
 			? Math.max(0, transcriptCount - (seenCounts[activeThreadId] ?? transcriptCount))
 			: 0;
-	// Story drawer: the card is re-read from every board refetch so the drawer follows the loop.
 	const [openStory, setOpenStory] = useState<{ threadId: string; storyId: string } | null>(null);
 	const openStoryCard =
 		openStory && openStory.threadId === activeThreadId
@@ -318,19 +310,16 @@ export function ThreadConversation({
 	}, [activeThreadId, boardMode, manualBoardMode, shellInspector]);
 	const composerDockRef = useRef<HTMLDivElement | null>(null);
 
-	// Git mutations inside the composer re-pull the overview (fire-and-forget) so the shell stays in sync.
 	const refreshOverview = () => {
 		void mutate(async () => undefined, { awaitRefresh: false });
 	};
 
-	// The event tail is bounded: sequence advances even after its rendered length reaches 300.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sequence/running changes can require reload even when the thread status is unchanged.
 	useEffect(() => {
 		if (!activeThreadId || eventStream.threadStatus === null) return;
 		reload();
 	}, [activeThreadId, latestEventSequence, eventStream.threadStatus, eventStream.running, reload]);
 
-	// Story review: `request_changes` feedback on one of the story's tasks sends the loop to rework.
 	const boardLoopId = board.data?.loopId ?? null;
 	const selectedProjectId = selectedProject?.id ?? null;
 	const requestStoryChanges = useCallback(
@@ -379,7 +368,6 @@ export function ThreadConversation({
 			});
 	}, []);
 
-	// A failed worker can leave its thread queued, so its failure event also refreshes worker state.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: thread/status/failure changes are explicit worker-status refresh signals.
 	useEffect(() => {
 		const controller = new AbortController();
@@ -407,23 +395,12 @@ export function ThreadConversation({
 		[resolveDecisions],
 	);
 
-	// One phase id per render, used only to pick the AnimatePresence key/variant below; the
-	// if/else-if chain further down re-checks the same conditions directly so TypeScript's
-	// narrowing of `selectedProject`/`detail` keeps working exactly as before this refactor.
 	const phase = deriveConversationPhase(selectedProject, isNew, loading, error, detail);
 
-	// Remembers that the user is mid-handoff from the new-thread intake, surviving the transient
-	// 'loading' tick that always intervenes between 'new' and 'live' (the thread-detail fetch is at
-	// least one async tick, so 'loading' reliably shows up in between — confirmed visually, not just
-	// in theory). Switching between two already-created threads still passes through 'loading' but
-	// never through 'new', so it never sets this flag and gets the plain fade, as intended.
 	const awaitingHandoffRef = useRef(false);
 	if (phase === 'new') {
 		awaitingHandoffRef.current = true;
 	}
-	// Frozen for the whole 'live' mount via useMemo(deps=[phase]) — a plain derived const would flip
-	// before the console's delayed fade-in ever fires (the reset effect below runs almost immediately
-	// after the 'live' render commits), retargeting Motion's `animate` prop and defeating the delay.
 	const handoffFromIntake = useMemo(() => phase === 'live' && awaitingHandoffRef.current, [phase]);
 	useEffect(() => {
 		if (phase === 'live' || phase === 'no-project') {
@@ -431,24 +408,15 @@ export function ThreadConversation({
 		}
 	}, [phase]);
 
-	// --- Anti-concurrent-loop controls ------------------------------------------------------------
-	// While a thread executes, the composer switches to note mode; these handlers back its three safe
-	// actions (add a note, stop the run, or resolve a new objective through an explicit modal) so a
-	// second product-loop run can never start by accident.
 	const [cancelBusy, setCancelBusy] = useState(false);
 	const [objectiveDraft, setObjectiveDraft] = useState<string | null>(null);
 	const [objectiveBusy, setObjectiveBusy] = useState<NewObjectiveMode | null>(null);
 	const [objectiveFailed, setObjectiveFailed] = useState(false);
-	// Bumped after a modal action that stays on this thread, remounting the composer to clear its draft.
 	const [composerResetKey, setComposerResetKey] = useState(0);
-	// Holds a thread created for the new objective but not yet messaged, so a retry after a flaky
-	// postThreadMessage reuses it instead of minting a second empty orphan thread.
 	const pendingNewThreadRef = useRef<string | null>(null);
 
 	const addNote = useCallback(
 		async (noteContent: string) => {
-			// Throw (not silent return) so the composer's catch restores the draft if the thread id is
-			// somehow stale — a note must never vanish without the operator seeing it failed.
 			if (!activeThreadId) throw new Error('No active thread to attach the note to.');
 			await mutate(
 				(writeToken) => postThreadNote(writeToken, activeThreadId, { content: noteContent }),
@@ -481,14 +449,11 @@ export function ThreadConversation({
 	}, []);
 
 	const closeNewObjective = useCallback(() => {
-		if (objectiveBusy) return; // never dismiss mid-action
-		// Abandon any half-created thread so a later, unrelated objective never reuses a stale id.
+		if (objectiveBusy) return;
 		pendingNewThreadRef.current = null;
 		setObjectiveDraft(null);
 	}, [objectiveBusy]);
 
-	// One handler for the modal's three resolutions of a new objective typed during execution:
-	// fold it into the running loop as a note, branch it into a fresh thread, or cancel-and-replace.
 	const resolveNewObjective = useCallback(
 		async (mode: NewObjectiveMode) => {
 			if (objectiveDraft === null || !selectedProject) return;
@@ -500,8 +465,6 @@ export function ThreadConversation({
 					await addNote(objective);
 					setComposerResetKey((value) => value + 1);
 				} else if (mode === 'new_thread') {
-					// Reuse a thread a prior attempt already created (message failed) rather than mint a
-					// second empty orphan; only navigate once the objective has actually been posted.
 					let createdId = pendingNewThreadRef.current;
 					if (!createdId) {
 						const firstLine = objective.split(/\r?\n/)[0]?.trim() ?? '';
@@ -617,8 +580,6 @@ export function ThreadConversation({
 			</div>
 		);
 	} else {
-		// Every pending decision must be answerable: the loop only resumes once the whole batch is
-		// resolved, so rendering just the first one left the thread blocked with no way forward.
 		const pendingDecisions = detail.decisions.filter((decision) => decision.status === 'pending');
 		const researchArtifacts = detail.artifacts.filter(
 			(artifact) => artifact.kind === 'research_report',
@@ -644,7 +605,6 @@ export function ThreadConversation({
 			!consoleEvents.some(
 				(event) => event.type === 'worker_claimed' && event.sequence > latestQueueSequence,
 			);
-		// A live run: the composer becomes a note pad and only the explicit modal can start something new.
 		const isExecuting = threadStatus === 'queued' || threadStatus === 'running';
 
 		content = (
@@ -731,10 +691,6 @@ export function ThreadConversation({
 									))
 								)}
 							</div>
-
-							{/* Pending decisions are answered from the execution panel only (ThreadDecisionAnswers) —
-							    rendering them here too used to leave a duplicate, non-interactive card in the
-							    chat with no way to answer a decision that had no options. */}
 
 							{researchArtifacts.map((artifact) => (
 								<ThreadResearchCard
@@ -1165,12 +1121,8 @@ function ThreadComposerBox({
 	const autonomy = projectSettings.find((setting) => setting.key === 'autonomy.level');
 	const autonomyValue = typeof autonomy?.value === 'string' ? autonomy.value : 'guided';
 	const working = busy || localBusy;
-	// Same executable definition the status bar counts (shellStatus), so both surfaces agree.
 	const executableRuntimes =
 		runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0;
-	// With zero executable runtimes nothing runs regardless of autonomy, so the "full access" warn on
-	// the permissions shield is moot; suppressing it leaves the runtime CTA as the composer's only warn.
-	// Gated on a settled snapshot (runtimeProviders !== null) so a pending discovery never mutes it.
 	const runtimesBlocked = runtimeProviders !== null && executableRuntimes === 0;
 
 	const onPermissionChange = async (next: string) => {
@@ -1187,7 +1139,6 @@ function ThreadComposerBox({
 		if (!content || working) return;
 		setLocalBusy(true);
 		try {
-			// While the thread executes the primary action is a note, never a second run.
 			if (executing && onAddNote) {
 				setValue('');
 				try {
@@ -1215,7 +1166,6 @@ function ThreadComposerBox({
 		void submitNow();
 	};
 
-	// Enter sends; Shift+Enter inserts a newline (the conventional chat-composer affordance).
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
@@ -1338,11 +1288,6 @@ function ThreadComposerBox({
 					<Laptop aria-hidden="true" size={13} />
 					{t('app.composer.local', 'Local')}
 				</span>
-				{/* Runtime readiness at the point of composing: with zero executable runtimes the thread
-				    will block on execution, so the chip becomes the setup CTA instead of a passive count.
-				    Hidden while discovery is pending — no state is asserted before the API answered.
-				    Direct child of the context row (no wrapper) so its top border stays on the shared
-				    toolbar line; the underlined label is the persistent "this is a link" affordance. */}
 				{runtimeProviders ? (
 					<button
 						type="button"
@@ -1351,8 +1296,6 @@ function ThreadComposerBox({
 						onClick={onOpenRuntimeSetup}
 					>
 						<StatusDot tone={executableRuntimes > 0 ? 'ok' : 'warn'} />
-						{/* Polite live region: once the button is mounted its label persists, so a later
-						    warn→ok flip (or a changed count) is announced without re-announcing on focus. */}
 						<span className="composer-runtimes-label" aria-live="polite">
 							{executableRuntimes > 0 ? (
 								<>
@@ -1518,18 +1461,12 @@ function NewThreadComposer({
 	const [reuseFailed, setReuseFailed] = useState(false);
 	const [runtimeTeam, setRuntimeTeam] = useState<RuntimeTeamSelection | null>(null);
 	const [creating, setCreating] = useState(false);
-	// If thread creation succeeds but the first message fails, retry against the same empty thread.
-	// Navigating before the message is durable would unmount this intake and hide the only error.
-	// `teamSaved` records that the pending thread already holds a team, so switching back to
-	// automatic routing before the retry must clear it instead of skipping the PATCH.
 	const pendingCreatedThreadRef = useRef<{
 		threadId: string;
 		dismissedCandidate: ThreadSimilarityCandidate | null;
 		teamSaved: boolean;
 	} | null>(null);
 
-	// Debounced similar-work lookup. Best-effort by design: failures stay silent and never block
-	// the composer; the AbortController drops stale in-flight responses when the draft changes.
 	useEffect(() => {
 		const query = draft.trim();
 		if (query.length < SIMILARITY_MIN_QUERY) {
@@ -1552,12 +1489,8 @@ function NewThreadComposer({
 	}, [draft, project.id]);
 
 	const createThreadFromMessage = async (firstMessage: string) => {
-		// Title is derived automatically from the first line of the message (no manual field); the
-		// coordinator can refine it from the conversation topic later.
 		const firstLine = firstMessage.split(/\r?\n/)[0]?.trim() ?? '';
 		const threadTitle = (firstLine || firstMessage).slice(0, 80);
-		// Frozen with the pending thread: the debounce may clear the card while the first message is
-		// retried, but the deduplication decision must remain attached to that original intake.
 		let pending = pendingCreatedThreadRef.current;
 		const dismissedCandidate = pending?.dismissedCandidate ?? candidate;
 		setFailed(false);
@@ -1576,7 +1509,6 @@ function NewThreadComposer({
 			if (!pending) throw new Error('Thread creation did not return a durable thread id.');
 			const pendingThreadId = pending.threadId;
 			if (runtimeTeam || pending.teamSaved) {
-				// Persist the team before the first message so the backend seals it into that run.
 				await updateThreadRunConfiguration(token, pendingThreadId, runtimeTeamRequest(runtimeTeam));
 				pending.teamSaved = runtimeTeam !== null;
 			}
@@ -1595,17 +1527,13 @@ function NewThreadComposer({
 			onGitRefresh();
 			onCreated(pendingThreadId);
 			if (dismissedCandidate) {
-				// Persist the deduplication decision ("saw similar work, created new anyway") as a real
-				// similarity event; the thread itself is already created, so a failure here stays silent.
 				try {
 					await markSimilarThread(token, pendingThreadId, dismissedCandidate.threadId, {
 						action: 'create_new_anyway',
 						score: dismissedCandidate.score,
 						reason: dismissedCandidate.reason,
 					});
-				} catch {
-					// Best-effort audit trail; the created thread must not look broken because of it.
-				}
+				} catch {}
 			}
 		} catch (creationError) {
 			const pendingThread = pendingCreatedThreadRef.current;
@@ -1621,9 +1549,7 @@ function NewThreadComposer({
 						onCreated(pendingThread.threadId);
 						return;
 					}
-				} catch {
-					// Preserve the intake and pending id; a later retry can reconcile before writing again.
-				}
+				} catch {}
 			}
 			setFailed(true);
 			throw creationError;
@@ -1658,7 +1584,6 @@ function NewThreadComposer({
 		try {
 			await createThreadFromMessage(content);
 		} catch {
-			// createThreadFromMessage already surfaced the failure through the composer errorText.
 		} finally {
 			setReuseBusy(null);
 		}

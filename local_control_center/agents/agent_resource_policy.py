@@ -54,7 +54,7 @@ def profile_rejection(profile, model):
     if profile.get("status") != "active":
         return "agent_profile_unavailable"
     for field, value in (("allowedProviders", model["providerId"]), ("allowedRuntimes", model["runtime"])):
-        selectors = profile.get(field) or ["*"]  # Legacy empty allowlists mean unrestricted.
+        selectors = profile.get(field) or ["*"]
         if (
             "*" not in selectors
             and value not in selectors

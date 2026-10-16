@@ -73,7 +73,6 @@ def provider_configuration_fingerprint(connection: sqlite3.Connection, provider_
     if row is None:
         return ""
     provider = dict(row)
-    # Legacy seeds and their persisted canonical forms describe the same transport.
     resolver = CredentialResolver()
     provider["credential_ref"] = resolver.normalize_ref_for_storage(provider["credential_ref"])
     provider["base_url"] = str(provider["base_url"] or "").strip().rstrip("/")

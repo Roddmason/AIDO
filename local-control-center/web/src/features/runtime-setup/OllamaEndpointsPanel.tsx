@@ -90,7 +90,6 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 		}
 		setEndpointsLoaded(true);
 		setEndpointsLoading(false);
-		// Role policies only enrich the "preferred for" chips; losing them must not hide the cards.
 		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
 	}, []);
 
@@ -150,7 +149,6 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 				body: redactVisibleSecret(errorMessage(error), 'ollama endpoint action failed'),
 				tone: 'danger',
 			});
-			// A rejected probe still updates the stored health, so re-read before giving up.
 			await load();
 		} finally {
 			setBusyAction(null);
@@ -163,7 +161,6 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 		setBusyAction(`${endpointId}:toggle`);
 		try {
 			await patchOllamaEndpoint(token, endpointId, enabled);
-			// The switch changes every scope's AI team: drop the cached teams.
 			invalidateRuntimeTeamCache();
 			notify({
 				title: enabled
@@ -351,8 +348,6 @@ function EndpointCard({
 		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
 		: '';
 
-	// Same anatomy as every provider card: title + switch in the header, state first in the meta row.
-	// The switch already says Active/Inactive, so no separate enabled/disabled badge repeats it.
 	return (
 		<article className="card card--static provider-card" data-tone={card.healthTone}>
 			<div className="card-header">
@@ -459,8 +454,6 @@ function EndpointCard({
 				>
 					{t('app.ollama.card.syncModels', 'Sync models')}
 				</Button>
-				{/* Secondary actions: compact icon buttons (named via aria-label, explained by a tooltip)
-				    so the four actions share one row in a 23rem card instead of wrapping onto two. */}
 				<span className="provider-card-icon-actions">
 					<Tooltip label={t('app.ollama.card.setPreferred', 'Set preferred for role')}>
 						<IconButton

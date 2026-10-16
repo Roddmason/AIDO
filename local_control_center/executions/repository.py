@@ -131,8 +131,6 @@ class ExecutionRepository:
                 job["kind"] != EXECUTION_JOB_KIND
                 and ManagedProcessRepository(self.connection).cancellation_reason(job["id"]) is None
             ):
-                # An explicit retry may receive a different admitted envelope. Keep
-                # the same legacy identity and never rewrite a started/cancelled run.
                 self.connection.execute(
                     """UPDATE operational_executions SET workload_class=?
                     WHERE id=? AND job_id=? AND project_id IS ? AND operation=?

@@ -352,7 +352,6 @@ def hydrate_research_run(coordinator, run, *, loop: dict[str, Any], receipt: dic
         project_id=run.project_id,
         source_message=source_message,
     )
-    # The old job remains provenance in requestMeta, never the identity of this continuation.
     run.request_meta.pop("jobId", None)
     run.request_meta.pop("executionId", None)
     context = CURRENT_EXECUTION.get()

@@ -231,7 +231,6 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         display_name="NVIDIA NIM / Build",
         kind="api",
         variables=(
-            # Los nombres que usan la documentación de NVIDIA y el seed histórico también valen.
             RuntimeConfigVariableSpec(
                 "apiKey", "AIDO_NVIDIA_API_KEY", secret=True, aliases=("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY")
             ),

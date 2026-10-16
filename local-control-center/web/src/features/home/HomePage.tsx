@@ -66,7 +66,6 @@ export function HomePage({
 		<div className="home">
 			<section className="home-hero" data-motion-item>
 				<div className="home-hero-text">
-					{/* Brand wordmark — identical in every language, intentionally not translated. */}
 					<span className="home-hero-kicker">{'AIDO Studio'}</span>
 					<h2 className="home-hero-title">{t('app.home.title', 'Open or continue a project')}</h2>
 					<p className="home-hero-summary">
@@ -127,8 +126,6 @@ export function HomePage({
 							</button>
 						</div>
 					</header>
-					{/* Projects share one even grid (every row lines up); attention items follow in
-					    their own band so a runtime or review card never breaks the project rhythm. */}
 					<MotionList className="masonry-grid home-projects">
 						{projectCards.map((item) =>
 							item.kind === 'workspace' ? (

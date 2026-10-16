@@ -96,9 +96,6 @@ export function SettingsModalBody({
 		}
 	}, [open, initialSection]);
 
-	// Moving between sections replaces the whole right pane: send focus to the new
-	// section title so keyboard and screen-reader users get the context change.
-	// Initial open keeps the Dialog's own focus handling (the body mounts with each open).
 	useEffect(() => {
 		if (previousSectionRef.current !== activeSection) {
 			previousSectionRef.current = activeSection;
@@ -106,10 +103,6 @@ export function SettingsModalBody({
 		}
 	}, [activeSection]);
 
-	// On phones the nav is a sideways strip (layout.css): keep the active section's chip in view when
-	// the dialog opens on a deep-linked section or the section changes. `nearest` is a no-op when the
-	// chip is already visible (always the case in the desktop column), and the default instant scroll
-	// needs no reduced-motion branch.
 	useEffect(() => {
 		if (!open) return;
 		const active = navRef.current?.querySelector<HTMLElement>(
@@ -220,7 +213,6 @@ export function SettingsModalBody({
 
 	return (
 		<div className="settings-modal-body">
-			{/* Left: section navigator */}
 			<nav
 				ref={navRef}
 				className="settings-nav"
@@ -298,7 +290,6 @@ export function SettingsModalBody({
 				)}
 			</nav>
 
-			{/* Right: content */}
 			<div className="settings-content">
 				{isProjectSection ? (
 					<div className="settings-context-bar">

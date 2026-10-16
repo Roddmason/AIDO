@@ -63,13 +63,13 @@ DEPLOYMENT_MODES_REQUIRING_BASE_URL = frozenset(
     {"self_hosted_development", "self_hosted_enterprise", "partner_paid"}
 )
 
-# Mismas capabilities que scripts/setup_omniroute.py: `chat` es obligatorio para ejecutar y las
-# filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así que sin
-# esta siembra una cuenta OmniRoute creada desde el wizard queda solo con el `chat` de la familia
-# openai_compatible y los roles de build (code) y review la descartan con missing_capabilities.
-# Las entradas locales no se siembran: sus capacidades de código son opt-in por modelo
-# (local_model_settings, spec §4.3).
 OMNIROUTE_RUNTIME_CAPABILITIES = ("chat", "code_edit", "code_review")
+"""Mismas capabilities que scripts/setup_omniroute.py: `chat` es obligatorio para ejecutar y las filas de
+runtime_capabilities por provider_id ocultan por completo las de la familia, así que sin esta siembra una
+cuenta OmniRoute creada desde el wizard queda solo con el `chat` de la familia openai_compatible y los
+roles de build (code) y review la descartan con missing_capabilities. Las entradas locales no se siembran:
+sus capacidades de código son opt-in por modelo (local_model_settings, spec §4.3).
+"""
 BUILD_REVIEW_SEEDED_CATALOG_IDS = frozenset({"omniroute"})
 
 
@@ -522,8 +522,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 detail=redact_secrets(f"Model sync failed for {provider_id}: {error}"),
             ) from error
         if probe is not None and not discovered:
-            # `list_models` convierte una lectura fallida en []: un servidor local que dejó de responder, o que
-            # carga un modelo, entre la sonda y esta lectura no puede darse por sincronizado con 0 modelos.
             _fail_local_sync(providers(), provider_id, _empty_local_listing(probe))
         api_family = str(account.get("apiFamily") or "")
         excluded_prefixes = catalog_entry.excluded_model_prefixes
@@ -537,8 +535,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         existing_models = (
             {str(row["model"]): row for row in providers().list_models(provider_id)} if self_hosted else {}
         )
-        # Un gateway de auto-ruteo anuncia upstreams sin cuenta: solo su allowlist curada queda
-        # preseleccionada; el resto se sincroniza deshabilitado y el operador puede habilitarlo.
         allowlist = gateway_model_allowlist(catalog_entry.id)
         for item in discovered:
             if excluded_by_catalog_rule(str(item.get("model") or "")):
@@ -565,8 +561,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                     preserve_operator_enabled=True,
                 )
             )
-        # La exclusión es regla de proyecto, no preferencia: el sync también apaga las filas que
-        # un sync anterior (sin la regla) dejó habilitadas, para que resincronizar sea curativo.
         if excluded_prefixes:
             for row in providers().list_models(provider_id):
                 if row.get("enabled") and excluded_by_catalog_rule(str(row.get("model") or "")):
@@ -590,8 +584,6 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 "absentDisabled": len(absent),
             },
         )
-        # La allowlist viaja con la respuesta: la UI ofrece "Seleccionar recomendados" sobre un
-        # catálogo de miles de modelos sin tener que preseleccionarlo entero.
         recommended = (
             None
             if allowlist is None

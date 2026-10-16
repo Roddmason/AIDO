@@ -123,9 +123,6 @@ def _apply_product_loop_delivery_feedback(
     except (KeyError, ProductLoopStopConditionError, ProductLoopTransitionError, ValueError) as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     if action_name == "request_changes":
-        # Rechazar la entrega exige un motivo: es el pedido de cambios, y se trabaja de inmediato.
-        # Sin esto el loop quedaba en awaiting_feedback y el hilo "reworking" sin nada en marcha.
-        # Un loop sin hilo o sin mensaje de origen no puede continuar: queda esperando feedback.
         try:
             coordinator.apply_feedback(
                 loop_id,
@@ -204,7 +201,6 @@ def _apply_product_loop_resource_approval(
         durable.get("resourceApproval") if isinstance(durable.get("resourceApproval"), dict) else {}
     )
     if approve_card is not None:
-        # object(): approve_resource_decision y retry_loop no consultan el runtime de la plataforma.
         execution = (service.execute(approve_card["id"], platform=object()) or {}).get("execution") or {}
         if execution.get("status") != "completed":
             raise HTTPException(

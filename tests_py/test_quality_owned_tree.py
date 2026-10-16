@@ -10,7 +10,7 @@ import sys
 import psutil
 import pytest
 
-from local_control_center.quality.owned_tree import owned_root, stop_owned_tree
+from local_control_center.quality.owned_tree import CREATE_TIME_TOLERANCE_SECONDS, owned_root, stop_owned_tree
 
 
 def test_owned_tree_rejects_wrong_parent_and_recycled_identity():
@@ -46,3 +46,39 @@ def test_qa_runner_closes_redirector_and_server_descendants():
             server.kill()
             server.wait(timeout=5)
         process.stdout.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX zombie semantics")
+def test_owned_tree_treats_unreaped_zombie_root_as_stopped():
+    # run-web-tests.mjs invoca el stop con spawnSync: Node no cosecha al servidor mientras espera,
+    # así que el root terminado queda zombie y sigue "existiendo" para psutil.
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-u",
+            "-c",
+            "import subprocess,sys,time; "
+            "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+            "print(child.pid,flush=True); time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        root_pid = int(parent.stdout.readline().strip())
+        created_at = owned_root(root_pid, parent.pid).create_time()
+        result = stop_owned_tree(root_pid, parent.pid, created_at)
+        assert result == {"status": "stopped", "descendantCount": 0, "remainingCount": 0}
+        assert psutil.Process(root_pid).status() == psutil.STATUS_ZOMBIE
+    finally:
+        parent.kill()
+        parent.wait(timeout=5)
+        parent.stdout.close()
+
+
+def test_owned_root_tolerates_boot_time_rounding_but_not_a_different_process():
+    actual = psutil.Process(os.getpid()).create_time()
+    drift = 1.0 if sys.platform != "win32" else 0.0
+    assert owned_root(os.getpid(), os.getppid(), actual + drift).pid == os.getpid()
+    with pytest.raises(RuntimeError, match="ownership"):
+        owned_root(os.getpid(), os.getppid(), actual + CREATE_TIME_TOLERANCE_SECONDS + 1.0)

@@ -10,19 +10,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from contextlib import suppress
 
 import psutil
+
+CREATE_TIME_TOLERANCE_SECONDS = 0.01 if sys.platform == "win32" else 1.5
+"""Diferencia admitida entre la hora de creación vista al lanzar y al cerrar.
+
+En Linux psutil deriva ``create_time`` del boot time, que entre dos procesos puede redondear a otro
+segundo (medido: saltos de exactamente 1,0 s con psutil 7.2.2 en WSL2). La guarda contra PID
+reciclado sigue siendo estricta porque además exige que el padre sea el runner.
+"""
 
 
 def owned_root(root_pid: int, parent_pid: int, created_at: float | None = None) -> psutil.Process:
     """Resuelve sólo el hijo directo del runner y rechaza identidad reciclada."""
     process = psutil.Process(root_pid)
     if process.ppid() != parent_pid or (
-        created_at is not None and abs(process.create_time() - created_at) >= 0.01
+        created_at is not None and abs(process.create_time() - created_at) >= CREATE_TIME_TOLERANCE_SECONDS
     ):
         raise RuntimeError("QA process ownership/creation-time mismatch; no process was terminated.")
     return process
+
+
+def _exited_unreaped(process: psutil.Process) -> bool:
+    """Zombie POSIX: ya terminó y sólo espera que su padre lo coseche.
+
+    El runner de Node invoca este cierre con ``spawnSync`` y no puede cosechar al servidor mientras
+    espera, así que el root terminado sigue figurando en psutil sin estar vivo.
+    """
+    try:
+        return process.status() == psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return True
 
 
 def stop_owned_tree(root_pid: int, parent_pid: int, created_at: float) -> dict:
@@ -38,6 +59,7 @@ def stop_owned_tree(root_pid: int, parent_pid: int, created_at: float) -> dict:
         with suppress(psutil.NoSuchProcess):
             process.kill()
     _, alive = psutil.wait_procs(alive, timeout=5)
+    alive = [process for process in alive if not _exited_unreaped(process)]
     if alive:
         raise RuntimeError("Owned QA descendants did not exit; outer supervisor cleanup is required.")
     return {"status": "stopped", "descendantCount": len(descendants), "remainingCount": 0}

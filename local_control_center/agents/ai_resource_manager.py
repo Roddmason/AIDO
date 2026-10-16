@@ -22,18 +22,30 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from local_control_center.agents import local_model_state
+from local_control_center.agents import (
+    local_model_state,
+    resource_catalog_overlay,
+    resource_ranking,
+    resource_rejection,
+    resource_scoring,
+)
 from local_control_center.agents.endpoint_locality import is_local_model_runtime
 from local_control_center.agents.local_model_selection import resolve_local_model
 from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
 from local_control_center.agents.model_wildcards import (
-    MODEL_WILDCARDS,
     is_nvidia_nim_auto_selection_sentinel,
 )
 from local_control_center.agents.provider_accounts import (
     ProviderAccountStore,
     provider_account_is_declared_free,
 )
+from local_control_center.agents.resource_catalog_overlay import (
+    MODEL_CATALOG_BASELINE_EVIDENCE_KIND,
+)
+from local_control_center.agents.resource_catalog_overlay import (
+    performance_evidence_summary as _performance_evidence_summary,
+)
+from local_control_center.agents.resource_scoring import REMOTE_LOCALITIES
 from local_control_center.agents.runtime_status import RuntimeStatusService
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -42,7 +54,6 @@ from local_control_center.shared.time import utc_now
 LOW_RISK_LEVELS = {"low", "routine"}
 HIGH_RISK_LEVELS = {"high", "critical", "security", "release"}
 CRITICAL_RISK_LEVELS = {"critical", "security", "release"}
-REMOTE_LOCALITIES = {"remote"}
 ROUTING_POLICY_MODES = {"economy", "balanced", "critical", "maximum"}
 ROUTING_POLICY_ALIASES = {
     "balanced_best_value": "balanced",
@@ -61,7 +72,6 @@ TOKEN_KEYS = {
     "tool": ("tool_tokens",),
     "total": ("total_tokens",),
 }
-MODEL_CATALOG_BASELINE_EVIDENCE_KIND = "model_catalog_baseline"
 MODEL_CATALOG_CANDIDATE_INVENTORY = "model_catalog_with_performance_overlay"
 PERFORMANCE_PROFILE_CANDIDATE_INVENTORY = "ai_model_performance"
 UNOBSERVED_PERFORMANCE_PRIOR = 0.5
@@ -148,20 +158,6 @@ def _camel_payload_value(payload: dict[str, Any], *keys: str, default: Any = Non
         if key in payload:
             return payload[key]
     return default
-
-
-def _performance_evidence_summary(evidence: list[Any]) -> tuple[str, int]:
-    outcome_count = sum(
-        1 for item in evidence if isinstance(item, dict) and str(item.get("kind") or "") == "outcome"
-    )
-    if outcome_count:
-        return "observed", outcome_count
-    if any(
-        isinstance(item, dict) and str(item.get("kind") or "") == MODEL_CATALOG_BASELINE_EVIDENCE_KIND
-        for item in evidence
-    ):
-        return "unobserved_prior", 0
-    return "configured_prior", 0
 
 
 def _catalog_provider_locality(provider: dict[str, Any] | None) -> str:
@@ -1113,13 +1109,7 @@ class AIResourceManager:
             name: "local_model_not_selected" for name in eligible_names if name != resolution.model
         }, selection
 
-    @staticmethod
-    def _model_profile_key(model: dict[str, Any]) -> tuple[str, str, str]:
-        return (
-            str(model.get("providerId") or ""),
-            str(model.get("model") or ""),
-            str(model.get("runtime") or ""),
-        )
+    _model_profile_key = staticmethod(resource_catalog_overlay.model_profile_key)
 
     def _catalog_models_with_performance_overlay(
         self,
@@ -1210,88 +1200,8 @@ class AIResourceManager:
             "performanceSampleCount": 0,
         }
 
-    @staticmethod
-    def _catalog_capabilities(
-        catalog_model: dict[str, Any],
-        runtime_status: dict[str, Any] | None,
-        *,
-        model_capabilities: frozenset[str] = frozenset(),
-    ) -> list[str]:
-        """Capacidades del perfil: las del runtime más, en cuentas locales, las opt-in de ese modelo."""
-        runtime_capabilities = {
-            str(item).strip().lower()
-            for item in (runtime_status or {}).get("capabilities") or []
-            if str(item).strip()
-        } | {str(item).strip().lower() for item in model_capabilities if str(item).strip()}
-        capabilities = runtime_capabilities & {"chat", "search"}
-        if runtime_capabilities & {"code_edit", "issue_to_patch", "code"}:
-            capabilities.add("code")
-        if runtime_capabilities & {"code_review", "review"}:
-            capabilities.add("review")
-        end_to_end_capabilities = (
-            ("supportsTools", "tools", {"tools", "issue_to_patch"}),
-            ("supportsJson", "json", {"json"}),
-            ("supportsVision", "vision", {"vision"}),
-            ("supportsEmbeddings", "embeddings", {"embeddings"}),
-            ("supportsRerank", "rerank", {"rerank"}),
-            ("supportsReasoning", "reasoning", {"reasoning"}),
-            ("supportsThinking", "reasoning", {"reasoning"}),
-        )
-        capabilities.update(
-            capability
-            for flag, capability, runtime_signals in end_to_end_capabilities
-            if bool(catalog_model.get(flag)) and runtime_capabilities & runtime_signals
-        )
-        return sorted(capabilities)
-
-    @staticmethod
-    def _overlay_catalog_performance(
-        catalog_profile: dict[str, Any],
-        performance: dict[str, Any],
-    ) -> dict[str, Any]:
-        evidence = list(catalog_profile["evidence"])
-        evidence_ids = {str(item.get("id") or "") for item in evidence if isinstance(item, dict)}
-        evidence.extend(
-            item
-            for item in performance.get("evidence") or []
-            if not isinstance(item, dict)
-            or not str(item.get("id") or "")
-            or str(item.get("id") or "") not in evidence_ids
-        )
-        performance_status, performance_sample_count = _performance_evidence_summary(
-            list(performance.get("evidence") or [])
-        )
-        catalog_backed = performance.get("profileSource") == "model_catalog"
-        legacy_overrides = (
-            {}
-            if catalog_backed
-            else {
-                key: performance.get(key)
-                for key in (
-                    "capabilities",
-                    "contextWindow",
-                    "maxOutputTokens",
-                    "inputPricePerMtok",
-                    "cachedInputPricePerMtok",
-                    "outputPricePerMtok",
-                    "reasoningPricePerMtok",
-                )
-            }
-        )
-        return {
-            **catalog_profile,
-            **legacy_overrides,
-            "id": performance["id"],
-            "observedLatencyMs": performance.get("observedLatencyMs"),
-            "observedSuccessRate": performance.get("observedSuccessRate"),
-            "reworkRate": performance.get("reworkRate"),
-            "totalObservedTokens": performance.get("totalObservedTokens"),
-            "qualityScore": performance.get("qualityScore"),
-            "evidence": evidence,
-            "createdAt": performance.get("createdAt"),
-            "performanceStatus": performance_status,
-            "performanceSampleCount": performance_sample_count,
-        }
+    _catalog_capabilities = staticmethod(resource_catalog_overlay.catalog_capabilities)
+    _overlay_catalog_performance = staticmethod(resource_catalog_overlay.overlay_catalog_performance)
 
     def _materialize_catalog_model_performance(
         self,
@@ -1384,136 +1294,14 @@ class AIResourceManager:
             }
         return self._runtime_status_cache[project_id]
 
-    @staticmethod
-    def _runtime_executable_reject_reason(
-        *,
-        model: dict[str, Any],
-        runtime_statuses: dict[str, dict[str, Any]],
-        request: AIResourceRequest,
-    ) -> str | None:
-        provider_id = str(model.get("providerId") or "").strip()
-        status = runtime_statuses.get(provider_id)
-        if status is None:
-            return f"runtime_not_executable: Provider {provider_id} is not configured in runtime status."
-        if status.get("enabled") is False:
-            # El switch del operador es un rechazo duro propio, no una falla de runtime reparable:
-            # ni la selección ni el failover pueden elegir un proveedor apagado.
-            return f"provider_disabled: Provider {provider_id} is switched off by the operator."
-        if is_nvidia_nim_auto_selection_sentinel(
-            str(status.get("providerFamily") or "").strip(),
-            str(model.get("model") or "").strip(),
-        ):
-            return "nvidia_model_selection_required"
-        if status.get("executable") is not True:
-            reason = str(status.get("reason") or "").strip()
-            detail = reason or f"Provider {provider_id} is not executable."
-            return f"runtime_not_executable: {detail}"
-        if request.agent_id == "product_owner_agent" and status.get("productOwnerExecutable") is False:
-            return "runtime_not_executable: ProductOwnerAgent-specific execution contract is not satisfied."
-        advertised_models = status.get("models")
-        if isinstance(advertised_models, list) and advertised_models:
-            model_id = str(model.get("model") or "").strip()
-            available_models = {str(item).strip() for item in advertised_models if str(item).strip()}
-            if model_id and model_id not in available_models:
-                return (
-                    "runtime_model_not_available: "
-                    f"Provider {provider_id} does not currently report model {model_id}."
-                )
-        return None
-
-    @staticmethod
-    def _role_execution_policy_reject_reason(
-        *,
-        model: dict[str, Any],
-        request: AIResourceRequest,
-        runtime_status: dict[str, Any] | None,
-    ) -> str | None:
-        runtime_kind = str((runtime_status or {}).get("kind") or model.get("runtime") or "").lower()
-        if runtime_kind == "cli":
-            return None if request.allow_cli else "role_blocks_cli"
-        if runtime_kind in {"api", "gateway"} and not request.allow_api:
-            return "role_blocks_api"
-        locality = str(model.get("locality") or "remote").lower()
-        if locality == "local":
-            return None if request.allow_local else "role_blocks_local"
-        return None if request.allow_remote else "role_blocks_remote"
-
-    @staticmethod
-    def _provider_preference(provider_ids: list[str]) -> list[str]:
-        ordered: list[str] = []
-        for provider_id in provider_ids:
-            normalized = str(provider_id).strip()
-            if normalized and normalized not in ordered:
-                ordered.append(normalized)
-        return ordered
-
-    @staticmethod
-    def _normalized_preferred_resources(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
-        """Sanea las entradas de preferencia del rol conservando su orden (orden = prioridad)."""
-        normalized: list[dict[str, str]] = []
-        for item in entries:
-            if not isinstance(item, dict):
-                continue
-            provider_id = str(item.get("provider") or "").strip()
-            if not provider_id:
-                continue
-            normalized.append({"provider": provider_id, "model": str(item.get("model") or "").strip()})
-        return normalized
-
-    @staticmethod
-    def _preferred_resource_rank(
-        candidate: dict[str, Any],
-        preferred_resources: list[dict[str, str]],
-    ) -> tuple[int, int]:
-        """Rank ``(tier, index)`` del candidato contra las preferencias del rol; menor gana.
-
-        ``tier`` es 0 para un match de modelo específico, 1 para un comodín provider-level
-        (modelo vacío/"*"/"auto", mismo comodín que ``blocked`` y ``preferred_json`` legacy) y
-        2 si ninguna preferencia matchea. Un match específico rankea antes que cualquier comodín
-        aunque el comodín esté antes en la lista: sin esto, el comodín del ``runtime_order``
-        persistido eclipsaba la preferencia específica del rol solo por su posición. ``index`` es
-        el de la primera entrada del mismo tier, así que el orden de la lista sigue desempatando
-        entre preferencias del mismo tipo.
-        """
-        candidate_provider = str(candidate.get("providerId") or "")
-        candidate_model = str(candidate.get("model") or "")
-        best: tuple[int, int] = (2, len(preferred_resources))
-        for index, entry in enumerate(preferred_resources):
-            if entry["provider"] != candidate_provider:
-                continue
-            if entry["model"] in MODEL_WILDCARDS:
-                tier = 1
-            elif entry["model"] == candidate_model:
-                tier = 0
-            else:
-                continue
-            best = min(best, (tier, index))
-        return best
-
-    @staticmethod
-    def _selection_sort_key(
-        candidate: dict[str, Any],
-        provider_preference: list[str],
-        preferred_resources: list[dict[str, str]],
-        provider_order: list[str] | None = None,
-    ) -> tuple[int, tuple[int, int], float, int, str, str, str]:
-        provider_id = str(candidate.get("providerId") or "")
-        try:
-            preference_rank = provider_preference.index(provider_id)
-        except ValueError:
-            preference_rank = len(provider_preference)
-        order = provider_order or []
-        # Sin orden estricto todos empatan en 0 y el rank queda como antes.
-        order_rank = order.index(provider_id) if provider_id in order else len(order)
-        return (
-            order_rank,
-            AIResourceManager._preferred_resource_rank(candidate, preferred_resources),
-            -float(candidate["score"]),
-            preference_rank,
-            provider_id,
-            str(candidate.get("model") or ""),
-            str(candidate.get("runtime") or ""),
-        )
+    _runtime_executable_reject_reason = staticmethod(resource_rejection.runtime_executable_reject_reason)
+    _role_execution_policy_reject_reason = staticmethod(
+        resource_rejection.role_execution_policy_reject_reason
+    )
+    _provider_preference = staticmethod(resource_ranking.provider_preference)
+    _normalized_preferred_resources = staticmethod(resource_ranking.normalized_preferred_resources)
+    _preferred_resource_rank = staticmethod(resource_ranking.preferred_resource_rank)
+    _selection_sort_key = staticmethod(resource_ranking.selection_sort_key)
 
     def _hard_reject_reason(self, model: dict[str, Any], request: AIResourceRequest) -> str | None:
         from .agent_resource_policy import profile_rejection
@@ -1579,22 +1367,7 @@ class AIResourceManager:
             return "free_tier_account_not_confirmed"
         return None
 
-    @staticmethod
-    def _blocked_by_role_policy(
-        model: dict[str, Any],
-        blocked_resources: list[dict[str, Any]],
-    ) -> bool:
-        for item in blocked_resources:
-            if not isinstance(item, dict):
-                continue
-            provider_id = item.get("provider")
-            model_id = item.get("model")
-            if provider_id not in {None, "*", model["providerId"]}:
-                continue
-            if model_id not in {None, "*", "auto", model["model"]}:
-                continue
-            return True
-        return False
+    _blocked_by_role_policy = staticmethod(resource_rejection.blocked_by_role_policy)
 
     def _estimate_cost(self, model: dict[str, Any], request: AIResourceRequest) -> dict[str, Any]:
         output_tokens = self._estimated_output_tokens(model, request)
@@ -1828,102 +1601,10 @@ class AIResourceManager:
             "priceKnown": 1.0 if estimate["priceKnown"] else 0.0,
         }
 
-    def _weights_for_policy(self, policy_mode: str, risk: str) -> dict[str, float]:
-        if policy_mode == "economy":
-            return {
-                "capability": 0.07,
-                "quality": 0.10,
-                "success": 0.12,
-                "cost": 0.28,
-                "cost_known": 0.10,
-                "locality": 0.18,
-                "context": 0.07,
-                "rework": 0.04,
-                "latency": 0.03,
-                "task_risk": 0.01,
-            }
-        if policy_mode == "maximum":
-            return {
-                "capability": 0.07,
-                "quality": 0.34,
-                "success": 0.18,
-                "cost": 0.03,
-                "cost_known": 0.03,
-                "locality": 0.04,
-                "context": 0.16,
-                "rework": 0.07,
-                "latency": 0.04,
-                "task_risk": 0.04,
-            }
-        if policy_mode == "critical" or risk in {"high", "critical"}:
-            return {
-                "capability": 0.08,
-                "quality": 0.31,
-                "success": 0.20,
-                "cost": 0.04,
-                "cost_known": 0.04,
-                "locality": 0.04,
-                "context": 0.12,
-                "rework": 0.11,
-                "latency": 0.02,
-                "task_risk": 0.04,
-            }
-        if risk == "low":
-            return {
-                "capability": 0.08,
-                "quality": 0.12,
-                "success": 0.16,
-                "cost": 0.26,
-                "cost_known": 0.08,
-                "locality": 0.16,
-                "context": 0.08,
-                "rework": 0.04,
-                "latency": 0.03,
-                "task_risk": 0.01,
-            }
-        return {
-            "capability": 0.08,
-            "quality": 0.22,
-            "success": 0.18,
-            "cost": 0.16,
-            "cost_known": 0.06,
-            "locality": 0.10,
-            "context": 0.10,
-            "rework": 0.06,
-            "latency": 0.02,
-            "task_risk": 0.02,
-        }
-
-    def _capability_match(self, required: list[str], capabilities: list[str]) -> float:
-        required_values = {item.strip().lower() for item in required if item.strip()}
-        if not required_values:
-            return 1.0
-        available = {item.strip().lower() for item in capabilities if item.strip()}
-        return len(required_values & available) / len(required_values)
-
-    def _cost_known_score(self, model: dict[str, Any], estimate: dict[str, Any]) -> float:
-        if model["locality"] not in REMOTE_LOCALITIES:
-            return 1.0
-        return 1.0 if estimate["priceKnown"] else 0.0
-
-    def _privacy_locality_fit(
-        self,
-        model: dict[str, Any],
-        request: AIResourceRequest,
-        risk: str,
-        policy_mode: str,
-    ) -> float:
-        if model["locality"] == "local":
-            return 1.0
-        if request.privacy_level == "local_private":
-            return 0.0
-        if request.privacy_level in {"private", "sensitive", "confidential"}:
-            return 0.35
-        if policy_mode == "economy":
-            return 0.45
-        if risk == "low":
-            return 0.55
-        return 0.75
+    _weights_for_policy = staticmethod(resource_scoring.weights_for_policy)
+    _capability_match = staticmethod(resource_scoring.capability_match)
+    _cost_known_score = staticmethod(resource_scoring.cost_known_score)
+    _privacy_locality_fit = staticmethod(resource_scoring.privacy_locality_fit)
 
     def _task_risk_fit(self, model: dict[str, Any], risk: str) -> float:
         quality = self._performance_value(model, "qualityScore", UNOBSERVED_PERFORMANCE_PRIOR)
@@ -1958,10 +1639,7 @@ class AIResourceManager:
             return self._bounded(context_window / max(requested_tokens, 1))
         return 0.45
 
-    def _latency_penalty(self, latency_ms: Any) -> float:
-        if latency_ms is None:
-            return 0.1
-        return min(float(latency_ms) / 10_000, 1.0)
+    _latency_penalty = staticmethod(resource_scoring.latency_penalty)
 
     def _select_reviewer(
         self,
@@ -2076,51 +1754,8 @@ class AIResourceManager:
             f"using deterministic explainable scoring.{approval}"
         )
 
-    @staticmethod
-    def _jev_confidence_blocked_reason(
-        *,
-        candidates: list[dict[str, Any]],
-        measure: str,
-        value: float | None,
-        threshold: float,
-        task_type: str,
-    ) -> str:
-        """La verdad del bloqueo por confianza o margen de Jev bajo el umbral: ninguna validación falló.
-
-        Sin equipo o sin runtime propio para el rol, ninguna heurística determinista reemplaza a
-        Jev cuando no está seguro (por diseño); asignarle un runtime al rol es lo único que decide.
-        """
-        value_text = f"{value:.2f}" if value is not None else "unavailable"
-        return (
-            f"Jev could not confidently rank {len(candidates)} AIDO-validated candidates for "
-            f"{task_type} ({measure} {value_text} below the {threshold:.2f} required threshold). "
-            "This is not a validation or runtime-health problem: assign a runtime to this role in the "
-            "thread's AI team so the operator's choice, not Jev's uncertainty, decides."
-        )
-
-    @staticmethod
-    def _rejection_summary(rejected: list[dict[str, Any]]) -> str:
-        """Resume los descartes por categoría para que el motivo de bloqueo sea diagnosticable solo.
-
-        Agrupa por el token previo a ``:`` porque varias razones llevan detalle por candidato
-        (``runtime_not_executable: ...``, ``missing_capabilities:code``) y el operador necesita la
-        categoría agregada, no ocho variantes del mismo descarte. Orden: frecuencia descendente y
-        alfabético como desempate, para que el texto sea determinista y auditable.
-        """
-        counts: dict[str, int] = {}
-        for item in rejected:
-            reason = str(item.get("reason") or "").strip()
-            if not reason:
-                continue
-            category = reason.split(":", 1)[0].strip()
-            counts[category] = counts.get(category, 0) + 1
-        if not counts:
-            return ""
-        total = sum(counts.values())
-        ordered = sorted(counts.items(), key=lambda entry: (-entry[1], entry[0]))
-        breakdown = ", ".join(f"{count} {category}" for category, count in ordered)
-        noun = "candidate" if total == 1 else "candidates"
-        return f"{total} {noun} rejected: {breakdown}."
+    _jev_confidence_blocked_reason = staticmethod(resource_rejection.jev_confidence_blocked_reason)
+    _rejection_summary = staticmethod(resource_rejection.rejection_summary)
 
     def _record_routing_decision(self, *, request: AIResourceRequest, decision: dict[str, Any]) -> None:
         selected = decision.get("selected") or {}
@@ -2245,5 +1880,4 @@ class AIResourceManager:
         value = model.get(key)
         return self._bounded(default if value is None else float(value))
 
-    def _bounded(self, value: float) -> float:
-        return max(0.0, min(value, 1.0))
+    _bounded = staticmethod(resource_scoring.bounded)

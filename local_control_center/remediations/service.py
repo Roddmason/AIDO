@@ -29,11 +29,9 @@ from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.remediations.action_policy import should_resolve
 from local_control_center.remediations.blocker_classification import (
     blocker_type,
-    has_actionable_pending_decision,
 )
 from local_control_center.remediations.decision_answers import (
     answer_options,
-    matched_option,
     option_key,
     validated_answer,
 )
@@ -52,11 +50,8 @@ from local_control_center.remediations.repository import RemediationActionsRepos
 from local_control_center.remediations.resource_approvals import (
     approve_resource_decision_spec,
     approved_resource_selections_from_durable,
-    resource_approvals_from_blockers,
     resource_approvals_from_payload,
-    resource_decision_requires_approval,
     same_resource_approval,
-    single_resource_approval,
 )
 from local_control_center.remediations.retry_support import (
     backfill_details_from_durable,
@@ -685,7 +680,7 @@ class BlockerRemediationService:
             durable.get("blockedReason")
             or "The Product Loop is blocked and its stored remediation actions are missing."
         )
-        details = self._backfill_details_from_durable(durable)
+        details = backfill_details_from_durable(durable)
         blocker_type = self._blocker_type(stage=stage, reason=reason, details=details)
         with suppress(Exception):
             self.create_for_blocked_run(
@@ -725,24 +720,9 @@ class BlockerRemediationService:
         loop_id = self.repository.latest_loop_id_for_thread(project_id=project_id, thread_id=thread_id)
         return ProductLoopRepository(self.connection).get_loop(loop_id) if loop_id else None
 
-    @staticmethod
-    def _backfill_details_from_durable(durable: dict[str, Any]) -> dict[str, Any]:
-        return backfill_details_from_durable(durable)
-
     def dismiss(self, action_id: str) -> dict[str, Any]:
         """Dismiss one pending remediation action."""
         return self.repository.mark_status(action_id, "dismissed")
-
-    def _mark_thread_run_queued_best_effort(
-        self,
-        *,
-        threads: ThreadsRepository,
-        thread_id: str,
-        event_payload: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return mark_thread_run_queued_best_effort(
-            threads=threads, thread_id=thread_id, event_payload=event_payload
-        )
 
     @staticmethod
     def _requires_confirmation(action: dict[str, Any]) -> bool:
@@ -856,7 +836,7 @@ class BlockerRemediationService:
         """Validate the requested runtime against the current provider statuses."""
         project_id = str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
         providers = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
-        return self._validate_runtime_execution(
+        return validate_runtime_execution(
             runtime_id=str(execution_payload.get("runtimeId") or "").strip(),
             providers=providers,
             product_owner=action.get("stage") in {"product_owner", "product_owner_runtime"},
@@ -874,7 +854,7 @@ class BlockerRemediationService:
             }
         project_id = str(execution_payload.get("projectId") or action.get("projectId") or "").strip() or None
         providers = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
-        target = self._runtime_status_for(providers, runtime_id)
+        target = runtime_status_for(providers, runtime_id)
         if target is None:
             return {
                 "status": "blocked",
@@ -1169,17 +1149,6 @@ class BlockerRemediationService:
                 "reason": f"Research web-search endpoint is unreachable: {error}",
             }
 
-    def _validate_runtime_execution(
-        self, *, runtime_id: str, providers: list[dict[str, Any]], product_owner: bool = False
-    ) -> dict[str, Any]:
-        return validate_runtime_execution(
-            runtime_id=runtime_id, providers=providers, product_owner=product_owner
-        )
-
-    @staticmethod
-    def _runtime_status_for(providers: list[dict[str, Any]], runtime_id: str) -> dict[str, Any] | None:
-        return runtime_status_for(providers, runtime_id)
-
     @staticmethod
     def _approved_resource_selections_from_durable(durable: dict[str, Any]) -> list[dict[str, Any]]:
         return approved_resource_selections_from_durable(durable)
@@ -1397,10 +1366,6 @@ class BlockerRemediationService:
             "patchSizeBytes": artifact_file["sizeBytes"],
             "reason": "Patch saved as a local evidence artifact.",
         }
-
-    @staticmethod
-    def _resolved_similarity_decision_mode(*, threads: ThreadsRepository, decision_id: str) -> str | None:
-        return resolved_similarity_decision_mode(threads=threads, decision_id=decision_id)
 
     def _reseal_operator_cost_decision(
         self,
@@ -1725,10 +1690,6 @@ class BlockerRemediationService:
                 resumed.append(self.execute(action["id"], platform=None))
         return resumed
 
-    @staticmethod
-    def _cooldown_rejected_provider_ids(details: dict[str, Any]) -> set[str]:
-        return cooldown_rejected_provider_ids(details)
-
     def resume_cooldown_expired_blocks(self) -> list[dict[str, Any]]:
         """Reanuda automáticamente los bloqueos de recursos cuyo cooldown de cuota ya cedió.
 
@@ -1769,7 +1730,7 @@ class BlockerRemediationService:
             payload = action["payload"] if isinstance(action["payload"], dict) else {}
             snapshot = payload.get("cooldownSnapshot")
             if not isinstance(snapshot, dict) or not snapshot.get("providerIds"):
-                provider_ids = self._cooldown_rejected_provider_ids(payload.get("details") or {})
+                provider_ids = cooldown_rejected_provider_ids(payload.get("details") or {})
                 if not provider_ids or not provider_ids <= still_cooling.keys():
                     continue
                 self.repository.merge_payload(
@@ -1904,9 +1865,7 @@ class BlockerRemediationService:
                     thread_id=thread_id,
                     threads=threads,
                 )
-            if blocked_stage == "resource_learning" and self._has_delivery_resource_learning_evidence(
-                durable
-            ):
+            if blocked_stage == "resource_learning" and has_delivery_resource_learning_evidence(durable):
                 return self._retry_resource_learning_approval(
                     action=current_action,
                     coordinator=coordinator,
@@ -1918,7 +1877,7 @@ class BlockerRemediationService:
 
             functionality_decision_mode: str | None = None
             if blocked_stage == "functionality_memory":
-                functionality_decision_mode = self._resolved_similarity_decision_mode(
+                functionality_decision_mode = resolved_similarity_decision_mode(
                     threads=threads,
                     decision_id=str(durable.get("decisionId") or ""),
                 )
@@ -1935,7 +1894,7 @@ class BlockerRemediationService:
 
             message_id = str(thread_ref.get("messageId") or request_meta.get("messageId") or "").strip()
             message = str(durable.get("message") or "").strip()
-            source_message = self._source_retry_message(
+            source_message = source_retry_message(
                 threads=threads,
                 thread_id=thread_id,
                 message_id=message_id,
@@ -1981,7 +1940,7 @@ class BlockerRemediationService:
                 refresh_global_team=True,
             )
 
-            existing_job = self._existing_retry_job(
+            existing_job = existing_retry_job(
                 jobs=jobs,
                 project_id=loop["projectId"],
                 loop_id=loop_id,
@@ -2196,10 +2155,6 @@ class BlockerRemediationService:
             "threadId": thread_id,
         }
 
-    @staticmethod
-    def _has_delivery_gitleaks_evidence(durable: dict[str, Any]) -> bool:
-        return has_delivery_gitleaks_evidence(durable)
-
     def _blocked_gitleaks_context(
         self,
         *,
@@ -2247,7 +2202,7 @@ class BlockerRemediationService:
             _diff_summary_from_review,
         )
 
-        if not self._has_delivery_gitleaks_evidence(durable):
+        if not has_delivery_gitleaks_evidence(durable):
             return {
                 "status": "blocked",
                 "action": "run_gitleaks",
@@ -2430,10 +2385,6 @@ class BlockerRemediationService:
             "retryOfLoopId": loop["id"],
             "threadId": thread_id,
         }
-
-    @staticmethod
-    def _has_delivery_resource_learning_evidence(durable: dict[str, Any]) -> bool:
-        return has_delivery_resource_learning_evidence(durable)
 
     def _retry_resource_learning_approval(
         self,
@@ -2626,35 +2577,6 @@ class BlockerRemediationService:
             return None
         return str(Path(path).resolve(strict=False))
 
-    @staticmethod
-    def _source_retry_message(
-        *,
-        threads: ThreadsRepository,
-        thread_id: str,
-        message_id: str,
-    ) -> dict[str, Any] | None:
-        return source_retry_message(threads=threads, thread_id=thread_id, message_id=message_id)
-
-    @staticmethod
-    def _existing_retry_job(
-        *,
-        jobs: JobsRepository,
-        project_id: str,
-        loop_id: str,
-        action_id: str,
-    ) -> dict[str, Any] | None:
-        return existing_retry_job(jobs=jobs, project_id=project_id, loop_id=loop_id, action_id=action_id)
-
-    @staticmethod
-    def _existing_plan_only_job(
-        *,
-        jobs: JobsRepository,
-        project_id: str,
-        loop_id: str,
-        action_id: str,
-    ) -> dict[str, Any] | None:
-        return existing_plan_only_job(jobs=jobs, project_id=project_id, loop_id=loop_id, action_id=action_id)
-
     def _continue_plan_only(self, *, action: dict[str, Any]) -> dict[str, Any]:
         loop_id = str(action.get("loopId") or "").strip()
         if not loop_id:
@@ -2710,9 +2632,7 @@ class BlockerRemediationService:
 
         message_id = str(thread_ref.get("messageId") or request_meta.get("messageId") or "").strip()
         message = str(durable.get("message") or "").strip()
-        source_message = self._source_retry_message(
-            threads=threads, thread_id=thread_id, message_id=message_id
-        )
+        source_message = source_retry_message(threads=threads, thread_id=thread_id, message_id=message_id)
         if source_message is not None:
             message_id = source_message["id"]
             message = message or str(source_message["content"] or "").strip()
@@ -2732,7 +2652,7 @@ class BlockerRemediationService:
             }
 
         jobs = JobsRepository(self.connection)
-        existing_job = self._existing_plan_only_job(
+        existing_job = existing_plan_only_job(
             jobs=jobs,
             project_id=loop["projectId"],
             loop_id=loop_id,
@@ -2804,7 +2724,7 @@ class BlockerRemediationService:
             context_patch={"durableRun": durable},
             metadata={"remediationActionId": action["id"], "planOnlyJobId": plan_job["id"]},
         )
-        thread, thread_status_update = self._mark_thread_run_queued_best_effort(
+        thread, thread_status_update = mark_thread_run_queued_best_effort(
             threads=threads,
             thread_id=thread_id,
             event_payload={
@@ -2839,7 +2759,7 @@ class BlockerRemediationService:
                 "reason": "loopId is required.",
             }
         action_payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
-        new_approvals = self._resource_approvals_from_payload(action=action, payload=action_payload)
+        new_approvals = resource_approvals_from_payload(action=action, payload=action_payload)
         if not new_approvals:
             return {
                 "status": "blocked",
@@ -2874,7 +2794,7 @@ class BlockerRemediationService:
                 item
                 for item in request_meta.get("approvedResourceSelections") or []
                 if isinstance(item, dict)
-                and not any(self._same_resource_approval(item, approval) for approval in new_approvals)
+                and not any(same_resource_approval(item, approval) for approval in new_approvals)
             ]
             approvals.extend(new_approvals)
             request_meta["approvedResourceSelections"] = approvals
@@ -2900,32 +2820,6 @@ class BlockerRemediationService:
                 "approvals": redact_secrets(new_approvals),
                 "loop": updated,
             }
-
-    def _resource_approvals_from_payload(
-        self, *, action: dict[str, Any], payload: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        return resource_approvals_from_payload(action=action, payload=payload)
-
-    def _single_resource_approval(
-        self, *, action: dict[str, Any], payload: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        return single_resource_approval(action=action, payload=payload)
-
-    @staticmethod
-    def _same_resource_approval(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
-        return same_resource_approval(current, candidate)
-
-    @staticmethod
-    def _resource_decision_requires_approval(decision: Any) -> bool:
-        return resource_decision_requires_approval(decision)
-
-    @staticmethod
-    def _resource_approvals_from_blockers(details: dict[str, Any]) -> list[dict[str, Any]]:
-        return resource_approvals_from_blockers(details)
-
-    @classmethod
-    def _approve_resource_decision_spec(cls, details: dict[str, Any]) -> dict[str, Any] | None:
-        return approve_resource_decision_spec(details)
 
     def _answer_question(
         self,
@@ -2995,7 +2889,7 @@ class BlockerRemediationService:
                 ),
             }
         try:
-            combined_answer = self._validated_answer(
+            combined_answer = validated_answer(
                 decision=decision,
                 action_payload=action_payload,
                 selected_options=selected_options,
@@ -3006,7 +2900,7 @@ class BlockerRemediationService:
                 "status": "blocked",
                 "action": "answer_question",
                 "decisionId": decision_id,
-                "options": self._answer_options(decision=decision, action_payload=action_payload),
+                "options": answer_options(decision=decision, action_payload=action_payload),
                 "reason": str(error),
             }
         answer = ", ".join(combined_answer)
@@ -3316,25 +3210,6 @@ class BlockerRemediationService:
             },
         }
 
-    @staticmethod
-    def _answer_options(*, decision: dict[str, Any], action_payload: dict[str, Any]) -> list[str]:
-        return answer_options(decision=decision, action_payload=action_payload)
-
-    def _validated_answer(
-        self,
-        *,
-        decision: dict[str, Any],
-        action_payload: dict[str, Any],
-        selected_options: list[str],
-        free_text: str,
-    ) -> list[str]:
-        return validated_answer(
-            decision=decision,
-            action_payload=action_payload,
-            selected_options=selected_options,
-            free_text=free_text,
-        )
-
     def validate_thread_decision_answer(
         self,
         *,
@@ -3381,16 +3256,12 @@ class BlockerRemediationService:
                 "starting an incomplete decision batch."
             )
         action_payload = usable[-1].get("payload") if usable else {}
-        self._validated_answer(
+        validated_answer(
             decision=decision,
             action_payload=action_payload if isinstance(action_payload, dict) else {},
             selected_options=[str(item).strip() for item in selected_options if str(item).strip()],
             free_text=(free_text or "").strip(),
         )
-
-    @classmethod
-    def _matched_option(cls, answer: str, options: list[str]) -> str | None:
-        return matched_option(answer, options)
 
     @staticmethod
     def _option_key(value: str) -> str:
@@ -3492,14 +3363,6 @@ class BlockerRemediationService:
     def _blocker_type(self, *, stage: str, reason: str, details: dict[str, Any]) -> str:
         return blocker_type(stage=stage, reason=reason, details=details)
 
-    @staticmethod
-    def _has_actionable_pending_decision(details: dict[str, Any]) -> bool:
-        return has_actionable_pending_decision(details)
-
-    @staticmethod
-    def _remote_url_payload_is_safe(url: str) -> bool:
-        return remote_url_payload_is_safe(url)
-
     def _configured_git_remote_add_specs(self, project_id: str | None) -> list[dict[str, Any]]:
         normalized_project_id = str(project_id or "").strip()
         if not normalized_project_id:
@@ -3517,7 +3380,7 @@ class BlockerRemediationService:
         for row in rows:
             name = str(row["name"] or "").strip()
             url = str(row["url"] or "").strip()
-            if not name or not url or not self._remote_url_payload_is_safe(url):
+            if not name or not url or not remote_url_payload_is_safe(url):
                 continue
             specs.append(
                 {
@@ -3543,7 +3406,7 @@ class BlockerRemediationService:
             git_remote_add_specs=self._configured_git_remote_add_specs(project_id),
             local_account=self._local_profile_account(blocker_runtime_id(details)),
         )
-        resource_approval_spec = self._approve_resource_decision_spec(details)
+        resource_approval_spec = approve_resource_decision_spec(details)
         builder = PAYLOAD_BUILDERS.get(blocker_type)
         if uses_local_runtime_specs(blocker_type, context.local_runtime_payload):
             specs = local_runtime_specs(

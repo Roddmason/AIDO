@@ -1,5 +1,7 @@
 """Typed local coordination and joint budget, without model execution."""
 
+import sys
+
 import pytest
 from pydantic import ValidationError
 
@@ -142,6 +144,7 @@ def test_joint_admission_preserves_headroom_and_does_not_create_independent_chil
         runtime.close()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows native capture session")
 def test_native_offline_fixture_compiles_and_answers_only_readonly_probes(offline_native_cli):
     """Run no production session, no auth probe and no model command."""
     from local_control_center.process_supervision.service import run_probe_command

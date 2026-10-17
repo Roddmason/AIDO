@@ -39,6 +39,7 @@ from local_control_center.runtime_team.configuration import (
     role_routing_preferences,
     runtime_team_of,
 )
+from local_control_center.runtime_team.facts import role_capability_hint
 from local_control_center.runtime_team.roles import team_role_for
 from local_control_center.shared.redaction import redact_secrets
 
@@ -410,13 +411,20 @@ def team_schedule_with_resource_decisions(
                 local_affinity.setdefault(str(entry["runtimeId"]), str(entry.get("model") or ""))
         enriched_roles.append({**role_plan, "resourceDecision": public_decision})
         if decision.get("selected") is None:
+            reason = decision.get("decisionReason") or "AIResourceManager did not select a resource."
+            hint, capability_gaps = role_capability_hint(
+                coordinator.connection,
+                team_role=team_role,
+                rejected=decision.get("rejected") or [],
+                project_id=project_id,
+            )
             blockers.append(
                 {
                     "role": role,
                     "taskId": task["id"],
-                    "reason": decision.get("decisionReason")
-                    or "AIResourceManager did not select a resource.",
+                    "reason": f"{reason} {hint}" if hint else reason,
                     "decision": public_decision,
+                    **({"capabilityGaps": capability_gaps} if capability_gaps else {}),
                 }
             )
         elif coordinator._resource_decision_has_pending_approval(decision):

@@ -23,6 +23,7 @@ const REMOTE_ID = `ollama-e2e-remote-${RUN_ID}`;
 const DOWN_ID = `ollama-e2e-down-${RUN_ID}`;
 const SYNCED_ID = `ollama-e2e-synced-${RUN_ID}`;
 const PREFERRED_ID = `ollama-e2e-pref-${RUN_ID}`;
+const CAPS_ID = `ollama-e2e-caps-${RUN_ID}`;
 /** Deleted by its own test, so the cleanup below leaves it alone instead of re-creating it. */
 const TOGGLE_ID = `ollama-e2e-toggle-${RUN_ID}`;
 const SYNCED_MODELS = ['llama3.2:3b', 'qwen3:8b'];
@@ -111,7 +112,7 @@ test.afterAll(async ({ playwright }, testInfo) => {
 	const context = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL });
 	try {
 		const token = (await (await context.get('/api/v1/security/handshake')).json()).token;
-		for (const id of [REMOTE_ID, DOWN_ID, SYNCED_ID, PREFERRED_ID]) {
+		for (const id of [REMOTE_ID, DOWN_ID, SYNCED_ID, PREFERRED_ID, CAPS_ID]) {
 			await context.post('/api/v1/ollama/endpoints', {
 				headers: { 'X-Local-Control-Token': token },
 				data: { id, displayName: id, baseUrl: DEAD_BASE_URL, enabled: false },
@@ -306,4 +307,36 @@ test('Ollama endpoints: a delete still in use lists the operator references to r
 	} finally {
 		await page.unrouteAll({ behavior: 'ignoreErrors' });
 	}
+});
+
+test('Ollama endpoints: declaring a model as able to edit code persists and survives a reload', async ({
+	page,
+}) => {
+	const modelId = CAPS_ID;
+	await seedEndpoint(page, { id: modelId, baseUrl: tagsBaseUrl, syncModels: true });
+	const patches = [];
+	page.on('request', (request) => {
+		if (request.method() === 'PATCH' && request.url().includes(`/local-endpoints/${modelId}/models`)) {
+			patches.push(request.postDataJSON());
+		}
+	});
+	const settings = await openProvidersSettings(page);
+	const card = endpointCard(settings, modelId);
+	const row = card.locator('.local-model-row').filter({ hasText: SYNCED_MODELS[0] });
+	const canEdit = row.getByLabel('Can edit code');
+	await expect(canEdit).not.toBeChecked();
+
+	// Controlled input: it flips only after the save lands, so click and assert instead of check().
+	await canEdit.click();
+
+	await expect(page.getByText('Model capability saved')).toBeVisible();
+	await expect(canEdit).toBeChecked();
+	expect(patches).toEqual([{ model: SYNCED_MODELS[0], codeEdit: true }]);
+	await expect(row.getByLabel('Can review code')).not.toBeChecked();
+
+	await page.reload();
+	const reloaded = endpointCard(await openProvidersSettings(page), modelId);
+	await expect(
+		reloaded.locator('.local-model-row').filter({ hasText: SYNCED_MODELS[0] }).getByLabel('Can edit code'),
+	).toBeChecked();
 });

@@ -23,7 +23,9 @@ export const test = base.extend({
 			if (response.status() !== 202) return;
 			try {
 				const body = await response.json();
-				if (body.executionId && body.operation) await execute(body.executionId);
+				if (!body.executionId || !body.operation) return;
+				await execute(body.executionId);
+				await reportUiOperation(page, body);
 			} catch (error) { failures.push(error); }
 		};
 		page.on('response', observe);
@@ -41,6 +43,7 @@ export const test = base.extend({
 				expect(['completed', 'blocked', 'failed', 'cancelled']).toContain(terminal.status);
 				const status = terminal.resultStatusCode || 500;
 				const result = terminal.result || { detail: terminal.reason };
+				reportUnsuccessful(body.operation, terminal, status, result);
 				return new Proxy(response, { get(target, key) {
 					if (key === 'status') return () => status;
 					if (key === 'ok') return () => status >= 200 && status < 300;
@@ -60,6 +63,22 @@ export const test = base.extend({
 		}
 	},
 });
+
+// A blocked/failed operation surfaces in the spec as a missing field far from its cause; log the
+// terminal reason so a CI failure explains itself without the (discarded) chunk database.
+function reportUnsuccessful(operation, terminal, status, result) {
+	if (terminal.status === 'completed' && status < 400) return;
+	const detail = terminal.reason || JSON.stringify(result).slice(0, 500);
+	console.error(`[operation-fixture] ${operation} ${terminal.id || ''} -> ${terminal.status} (${status}): ${detail}`);
+}
+
+async function reportUiOperation(page, body) {
+	// Diagnostic only: the page may already be closing, and that must not fail the test.
+	const terminal = await page.request.get(`/api/v1/executions/${body.executionId}`)
+		.then((response) => response.json())
+		.catch(() => null);
+	if (terminal) reportUnsuccessful(body.operation, terminal, terminal.resultStatusCode || 500, terminal.result || {});
+}
 
 function runOperation(id) {
 	const db = process.env.PLAYWRIGHT_DB_PATH;

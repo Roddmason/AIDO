@@ -4,12 +4,18 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "release-certify.ps1"
+_WINDOWS_ONLY = pytest.mark.skipif(
+    sys.platform != "win32", reason="release-certify.ps1 launches cmd.exe and .cmd shims"
+)
 
 
 def test_release_certification_is_opt_in_package_script_only() -> None:
@@ -115,6 +121,7 @@ def _release_env(bin_dir: Path) -> dict[str, str]:
     return env
 
 
+@_WINDOWS_ONLY
 def test_release_certification_report_preserves_configuration_required_smokes_and_redacts_logs(
     tmp_path: Path,
 ) -> None:
@@ -174,6 +181,7 @@ def test_release_certification_report_preserves_configuration_required_smokes_an
     }
 
 
+@_WINDOWS_ONLY
 def test_release_certification_strict_mode_fails_when_smoke_configuration_is_missing(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "strict out"
@@ -227,6 +235,7 @@ def test_release_certification_preserves_existing_receipt_before_launch(tmp_path
     assert not (output_root / "logs").exists()
 
 
+@_WINDOWS_ONLY
 def test_release_certification_concurrent_root_has_one_owner(tmp_path):
     bin_dir, output_root = tmp_path / "bin", tmp_path / "concurrent output"
     _write_corepack_shim(bin_dir)
@@ -291,6 +300,7 @@ function New-Item {
     assert not list(tmp_path.glob("*.writing"))
 
 
+@_WINDOWS_ONLY
 def test_release_certification_fails_configured_smoke_that_does_not_write_report(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "configured smoke missing report"
@@ -338,6 +348,7 @@ def test_release_certification_fails_configured_smoke_that_does_not_write_report
     )
 
 
+@_WINDOWS_ONLY
 def test_release_certification_failed_quality_log_preserves_redacted_stderr(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "failed quality"

@@ -358,6 +358,8 @@ def test_devops_agent_runs_the_toolchain_in_a_container_when_the_project_opted_i
 
     if shutil.which("go"):
         pytest.skip("este host tiene Go: la toolchain local gana, que es lo correcto")
+    if not shutil.which("docker"):
+        pytest.skip("la ruta contenerizada necesita el ejecutable docker en el host")
 
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-container")

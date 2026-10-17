@@ -14,7 +14,7 @@ asignar (el Arquitecto no corre y Seguridad queda en sus scanners deterministas)
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from local_control_center.agents.architect_agent_contract import is_architect_runtime
@@ -51,6 +51,10 @@ class RuntimeFacts:
     eligible_roles: tuple[str, ...]
     policy_denied_reason: str | None = None
     """Causa de ``runtime_policy_decision`` si el proyecto deniega el runtime; ``None`` si lo permite."""
+    healthy: bool = False
+    """Evidencia de salud vigente; solo explica por qué un runtime sano no sirve a un rol."""
+    capability_gaps: Mapping[str, str] = field(default_factory=dict)
+    """``{rol: capacidad}`` que el operador debe declarar para que el runtime pase a ser elegible."""
 
 
 def eligible_team_roles(runtime_status: Mapping[str, Any]) -> tuple[str, ...]:
@@ -74,6 +78,28 @@ def eligible_team_roles(runtime_status: Mapping[str, Any]) -> tuple[str, ...]:
     if is_security_model_runtime(view) and capabilities & _REVIEW_CAPABILITIES:
         roles.append("security")
     return tuple(roles)
+
+
+ROLE_CAPABILITY_TO_DECLARE = {"developer": "code_edit", "security": "code_review"}
+"""Capacidad opt-in que, declarada en el modelo, habilita el rol (``Can edit code`` / ``Can review code``)."""
+
+
+def role_capability_gaps(runtime_status: Mapping[str, Any]) -> dict[str, str]:
+    """Roles que el runtime no cumple solo por falta de capacidad, con la capacidad que lo arreglaría.
+
+    Un rol entra únicamente si declarar esa capacidad lo vuelve elegible: un runtime que no cumple el
+    contrato del runner por otra causa (p. ej. no es un runtime de modelo) no recibe una pista falsa.
+    """
+    current = eligible_team_roles(runtime_status)
+    capabilities = {str(item).strip().lower() for item in runtime_status.get("capabilities") or []}
+    gaps: dict[str, str] = {}
+    for role, capability in ROLE_CAPABILITY_TO_DECLARE.items():
+        if role in current:
+            continue
+        with_capability = {**runtime_status, "capabilities": sorted(capabilities | {capability})}
+        if role in eligible_team_roles(with_capability):
+            gaps[role] = capability
+    return gaps
 
 
 def team_role_for(role: str, *, kind: str = "", capabilities: Iterable[str] = ()) -> str | None:

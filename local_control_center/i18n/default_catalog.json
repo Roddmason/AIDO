@@ -14688,6 +14688,14 @@
       "en": "Endpoint action failed",
       "es": "La acción sobre el endpoint falló"
     },
+    "app.ollama.action.capabilitySaved": {
+      "en": "Model capability saved",
+      "es": "Capacidad del modelo guardada"
+    },
+    "app.ollama.action.capabilityFailed": {
+      "en": "Could not save the model capability",
+      "es": "No se pudo guardar la capacidad del modelo"
+    },
     "app.ollama.action.preferredSet": {
       "en": "Role now prefers this endpoint",
       "es": "El rol ahora prefiere este endpoint"

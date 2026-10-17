@@ -14,9 +14,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
 	createOllamaEndpoint,
 	deleteOllamaEndpoint,
+	getLocalEndpoints,
 	getModelGatewayRolePolicies,
 	getOllamaEndpoints,
 	healthCheckOllamaEndpoint,
+	type LocalModelView,
+	patchLocalEndpointModel,
 	patchModelGatewayRolePolicy,
 	patchOllamaEndpoint,
 	syncOllamaEndpointModels,
@@ -56,6 +59,9 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** The two operator-declared capabilities that make a model eligible for developer / security. */
+type CodeCapability = 'codeEdit' | 'codeReview';
+
 type EndpointsPanelProps = {
 	token: string;
 	onRefresh?: () => Promise<unknown> | undefined;
@@ -68,6 +74,7 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 	const { notify } = useToast();
 	const [endpoints, setEndpoints] = useState<OllamaEndpoint[]>([]);
 	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [modelStates, setModelStates] = useState<Record<string, LocalModelView[]>>({});
 	const [busyAction, setBusyAction] = useState<string | null>(null);
 	const [endpointLoadError, setEndpointLoadError] = useState<string | null>(null);
 	const [endpointsLoaded, setEndpointsLoaded] = useState(false);
@@ -78,9 +85,10 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 
 	const load = useCallback(async () => {
 		setEndpointsLoading(true);
-		const [endpointsPayload, rolePayload] = await Promise.allSettled([
+		const [endpointsPayload, rolePayload, localPayload] = await Promise.allSettled([
 			getOllamaEndpoints(),
 			getModelGatewayRolePolicies(),
+			getLocalEndpoints(),
 		]);
 		if (endpointsPayload.status === 'fulfilled') {
 			setEndpoints(endpointsPayload.value.endpoints);
@@ -91,6 +99,15 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 		setEndpointsLoaded(true);
 		setEndpointsLoading(false);
 		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
+		// Persisted per-model capabilities live in the generic local-endpoints view; without it the
+		// card simply offers no toggles instead of showing a guessed state.
+		if (localPayload.status === 'fulfilled') {
+			setModelStates(
+				Object.fromEntries(
+					localPayload.value.endpoints.map((endpoint) => [endpoint.id, endpoint.models ?? []]),
+				),
+			);
+		}
 	}, []);
 
 	useEffect(() => {
@@ -175,6 +192,36 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 				body: redactVisibleSecret(errorMessage(error), 'ollama endpoint update failed'),
 				tone: 'danger',
 			});
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	/** Declares or withdraws `code_edit` / `code_review` for one model; the backend owns the state. */
+	const setModelCapability = async (
+		endpointId: string,
+		model: string,
+		capability: CodeCapability,
+		value: boolean,
+	) => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:model:${model}`);
+		try {
+			await patchLocalEndpointModel(token, endpointId, { model, [capability]: value });
+			invalidateRuntimeTeamCache();
+			notify({
+				title: t('app.ollama.action.capabilitySaved', 'Model capability saved'),
+				body: model,
+				tone: 'ok',
+			});
+			await Promise.all([load(), onRefresh?.()]);
+		} catch (error) {
+			notify({
+				title: t('app.ollama.action.capabilityFailed', 'Could not save the model capability'),
+				body: redactVisibleSecret(errorMessage(error), 'model capability update failed'),
+				tone: 'danger',
+			});
+			await load();
 		} finally {
 			setBusyAction(null);
 		}
@@ -269,10 +316,14 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 						<EndpointCard
 							key={card.id}
 							card={card}
+							modelStates={modelStates[card.id] ?? []}
 							busyAction={busyAction}
 							inUse={inUseProviderIds?.has(card.id) ?? false}
 							onValidate={() => void runEndpointTask(card.id, 'validate')}
 							onSync={() => void runEndpointTask(card.id, 'sync')}
+							onSetCapability={(model, capability, value) =>
+								void setModelCapability(card.id, model, capability, value)
+							}
 							onSetPreferred={() => setRoleTarget(card)}
 							onToggleEnabled={(enabled) => void toggleEndpoint(card.id, enabled)}
 							onDelete={() => {
@@ -322,19 +373,24 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 
 function EndpointCard({
 	card,
+	modelStates,
 	busyAction,
 	inUse,
 	onValidate,
 	onSync,
+	onSetCapability,
 	onSetPreferred,
 	onToggleEnabled,
 	onDelete,
 }: {
 	card: EndpointCardModel;
+	/** Persisted per-model state from the local-endpoints view; empty when it could not be read. */
+	modelStates: readonly LocalModelView[];
 	busyAction: string | null;
 	inUse: boolean;
 	onValidate: () => void;
 	onSync: () => void;
+	onSetCapability: (model: string, capability: CodeCapability, value: boolean) => void;
 	onSetPreferred: () => void;
 	onToggleEnabled: (enabled: boolean) => void;
 	onDelete: () => void;
@@ -402,7 +458,7 @@ function EndpointCard({
 				</div>
 			</dl>
 
-			{card.models.length ? (
+			{modelStates.length ? null : card.models.length ? (
 				<div className="inline provider-chip-list">
 					{card.models.slice(0, MODEL_CHIP_LIMIT).map((model) => (
 						<Badge tone="info" className="provider-chip" key={model}>
@@ -415,6 +471,30 @@ function EndpointCard({
 					{t('app.ollama.card.noModels', 'No model synced yet — run Sync models.')}
 				</span>
 			)}
+
+			{modelStates.length ? (
+				<div className="stack compact provider-model-list">
+					{modelStates.map((model) => (
+						<div className="inline local-model-row" key={model.model} data-model={model.model}>
+							<strong className="mono">{model.model}</strong>
+							<Checkbox
+								label={t('app.localRuntime.wizard.codeEdit', 'Can edit code')}
+								checked={model.codeEdit}
+								disabled={anyBusy}
+								onChange={(event) => onSetCapability(model.model, 'codeEdit', event.target.checked)}
+							/>
+							<Checkbox
+								label={t('app.localRuntime.wizard.codeReview', 'Can review code')}
+								checked={model.codeReview}
+								disabled={anyBusy}
+								onChange={(event) =>
+									onSetCapability(model.model, 'codeReview', event.target.checked)
+								}
+							/>
+						</div>
+					))}
+				</div>
+			) : null}
 
 			{card.preferredRoles.length ? (
 				<div className="inline">

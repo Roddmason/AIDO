@@ -106,7 +106,7 @@ def test_blocked_developer_names_the_capability_the_healthy_runtime_lacks(connec
     blocker = _developer_blockers(connection, tmp_path)[0]
     assert "provider_not_allowed_for_agent" in blocker["reason"]
     assert (
-        f"{PROVIDER} is healthy but not eligible for developer: declare 'Can edit code' for its model."
+        f"{PROVIDER} is healthy but not eligible for developer: declare 'Can edit code' for its model, then use Retry loop."
         in blocker["reason"]
     )
     assert blocker["capabilityGaps"] == [

@@ -1275,6 +1275,7 @@ test('Threads: with its own AI team, the effective team card follows the thread 
 	await expect(techLead).toContainText('codex_cli');
 	await expect(techLead).toContainText('this thread');
 	await expect(card).not.toContainText('llama_cpp');
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('Threads: the effective team card shows the provider sealed in the last run when the team changed since', async ({

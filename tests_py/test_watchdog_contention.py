@@ -20,6 +20,19 @@ from local_control_center.workers.leadership import WorkerLeadershipRepository
 from tests_py.operational_acceptance_support import wait_until
 
 
+@pytest.fixture(autouse=True)
+def no_host_memory_floor(monkeypatch):
+    """Estos tests miden autoridad y contención de SQLite, no la RAM libre del equipo.
+
+    Con el piso acotado de la suite (3 GiB, ``capped_hard_memory_floor``) un host o una VM de CI con
+    menos memoria disponible hace que el vigilante mate al hijo por ``hard_memory_floor`` antes de la
+    lectura de autoridad que el test observa.
+    """
+    from local_control_center.process_supervision import service as process_supervision_service
+
+    monkeypatch.setattr(process_supervision_service, "hard_memory_floor_bytes", lambda connection: 0)
+
+
 def test_watchdog_keeps_one_connection_but_reads_fresh_fencing(tmp_path, monkeypatch):
     """Polling must not repeatedly configure persistent WAL or retain a stale authority snapshot."""
     from local_control_center.host_resources.repository import ResourceRepository
@@ -64,7 +77,7 @@ def test_watchdog_keeps_one_connection_but_reads_fresh_fencing(tmp_path, monkeyp
         assert child.process.poll() is None
         with closing(real_open(db)) as writer:
             writer.execute("UPDATE worker_leader_leases SET expires_at='2000-01-01T00:00:00Z'")
-        wait_until(lambda: child.process.poll() is not None, 3)
+        wait_until(lambda: child.terminal_stats is not None, 3)
         assert child.terminal_stats.termination_reason == "leadership_fence_lost"
     finally:
         service.complete(child, exit_code=child.process.poll())
@@ -101,7 +114,7 @@ def test_watchdog_still_stops_when_authority_cannot_be_read(tmp_path, monkeypatc
     service = ProcessSupervisorService(db_path=db, resource_snapshot=ResourceSnapshot.test_snapshot())
     child = service.start(argv=[sys.executable, "-c", "import time; time.sleep(40)"], cwd=tmp_path)
     try:
-        wait_until(lambda: child.process.poll() is not None, 3)
+        wait_until(lambda: child.terminal_stats is not None, 3)
         assert child.terminal_stats.termination_reason == "control_watch_failed"
         assert f"phase={phase}" in caplog.text
         assert "SQLITE_BUSY" in caplog.text
@@ -163,7 +176,7 @@ def test_native_watchdog_write_contention_has_a_bounded_safe_window(
                         )
                     assert child.process.poll() is None
                 else:
-                    wait_until(lambda: child.process.poll() is not None, 5)
+                    wait_until(lambda: child.terminal_stats is not None, 5)
                     assert child.terminal_stats.termination_reason == "control_watch_deadline_exceeded"
                     assert "SQLITE_BUSY" in caplog.text
                     assert "phase=lease_heartbeat" in caplog.text
@@ -189,7 +202,7 @@ def test_native_watchdog_stops_lost_fence_without_waiting_for_cancel_write(tmp_p
             blocker.execute("UPDATE worker_leader_leases SET expires_at='2000-01-01T00:00:00Z'")
             blocker.execute("BEGIN IMMEDIATE")
             try:
-                wait_until(lambda: child.process.poll() is not None, 3)
+                wait_until(lambda: child.terminal_stats is not None, 3)
                 assert child.terminal_stats.termination_reason == "leadership_fence_lost"
             finally:
                 blocker.rollback()

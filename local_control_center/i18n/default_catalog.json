@@ -14640,6 +14640,10 @@
       "en": "not measured",
       "es": "sin medir"
     },
+    "app.ollama.card.moreModels": {
+      "en": "{count} more models",
+      "es": "{count} modelos más"
+    },
     "app.ollama.card.models": {
       "en": "Models",
       "es": "Modelos"

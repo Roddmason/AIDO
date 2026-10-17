@@ -404,6 +404,26 @@ function EndpointCard({
 		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
 		: '';
 
+	const renderModelRow = (model: LocalModelView) => (
+		<div className="inline local-model-row" key={model.model} data-model={model.model}>
+			<strong className="mono">{model.model}</strong>
+			<Checkbox
+				label={t('app.localRuntime.wizard.codeEdit', 'Can edit code')}
+				aria-label={`${t('app.localRuntime.wizard.codeEdit', 'Can edit code')}: ${model.model}`}
+				checked={model.codeEdit}
+				disabled={anyBusy}
+				onChange={(event) => onSetCapability(model.model, 'codeEdit', event.target.checked)}
+			/>
+			<Checkbox
+				label={t('app.localRuntime.wizard.codeReview', 'Can review code')}
+				aria-label={`${t('app.localRuntime.wizard.codeReview', 'Can review code')}: ${model.model}`}
+				checked={model.codeReview}
+				disabled={anyBusy}
+				onChange={(event) => onSetCapability(model.model, 'codeReview', event.target.checked)}
+			/>
+		</div>
+	);
+
 	return (
 		<article className="card card--static provider-card" data-tone={card.healthTone}>
 			<div className="card-header">
@@ -474,27 +494,18 @@ function EndpointCard({
 
 			{modelStates.length ? (
 				<div className="stack compact provider-model-list">
-					{modelStates.map((model) => (
-						<div className="inline local-model-row" key={model.model} data-model={model.model}>
-							<strong className="mono">{model.model}</strong>
-							<Checkbox
-								label={t('app.localRuntime.wizard.codeEdit', 'Can edit code')}
-								aria-label={`${t('app.localRuntime.wizard.codeEdit', 'Can edit code')}: ${model.model}`}
-								checked={model.codeEdit}
-								disabled={anyBusy}
-								onChange={(event) => onSetCapability(model.model, 'codeEdit', event.target.checked)}
-							/>
-							<Checkbox
-								label={t('app.localRuntime.wizard.codeReview', 'Can review code')}
-								aria-label={`${t('app.localRuntime.wizard.codeReview', 'Can review code')}: ${model.model}`}
-								checked={model.codeReview}
-								disabled={anyBusy}
-								onChange={(event) =>
-									onSetCapability(model.model, 'codeReview', event.target.checked)
-								}
-							/>
-						</div>
-					))}
+					{modelStates.slice(0, MODEL_CHIP_LIMIT).map(renderModelRow)}
+					{modelStates.length > MODEL_CHIP_LIMIT ? (
+						<details className="provider-model-more">
+							<summary>
+								{t('app.ollama.card.moreModels', '{count} more models').replace(
+									'{count}',
+									String(modelStates.length - MODEL_CHIP_LIMIT),
+								)}
+							</summary>
+							{modelStates.slice(MODEL_CHIP_LIMIT).map(renderModelRow)}
+						</details>
+					) : null}
 				</div>
 			) : null}
 

@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX rlimit bootstrap")
+pytestmark = pytest.mark.skipif(
+    sys.platform != "linux", reason="RLIMIT_DATA counts private writable mappings on Linux >= 4.7"
+)
 
 POSIX_CHILD = (
     Path(__file__).resolve().parents[1] / "local_control_center" / "process_supervision" / "posix_child.py"

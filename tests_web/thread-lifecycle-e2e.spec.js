@@ -500,7 +500,9 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				const lastRequest = runOnceRequestedAt.get(state.executionId) ?? 0;
 				if (state.status === 'resource_wait' && Date.now() - lastRequest > 3000) {
 					runOnceRequestedAt.set(state.executionId, Date.now());
-					await page.request.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders });
+					await page.request
+						.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders })
+						.catch((error) => operationTimeline.push({ at: new Date().toISOString(), phase: 'run-once-retry-failed', error: String(error) }));
 				}
 			}
 			if (response.status() !== 202) return;
@@ -696,7 +698,8 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 					}),
 				);
 			// An operator declares that a model can edit code through the same endpoint the local-runtime
-			// wizard uses (PATCH /local-endpoints/{id}/models). The Ollama panel has no such control, and
+			// wizard and the Ollama endpoint card use (PATCH /local-endpoints/{id}/models); setup goes through
+			// the API to keep this step short, and ollama-endpoints.spec.js covers the card control. Also,
 			// runtime_team/roles.py:70 only makes a model runtime eligible for the developer role with it.
 			const declareCodeCapability = await page.request.patch(
 				`${baseUrl}/api/v1/local-endpoints/ollama_remote/models`,

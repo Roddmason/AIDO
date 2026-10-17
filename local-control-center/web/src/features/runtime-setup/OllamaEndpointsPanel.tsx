@@ -101,13 +101,13 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
 		// Persisted per-model capabilities live in the generic local-endpoints view; without it the
 		// card simply offers no toggles instead of showing a guessed state.
-		if (localPayload.status === 'fulfilled') {
-			setModelStates(
-				Object.fromEntries(
-					localPayload.value.endpoints.map((endpoint) => [endpoint.id, endpoint.models ?? []]),
-				),
-			);
-		}
+		setModelStates(
+			localPayload.status === 'fulfilled'
+				? Object.fromEntries(
+						localPayload.value.endpoints.map((endpoint) => [endpoint.id, endpoint.models ?? []]),
+					)
+				: {},
+		);
 	}, []);
 
 	useEffect(() => {
@@ -479,12 +479,14 @@ function EndpointCard({
 							<strong className="mono">{model.model}</strong>
 							<Checkbox
 								label={t('app.localRuntime.wizard.codeEdit', 'Can edit code')}
+								aria-label={`${t('app.localRuntime.wizard.codeEdit', 'Can edit code')}: ${model.model}`}
 								checked={model.codeEdit}
 								disabled={anyBusy}
 								onChange={(event) => onSetCapability(model.model, 'codeEdit', event.target.checked)}
 							/>
 							<Checkbox
 								label={t('app.localRuntime.wizard.codeReview', 'Can review code')}
+								aria-label={`${t('app.localRuntime.wizard.codeReview', 'Can review code')}: ${model.model}`}
 								checked={model.codeReview}
 								disabled={anyBusy}
 								onChange={(event) =>

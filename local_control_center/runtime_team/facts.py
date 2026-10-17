@@ -126,7 +126,7 @@ def role_capability_hint(
     ]
     sentences = [
         f"{gap['providerId']} is healthy but not eligible for {team_role}: "
-        f"declare '{CAPABILITY_LABELS[gap['capability']]}' for its model."
+        f"declare '{CAPABILITY_LABELS[gap['capability']]}' for its model, then use Retry loop."
         for gap in gaps
     ]
     return " ".join(sentences), gaps

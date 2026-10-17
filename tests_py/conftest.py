@@ -214,9 +214,13 @@ def manage_testclient_event_loops(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
 
 
 REAL_HARD_FLOOR_MARKER = "real_hard_floor"
-TEST_HARD_MEMORY_FLOOR_BYTES = 3 * 1024**3
+TEST_HARD_MEMORY_FLOOR_BYTES = int(float(os.environ.get("AIDO_TEST_HARD_MEMORY_FLOOR_GIB", "3")) * 1024**3)
 """Umbral de agotamiento real: bajo ~3 GiB libres Windows ya empieza a paginar fuerte, asi que por
-debajo de eso el corte deja de ser una decision de test y pasa a proteger al equipo de verdad."""
+debajo de eso el corte deja de ser una decision de test y pasa a proteger al equipo de verdad.
+
+``AIDO_TEST_HARD_MEMORY_FLOOR_GIB`` lo ajusta donde ese criterio no aplica: en un contenedor Linux de
+CI la memoria disponible es la de la VM compartida con otros stacks y el contenedor ya tiene su
+propio limite, asi que con 3 GiB el vigilante cancelaba hijos contenidos por RAM ajena."""
 
 
 @pytest.fixture(autouse=True)

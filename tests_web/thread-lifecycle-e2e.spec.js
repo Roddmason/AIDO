@@ -249,11 +249,12 @@ with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
         "evidence": [{"id": "seed-thread-lifecycle-e2e-resource", "kind": "test_seed"}],
     })
     # This spec proves the pipeline, not host capacity: with the product defaults (16/8 GiB, 65% CPU)
-    # a busy dev machine parks steps in resource_wait, and the paused worker's single run-once per
-    # operation never retries admission. Only this fixture DB changes.
+    # a busy dev machine parks steps in resource_wait; the spec re-requests run-once while an operation
+    # waits for capacity, and these floors (the registry minimums) keep that wait short. Only this
+    # fixture DB changes.
     settings = SettingsRepository(connection)
     settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
-    settings.set_value("resources.minFreeMemoryGiB", "general", None, 2)
+    settings.set_value("resources.minFreeMemoryGiB", "general", None, 1)
     settings.set_value("resources.maxCpuPercent", "general", None, 95)
 `;
 	const seed = pythonCommandForScript(script);
@@ -486,6 +487,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 		const apiHeaders = { 'X-Local-Control-Token': token, Origin: baseUrl };
 		// The real external worker stays paused. Each accepted setup operation explicitly requests
 		// one batch; thread execution is still driven by the Run now controls asserted below.
+		const runOnceRequestedAt = new Map();
 		page.on('response', async (response) => {
 			if (response.url().includes('/api/v1/executions/') || response.url().endsWith('/workers/run-once')) {
 				const state = await response.json();
@@ -493,6 +495,13 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 					status: response.status(), executionId: state.executionId, operation: state.operation,
 					state: state.status, reason: state.reason, inFlightJobs: state.inFlightJobs,
 					ownerId: state.ownerId, fencingToken: state.fencingToken, heartbeatAt: state.heartbeatAt });
+				// A paused worker evaluates admission once per run-once: an operation parked in
+				// resource_wait needs another batch once the host frees capacity.
+				const lastRequest = runOnceRequestedAt.get(state.executionId) ?? 0;
+				if (state.status === 'resource_wait' && Date.now() - lastRequest > 3000) {
+					runOnceRequestedAt.set(state.executionId, Date.now());
+					await page.request.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders });
+				}
 			}
 			if (response.status() !== 202) return;
 			const body = await response.json();
@@ -534,7 +543,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				.getByRole('button', { name: /Open in workbench|Abrir en el workbench/ })
 				.click();
 			await expect(page.getByText(/Workspace ready|Workspace listo/).first()).toBeVisible({
-				timeout: 20_000,
+				timeout: 60_000,
 			});
 
 			const projectsResponse = await page.request.get(`${baseUrl}/api/v1/projects`);
@@ -663,12 +672,12 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 			await expect(endpointCard).toBeVisible({ timeout: 30_000 });
 			await endpointCard.getByRole('button', { name: /Validate|Validar/, exact: true }).click();
 			await expect(page.getByText(/Endpoint responded|El endpoint respondió/)).toBeVisible({
-				timeout: 30_000,
+				timeout: 120_000,
 			});
 			const syncModels = endpointCard.getByRole('button', {
 				name: /Sync models|Sincronizar modelos/,
 			});
-			await expect(syncModels).toBeEnabled({ timeout: 30_000 });
+			await expect(syncModels).toBeEnabled({ timeout: 120_000 });
 			await syncModels.click();
 			await expect
 				.poll(
@@ -678,7 +687,7 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 						const endpoint = body.endpoints.find((item) => item.id === 'ollama_remote');
 						return endpoint ?? null;
 					},
-					{ timeout: 30_000 },
+					{ timeout: 120_000 },
 				)
 				.toEqual(
 					expect.objectContaining({
@@ -686,6 +695,14 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 						models: expect.arrayContaining(['controlled-model']),
 					}),
 				);
+			// An operator declares that a model can edit code through the same endpoint the local-runtime
+			// wizard uses (PATCH /local-endpoints/{id}/models). The Ollama panel has no such control, and
+			// runtime_team/roles.py:70 only makes a model runtime eligible for the developer role with it.
+			const declareCodeCapability = await page.request.patch(
+				`${baseUrl}/api/v1/local-endpoints/ollama_remote/models`,
+				{ headers: apiHeaders, data: { model: 'controlled-model', codeEdit: true, codeReview: true } },
+			);
+			expect(declareCodeCapability.ok(), await declareCodeCapability.text()).toBe(true);
 			const providerCard = settings
 				.locator('article.card', { hasText: 'Lifecycle controlled Ollama' })
 				.filter({
@@ -711,22 +728,38 @@ test.describe('Threads lifecycle (real pipeline)', () => {
 				page.getByLabel('Notifications').getByText(/Repair action ran|Acción de reparación ejecutada/),
 			).toBeVisible({ timeout: 30_000 });
 
-			const runNow = page
-				.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
-				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
-			await expect(runNow).toBeVisible({ timeout: 30_000 });
-			await runNow.click();
-			const deadline = Date.now() + 240_000;
-			let detail = null;
-			let status = 'queued';
-			while (Date.now() < deadline) {
-				const response = await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`);
-				detail = await response.json();
-				status = detail.thread.status;
-				if (!['queued', 'running'].includes(status)) break;
-				await page.waitForTimeout(2000);
+			const runQueuedWork = async () => {
+				const runNow = page
+					.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
+					.getByRole('button', { name: /Run now|Ejecutar ahora/ });
+				await expect(runNow).toBeVisible({ timeout: 30_000 });
+				await runNow.click();
+				const deadline = Date.now() + 240_000;
+				let detail = null;
+				let status = 'queued';
+				while (Date.now() < deadline) {
+					const response = await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`);
+					detail = await response.json();
+					status = detail.thread.status;
+					if (!['queued', 'running'].includes(status)) break;
+					await page.waitForTimeout(2000);
+				}
+				return { detail, status };
+			};
+			let { detail, status } = await runQueuedWork();
+			let blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
+			// The message was sealed while no runtime was healthy, so its global-team snapshot gives the
+			// ProductOwner no candidates; Revalidate + Run now replay that snapshot by design (dedd8908).
+			// "Retry loop" is the recovery that re-seals the team with the now-validated endpoint.
+			if (status === 'blocked' && /could not select an approved AI resource/.test(blocked?.payload?.reason ?? '')) {
+				await page
+					.locator('.thread-execution-pane .thread-remediation-card')
+					.getByRole('button', { name: /Retry loop|Reintentar loop/ })
+					.first()
+					.click();
+				({ detail, status } = await runQueuedWork());
+				blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
 			}
-			const blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
 			expect(
 				status,
 				`recovered Product Loop must reach approval; blocked payload: ${JSON.stringify(blocked?.payload ?? {})}`,

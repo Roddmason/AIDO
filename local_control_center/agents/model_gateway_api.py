@@ -1497,7 +1497,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         }
 
     @router.post("/cli-runtimes/{runtime_id}/detect", response_model=RuntimeDetectionResponse)
-    @queued_operation("models.detect_cli_runtime", workload_class="qa_light")
+    @queued_operation("models.detect_cli_runtime", workload_class="ops_light")
     async def detect_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Detecta el ejecutable y versión de un runtime CLI."""
         require_write(request)
@@ -1560,7 +1560,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         )
 
     @router.post("/cli-runtimes/codex_cli/capabilities/probe", response_model=CodexCompatibilityResponse)
-    @queued_operation("models.codex_capabilities", workload_class="qa_light")
+    @queued_operation("models.codex_capabilities", workload_class="ops_light")
     async def codex_capabilities(request: Request) -> dict[str, Any]:
         require_write(request)
         return CodexCompatibilityService(platform.connection).probe(

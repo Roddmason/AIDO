@@ -696,6 +696,28 @@ def test_the_memory_refusal_states_the_numbers_it_compared(tmp_path: Path) -> No
     assert "3.0 GiB of headroom" in refused.reason
 
 
+@pytest.mark.parametrize("headroom_gib", [2.0, 0.9])
+def test_git_and_runtime_probes_fit_in_little_headroom_while_suites_keep_their_cap(
+    tmp_path: Path, headroom_gib: float
+) -> None:
+    """ADR-006: un Revalidate o un git de workspace (``ops_light``) reserva 512 MiB, no 4 GiB.
+
+    0,9 GiB es la holgura del build #25 de ci-hub, donde ``remediations.execute`` quedó en
+    ``resource_wait``. Las suites (``qa_light``) siguen reservando su tope en el mismo host.
+    """
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        governor = HostResourceGovernor(connection)
+        snapshot = _healthy_snapshot(available_memory_bytes=int((16 + headroom_gib) * GIB))
+        suite = governor.admit(_request("suite", "qa_light"), snapshot=snapshot)
+        probe = governor.admit(_request("revalidate", "ops_light"), snapshot=snapshot)
+
+    assert (suite.status, suite.reason_code) == ("resource_wait", "aggregate_memory_budget")
+    assert probe.status == "admitted"
+    assert probe.lease.memory_request_bytes == GIB // 2
+    assert probe.lease.memory_limit_bytes == 4 * GIB
+
+
 def test_every_request_fits_under_its_cap_and_unmeasured_classes_keep_the_cap() -> None:
     """Sin datos (o con uso bimodal) la reserva sigue siendo el tope: la regla del diseño."""
     from local_control_center.host_resources.profiles import WORKLOAD_PROFILES

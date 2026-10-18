@@ -133,7 +133,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         }
 
     @router.post("/api/v1/projects/{project_id}/git/init", response_model=GitInitResponse)
-    @queued_operation("git.init_git_repository", workload_class="qa_light")
+    @queued_operation("git.init_git_repository", workload_class="ops_light")
     async def init_git_repository(project_id: str, body: GitInitRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -142,7 +142,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/remotes", response_model=GitRemoteMutationResponse)
-    @queued_operation("git.add_git_remote", workload_class="qa_light")
+    @queued_operation("git.add_git_remote", workload_class="ops_light")
     async def add_git_remote(project_id: str, body: GitRemoteAddRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         try:
@@ -154,7 +154,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/remotes/{name}/test",
         response_model=GitRemoteTestResponse,
     )
-    @queued_operation("git.test_git_remote", workload_class="qa_light")
+    @queued_operation("git.test_git_remote", workload_class="ops_light")
     async def test_git_remote(
         project_id: str, name: str, body: GitRemoteTestRequest, request: Request
     ) -> dict[str, Any]:
@@ -169,7 +169,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=GitBranchMutationResponse,
     )
-    @queued_operation("git.create_git_branch", workload_class="qa_light")
+    @queued_operation("git.create_git_branch", workload_class="ops_light")
     async def create_git_branch(
         project_id: str, body: GitBranchCreateRequest, request: Request
     ) -> dict[str, Any]:
@@ -183,7 +183,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-policy/apply",
         response_model=GitBranchPolicyApplyResponse,
     )
-    @queued_operation("git.apply_git_branch_policy", workload_class="qa_light")
+    @queued_operation("git.apply_git_branch_policy", workload_class="ops_light")
     async def apply_git_branch_policy(
         project_id: str, body: GitBranchPolicyApplyRequest, request: Request
     ) -> dict[str, Any]:
@@ -201,7 +201,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.post("/api/v1/projects/{project_id}/git/checkout", response_model=GitCheckoutResponse)
-    @queued_operation("git.checkout_git_branch", workload_class="qa_light")
+    @queued_operation("git.checkout_git_branch", workload_class="ops_light")
     async def checkout_git_branch(
         project_id: str, body: GitCheckoutRequest, request: Request
     ) -> dict[str, Any]:
@@ -282,7 +282,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-manager/delete",
         response_model=BranchActionResponse,
     )
-    @queued_operation("git.branch_manager_delete", workload_class="qa_light")
+    @queued_operation("git.branch_manager_delete", workload_class="ops_light")
     async def delete_git_branches(
         project_id: str, body: BranchDeleteRequest, request: Request
     ) -> dict[str, Any]:
@@ -302,7 +302,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-manager/rename",
         response_model=BranchActionResponse,
     )
-    @queued_operation("git.branch_manager_rename", workload_class="qa_light")
+    @queued_operation("git.branch_manager_rename", workload_class="ops_light")
     async def rename_git_branch(
         project_id: str, body: BranchRenameRequest, request: Request
     ) -> dict[str, Any]:
@@ -316,7 +316,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-manager/prune",
         response_model=BranchActionResponse,
     )
-    @queued_operation("git.branch_manager_prune", workload_class="qa_light")
+    @queued_operation("git.branch_manager_prune", workload_class="ops_light")
     async def prune_git_remote_refs(
         project_id: str, body: BranchPruneRequest, request: Request
     ) -> dict[str, Any]:
@@ -330,7 +330,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-manager/worktrees/remove",
         response_model=BranchActionResponse,
     )
-    @queued_operation("git.branch_manager_remove_worktrees", workload_class="qa_light")
+    @queued_operation("git.branch_manager_remove_worktrees", workload_class="ops_light")
     async def remove_merged_git_worktrees(
         project_id: str, body: BranchWorktreeRemoveRequest, request: Request
     ) -> dict[str, Any]:

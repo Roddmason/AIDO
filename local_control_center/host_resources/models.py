@@ -16,6 +16,7 @@ WorkloadClass = Literal[
     "remote_llm_light",
     "agent_cli",
     "qa_light",
+    "ops_light",
     "browser_test",
     "build_heavy",
     "capture_session",

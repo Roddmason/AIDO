@@ -179,7 +179,7 @@ def test_the_blocker_offers_retest_first_and_retry_second(lane):
 def test_the_retest_remediation_only_enqueues_so_it_reserves_light_work(lane):
     _service, actions, _project_id, connection = lane
     spec = OperationSpec("remediations.execute", "agent_cli")
-    assert operation_workload(connection, spec, {"remediation_id": actions[0]["id"]}) == "qa_light"
+    assert operation_workload(connection, spec, {"remediation_id": actions[0]["id"]}) == "ops_light"
 
 
 def test_retest_queues_one_validation_per_stale_runtime_and_keeps_the_run_blocked(lane, monkeypatch):

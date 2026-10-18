@@ -174,7 +174,7 @@ def test_runtime_revalidation_is_light_and_precedes_the_conversation_it_repairs(
                 assert response.status_code == 202
                 execution = client.get(f"/api/v1/executions/{response.json()['executionId']}").json()
                 assert execution["workloadClass"] == (
-                    "qa_light" if kind == "validate_runtime" else "agent_cli"
+                    "ops_light" if kind == "validate_runtime" else "agent_cli"
                 )
                 if kind == "validate_runtime":
                     assert jobs.peek_next_job()["id"] == execution["executionId"]

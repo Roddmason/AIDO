@@ -33,7 +33,8 @@ TEST_RUNNER_PROCESS_LIMIT = 64
 Es una protección contra fork bombs, no una reserva: la memoria y la CPU siguen acotadas por su
 propio tope. 8/16/24 cortaban runners reales. vitest reparte por defecto casi un proceso por CPU
 lógica (19 en un host de 20). Un QA de Node (`node … pnpm run test`) se clasifica `agent_cli`,
-pytest `qa_light` y Playwright abre varios procesos por navegador. Las tres clases comparten el tope
+pytest `qa_light` y Playwright abre varios procesos por navegador. `ops_light` (git de AIDO) lo
+comparte porque una mutación de git corre los hooks del repo. Las clases comparten el tope
 para que una lease `agent_cli` padre siga cubriendo a sus hijos de QA (`BranchAdmission._parent_covers`
 exige que el padre iguale o supere el tope del hijo).
 """
@@ -77,6 +78,17 @@ WORKLOAD_PROFILES: dict[WorkloadClass, WorkloadProfile] = {
         essential=False,
         cpu_limit_percent=25,
         memory_limit_bytes=4 * GIB,
+        process_limit=TEST_RUNNER_PROCESS_LIMIT,
+        gpu_required=False,
+    ),
+    "ops_light": WorkloadProfile(
+        workload_class="ops_light",
+        heavy=False,
+        light=True,
+        essential=False,
+        cpu_limit_percent=25,
+        memory_limit_bytes=4 * GIB,
+        memory_request_bytes=GIB // 2,
         process_limit=TEST_RUNNER_PROCESS_LIMIT,
         gpu_required=False,
     ),
@@ -190,8 +202,10 @@ def admission_memory_bytes(profile: WorkloadProfile) -> int:
     (7,16 GB), ``remote_llm_light`` 512 MiB (87 MB). ``agent_cli`` se recalibró aparte (ADR-005) a
     1 GiB: por encima de su p90 medido (622 MB, 132 ejecuciones) pero muy por debajo de su máximo
     (2,99 GB), porque el desalojo graduado por uso real —no la reserva contable— es quien protege
-    el pico. Las clases sin muestra suficiente o con uso bimodal (``qa_light`` mezcla git de 42 MB
-    con suites de 4 GB) reservan su tope.
+    el pico. Las clases sin muestra suficiente o con uso bimodal reservan su tope. ``qa_light``
+    mezclaba git de 42 MB con suites de 4 GB; ADR-006 separó las mutaciones de git/workspace y las
+    sondas de runtime en ``ops_light``: 512 MiB sobre un máximo medido de 365 MB (82 leases de
+    operación), con el mismo tope de 4 GiB. ``qa_light`` conserva las suites y sigue reservando 4 GiB.
     """
     return (
         profile.memory_limit_bytes if profile.memory_request_bytes is None else profile.memory_request_bytes

@@ -57,7 +57,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"workspaces": repository().list_workspaces()}
 
     @router.post("/api/v1/workspaces", status_code=201, response_model=WorkspaceResponse)
-    @queued_operation("workspaces.allocate_workspace", workload_class="qa_light")
+    @queued_operation("workspaces.allocate_workspace", workload_class="ops_light")
     async def allocate_workspace(body: WorkspaceAllocateRequest, request: Request) -> WorkspaceResponse:
         require_write(request)
         try:
@@ -91,7 +91,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse
     )
-    @queued_operation("workspaces.archive_workspace", workload_class="qa_light")
+    @queued_operation("workspaces.archive_workspace", workload_class="ops_light")
     async def archive_workspace(
         workspace_id: str, body: WorkspaceArchiveRequest, request: Request
     ) -> WorkspaceArchiveResponse:
@@ -169,7 +169,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/workspaces/cleanup",
         response_model=WorkspaceCleanupApplyResponse,
     )
-    @queued_operation("workspaces.workspace_cleanup_apply", workload_class="qa_light")
+    @queued_operation("workspaces.workspace_cleanup_apply", workload_class="ops_light")
     async def workspace_cleanup_apply(
         project_id: str, body: WorkspaceCleanupApplyRequest, request: Request
     ) -> dict[str, Any]:

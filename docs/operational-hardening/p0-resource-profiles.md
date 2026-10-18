@@ -8,6 +8,7 @@ Canonical definitions: `local_control_center/host_resources/profiles.py` and
 | control_plane | essential | 20 | 2 | 8 |
 | remote_llm_light | light | 15 | 2 | 4 |
 | qa_light | light | 25 | 4 | 8 |
+| ops_light | light | 25 | 4 | 64 |
 | agent_cli | heavy | 40 | 8 | 16 |
 | browser_test | heavy | 40 | 8 | 24 |
 | build_heavy | heavy | 65 | 16 | 32 |

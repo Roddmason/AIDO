@@ -35,7 +35,7 @@ def operation_workload(connection, spec, payload):
             "SELECT action_type FROM remediation_actions WHERE id=?", (payload.get("remediation_id"),)
         ).fetchone()
         if action and action["action_type"] in {"validate_runtime", "revalidate_runtime"}:
-            return "qa_light"
+            return "ops_light"
     if spec.name not in INFERENCE_OPERATIONS:
         return spec.workload_class
     ids = set()

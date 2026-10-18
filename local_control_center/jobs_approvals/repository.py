@@ -957,7 +957,7 @@ class JobsRepository:
             LEFT JOIN project_job_attention pa ON pa.project_id = j.project_id
             WHERE j.status = 'queued'
             ORDER BY CASE WHEN j.kind = 'operation.execute'
-                AND e.workload_class IN ('control_plane', 'qa_light', 'remote_llm_light')
+                AND e.workload_class IN ('control_plane', 'ops_light', 'qa_light', 'remote_llm_light')
                 THEN 0 ELSE 1 END,
                 pa.last_started_at ASC,
                 j.created_at ASC,

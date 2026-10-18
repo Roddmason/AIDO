@@ -53,7 +53,7 @@ def run_git_capture(
         command,
         cwd=str(cwd or Path.cwd()),
         timeout_seconds=120,
-        workload_class="qa_light",
+        workload_class="ops_light",
         popen_factory=subprocess.Popen,
         **limits,
     )

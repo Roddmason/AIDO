@@ -32,6 +32,22 @@ def fixture_database(value: str) -> Path:
     return db
 
 
+def cap_hard_memory_floor():
+    """Apply the pytest suite's bounded watchdog floor to this one-shot process.
+
+    The chunk DB keeps the 8 GiB product default while the watchdog compares it against the real
+    host memory: on a shared CI VM (~3 GiB free) it cancelled workspace/workflow operations with
+    `hard_memory_floor` (ci-hub build #27). Same bound and env override as `tests_py/conftest.py`.
+    """
+    from local_control_center.process_supervision import service
+    from tests_py.conftest import TEST_HARD_MEMORY_FLOOR_BYTES
+
+    original = service.hard_memory_floor_bytes
+    service.hard_memory_floor_bytes = lambda connection: min(
+        original(connection), TEST_HARD_MEMORY_FLOOR_BYTES
+    )
+
+
 def main():
     """Complete a selected operation only in the runner's isolated domain-test database."""
     parser = argparse.ArgumentParser()
@@ -44,6 +60,7 @@ def main():
     from local_control_center.executions.repository import ExecutionRepository
     from tests_py.execution_client import complete_operation
 
+    cap_hard_memory_floor()
     platform = ControlCenterRuntime(cwd=Path.cwd(), db_path=db)
     try:
         execution = ExecutionRepository(platform.connection).get(args.execution_id)

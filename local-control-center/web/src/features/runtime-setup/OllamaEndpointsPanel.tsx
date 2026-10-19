@@ -404,6 +404,27 @@ function EndpointCard({
 		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
 		: '';
 
+	// Chips only when the endpoint's models have no per-model state rows yet.
+	const renderSyncedModelChips = () => {
+		if (modelStates.length) return null;
+		if (!card.models.length) {
+			return (
+				<span className="field-help">
+					{t('app.ollama.card.noModels', 'No model synced yet — run Sync models.')}
+				</span>
+			);
+		}
+		return (
+			<div className="inline provider-chip-list">
+				{card.models.slice(0, MODEL_CHIP_LIMIT).map((model) => (
+					<Badge tone="info" className="provider-chip" key={model}>
+						{model}
+					</Badge>
+				))}
+			</div>
+		);
+	};
+
 	const renderModelRow = (model: LocalModelView) => (
 		<div className="inline local-model-row" key={model.model} data-model={model.model}>
 			<strong className="mono">{model.model}</strong>
@@ -478,19 +499,7 @@ function EndpointCard({
 				</div>
 			</dl>
 
-			{modelStates.length ? null : card.models.length ? (
-				<div className="inline provider-chip-list">
-					{card.models.slice(0, MODEL_CHIP_LIMIT).map((model) => (
-						<Badge tone="info" className="provider-chip" key={model}>
-							{model}
-						</Badge>
-					))}
-				</div>
-			) : (
-				<span className="field-help">
-					{t('app.ollama.card.noModels', 'No model synced yet — run Sync models.')}
-				</span>
-			)}
+			{renderSyncedModelChips()}
 
 			{modelStates.length ? (
 				<div className="stack compact provider-model-list">

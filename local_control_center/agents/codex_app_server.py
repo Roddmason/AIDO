@@ -57,7 +57,11 @@ def resolve_codex_command(env: Mapping[str, str]) -> str | None:
 
 
 def _kill_tree(process: subprocess.Popen[bytes]) -> None:
-    """Mata el proceso y sus descendientes (el ``codex`` de npm lanza el binario nativo como hijo)."""
+    """Mata el proceso y sus descendientes (el ``codex`` de npm lanza el binario nativo como hijo).
+
+    No cierra ``stdout``: ese stream es de ``_pump``. Si un descendiente que sobrevivió mantiene la
+    tubería abierta, cerrarlo aquí esperaría el lock del ``readline`` en curso y colgaría al worker.
+    """
     try:
         import psutil
 
@@ -71,14 +75,13 @@ def _kill_tree(process: subprocess.Popen[bytes]) -> None:
         process.kill()
     with contextlib.suppress(subprocess.TimeoutExpired):
         process.wait(timeout=2)
-    for stream in (process.stdin, process.stdout):
-        if stream is not None:
-            with contextlib.suppress(OSError):
-                stream.close()
+    if process.stdin is not None:
+        with contextlib.suppress(OSError):
+            process.stdin.close()
 
 
 def _pump(stream: Any, lines: queue.Queue[bytes | None]) -> None:
-    """Lee líneas acotadas hacia la cola; ``None`` marca fin de salida o tope alcanzado."""
+    """Lee líneas acotadas hacia la cola y cierra el stream al terminar; ``None`` marca el fin."""
     total = 0
     try:
         while total < MAX_OUTPUT_BYTES:
@@ -89,6 +92,9 @@ def _pump(stream: Any, lines: queue.Queue[bytes | None]) -> None:
             lines.put(line)
     except (OSError, ValueError):
         pass
+    finally:
+        with contextlib.suppress(OSError):
+            stream.close()
     lines.put(None)
 
 

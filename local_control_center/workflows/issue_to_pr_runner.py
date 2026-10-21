@@ -36,11 +36,7 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
-from local_control_center.workflows.issue_to_patch_runner import (
-    APPROVED_FOR_INTEGRATION_STATUS,
-    PR_CREATED_STATUS,
-    PROMOTED_TO_BRANCH_STATUS,
-    IssueToPatchRunner,
+from local_control_center.workflows.evidence_artifacts import (
     _artifact_content_bytes,
     _diff_summary,
     _final_diff_refs,
@@ -49,6 +45,12 @@ from local_control_center.workflows.issue_to_patch_runner import (
     _validate_security_findings,
     _write_json_evidence_artifact,
     _write_text_evidence_artifact,
+)
+from local_control_center.workflows.issue_to_patch_runner import (
+    APPROVED_FOR_INTEGRATION_STATUS,
+    PR_CREATED_STATUS,
+    PROMOTED_TO_BRANCH_STATUS,
+    IssueToPatchRunner,
 )
 from local_control_center.workflows.repository import ISSUE_TO_PR_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff

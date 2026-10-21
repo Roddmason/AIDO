@@ -493,11 +493,27 @@ class LocalWorkerRuntime:
         self._leadership_thread.start()
 
     def _leadership_watch_loop(self) -> None:
+        """Renueva el liderazgo periódicamente; un fallo transitorio se registra y se reintenta.
+
+        Un ``disk I/O error`` o un lock de SQLite no debe matar el hilo: sin él la lease vence
+        aunque el worker siga sano. La lease misma acota cuánto puede durar un fallo persistente.
+        """
         interval = min(1.0, max(0.5, DEFAULT_LEADER_LEASE_SECONDS / 3))
         while not self._stop_event.wait(interval):
-            if self._fencing_token is not None:
+            if self._fencing_token is None:
+                continue
+            try:
                 self._renew_leadership(status=self._status)
                 self._govern_resources_if_due()
+            except Exception as error:
+                self._last_error = f"{type(error).__name__}: {error}"
+                diagnostic_event(
+                    "leadership.renew_failed",
+                    component="worker",
+                    workerId=self.worker_id,
+                    error=error,
+                    level="WARNING",
+                )
 
     def _release_leadership(self, reason: str) -> None:
         if self._fencing_token is None:

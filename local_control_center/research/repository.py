@@ -19,10 +19,6 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 
-def _row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
-    return row[column] if column in row.keys() else default
-
-
 def row_to_research_run(row: sqlite3.Row) -> dict[str, Any]:
     """Proyecta una fila de research_runs al contrato camelCase interno."""
     return {

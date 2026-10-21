@@ -23,6 +23,7 @@ from local_control_center.shared.db import (
     require_safe_sqlite_runtime,
 )
 from local_control_center.shared.event_bus import EventBus
+from local_control_center.shared.serialization import sha256_file as _digest
 from local_control_center.shared.settings import default_db_path
 from local_control_center.shared.time import utc_now
 
@@ -116,11 +117,6 @@ def _connect(path: Path, mode: str = "ro") -> sqlite3.Connection:
     )
     connection.row_factory = sqlite3.Row
     return connection
-
-
-def _digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def require_quiescent(connection: sqlite3.Connection) -> None:

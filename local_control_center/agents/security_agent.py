@@ -32,6 +32,7 @@ from local_control_center.evidence.quality import evidence_package_contract_erro
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.security_policy.sandbox import path_is_inside as _inside
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -102,14 +103,6 @@ EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
 SCANNER_REPORT_DIR = "security-scanner-reports"
 SEMGREP_CONFIG_CANDIDATES = (".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml")
 GITLEAKS_CONFIG_CANDIDATES = (".gitleaks.toml", "gitleaks.toml")
-
-
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.resolve(strict=False).relative_to(root.resolve(strict=False))
-        return True
-    except (OSError, ValueError):
-        return False
 
 
 def _hash_bytes(content: bytes) -> str:

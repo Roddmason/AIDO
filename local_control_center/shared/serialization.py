@@ -68,3 +68,9 @@ def stable_hash(value: Any) -> str:
     """Calcula un SHA-256 reproducible del valor; los no-str se serializan a JSON ordenado primero."""
     payload = value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """Calcula el SHA-256 hexadecimal de un archivo leyéndolo por streaming, sin cargarlo entero en RAM."""
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()

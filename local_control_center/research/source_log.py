@@ -18,6 +18,7 @@ from typing import Any
 
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.shared.db import row_value as _row_value
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -186,7 +187,3 @@ def _has_table(connection: sqlite3.Connection, table: str) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
     ).fetchone()
     return row is not None
-
-
-def _row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
-    return row[column] if column in row.keys() else default

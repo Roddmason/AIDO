@@ -23,6 +23,7 @@ from local_control_center.governance.repository import GovernanceRepository
 from local_control_center.integrations.repository import IntegrationsRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.repository import MemoryRepository
+from local_control_center.product_loop.repository import _database_identity
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.prompts.repository import PromptsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
@@ -155,12 +156,6 @@ class _ImmutableRecordCache:
 
 
 _IMMUTABLE_RECORDS = _ImmutableRecordCache(OVERVIEW_IMMUTABLE_CACHE_ENTRIES)
-
-
-def _database_identity(connection: sqlite3.Connection) -> str:
-    """Archivo de la base principal: separa las cachés de distintas bases del mismo proceso."""
-    row = connection.execute("PRAGMA database_list").fetchone()
-    return str(row[2] or f"memory-{id(connection)}")
 
 
 def _overview_evidence_packages(

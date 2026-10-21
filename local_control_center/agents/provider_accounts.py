@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.provider_catalog import provider_catalog_entry
+from local_control_center.shared.db import db_bool as _bool
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -169,10 +170,6 @@ PRICING_SNAPSHOT_COLUMNS = """
     output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,
     metadata_json, apply_to_catalog, created_at
 """
-
-
-def _bool(value: Any) -> bool:
-    return bool(int(value)) if isinstance(value, int) else bool(value)
 
 
 def _value_or_existing(

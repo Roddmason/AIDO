@@ -6,7 +6,6 @@ Los imports Windows son locales. Un minidump se clasifica SENSITIVE_NATIVE y nun
 
 from __future__ import annotations
 
-import hashlib
 import json
 import mmap
 import os
@@ -22,6 +21,7 @@ from pathlib import Path
 import psutil
 
 from local_control_center.shared.diagnostics import diagnostic_event
+from local_control_center.shared.serialization import sha256_file as file_sha256
 
 PROCDUMP_SHA256 = "d1fc99ae304bd1d2bf28abeb62531da959e2431916194981b88c958fd713a8e6"
 """Official Sysinternals 12.01 x64 download; Authenticode Microsoft signature checked at preparation."""
@@ -255,12 +255,6 @@ class NativeCapture:
         )
         if failed:
             raise RuntimeError("Native capture failed; private collector receipt preserves the outcome")
-
-
-def file_sha256(path: Path) -> str:
-    """Fingerprint por streaming, sin cargar binarios completos en RAM."""
-    with path.open("rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def inspect_minidump(path: Path) -> dict:

@@ -118,7 +118,8 @@ def _truncate(value: str) -> str:
     return value[:MAX_CAPTURE_CHARS] + "\n[truncated]"
 
 
-def _inside(path: Path, root: Path) -> bool:
+def path_is_inside(path: Path, root: Path) -> bool:
+    """Indica si ``path`` (resuelto) queda dentro de ``root`` (resuelto); un error de resolución cuenta como fuera."""
     try:
         path.resolve(strict=False).relative_to(root.resolve(strict=False))
         return True
@@ -171,7 +172,7 @@ def project_command_environment(base: Mapping[str, str]) -> dict[str, str]:
     if own_prefix == Path(sys.base_prefix).resolve(strict=False):
         return environment
     virtual_env = environment.get("VIRTUAL_ENV")
-    if virtual_env and _inside(Path(virtual_env), own_prefix):
+    if virtual_env and path_is_inside(Path(virtual_env), own_prefix):
         environment.pop("VIRTUAL_ENV")
         environment.pop("UV_RUN_RECURSION_DEPTH", None)
     path_key = next((key for key in environment if key.upper() == "PATH"), None)
@@ -179,7 +180,7 @@ def project_command_environment(base: Mapping[str, str]) -> dict[str, str]:
         environment[path_key] = os.pathsep.join(
             entry
             for entry in environment[path_key].split(os.pathsep)
-            if entry and not _inside(Path(entry), own_prefix)
+            if entry and not path_is_inside(Path(entry), own_prefix)
         )
     return environment
 
@@ -198,7 +199,7 @@ def _validate_restricted_process(argv: Any, cwd: str | None, workspace_path: str
     if cwd or workspace_path:
         workspace = Path(workspace_path or cwd or ".").resolve(strict=False)
         run_cwd = Path(cwd or workspace).resolve(strict=False)
-        if not _inside(run_cwd, workspace):
+        if not path_is_inside(run_cwd, workspace):
             return "Working directory is outside the allocated workspace."
         if not run_cwd.exists() or not run_cwd.is_dir():
             return "Working directory does not exist."
@@ -455,7 +456,7 @@ class RestrictedSubprocessSandbox:
 
         workspace = Path(workspace_path or cwd or ".").resolve(strict=False)
         run_cwd = Path(cwd or workspace).resolve(strict=False)
-        if not _inside(run_cwd, workspace):
+        if not path_is_inside(run_cwd, workspace):
             return {
                 "executed": False,
                 "blocked": True,

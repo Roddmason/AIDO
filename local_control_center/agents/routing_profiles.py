@@ -14,12 +14,9 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.db import db_bool as _bool
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-
-
-def _bool(value: Any) -> bool:
-    return bool(int(value)) if isinstance(value, int) else bool(value)
 
 
 def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:

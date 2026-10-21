@@ -218,9 +218,10 @@ class ThreadsRepository:
             and owner["archived_at"] is None
         ):
             return owner_id
-        return self._project_root_workspace_id(project_id) or owner_id
+        return self.project_root_workspace_id(project_id) or owner_id
 
-    def _project_root_workspace_id(self, project_id: str) -> str | None:
+    def project_root_workspace_id(self, project_id: str) -> str | None:
+        """Devuelve el id del workspace raíz vivo del proyecto, o ``None`` si no existe."""
         project = self.connection.execute("SELECT path FROM projects WHERE id = ?", (project_id,)).fetchone()
         if not project:
             return None

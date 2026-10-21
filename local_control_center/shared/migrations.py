@@ -12,10 +12,11 @@ re-ejecutar todo el conjunto sobre una base ya migrada no produce cambios.
 from __future__ import annotations
 
 import errno
+import functools
 import os
 import sqlite3
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -24,6 +25,42 @@ from .serialization import json_dumps, json_loads
 from .time import utc_now
 
 CURRENT_SCHEMA_VERSION = 85
+
+PhaseInitializer = Callable[[sqlite3.Connection], None]
+
+_PHASE_REGISTRY: dict[int, str] = {}
+
+
+def migration(
+    version: int, *, skip_if_applied: bool = False
+) -> Callable[[PhaseInitializer], PhaseInitializer]:
+    """Registra una fase del esquema bajo su número de versión.
+
+    ``skip_if_applied`` delega en el decorador el guard estándar (``SELECT 1 FROM schema_migrations
+    WHERE version = N`` y retorno anticipado). Las fases con guard propio o sin guard no lo activan.
+    """
+
+    def register(phase: PhaseInitializer) -> PhaseInitializer:
+        if version in _PHASE_REGISTRY:
+            raise RuntimeError(f"Fase de esquema duplicada: {version}")
+        _PHASE_REGISTRY[version] = phase.__name__
+        if not skip_if_applied:
+            return phase
+
+        @functools.wraps(phase)
+        def guarded(connection: sqlite3.Connection) -> None:
+            if connection.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)).fetchone():
+                return
+            phase(connection)
+
+        return guarded
+
+    return register
+
+
+def registered_schema_versions() -> tuple[int, ...]:
+    """Versiones registradas, en el orden en que se aplican."""
+    return tuple(sorted(_PHASE_REGISTRY))
 
 
 def _execute_atomic_statements(
@@ -133,98 +170,21 @@ def initialize_platform_schema(connection: sqlite3.Connection) -> None:
 
 
 def _initialize_platform_schema_unlocked(connection: sqlite3.Connection) -> None:
-    """Cuerpo de :func:`initialize_platform_schema`, ya bajo el lock de migración."""
+    """Cuerpo de :func:`initialize_platform_schema`, ya bajo el lock de migración.
+
+    Las fases se resuelven por nombre en el módulo al ejecutarse, de modo que sustituir
+    ``init_phaseN_schema`` (p. ej. con ``monkeypatch``) sigue afectando a la migración.
+    """
     if _schema_is_current(connection):
         return
-    init_base_schema(connection)
-    init_phase2_schema(connection)
-    init_phase3_schema(connection)
-    init_phase4_schema(connection)
-    init_phase5_schema(connection)
-    init_phase6_schema(connection)
-    init_phase7_schema(connection)
-    init_phase8_schema(connection)
-    init_phase9_schema(connection)
-    init_phase10_schema(connection)
-    init_phase11_schema(connection)
-    init_phase12_schema(connection)
-    init_phase13_schema(connection)
-    init_phase14_schema(connection)
-    init_phase15_schema(connection)
-    init_phase16_schema(connection)
-    init_phase17_schema(connection)
-    init_phase18_schema(connection)
-    init_phase19_schema(connection)
-    init_phase20_schema(connection)
-    init_phase21_schema(connection)
-    init_phase22_schema(connection)
-    init_phase23_schema(connection)
-    init_phase24_schema(connection)
-    init_phase25_schema(connection)
-    init_phase26_schema(connection)
-    init_phase27_schema(connection)
-    init_phase28_schema(connection)
-    init_phase29_schema(connection)
-    init_phase30_schema(connection)
-    init_phase31_schema(connection)
-    init_phase32_schema(connection)
-    init_phase33_schema(connection)
-    init_phase34_schema(connection)
-    init_phase35_schema(connection)
-    init_phase36_schema(connection)
-    init_phase37_schema(connection)
-    init_phase38_schema(connection)
-    init_phase39_schema(connection)
-    init_phase40_schema(connection)
-    init_phase41_schema(connection)
-    init_phase42_schema(connection)
-    init_phase43_schema(connection)
-    init_phase44_schema(connection)
-    init_phase45_schema(connection)
-    init_phase46_schema(connection)
-    init_phase47_schema(connection)
-    init_phase48_schema(connection)
-    init_phase49_schema(connection)
-    init_phase50_schema(connection)
-    init_phase51_schema(connection)
-    init_phase52_schema(connection)
-    init_phase53_schema(connection)
-    init_phase54_schema(connection)
-    init_phase55_schema(connection)
-    init_phase56_schema(connection)
-    init_phase57_schema(connection)
-    init_phase58_schema(connection)
-    init_phase59_schema(connection)
-    init_phase60_schema(connection)
-    init_phase61_schema(connection)
-    init_phase62_schema(connection)
-    init_phase63_schema(connection)
-    init_phase64_schema(connection)
-    init_phase65_schema(connection)
-    init_phase66_schema(connection)
-    init_phase67_schema(connection)
-    init_phase68_schema(connection)
-    init_phase69_schema(connection)
-    init_phase70_schema(connection)
-    init_phase71_schema(connection)
-    init_phase72_schema(connection)
-    init_phase73_schema(connection)
-    init_phase74_schema(connection)
-    init_phase75_schema(connection)
-    init_phase76_schema(connection)
-    init_phase77_schema(connection)
-    init_phase78_schema(connection)
-    init_phase79_schema(connection)
-    init_phase80_schema(connection)
-    init_phase81_schema(connection)
-    init_phase82_schema(connection)
-    init_phase83_schema(connection)
-    init_phase84_schema(connection)
-    init_phase85_schema(connection)
+    module_namespace = globals()
+    for version in registered_schema_versions():
+        module_namespace[_PHASE_REGISTRY[version]](connection)
     seed_platform_catalogs(connection)
     purge_tombstoned_provider_seeds(connection)
 
 
+@migration(80, skip_if_applied=True)
 def init_phase80_schema(connection: sqlite3.Connection) -> None:
     """Fase 80: configuración por modelo local y retiro de las capacidades sembradas por runtime.
 
@@ -233,8 +193,6 @@ def init_phase80_schema(connection: sqlite3.Connection) -> None:
     creadas antes desde el catálogo pierden ``code_edit``/``code_review`` sembrados por runtime: esas
     capacidades pasan a ser opt-in por modelo (spec §4.3). Las filas del operador no se tocan.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 80").fetchone():
-        return
     _execute_atomic_statements(
         connection,
         [
@@ -277,6 +235,7 @@ def init_phase80_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(79)
 def init_phase79_schema(connection: sqlite3.Connection) -> None:
     """Fase 79: slots durables de concurrencia por endpoint local (`local_endpoint_leases`).
 
@@ -302,6 +261,7 @@ def init_phase79_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(78, skip_if_applied=True)
 def init_phase78_schema(connection: sqlite3.Connection) -> None:
     """Fase 78: `runtime.local.enabled` nace con el valor que el operador dio a `runtime.ollama.enabled`.
 
@@ -309,8 +269,6 @@ def init_phase78_schema(connection: sqlite3.Connection) -> None:
     el anterior evita que quien apagó Ollama encuentre los runtimes locales encendidos tras actualizar. Solo se
     siembra una vez: después manda lo que el operador fije.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 78").fetchone():
-        return
     now = utc_now()
     _execute_atomic_statements(
         connection,
@@ -327,6 +285,7 @@ def init_phase78_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(77, skip_if_applied=True)
 def init_phase77_schema(connection: sqlite3.Connection) -> None:
     """Fase 77: identidad de catálogo, declaración local y concurrencia pasan a campos del servidor.
 
@@ -340,8 +299,6 @@ def init_phase77_schema(connection: sqlite3.Connection) -> None:
     existentes reciben su fila propia de `runtime_installations` (antes heredaban la fila compartida y
     deshabilitada de la familia). Idempotente: se re-ejecuta sin efectos.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 77").fetchone():
-        return
 
     from local_control_center.agents.provider_catalog import provider_catalog_entry
 
@@ -405,10 +362,9 @@ def init_phase77_schema(connection: sqlite3.Connection) -> None:
     _execute_atomic_statements(connection, statements)
 
 
+@migration(76, skip_if_applied=True)
 def init_phase76_schema(connection: sqlite3.Connection) -> None:
     """Extend execution provenance to ModelGateway while preserving v75 evidence atomically."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 76").fetchone():
-        return
     _execute_atomic_statements(
         connection,
         [
@@ -442,6 +398,7 @@ def init_phase76_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(75)
 def init_phase75_schema(connection: sqlite3.Connection) -> None:
     """Persist executed model validation independently from provider health and catalog metadata."""
     _execute_atomic_statements(
@@ -471,6 +428,7 @@ def init_phase75_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(74)
 def init_phase74_schema(connection: sqlite3.Connection) -> None:
     """Evidencia shadow independiente de estados operacionales y aprendizaje efectivo."""
     _execute_atomic_statements(
@@ -515,6 +473,7 @@ def init_phase74_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(1)
 def init_base_schema(connection: sqlite3.Connection) -> None:
     """Fase 1: crea el núcleo (proyectos, agentes, jobs, eventos, auditoría, memoria, MCP)."""
     connection.executescript(
@@ -787,6 +746,7 @@ def init_base_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(2)
 def init_phase2_schema(connection: sqlite3.Connection) -> None:
     """Fase 2: añade workflows, permisos, evidencia y costos; siembra políticas de permiso base."""
     connection.executescript(
@@ -989,6 +949,7 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+@migration(3)
 def init_phase3_schema(connection: sqlite3.Connection) -> None:
     """Fase 3: añade workspaces, git/PR, skills, artefactos y QA; siembra proveedores de modelo."""
     connection.executescript(
@@ -1226,6 +1187,7 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+@migration(4)
 def init_phase4_schema(connection: sqlite3.Connection) -> None:
     """Fase 4: vincula workspaces a workflow run/step y añade su índice por run."""
     workspace_columns = {
@@ -1244,6 +1206,7 @@ def init_phase4_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(5)
 def init_phase5_schema(connection: sqlite3.Connection) -> None:
     """Fase 5: añade gobierno de proyecto (decisiones de arquitectura, riesgos, próximos pasos)."""
     connection.executescript(
@@ -1304,6 +1267,7 @@ def init_phase5_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(6)
 def init_phase6_schema(connection: sqlite3.Connection) -> None:
     """Fase 6: vincula jobs y agent runs a workflow run/step y añade sus índices por run."""
     job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -1330,6 +1294,7 @@ def init_phase6_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(7)
 def init_phase7_schema(connection: sqlite3.Connection) -> None:
     """Fase 7: asegura las tablas de integraciones y de servidores/llamadas MCP con sus índices."""
     connection.executescript(
@@ -1369,6 +1334,7 @@ def init_phase7_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(8)
 def init_phase8_schema(connection: sqlite3.Connection) -> None:
     """Fase 8: añade los grants de permiso emitidos contra action requests aprobados."""
     connection.executescript(
@@ -1407,6 +1373,7 @@ def init_phase8_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(9)
 def init_phase9_schema(connection: sqlite3.Connection) -> None:
     """Fase 9: añade los perfiles de sandbox y siembra el perfil Docker por defecto."""
     connection.executescript(
@@ -1464,6 +1431,7 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(10)
 def init_phase10_schema(connection: sqlite3.Connection) -> None:
     """Fase 10: backfill de columnas de expiración/revocación en grants y perfiles de sandbox."""
     _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
@@ -1501,6 +1469,7 @@ def init_phase10_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(11)
 def init_phase11_schema(connection: sqlite3.Connection) -> None:
     """Fase 11: añade el historial versionado de revisiones de política (auditoría de cambios)."""
     connection.executescript(
@@ -1579,6 +1548,7 @@ def _remove_legacy_simulation_runtime_records(connection: sqlite3.Connection) ->
     )
 
 
+@migration(12)
 def init_phase12_schema(connection: sqlite3.Connection) -> None:
     """Fase 12: instala el subsistema de ruteo de modelos (cuentas, catálogo, políticas por rol,
     ledger de uso, límites, decisiones) y siembra sus catálogos por defecto."""
@@ -2850,6 +2820,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(13)
 def init_phase13_schema(connection: sqlite3.Connection) -> None:
     """Fase 13: añade los resultados por intento de benchmark de modelos (éxito, QA, costo, latencia)."""
     connection.executescript(
@@ -2894,6 +2865,7 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(14)
 def init_phase14_schema(connection: sqlite3.Connection) -> None:
     """Fase 14: añade los snapshots de precios de modelos con su procedencia y fecha de vigencia."""
     connection.executescript(
@@ -2923,6 +2895,7 @@ def init_phase14_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(15)
 def init_phase15_schema(connection: sqlite3.Connection) -> None:
     """Fase 15: añade ciclo de vida de memoria (expiración/borrado) y las tablas de i18n."""
     _add_column_if_missing(connection, "memory_items", "expires_at", "expires_at TEXT")
@@ -2962,6 +2935,7 @@ def init_phase15_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(16)
 def init_phase16_schema(connection: sqlite3.Connection) -> None:
     """Fase 16: instala el slice de product discovery (iniciativas, sesiones de descubrimiento,
     mensajes de conversación, preguntas/respuestas de aclaración, briefs versionados, supuestos y
@@ -3145,6 +3119,7 @@ def init_phase16_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(17)
 def init_phase17_schema(connection: sqlite3.Connection) -> None:
     """Fase 17: instala el slice de backlog (epics, user stories, criterios de aceptación,
     grafos de dependencias de historias y tareas, tareas de agente y asignaciones). Modela la HU
@@ -3287,6 +3262,7 @@ def init_phase17_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(18)
 def init_phase18_schema(connection: sqlite3.Connection) -> None:
     """Fase 18: instala el assessment estático de proyectos (project_assessments) y sus hallazgos
     por dimensión (project_findings: stack, módulos, arquitectura, endpoints, datos, tests, cobertura,
@@ -3335,6 +3311,7 @@ def init_phase18_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(19)
 def init_phase19_schema(connection: sqlite3.Connection) -> None:
     """Fase 19: instala la máquina de estados durable del ProductLoopCoordinator (product_loops) y su
     bitácora append-only de transiciones (product_loop_transitions). El estado vive en la base —no solo
@@ -3380,6 +3357,7 @@ def init_phase19_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(20)
 def init_phase20_schema(connection: sqlite3.Connection) -> None:
     """Fase 20: añade la tabla ``iterations`` que el IterationPlanner produce a partir del brief
     aprobado y las historias ready. La iteración es el contenedor del plan (estrategia de workspace,
@@ -3418,6 +3396,7 @@ def init_phase20_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(21)
 def init_phase21_schema(connection: sqlite3.Connection) -> None:
     """Fase 21: instala la configuración persistida de runtimes (runtime_installations, runtime_accounts,
     runtime_preferences) para que la config normal viva en la base —no en variables de entorno— y deja a
@@ -3639,6 +3618,7 @@ def init_phase21_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(22)
 def init_phase22_schema(connection: sqlite3.Connection) -> None:
     """Fase 22: instala el metadato del CredentialManager (credential_refs) y su auditoría append-only
     (credential_audit). SQLite SOLO guarda referencias al almacén externo (keyring/vault/openbao/dpapi/
@@ -3686,6 +3666,7 @@ def init_phase22_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(23)
 def init_phase23_schema(connection: sqlite3.Connection) -> None:
     """Fase 23: stream de sesiones CLI — bitácora acotada de eventos por sesión (cli_session_events).
 
@@ -3716,6 +3697,7 @@ def init_phase23_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(24)
 def init_phase24_schema(connection: sqlite3.Connection) -> None:
     """Fase 24: colaboración basada en artefactos para asignaciones de agentes.
 
@@ -3806,6 +3788,7 @@ def init_phase24_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(25)
 def init_phase25_schema(connection: sqlite3.Connection) -> None:
     """Fase 25: registra feedback del usuario como comandos trazables del Product Loop.
 
@@ -3845,6 +3828,7 @@ def init_phase25_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(26)
 def init_phase26_schema(connection: sqlite3.Connection) -> None:
     """Fase 26: store de dos niveles para ajustes de plataforma (general y por proyecto).
 
@@ -3870,6 +3854,7 @@ def init_phase26_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(27)
 def init_phase27_schema(connection: sqlite3.Connection) -> None:
     """Fase 27: self-improvement durable para propuestas, lessons y performance records.
 
@@ -3954,6 +3939,7 @@ def init_phase27_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(28)
 def init_phase28_schema(connection: sqlite3.Connection) -> None:
     """Fase 28: completa la configuración real de runtimes y sus health-checks persistidos.
 
@@ -4087,6 +4073,7 @@ def init_phase28_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(29)
 def init_phase29_schema(connection: sqlite3.Connection) -> None:
     """Fase 29: políticas explícitas de perfiles de equipo y overrides por proyecto."""
     _add_column_if_missing(
@@ -4134,6 +4121,7 @@ def init_phase29_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(30)
 def init_phase30_schema(connection: sqlite3.Connection) -> None:
     """Fase 30: vista segura ``credentials`` con los nombres del contrato de producto.
 
@@ -4170,6 +4158,7 @@ def init_phase30_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(31)
 def init_phase31_schema(connection: sqlite3.Connection) -> None:
     """Fase 31: outputs validados del ProductOwnerAgent para aprobaciones trazables."""
     connection.executescript(
@@ -4210,6 +4199,7 @@ def init_phase31_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(32)
 def init_phase32_schema(connection: sqlite3.Connection) -> None:
     """Fase 32: threads reales que reemplazan el chat decorativo del shell.
 
@@ -4309,6 +4299,7 @@ def init_phase32_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(33)
 def init_phase33_schema(connection: sqlite3.Connection) -> None:
     """Fase 33: índices globales para snapshots recientes de eventos y auditoría."""
     connection.executescript(
@@ -4325,6 +4316,7 @@ def init_phase33_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(34)
 def init_phase34_schema(connection: sqlite3.Connection) -> None:
     """Fase 34: fuentes de research como entidad canónica, no solo metadata de artifacts."""
     connection.executescript(
@@ -4360,6 +4352,7 @@ def init_phase34_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(35)
 def init_phase35_schema(connection: sqlite3.Connection) -> None:
     """Fase 35: lifecycle real de threads e índice lexical de similitud."""
     _add_column_if_missing(connection, "project_threads", "archived_at", "archived_at TEXT")
@@ -4412,10 +4405,9 @@ def init_phase35_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(36, skip_if_applied=True)
 def init_phase36_schema(connection: sqlite3.Connection) -> None:
     """Fase 36: habilita instalaciones API/local catalogadas; CLI permanece gated por detección."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 36").fetchone():
-        return
     timestamp = utc_now()
     connection.execute(
         """
@@ -4433,6 +4425,7 @@ def init_phase36_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(37)
 def init_phase37_schema(connection: sqlite3.Connection) -> None:
     """Fase 37: contrato canónico de fuentes de ResearchAgent."""
     _add_column_if_missing(connection, "research_sources", "url", "url TEXT")
@@ -4465,6 +4458,7 @@ def init_phase37_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(38)
 def init_phase38_schema(connection: sqlite3.Connection) -> None:
     """Fase 38: catálogo durable de TeamScheduler v2 y handoffs por agente."""
     connection.executescript(
@@ -4613,6 +4607,7 @@ def init_phase38_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(39)
 def init_phase39_schema(connection: sqlite3.Connection) -> None:
     """Fase 39: sistema formal de plugins, versiones, permisos, skills, agentes, tools y audit."""
     connection.executescript(
@@ -4720,6 +4715,7 @@ def init_phase39_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(40)
 def init_phase40_schema(connection: sqlite3.Connection) -> None:
     """Fase 40: targets y entregas n8n como automatización externa project-scoped."""
     connection.executescript(
@@ -4764,6 +4760,7 @@ def init_phase40_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(41)
 def init_phase41_schema(connection: sqlite3.Connection) -> None:
     """Fase 41: migra intake legacy de sessions/chats/pipelines a threads reales.
 
@@ -4962,6 +4959,7 @@ def init_phase41_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(42)
 def init_phase42_schema(connection: sqlite3.Connection) -> None:
     """Fase 42: acciones reparables para blockers de threads/product loop."""
     connection.executescript(
@@ -4995,6 +4993,7 @@ def init_phase42_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(43)
 def init_phase43_schema(connection: sqlite3.Connection) -> None:
     """Fase 43: metadata segura de remotos Git por proyecto."""
     connection.executescript(
@@ -5025,6 +5024,7 @@ def init_phase43_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(44)
 def init_phase44_schema(connection: sqlite3.Connection) -> None:
     """Fase 44: AIResourceManager con ruteo explicable, costos honestos y contexto resumido."""
     connection.executescript(
@@ -5170,6 +5170,7 @@ def init_phase44_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(45)
 def init_phase45_schema(connection: sqlite3.Connection) -> None:
     """Fase 45: memoria thread-first para lecciones y funcionalidad existente."""
     _add_column_if_missing(
@@ -5227,6 +5228,7 @@ def init_phase45_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(46)
 def init_phase46_schema(connection: sqlite3.Connection) -> None:
     """Fase 46: runs y findings durables del ResearchAgent."""
     connection.executescript(
@@ -5289,6 +5291,7 @@ def init_phase46_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(47)
 def init_phase47_schema(connection: sqlite3.Connection) -> None:
     """Fase 47: permite costo real desconocido en llamadas a modelos."""
     columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()}
@@ -5334,6 +5337,7 @@ def init_phase47_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(48)
 def init_phase48_schema(connection: sqlite3.Connection) -> None:
     """Fase 48: metadata reparadora explícita (primary/destructive/technicalReason) por remediation."""
     _add_column_if_missing(
@@ -5357,6 +5361,7 @@ def init_phase48_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(49)
 def init_phase49_schema(connection: sqlite3.Connection) -> None:
     """Fase 49: normaliza el apiFormat del daemon Ollama local a 'ollama'.
 
@@ -5378,6 +5383,7 @@ def init_phase49_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(50)
 def init_phase50_schema(connection: sqlite3.Connection) -> None:
     """Fase 50: tokens desconocidos son NULL, nunca un cero fabricado."""
     statements: list[tuple[str, tuple[object, ...]]] = []
@@ -5566,6 +5572,7 @@ def init_phase50_schema(connection: sqlite3.Connection) -> None:
     _execute_atomic_statements(connection, statements)
 
 
+@migration(51)
 def init_phase51_schema(connection: sqlite3.Connection) -> None:
     """Fase 51: alinea la política Product Owner no personalizada con su contrato CLI real."""
     now = utc_now()
@@ -5585,6 +5592,7 @@ def init_phase51_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(52)
 def init_phase52_schema(connection: sqlite3.Connection) -> None:
     """Fase 52: agrega identidad de familia/modo por endpoint y capacidades visuales."""
     already_applied = connection.execute("SELECT 1 FROM schema_migrations WHERE version = 52").fetchone()
@@ -5670,6 +5678,7 @@ def init_phase52_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(53)
 def init_phase53_schema(connection: sqlite3.Connection) -> None:
     """Fase 53: persiste el perfil de contrato por endpoint sin alterar fase 52."""
     savepoint = "aido_phase53_schema"
@@ -5692,6 +5701,7 @@ def init_phase53_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(54)
 def init_phase54_schema(connection: sqlite3.Connection) -> None:
     """Fase 54: agrega políticas y leases atómicos para cuotas de proveedores."""
     savepoint = "aido_phase54_schema"
@@ -5818,6 +5828,7 @@ def init_phase54_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(55)
 def init_phase55_schema(connection: sqlite3.Connection) -> None:
     """Fase 55: persiste identidad y settlement seguro de ejecuciones chat multmodelo."""
     savepoint = "aido_phase55_schema"
@@ -5899,10 +5910,9 @@ def init_phase55_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(56, skip_if_applied=True)
 def init_phase56_schema(connection: sqlite3.Connection) -> None:
     """Fase 56: integra Gemini y agrega ruteo free-tier estricto sin tocar overrides."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 56").fetchone():
-        return
 
     from local_control_center.agents.provider_catalog import (
         GEMINI_MODEL_MANIFEST,
@@ -6258,10 +6268,9 @@ def init_phase56_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(57, skip_if_applied=True)
 def init_phase57_schema(connection: sqlite3.Connection) -> None:
     """Fase 57: indices de lectura (created_at) para overview y poda; sin tocar datos."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone():
-        return
 
     savepoint = "aido_phase57_schema"
     connection.execute(f"SAVEPOINT {savepoint}")
@@ -6286,6 +6295,7 @@ def init_phase57_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(58, skip_if_applied=True)
 def init_phase58_schema(connection: sqlite3.Connection) -> None:
     """Fase 58: constitución del proyecto (documento versionado que gobierna cada run del loop).
 
@@ -6295,8 +6305,6 @@ def init_phase58_schema(connection: sqlite3.Connection) -> None:
     ``project_constitution_versions`` es el historial inmutable (``UNIQUE(constitution_id,
     version)``), calcando el par ``product_briefs``/``product_brief_versions``.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 58").fetchone():
-        return
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS project_constitutions (
@@ -6340,10 +6348,9 @@ def init_phase58_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(59, skip_if_applied=True)
 def init_phase59_schema(connection: sqlite3.Connection) -> None:
     """Fase 59: liderazgo durable y plano de control del worker con fencing monotónico."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 59").fetchone():
-        return
     savepoint = "aido_phase59_schema"
     connection.execute(f"SAVEPOINT {savepoint}")
     try:
@@ -6412,10 +6419,9 @@ def init_phase59_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(60, skip_if_applied=True)
 def init_phase60_schema(connection: sqlite3.Connection) -> None:
     """Fase 60: admisión global, leases, muestras y violaciones de recursos del host."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 60").fetchone():
-        return
     savepoint = "aido_phase60_schema"
     connection.execute(f"SAVEPOINT {savepoint}")
     try:
@@ -6489,10 +6495,9 @@ def init_phase60_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(61, skip_if_applied=True)
 def init_phase61_schema(connection: sqlite3.Connection) -> None:
     """Fase 61: ciclo de vida durable de árboles de procesos administrados."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 61").fetchone():
-        return
     savepoint = "aido_phase61_schema"
     connection.execute(f"SAVEPOINT {savepoint}")
     try:
@@ -6553,10 +6558,9 @@ def init_phase61_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(62, skip_if_applied=True)
 def init_phase62_schema(connection: sqlite3.Connection) -> None:
     """Agrega identidad verificable y control durable a instalaciones del supervisor inicial."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 62").fetchone():
-        return
     connection.execute("SAVEPOINT aido_phase62_schema")
     try:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(managed_processes)")}
@@ -6585,10 +6589,9 @@ def init_phase62_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(63, skip_if_applied=True)
 def init_phase63_schema(connection: sqlite3.Connection) -> None:
     """Registra contenedores externos para cleanup durable tras cancelar o reiniciar el worker."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 63").fetchone():
-        return
     connection.execute("SAVEPOINT aido_phase63_schema")
     try:
         connection.execute("""
@@ -6612,10 +6615,9 @@ def init_phase63_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(64, skip_if_applied=True)
 def init_phase64_schema(connection: sqlite3.Connection) -> None:
     """Agrega ejecuciones operacionales sin reemplazar jobs ni ai_executions existentes."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 64").fetchone():
-        return
     connection.execute("SAVEPOINT aido_phase64_schema")
     try:
         connection.execute("""CREATE TABLE IF NOT EXISTS operational_executions (
@@ -6636,10 +6638,9 @@ def init_phase64_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
+@migration(65, skip_if_applied=True)
 def init_phase65_schema(connection: sqlite3.Connection) -> None:
     """Agrega evidencia de capacidades y smoke Codex sin aprobar instalaciones previas."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 65").fetchone():
-        return
     with immediate_transaction(connection):
         connection.execute("""CREATE TABLE IF NOT EXISTS codex_capability_probes (
             executable TEXT PRIMARY KEY, binary_fingerprint TEXT NOT NULL,
@@ -6652,10 +6653,9 @@ def init_phase65_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (65, ?)", (utc_now(),))
 
 
+@migration(66, skip_if_applied=True)
 def init_phase66_schema(connection: sqlite3.Connection) -> None:
     """Vincula reservas de ramas al proceso padre para no liberar capacidad durante un crash."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 66").fetchone():
-        return
     with immediate_transaction(connection):
         columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
         if "parent_execution_id" not in columns:
@@ -6663,10 +6663,9 @@ def init_phase66_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (66, ?)", (utc_now(),))
 
 
+@migration(67, skip_if_applied=True)
 def init_phase67_schema(connection: sqlite3.Connection) -> None:
     """Desactiva seeds CLI no verificados y migra aliases sin reemplazar modelos del operador."""
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 67").fetchone():
-        return
     from local_control_center.agents.model_aliases import LEGACY_PROFILE_ALIASES
 
     def normalize_profiles(value):
@@ -6701,6 +6700,7 @@ def init_phase67_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (67, ?)", (utc_now(),))
 
 
+@migration(68, skip_if_applied=True)
 def init_phase68_schema(connection: sqlite3.Connection) -> None:
     """Fase 68: cierra la taxonomía de ``memory_items.kind`` sin perder ninguna fila.
 
@@ -6709,8 +6709,6 @@ def init_phase68_schema(connection: sqlite3.Connection) -> None:
     siga siendo legible a través del modelo de salida tipado. No borra filas ni agrega un CHECK:
     SQLite no admite CHECK nuevo por ALTER TABLE y el único escritor ya valida en el borde.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 68").fetchone():
-        return
     from typing import get_args
 
     from local_control_center.memory_retrieval.models import DEFAULT_MEMORY_KIND, MemoryKind
@@ -6732,6 +6730,7 @@ def init_phase68_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (68, ?)", (utc_now(),))
 
 
+@migration(69)
 def init_phase69_schema(connection: sqlite3.Connection) -> None:
     """Fase 69: registro consultable de memorias contradictorias detectadas.
 
@@ -6768,6 +6767,7 @@ def init_phase69_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(70)
 def init_phase70_schema(connection: sqlite3.Connection) -> None:
     """Fase 70: perfil de sandbox para correr un proyecto en la imagen de su propia toolchain.
 
@@ -6816,6 +6816,7 @@ def init_phase70_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(71)
 def init_phase71_schema(connection: sqlite3.Connection) -> None:
     """Fase 71: cuenta los reintentos de admision en vez de guardar una fila por cada uno.
 
@@ -6850,6 +6851,7 @@ def init_phase71_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(72)
 def init_phase72_schema(connection: sqlite3.Connection) -> None:
     """Fase 72: procedencia de cada preferencia, para poder auto-asignar sin pisar al operador.
 
@@ -6867,6 +6869,7 @@ def init_phase72_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(73)
 def init_phase73_schema(connection: sqlite3.Connection) -> None:
     """Fase 73: `settings_value.origin` pasa a `assigned_by`, porque `origin` ya significa otra cosa.
 
@@ -6988,13 +6991,12 @@ def seed_platform_catalogs(connection: sqlite3.Connection) -> None:
     ProjectsRepository(connection).seed_providers()
 
 
+@migration(81, skip_if_applied=True)
 def init_phase81_schema(connection: sqlite3.Connection) -> None:
     """Fase 81: la lease guarda la memoria reservada para admitir, separada de su tope duro.
 
     NULL identifica leases anteriores a la separación: se cuentan por su tope, como antes.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 81").fetchone():
-        return
     with immediate_transaction(connection):
         columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
         if "memory_request_bytes" not in columns:
@@ -7002,6 +7004,7 @@ def init_phase81_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (81, ?)", (utc_now(),))
 
 
+@migration(82, skip_if_applied=True)
 def init_phase82_schema(connection: sqlite3.Connection) -> None:
     """Fase 82: atención por proyecto para la cola justa del worker.
 
@@ -7012,8 +7015,6 @@ def init_phase82_schema(connection: sqlite3.Connection) -> None:
     al día en ``claim_next_job`` con un upsert O(1), dejando la lectura en una búsqueda indexada
     por ``project_id``. El backfill cubre bases ya migradas antes de esta fase.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 82").fetchone():
-        return
     with immediate_transaction(connection):
         connection.execute(
             """
@@ -7035,6 +7036,7 @@ def init_phase82_schema(connection: sqlite3.Connection) -> None:
         connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (82, ?)", (utc_now(),))
 
 
+@migration(83, skip_if_applied=True)
 def init_phase83_schema(connection: sqlite3.Connection) -> None:
     """Fase 83: uso de cuota por proveedor y umbral de suspensión automática.
 
@@ -7044,8 +7046,6 @@ def init_phase83_schema(connection: sqlite3.Connection) -> None:
     reanudación manual (``ignore_until``) y el estado del último refresco. Ver
     ``agents/provider_usage.py``.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 83").fetchone():
-        return
     with immediate_transaction(connection):
         connection.execute(
             """
@@ -7088,6 +7088,7 @@ PROVIDER_SEED_TABLES: tuple[tuple[str, str], ...] = (
 """Tablas que las fases sembradoras repueblan con ``INSERT OR IGNORE`` en cada pasada completa."""
 
 
+@migration(84, skip_if_applied=True)
 def init_phase84_schema(connection: sqlite3.Connection) -> None:
     """Fase 84: el switch por proveedor (``provider_accounts.enabled``) pasa a ser autoritativo.
 
@@ -7098,8 +7099,6 @@ def init_phase84_schema(connection: sqlite3.Connection) -> None:
     Crea además ``provider_account_tombstones``: una cuenta que el operador borró (p. ej. Ollama) no vuelve
     a aparecer cuando una pasada completa de migraciones re-ejecuta las semillas.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 84").fetchone():
-        return
     now = utc_now()
     _execute_atomic_statements(
         connection,
@@ -7134,6 +7133,7 @@ def init_phase84_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(85, skip_if_applied=True)
 def init_phase85_schema(connection: sqlite3.Connection) -> None:
     """Fase 85: validación modelo por modelo de un proveedor de API/gateway.
 
@@ -7143,8 +7143,6 @@ def init_phase85_schema(connection: sqlite3.Connection) -> None:
     (proveedor, modelo) y ``model_validation_runs`` el avance de cada corrida (hechos/total, ok, fallidos)
     para la barra de progreso. Ver ``runtime_team/catalog_validation.py``.
     """
-    if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 85").fetchone():
-        return
     columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(model_catalog)")}
     statements: list[tuple[str, tuple[object, ...]]] = [
         (f"ALTER TABLE model_catalog ADD COLUMN {column} TEXT", ())

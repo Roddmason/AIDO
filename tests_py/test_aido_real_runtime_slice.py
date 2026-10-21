@@ -2223,3 +2223,147 @@ def test_issue_to_patch_parses_reasoning_and_redaction_breaking_output_from_the_
     assert "reasoned.txt" in body["diffSummary"]["changedFiles"]
     assert THINK_MARKER not in sqlite_text_dump(store.connection)
     assert THINK_MARKER not in caplog.text
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_does_not_call_github_when_branch_push_fails(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    _project, created, _approved, _promoted = create_promoted_issue_to_patch(
+        store,
+        client,
+        headers,
+        tmp_path,
+        monkeypatch,
+        branch_name="aido/promote/pr-push-fails",
+        project_name="PR Push Fails",
+    )
+    runner_module = "local_control_center.workflows.issue_to_patch_runner"
+    monkeypatch.setattr(f"{runner_module}.git_remote_exists", lambda **_kwargs: True)
+    monkeypatch.setattr(
+        f"{runner_module}.push_branch_to_remote",
+        lambda **_kwargs: {"status": "failed", "stderr": "rejected: non-fast-forward"},
+    )
+    server, origin, requests = start_github_pr_http_mock()
+    try:
+        monkeypatch.setenv("AIDO_GITHUB_TOKEN", "unit-test-github-token")
+        monkeypatch.setenv("AIDO_GITHUB_REMOTE", f"{origin}/aido/patches.git")
+
+        response = client.post(
+            f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+            headers=headers,
+            json={"reason": "Branch push failure must block the PR.", "baseBranch": "main"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pr_failed"
+    assert body["reason"].startswith("Promoted branch push failed before PR creation")
+    assert "non-fast-forward" in body["reason"]
+    assert body["workflowRun"]["status"] == "promoted_to_branch"
+    assert body["evidencePackage"]["qaVerdict"] == "failed"
+    assert body["pullRequest"]["status"] == "failed"
+    assert requests == []
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_promote_patch_to_branch_fails_when_promotion_evidence_contract_is_incomplete(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Promotion Contract Gap")
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    created = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch for contract gap",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": True,
+        },
+    ).json()
+    approve_issue_to_patch_for_integration(client, headers, created)
+    runner_module = sys.modules["local_control_center.workflows.issue_to_patch_runner"]
+    real_contract_errors = runner_module.evidence_package_contract_errors
+
+    def contract_errors(evidence: dict[str, Any], **kwargs: Any) -> list[str]:
+        if evidence.get("taskId") == "promote_patch_to_branch" and kwargs.get("require_runtime_links"):
+            return ["forced contract gap"]
+        return real_contract_errors(evidence, **kwargs)
+
+    monkeypatch.setattr(runner_module, "evidence_package_contract_errors", contract_errors)
+
+    promoted = client.post(
+        f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/promote",
+        headers=headers,
+        json={"reason": "Promote despite evidence gap.", "branchName": "aido/promote/contract-gap"},
+    )
+
+    assert promoted.status_code == 202
+    body = promoted.json()
+    assert body["status"] == "promotion_failed"
+    assert "Promotion evidence package contract is incomplete: forced contract gap" in body["reason"]
+    assert body["workflowRun"]["status"] == "promotion_failed"
+    assert body["workflowRun"]["completedAt"] is None
+    assert body["workflowRun"]["metadata"]["promotedBranchName"] is None
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert body["agentRun"]["status"] == "failed"
+    assert body["job"]["status"] == "failed"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_issue_to_patch_run_is_not_completed_when_evidence_contract_is_incomplete(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Run Contract Gap")
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    runner_module = sys.modules["local_control_center.workflows.issue_to_patch_runner"]
+    real_contract_errors = runner_module.evidence_package_contract_errors
+
+    def contract_errors(evidence: dict[str, Any], **kwargs: Any) -> list[str]:
+        if kwargs.get("require_runtime_links") and not kwargs.get("require_workflow_run"):
+            return ["forced contract gap"]
+        return real_contract_errors(evidence, **kwargs)
+
+    monkeypatch.setattr(runner_module, "evidence_package_contract_errors", contract_errors)
+
+    response = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch with contract gap",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": False,
+        },
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "evidence_ready"
+    assert body["reason"] == "Evidence package contract is incomplete or unverifiable."
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert body["workflowRun"]["status"] == "evidence_ready"
+    assert body["agentRun"]["status"] == "failed"

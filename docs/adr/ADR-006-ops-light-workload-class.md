@@ -34,6 +34,13 @@ De los procesos sueltos, 65 de 448 (14,5%) superan 1 GB y 304 quedan bajo 500 MB
 está ahí, no en las operaciones. El argv sólo se persiste como hash (`command_fingerprint`), así
 que los procesos sueltos no se pueden separar por ejecutable con los datos actuales.
 
+Las mutaciones de git sin lease histórica propia se midieron el 2026-10-21 corriéndolas por
+`run_git` (supervisor real, BD scratch) sobre un clon del propio repositorio AIDO (1.268 archivos,
+`.git` de 124 MB): `init`, `remote add`, `branch` (crear, renombrar, borrar), `checkout`,
+`worktree remove`/`prune` y `status` quedan entre 35,6 y 36,6 MB; `worktree add` llega a 71,3 MB.
+Todas caben en el request con holgura. Un repositorio mucho más grande sube `worktree add`
+(escribe el árbol completo), y por eso el tope sigue en 4 GiB.
+
 ## Decisión
 
 Se evaluaron dos caminos:
@@ -52,7 +59,8 @@ Se evaluaron dos caminos:
 - **Pasan a `ops_light`**: `remediations.execute` con `validate_runtime`/`revalidate_runtime`
   (`executions/workloads.py`), `models.detect_cli_runtime`, `models.codex_capabilities`, las
   mutaciones de git encoladas (`git.init_git_repository`, `add_git_remote`, `test_git_remote`,
-  `create_git_branch`, `apply_git_branch_policy`, `checkout_git_branch`, `branch_manager_*`),
+  `create_git_branch`, `apply_git_branch_policy`, `checkout_git_branch`,
+  `branch_manager_rename`/`prune`/`remove_worktrees`),
   `workspaces.allocate_workspace`/`archive_workspace`/`workspace_cleanup_apply`, y el git
   productivo de `security_policy/git_command_runner.py`.
 - **Se quedan en `qa_light` (reservan 4 GiB)**: suites y linters (`classify_workload` de pytest,
@@ -60,23 +68,31 @@ Se evaluaron dos caminos:
   `git.git_gitleaks_scan`, `git_branches.scan`, `retrieval.retrieval_reindex`, `agents.sync_skills`,
   contenedores Docker capados ≤ 4 GiB y `native_diagnostics`. No tienen medición propia o su uso
   real puede llegar al tope.
+- **`git.branch_manager_delete` también se queda en `qa_light`**: con borrado remoto corre
+  `git push --delete` (`git_workspace/branch_manager.py::_delete_remote`), que dispara `pre-push`,
+  y ese hook suele correr la suite del repositorio. Ninguna operación `ops_light` corre `commit`,
+  `merge` ni `push`; esos pasan por el broker (`classify_workload`, `qa_light`) o por la lease del
+  job que los cubre.
 - `ops_light` conserva la prioridad de cola de reparación que tenía como `qa_light`
   (`JobsRepository.peek_next_job`).
 
 ## Consecuencias positivas
 
 - Un Revalidate o un git de workspace exige piso + 0,5 GiB en vez de piso + 4 GiB: se admite con
-  la holgura de 0,9 GiB del build #25 (cubierto por test con 2,0 y 0,9 GiB).
+  la holgura de 0,9 GiB del build #25 (cubierto por test con 2,0 y 0,9 GiB). En ci-hub, el build
+  #33 (47c62b02, que incluye este cambio) terminó SUCCESS con el E2E lifecycle completo en desktop
+  y mobile.
 - Las suites mantienen su reserva completa: el desalojo graduado sigue siendo excepción.
 
 ## Consecuencias negativas
 
-- Una mutación de git corre los hooks del repositorio; un `pre-commit` que lance una suite usaría
-  memoria de suite con reserva de 512 MiB. El tope de 4 GiB y el desalojo graduado lo contienen,
-  pero esa ejecución queda sobrecomprometida contablemente hasta en ~3,5 GiB.
-- Las operaciones git encoladas distintas de `checkout_git_branch` y las de `workspaces.*` no tienen
-  leases medidas propias: se clasifican por el pico de git medido (≤ 228 MB) bajo otras
-  operaciones. Hay que revisar la clase con la próxima muestra.
+- `checkout` y `worktree add` disparan `post-checkout`. Un hook así que lance una suite usaría
+  memoria de suite con reserva de 512 MiB: el tope de 4 GiB lo contiene, pero queda
+  sobrecomprometido contablemente hasta en ~3,5 GiB, y bajo presión el desalojo graduado lo elige
+  antes que a una suite porque excede su reserva. Es raro (`post-checkout` suele ser liviano), pero
+  queda abierto.
+- La medición directa de las mutaciones git se hizo sobre un repositorio de tamaño medio; las
+  leases `ops_light` reales permiten revisar el request con la próxima muestra.
 - Una clase más en `WorkloadClass` y en el cliente OpenAPI generado.
 
 ## Alternativas consideradas

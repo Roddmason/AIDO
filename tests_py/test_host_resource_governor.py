@@ -718,6 +718,56 @@ def test_git_and_runtime_probes_fit_in_little_headroom_while_suites_keep_their_c
     assert probe.lease.memory_limit_bytes == 4 * GIB
 
 
+def test_git_and_runtime_probes_reserve_ops_light_and_hooks_that_run_suites_stay_qa_light(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-006 fija qué corre como ``ops_light``. ``branch_manager_delete`` hace ``push --delete``,
+    que dispara ``pre-push``, y ese hook suele correr suites: se queda en ``qa_light``.
+    """
+    from fastapi.routing import APIRoute
+
+    from local_control_center.host_resources.profiles import WORKLOAD_PROFILES
+    from local_control_center.security_policy import git_command_runner
+
+    ops, qa = WORKLOAD_PROFILES["ops_light"], WORKLOAD_PROFILES["qa_light"]
+    assert (ops.memory_request_bytes, qa.memory_request_bytes) == (GIB // 2, None)
+    assert (ops.memory_limit_bytes, ops.cpu_limit_percent, ops.process_limit) == (
+        qa.memory_limit_bytes,
+        qa.cpu_limit_percent,
+        qa.process_limit,
+    )
+
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "runtime.sqlite")
+    try:
+        specs = {
+            route.endpoint._aido_operation.name: route.endpoint._aido_operation.workload_class
+            for route in create_app(runtime=runtime, static_dir=None).routes
+            if isinstance(route, APIRoute) and hasattr(route.endpoint, "_aido_operation")
+        }
+    finally:
+        runtime.close()
+    for name in (
+        "git.checkout_git_branch",
+        "git.create_git_branch",
+        "workspaces.allocate_workspace",
+        "models.detect_cli_runtime",
+    ):
+        assert specs[name] == "ops_light", name
+    for name in ("git.branch_manager_delete", "git.git_gitleaks_scan", "retrieval.retrieval_reindex"):
+        assert specs[name] == "qa_light", name
+
+    seen: list[str] = []
+
+    def fake_capture(command, **kwargs):
+        seen.append(kwargs["workload_class"])
+        return {"returnCode": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(git_command_runner, "git_available", lambda: True)
+    monkeypatch.setattr(git_command_runner, "run_supervised_capture", fake_capture)
+    git_command_runner.run_git(["status"], cwd=tmp_path)
+    assert seen == ["ops_light"]
+
+
 def test_every_request_fits_under_its_cap_and_unmeasured_classes_keep_the_cap() -> None:
     """Sin datos (o con uso bimodal) la reserva sigue siendo el tope: la regla del diseño."""
     from local_control_center.host_resources.profiles import WORKLOAD_PROFILES

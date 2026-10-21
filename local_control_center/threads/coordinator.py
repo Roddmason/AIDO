@@ -981,11 +981,16 @@ class ThreadCoordinator:
         decision: IntentClassification,
         team_plan: dict[str, Any],
     ) -> dict[str, Any]:
+        workspace_id = (
+            thread["ownerId"]
+            if thread["ownerType"] == "workspace"
+            else self.repository.project_root_workspace_id(thread["projectId"])
+        )
         payload = {
             "threadId": thread["id"],
             "messageId": message["id"],
             "projectId": thread["projectId"],
-            "workspaceId": thread["ownerId"] if thread["ownerType"] == "workspace" else None,
+            "workspaceId": workspace_id,
             "taskId": f"thread-research-{message['id']}",
             "query": content,
             "maxSources": 5,

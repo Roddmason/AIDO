@@ -704,7 +704,8 @@ class ProductLoopCoordinator:
     def _enforce_governance_checkpoint(self, loop_id: str, *, actor: str, thread_id: str | None) -> None:
         """Bloquea el loop antes de iniciar otra fase si su presupuesto, deadline o timeout de estado venció.
 
-        Un loop sin política de gobernanza no dispara ninguna condición, así que es un no-op. El bloqueo usa
+        Un loop sin política de gobernanza no dispara ninguna condición, así que es un no-op. Los timeouts de
+        estado también rigen en los estados de espera del operador cuando este los configura. El bloqueo usa
         la ruta ``_block_run`` (evidencia, remediación y evento de hilo) con la etapa ``governance`` y se
         propaga como ``_ProductLoopGovernanceStop`` para detener el run en este límite.
         """
@@ -721,7 +722,10 @@ class ProductLoopCoordinator:
         reason = "Loop governance stopped the run: " + "; ".join(
             f"{item['condition']} ({item['detail']})" for item in fired
         )
-        reason += " Raise the limit or start a new loop to continue."
+        reason += (
+            " A loop's limits cannot be changed after it starts: start a new loop (send a new thread message)"
+            " with a larger budget or a later deadline to continue."
+        )
         result = self._block_run(
             current,
             stage="governance",

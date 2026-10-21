@@ -83,6 +83,8 @@ def test_exhausted_budget_blocks_the_loop_at_the_next_checkpoint(tmp_path: Path)
         result = stopped.value.result
         assert result["status"] == "blocked"
         assert "budget_exhausted" in result["reason"]
+        assert "start a new loop" in result["reason"]
+        assert "larger budget or a later deadline" in result["reason"]
         assert coordinator.get(loop["id"])["state"] == "blocked"
 
 

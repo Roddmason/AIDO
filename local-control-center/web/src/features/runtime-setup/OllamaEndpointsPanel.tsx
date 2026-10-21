@@ -99,8 +99,6 @@ export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: End
 		setEndpointsLoaded(true);
 		setEndpointsLoading(false);
 		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
-		// Persisted per-model capabilities live in the generic local-endpoints view; without it the
-		// card simply offers no toggles instead of showing a guessed state.
 		setModelStates(
 			localPayload.status === 'fulfilled'
 				? Object.fromEntries(
@@ -404,7 +402,6 @@ function EndpointCard({
 		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
 		: '';
 
-	// Chips only when the endpoint's models have no per-model state rows yet.
 	const renderSyncedModelChips = () => {
 		if (modelStates.length) return null;
 		if (!card.models.length) {

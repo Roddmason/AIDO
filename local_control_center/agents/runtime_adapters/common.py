@@ -20,6 +20,7 @@ from local_control_center.security_policy.sandbox import (
     ALLOWED_EXECUTABLES,
     DANGEROUS_ARG_PREFIXES,
 )
+from local_control_center.security_policy.sandbox import path_is_inside as _inside
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
@@ -68,14 +69,6 @@ def _result(
         latencyMs=latency_ms,
         usageLedgerId=usage_ledger_id,
     )
-
-
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.resolve(strict=False).relative_to(root.resolve(strict=False))
-        return True
-    except (OSError, ValueError):
-        return False
 
 
 def _validate_structured_argv(argv: Any) -> list[str] | str:

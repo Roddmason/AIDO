@@ -30,13 +30,14 @@ lockfile, de forma congelada y preferentemente offline) o si instalar sería no 
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from local_control_center.shared.serialization import sha256_file
 
 from .discovery import discover_project_path
 
@@ -213,7 +214,7 @@ def _node_lockfile_path(workspace: Path, manager: str) -> Path | None:
 
 def node_lockfile_sha256(path: Path) -> str:
     """Hash del lockfile: cambia si, y solo si, las dependencias resueltas cambiaron."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return sha256_file(path)
 
 
 def _node_dependency_marker_path(workspace: Path) -> Path:

@@ -47,6 +47,7 @@ from local_control_center.agents.resource_catalog_overlay import (
 )
 from local_control_center.agents.resource_scoring import REMOTE_LOCALITIES
 from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.shared.db import db_bool as _bool
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -132,10 +133,6 @@ class AIResourceRequest:
     """Modelo sellado por cuenta local (``roleModels`` del equipo del hilo): ``{providerId: model}``."""
     local_model_affinity: dict[str, str] = field(default_factory=dict)
     """Modelo que otro rol del mismo run ya resolvió por cuenta local; evita cold starts en serie."""
-
-
-def _bool(value: Any) -> bool:
-    return bool(int(value)) if isinstance(value, int) else bool(value)
 
 
 def _float_or_none(value: Any) -> float | None:

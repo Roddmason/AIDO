@@ -9,9 +9,10 @@ de capturar o archivar; trunca el detalle a un máximo de archivos pero conserva
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
+
+from local_control_center.shared.serialization import sha256_file as _sha256
 
 IGNORED_PARTS = {
     ".git",
@@ -30,14 +31,6 @@ MAX_FILES = 200
 
 def _is_ignored(path: Path) -> bool:
     return any(part in IGNORED_PARTS for part in path.parts)
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def capture_workspace_snapshot(workspace_path: str | Path) -> dict[str, Any]:

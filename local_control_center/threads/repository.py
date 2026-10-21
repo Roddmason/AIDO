@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from typing import Any
 
 from local_control_center.shared.db import immediate_transaction
+from local_control_center.shared.db import row_value as _row_value
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
@@ -66,11 +67,6 @@ def row_to_thread(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
-
-
-def _row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
-    """Lee una columna opcional de SQLite sin romper bases previas a la migracion."""
-    return row[column] if column in row.keys() else default
 
 
 def row_to_message(row: sqlite3.Row) -> dict[str, Any]:

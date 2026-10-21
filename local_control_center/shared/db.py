@@ -80,6 +80,16 @@ def require_safe_sqlite_runtime() -> None:
         )
 
 
+def row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
+    """Lee una columna opcional de una fila SQLite sin romper bases previas a una migración."""
+    return row[column] if column in row.keys() else default
+
+
+def db_bool(value: Any) -> bool:
+    """Convierte un valor SQLite (entero 0/1 o ya booleano) a ``bool``."""
+    return bool(int(value)) if isinstance(value, int) else bool(value)
+
+
 @contextmanager
 def immediate_transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Abre una transacción atómica (``BEGIN IMMEDIATE``): COMMIT al salir, ROLLBACK si algo falla."""

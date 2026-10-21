@@ -24,7 +24,7 @@ from .db import immediate_transaction
 from .serialization import json_dumps, json_loads
 from .time import utc_now
 
-CURRENT_SCHEMA_VERSION = 85
+CURRENT_SCHEMA_VERSION = 86
 
 PhaseInitializer = Callable[[sqlite3.Connection], None]
 
@@ -6861,7 +6861,7 @@ def init_phase72_schema(connection: sqlite3.Connection) -> None:
     como del operador**, porque asumir lo contrario la haria pisable de golpe.
     """
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
-    if "origin" not in columns:
+    if "origin" not in columns and "assigned_by" not in columns:
         connection.execute("ALTER TABLE settings_value ADD COLUMN origin TEXT NOT NULL DEFAULT 'operator'")
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -6890,6 +6890,23 @@ def init_phase73_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
         (73, utc_now()),
+    )
+
+
+@migration(86, skip_if_applied=True)
+def init_phase86_schema(connection: sqlite3.Connection) -> None:
+    """Fase 86: elimina la columna `settings_value.origin` que la fase 72 re-agregaba tras el rename.
+
+    La fase 72 no tenía guard de versión: en cada re-inicialización volvía a crear `origin` después de
+    que la fase 73 ya la había renombrado a `assigned_by`, dejando una columna muerta (siempre
+    `operator`) que ningún código lee. Sólo se borra cuando conviven ambas columnas.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "origin" in columns and "assigned_by" in columns:
+        connection.execute("ALTER TABLE settings_value DROP COLUMN origin")
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (86, utc_now()),
     )
 
 

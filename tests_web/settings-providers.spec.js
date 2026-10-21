@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures/operations.js';
+import { fetchThrough } from './fixtures/network.js';
 
 /**
  * Add-provider wizard: the operator is asked only for what the chosen provider actually needs.
@@ -660,7 +661,7 @@ test('Providers & CLI: a provider used by a running thread keeps its switch lock
 	const token = (await (await page.request.get('/api/v1/security/handshake')).json()).token;
 	await patchGemini(page, token, { enabled: true });
 	await page.route('**/api/v1/runtime/providers*', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		body.providers = body.providers.map((item) => (item.id === 'gemini' ? { ...item, inUse: true } : item));
 		await route.fulfill({ response, json: body });
@@ -684,7 +685,7 @@ test('Providers & CLI: a machine reason code reads as plain copy and keeps the r
 	const raw =
 		'provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); no thread, agent or failover uses it until it is switched back on.';
 	await page.route('**/api/v1/runtime/providers*', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		body.providers = body.providers.map((item) => (item.id === 'gemini' ? { ...item, reason: raw } : item));
 		await route.fulfill({ response, json: body });
@@ -740,7 +741,7 @@ test('Providers & CLI: an active gateway without enabled models asks to sync and
 	page,
 }) => {
 	await page.route('**/api/v1/model-gateway/providers', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		const others = body.providers.filter((item) => item.providerId !== 'omniroute');
 		const omniroute = body.providers.find((item) => item.providerId === 'omniroute') ?? {};
@@ -760,7 +761,7 @@ test('Providers & CLI: an active gateway without enabled models asks to sync and
 	});
 	await page.route('**/api/v1/model-gateway/models', async (route) => {
 		if (route.request().method() !== 'GET') return route.continue();
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		body.models = [
 			...body.models.filter((item) => item.providerId !== 'omniroute'),

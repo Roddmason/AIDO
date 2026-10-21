@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 
 import { expect, test } from './fixtures/operations.js';
+import { fetchThrough } from './fixtures/network.js';
 
 /**
  * Local OpenAI-compatible runtimes (llama.cpp, LM Studio, vLLM, generic) against the REAL control
@@ -610,7 +611,7 @@ test('Thread timeline: a local model switch reads as from and to model, role and
 		}),
 	];
 	await page.route('**/api/v1/overview', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const overview = await response.json();
 		await route.fulfill({ response, json: { ...overview, threads: [...overview.threads, thread] } });
 	});
@@ -685,7 +686,7 @@ test('AI health: a local runtime whose server is down explains the cause and ope
 }) => {
 	await seedLocalEndpoint(page, { id: DOWN_ID, baseUrl: DEAD_BASE_URL, sync: false });
 	await page.route('**/api/v1/runtime/providers', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const payload = await response.json();
 		const others = payload.providers.filter((provider) => provider.id !== DOWN_ID);
 		await route.fulfill({

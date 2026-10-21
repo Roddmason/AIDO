@@ -11,12 +11,16 @@ variantes ``*_best_effort`` nunca rompen el run: una falla de persistencia queda
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from local_control_center.agents.ai_resource_manager import AIResourceManager
 from local_control_center.decision_engine.observers import record_resource_outcome
+from local_control_center.product_loop.fsm import fsm_of
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from local_control_center.product_loop.coordinator import ProductLoopCoordinator
@@ -25,6 +29,7 @@ __all__ = [
     "attach_product_owner_resource_learning_to_result",
     "attach_resource_learning_to_result",
     "block_after_runtime_with_resource_learning",
+    "meter_loop_budget_usage",
     "product_owner_resource_learning_persistence_failed",
     "record_product_owner_resource_learning",
     "record_product_owner_resource_learning_best_effort",
@@ -74,6 +79,31 @@ def resource_observation_targets(
     return [(fallback[0], None)] if fallback else []
 
 
+def meter_loop_budget_usage(
+    coordinator: ProductLoopCoordinator, loop_id: str | None, cost: dict[str, Any]
+) -> None:
+    """Acumula en el presupuesto del loop el consumo de una ejecución, solo en las claves con límite.
+
+    Un loop sin presupuesto (o sin claves medibles) no se toca. Las claves medibles son ``agentRuns``
+    (1 por ejecución), ``costUsd`` y ``tokens``. Un fallo de medición nunca rompe el run: el siguiente
+    checkpoint simplemente evaluará con el consumo ya registrado.
+    """
+    if not loop_id:
+        return
+    try:
+        budget = fsm_of(coordinator.repository.get_loop(loop_id))["policy"].get("budget") or {}
+        measured = {
+            "agentRuns": 1,
+            "costUsd": cost.get("actualCostUsd"),
+            "tokens": cost.get("totalTokens"),
+        }
+        delta = {key: value for key, value in measured.items() if key in budget and value is not None}
+        if delta:
+            coordinator.record_usage(loop_id, delta)
+    except Exception:
+        logger.warning("product_loop.budget_metering_failed loop_id=%s", loop_id, exc_info=True)
+
+
 def record_resource_decision_learning(
     coordinator: ProductLoopCoordinator,
     *,
@@ -86,8 +116,12 @@ def record_resource_decision_learning(
     success: bool,
     rework: bool,
     quality_score: float,
+    loop_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Registra outcome, costo y ruteo de una decisión de recurso; ``None`` si la selección está incompleta."""
+    """Registra outcome, costo y ruteo de una decisión de recurso; ``None`` si la selección está incompleta.
+
+    Con ``loop_id`` además mide el consumo en el presupuesto del loop (un único punto por ejecución).
+    """
     selected = decision.get("selected") or {}
     provider_id = str(selected.get("providerId") or "")
     model = str(selected.get("model") or "")
@@ -129,6 +163,7 @@ def record_resource_decision_learning(
         latency_ms=latency_ms,
         evidence_ref=evidence_ref,
     )
+    meter_loop_budget_usage(coordinator, loop_id, cost)
     record_resource_outcome(
         coordinator.connection,
         source_decision_id=decision.get("routingDecisionId"),
@@ -194,6 +229,7 @@ def record_product_owner_resource_learning(
         success=success,
         rework=False,
         quality_score=quality_score,
+        loop_id=loop_id,
     )
     observations = [observation] if observation else []
     return {
@@ -286,6 +322,7 @@ def record_resource_learning(
             success=success,
             rework=rework,
             quality_score=quality_score,
+            loop_id=loop_id,
         )
         if observation:
             observations.append(observation)

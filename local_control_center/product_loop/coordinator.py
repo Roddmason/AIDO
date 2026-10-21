@@ -78,6 +78,7 @@ from .fsm import (
     TERMINAL_STATES,
     ProductLoopStopConditionError,
     ProductLoopTransitionError,
+    evaluate_stop_conditions,
     is_terminal,
 )
 from .fsm import (
@@ -231,6 +232,23 @@ class _ProductLoopCancelled(RuntimeError):
         super().__init__(f"Product Loop {loop_id} was cancelled by the operator.")
         self.loop_id = loop_id
         self.thread_id = thread_id
+
+
+class _ProductLoopGovernanceStop(RuntimeError):
+    """Control de flujo interno: la gobernanza del loop (presupuesto, deadline, timeout) detuvo el run.
+
+    Lleva el resultado ``blocked`` ya persistido; nunca escapa de ``run_user_message``.
+    """
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        super().__init__("Product Loop stopped by its governance policy.")
+        self.result = result
+
+
+GOVERNANCE_STOP_CONDITIONS = frozenset({"budget_exhausted", "deadline_exceeded", "state_timeout"})
+"""Condiciones de parada que se hacen cumplir en cada checkpoint de fase. ``max_rework_reached`` queda fuera:
+la transición a ``reworking`` ya la rechaza, y bloquear al alcanzar el máximo cortaría la última ronda permitida.
+"""
 
 
 def _thread_agent_role_for_state(state: str) -> str:
@@ -644,6 +662,8 @@ class ProductLoopCoordinator:
         """
         if to_state not in _ABORT_EXEMPT_STATES and self._should_abort is not None and self._should_abort():
             raise _ProductLoopCancelled(loop["id"], thread_id)
+        if to_state not in _ABORT_EXEMPT_STATES:
+            self._enforce_governance_checkpoint(loop["id"], actor=actor, thread_id=thread_id)
         updated = self.transition(
             loop["id"],
             to_state=to_state,
@@ -680,6 +700,37 @@ class ProductLoopCoordinator:
             },
         )
         return updated
+
+    def _enforce_governance_checkpoint(self, loop_id: str, *, actor: str, thread_id: str | None) -> None:
+        """Bloquea el loop antes de iniciar otra fase si su presupuesto, deadline o timeout de estado venció.
+
+        Un loop sin política de gobernanza no dispara ninguna condición, así que es un no-op. El bloqueo usa
+        la ruta ``_block_run`` (evidencia, remediación y evento de hilo) con la etapa ``governance`` y se
+        propaga como ``_ProductLoopGovernanceStop`` para detener el run en este límite.
+        """
+        current = self.repository.get_loop(loop_id)
+        if is_terminal(current["state"]) or current["state"] == BLOCKED_STATE:
+            return
+        fired = [
+            item
+            for item in evaluate_stop_conditions(current)
+            if item["condition"] in GOVERNANCE_STOP_CONDITIONS
+        ]
+        if not fired:
+            return
+        reason = "Loop governance stopped the run: " + "; ".join(
+            f"{item['condition']} ({item['detail']})" for item in fired
+        )
+        reason += " Raise the limit or start a new loop to continue."
+        result = self._block_run(
+            current,
+            stage="governance",
+            reason=reason,
+            actor=actor,
+            details={"stopConditions": fired},
+            thread_id=thread_id,
+        )
+        raise _ProductLoopGovernanceStop(result)
 
     def _record_run_evidence(
         self,
@@ -1878,6 +1929,7 @@ class ProductLoopCoordinator:
         success: bool,
         rework: bool,
         quality_score: float,
+        loop_id: str | None = None,
     ) -> dict[str, Any] | None:
         return resource_learning_phase.record_resource_decision_learning(
             self,
@@ -1890,6 +1942,7 @@ class ProductLoopCoordinator:
             success=success,
             rework=rework,
             quality_score=quality_score,
+            loop_id=loop_id,
         )
 
     def _record_product_owner_resource_learning(
@@ -2270,6 +2323,8 @@ class ProductLoopCoordinator:
             )
         except _ProductLoopCancelled as cancelled:
             return self._cancel_run(cancelled.loop_id, actor=actor, thread_id=cancelled.thread_id)
+        except _ProductLoopGovernanceStop as stopped:
+            return stopped.result
         finally:
             self._should_abort = None
 

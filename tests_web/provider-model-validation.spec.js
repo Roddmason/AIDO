@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { fetchThrough } from './fixtures/network.js';
 
 /**
  * Providers & CLI: "Validate all models" on a gateway card tests every enabled model one by one. The
@@ -69,7 +70,7 @@ const VALIDATED = { status: 'validated', checkedAt: '2026-09-27T10:00:02Z', mode
 async function mockGateway(page) {
 	const state = { phase: 'idle', polls: 0, writes: [] };
 	await page.route('**/api/v1/model-gateway/providers', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		const original = body.providers.find((item) => item.providerId === PROVIDER) ?? {};
 		body.providers = [
@@ -89,7 +90,7 @@ async function mockGateway(page) {
 	});
 	await page.route('**/api/v1/model-gateway/models', async (route) => {
 		if (route.request().method() !== 'GET') return route.continue();
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const body = await response.json();
 		body.models = [...body.models.filter((item) => item.providerId !== PROVIDER), ...MODELS];
 		await route.fulfill({ response, json: body });

@@ -9,6 +9,7 @@
  * @author Rodrigo Mason
  */
 import { expect, test } from '@playwright/test';
+import { fetchThrough } from './fixtures/network.js';
 
 // The AI-manager inspector auto-opens only in the desktop IDE layout (min-width 981px):
 // on the narrow mobile project the shell keeps it collapsed so it never overlays the
@@ -41,7 +42,7 @@ test('Threads: resolving a conversation decision refreshes the open inspector an
 	let decision;
 	let thread;
 	await page.route('**/api/v1/threads/*', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const detail = await response.json();
 		if (detail.thread?.title !== firstMessage.slice(0, 80)) {
 			await route.fulfill({ response });
@@ -63,7 +64,7 @@ test('Threads: resolving a conversation decision refreshes the open inspector an
 		await route.fulfill({ response, json: { ...detail, thread, decisions: [decision] } });
 	});
 	await page.route('**/api/v1/projects/*/product-loop', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const data = await response.json();
 		await route.fulfill({
 			response,
@@ -130,7 +131,7 @@ test('Threads: inspector follows execution events after the 300-event display li
 	const updatedTitle = 'Updated after event 301';
 	let advanced = false;
 	await page.route('**/api/v1/threads/*', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const detail = await response.json();
 		if (detail.thread?.title !== firstMessage.slice(0, 80)) {
 			await route.fulfill({ response });
@@ -289,7 +290,7 @@ test('Threads: Research tab shows blocked recovery instead of an empty artifact'
 			await route.continue();
 			return;
 		}
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const detail = await response.json();
 		const matchesFixture =
 			detail.thread?.title === firstMessage.slice(0, 80) ||
@@ -1240,7 +1241,7 @@ test('Threads: with its own AI team, the effective team card follows the thread 
 	);
 	const firstMessage = `Thread team overrides the global team ${Date.now()}`;
 	await page.route('**/api/v1/threads/*', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const detail = await response.json();
 		if (!detail.thread || detail.thread.title !== firstMessage.slice(0, 80)) {
 			await route.fulfill({ response });

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { fetchThrough } from './fixtures/network.js';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 test.afterEach(async ({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
@@ -39,7 +40,7 @@ async function openRiskReview(page, payload = {}) {
 		event(2, 'blocked', { stage: 'resource_manager', loopId: remediation.loopId, reason: 'Runtime risk requires explicit review.' }),
 	] };
 	await page.route('**/api/v1/overview', async (route) => {
-		const response = await route.fetch();
+		const response = await fetchThrough(route);
 		const overview = await response.json();
 		await route.fulfill({ response, json: { ...overview, threads: [...overview.threads, { ...thread, status: state.threadStatus }] } });
 	});

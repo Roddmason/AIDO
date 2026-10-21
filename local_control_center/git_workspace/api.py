@@ -282,7 +282,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/git/branch-manager/delete",
         response_model=BranchActionResponse,
     )
-    @queued_operation("git.branch_manager_delete", workload_class="ops_light")
+    @queued_operation("git.branch_manager_delete", workload_class="qa_light")
     async def delete_git_branches(
         project_id: str, body: BranchDeleteRequest, request: Request
     ) -> dict[str, Any]:

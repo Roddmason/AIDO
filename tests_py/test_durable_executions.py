@@ -196,7 +196,7 @@ def test_git_refresh_is_control_plane_work_that_survives_memory_pressure(tmp_pat
 
     Encolado como `qa_light` pedia 4 GiB sobre el piso de 16, y con un modelo local cargado el panel
     se quedaba sin refrescar. Solo corre comandos de lectura sin hooks (`status`, `branch`, `remote`,
-    `log`, `worktree list`, `diff --no-ext-diff`); las mutaciones de git siguen como `qa_light`.
+    `log`, `worktree list`, `diff --no-ext-diff`); las mutaciones de git pasan por `ops_light` (ADR-006).
     """
     from local_control_center.executions.repository import ExecutionRepository
     from local_control_center.host_resources.governor import HostResourceGovernor

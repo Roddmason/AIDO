@@ -265,3 +265,19 @@ def test_push_promoted_branch_reports_pushed_skipped_and_failed(
     failed = runner._push_promoted_branch_for_pr(project_id=project["id"], branch="b")
     assert failed["status"] == "push_failed"
     assert "remote said no" in failed["reason"]
+
+
+def test_promotion_attempt_tolerates_qa_summary_without_agent_run() -> None:
+    from local_control_center.workflows.issue_to_patch_runner import _PromotionAttempt
+
+    attempt = _PromotionAttempt(
+        job={},
+        agent_run={},
+        workspace={},
+        apply_check={},
+        apply_result=None,
+        qa_summary={"agentRun": None, "results": []},
+        diff={},
+    )
+
+    assert attempt.qa_agent_run_id is None

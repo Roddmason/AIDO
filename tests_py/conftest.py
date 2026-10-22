@@ -248,3 +248,41 @@ def capped_hard_memory_floor(request: pytest.FixtureRequest, monkeypatch: pytest
         return min(original(connection), TEST_HARD_MEMORY_FLOOR_BYTES)
 
     monkeypatch.setattr(process_supervision_service, "hard_memory_floor_bytes", capped_floor)
+
+
+PROVIDER_CREDENTIAL_ENV_VARS = (
+    "AIDO_ANTHROPIC_API_KEY",
+    "AIDO_GEMINI_API_KEY",
+    "AIDO_LITELLM_API_KEY",
+    "AIDO_NVIDIA_API_KEY",
+    "AIDO_OPENAI_COMPATIBLE_API_KEY",
+    "AIDO_OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "LITELLM_API_KEY",
+    "NGC_API_KEY",
+    "NVIDIA_API_KEY",
+    "NVIDIA_NIM_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "TYPESAFE_API_KEY",
+)
+"""Credenciales de proveedores que un test nunca debe heredar del entorno del operador."""
+
+
+@pytest.fixture(autouse=True)
+def hermetic_persisted_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aísla los tests de las variables que el operador persistió en el registro de Windows.
+
+    ``user_environment`` consulta HKCU/HKLM ``Environment`` cuando falta una variable en el proceso,
+    así que una credencial real del equipo (p. ej. ``NVIDIA_NIM_API_KEY`` creada con ``setx``)
+    cambiaba el resultado de los tests de proveedores. Por lo mismo se retiran del proceso las
+    variables de credenciales de proveedores heredadas de la terminal. Un test que necesite esos
+    caminos los fija explícitamente, y su ``monkeypatch`` manda sobre este default.
+    """
+    from local_control_center.shared import user_environment
+
+    monkeypatch.setattr(user_environment, "_windows_persisted_value", lambda name: None)
+    for name in PROVIDER_CREDENTIAL_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)

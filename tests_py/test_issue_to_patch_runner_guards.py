@@ -7,34 +7,52 @@ para poder descomponer esos metodos sin cambiar su contrato.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
 from local_control_center.workflows.issue_to_patch_runner import IssueToPatchRunner
 from local_control_center.workflows.repository import WorkflowsRepository
-from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+@dataclass
+class GuardStore:
+    """Conexión SQLite inicializada y raíz de trabajo, sin levantar el control plane HTTP."""
+
+    connection: sqlite3.Connection
+    cwd: Path
+
+    def create_project(self, **kwargs: Any) -> dict[str, Any]:
+        """Crea el proyecto directo en el repositorio."""
+        project = ProjectsRepository(self.connection).create_project(**kwargs)
+        project.pop("_created", None)
+        return project
 
 
 @pytest.fixture
-def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[ControlPlaneFixture]:
+def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[GuardStore]:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    with closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")) as fixture:
-        fixture.init()
-        yield fixture
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        yield GuardStore(connection=connection, cwd=tmp_path)
 
 
-def _project(store: ControlPlaneFixture, tmp_path: Path) -> dict[str, Any]:
+def _project(store: GuardStore, tmp_path: Path) -> dict[str, Any]:
     project_path = tmp_path / "guard-project"
     project_path.mkdir(parents=True, exist_ok=True)
     return store.create_project(name="Guard Project", path=project_path, template_id="other")
 
 
 def _run(
-    store: ControlPlaneFixture,
+    store: GuardStore,
     tmp_path: Path,
     *,
     kind: str = "issue_to_patch",
@@ -59,42 +77,42 @@ def _evidence(
     return runner.evidence.create_evidence_package(project_id=project["id"], workflow_run_id=run_id, **links)
 
 
-def test_approve_patch_requires_reason(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_requires_reason(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path)
 
     with pytest.raises(ValueError, match="Approval reason is required"):
         runner.approve_patch(workflow_run["id"], reason="   ")
 
 
-def test_approve_patch_rejects_other_workflow_kinds(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_rejects_other_workflow_kinds(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path, kind="issue_to_pr")
 
     with pytest.raises(ValueError, match="Only issue_to_patch workflow runs"):
         runner.approve_patch(workflow_run["id"], reason="ok")
 
 
-def test_approve_patch_rejects_already_approved_run(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_rejects_already_approved_run(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path, status="approved_for_integration")
 
     with pytest.raises(ValueError, match="already approved for integration"):
         runner.approve_patch(workflow_run["id"], reason="ok")
 
 
-def test_approve_patch_requires_evidence_ready_status(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_requires_evidence_ready_status(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path)
 
     with pytest.raises(ValueError, match="requires an evidence_ready workflow run"):
         runner.approve_patch(workflow_run["id"], reason="ok")
 
 
-def test_approve_patch_requires_an_evidence_package(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_requires_an_evidence_package(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path, status="evidence_ready")
 
     with pytest.raises(ValueError, match="requires an evidence package"):
         runner.approve_patch(workflow_run["id"], reason="ok")
 
 
-def test_approve_patch_rejects_evidence_from_another_run(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_approve_patch_rejects_evidence_from_another_run(store: GuardStore, tmp_path: Path) -> None:
     runner, project, workflow_run = _run(store, tmp_path, status="evidence_ready")
     foreign = _evidence(runner, project, "workflow-run-other")
     runner.workflows.update_workflow_run_status(
@@ -106,7 +124,7 @@ def test_approve_patch_rejects_evidence_from_another_run(store: ControlPlaneFixt
 
 
 def test_approve_patch_finds_evidence_by_run_and_requires_runtime_links(
-    store: ControlPlaneFixture, tmp_path: Path
+    store: GuardStore, tmp_path: Path
 ) -> None:
     runner, project, workflow_run = _run(store, tmp_path, status="evidence_ready")
     _evidence(runner, project, workflow_run["id"])
@@ -115,7 +133,7 @@ def test_approve_patch_finds_evidence_by_run_and_requires_runtime_links(
         runner.approve_patch(workflow_run["id"], reason="ok")
 
 
-def test_promote_requires_reason_kind_and_status(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_promote_requires_reason_kind_and_status(store: GuardStore, tmp_path: Path) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path)
     with pytest.raises(ValueError, match="Promotion reason is required"):
         runner.promote_patch_to_branch(workflow_run["id"], reason="")
@@ -128,7 +146,7 @@ def test_promote_requires_reason_kind_and_status(store: ControlPlaneFixture, tmp
 
 
 def test_promote_requires_approved_evidence_that_belongs_to_the_run(
-    store: ControlPlaneFixture, tmp_path: Path
+    store: GuardStore, tmp_path: Path
 ) -> None:
     runner, project, workflow_run = _run(store, tmp_path, status="approved_for_integration")
     with pytest.raises(ValueError, match="requires an approved evidence package"):
@@ -144,7 +162,7 @@ def test_promote_requires_approved_evidence_that_belongs_to_the_run(
 
 
 def test_create_pull_request_requires_reason_kind_and_unfinished_run(
-    store: ControlPlaneFixture, tmp_path: Path
+    store: GuardStore, tmp_path: Path
 ) -> None:
     runner, _project_row, workflow_run = _run(store, tmp_path)
     with pytest.raises(ValueError, match="Pull request creation reason is required"):
@@ -159,9 +177,7 @@ def test_create_pull_request_requires_reason_kind_and_unfinished_run(
         done.create_pull_request_from_promoted_branch(done_run["id"], reason="ok")
 
 
-def test_create_pull_request_rejects_evidence_from_another_run(
-    store: ControlPlaneFixture, tmp_path: Path
-) -> None:
+def test_create_pull_request_rejects_evidence_from_another_run(store: GuardStore, tmp_path: Path) -> None:
     runner, project, workflow_run = _run(store, tmp_path)
     foreign = _evidence(runner, project, "workflow-run-other")
     runner.workflows.update_workflow_run_status(
@@ -180,7 +196,7 @@ def test_create_pull_request_rejects_evidence_from_another_run(
         runner.create_pull_request_from_promoted_branch(workflow_run["id"], reason="ok")
 
 
-def test_create_pull_request_requires_passed_promotion_qa(store: ControlPlaneFixture, tmp_path: Path) -> None:
+def test_create_pull_request_requires_passed_promotion_qa(store: GuardStore, tmp_path: Path) -> None:
     runner, project, workflow_run = _run(store, tmp_path)
     own = _evidence(runner, project, workflow_run["id"])
     runner.workflows.update_workflow_run_status(
@@ -200,7 +216,7 @@ def test_create_pull_request_requires_passed_promotion_qa(store: ControlPlaneFix
 
 
 def test_run_rejects_runtime_outside_the_product_catalog(
-    store: ControlPlaneFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    store: GuardStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = _project(store, tmp_path)
     monkeypatch.setattr(
@@ -221,7 +237,7 @@ def test_run_rejects_runtime_outside_the_product_catalog(
 
 
 def test_push_promoted_branch_reports_pushed_skipped_and_failed(
-    store: ControlPlaneFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    store: GuardStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = _project(store, tmp_path)
     runner = IssueToPatchRunner(store.connection, root=store.cwd)

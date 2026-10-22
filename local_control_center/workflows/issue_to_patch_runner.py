@@ -580,7 +580,7 @@ class _PromotionAttempt:
 
     @property
     def qa_agent_run_id(self) -> Any:
-        return (self.qa_summary or {}).get("agentRun", {}).get("id")
+        return ((self.qa_summary or {}).get("agentRun") or {}).get("id")
 
 
 @dataclass(frozen=True)

@@ -27,22 +27,35 @@ const supervised = Boolean(process.env.AIDO_QUALITY_SCRATCH && process.env.AIDO_
 const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-tests-${process.pid}`);
 const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
 const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.join(ownedQualityRoot, 'evidence');
+const removalAttempts = 5;
+const removalRetryDelayMs = 200;
+const removalPause = new Int32Array(new SharedArrayBuffer(4));
+/** Database paths this run derived; a PLAYWRIGHT_DB_PATH pinned by the operator is never added. */
+const ownedDatabasePaths = new Set();
 /**
- * Deletes a directory this run owns, without ever letting cleanup change the verdict.
+ * Deletes a file or directory this run owns, without ever letting cleanup change the verdict.
  *
  * Runs from the 'exit' event, so it may only do synchronous work. Windows can hold a file for a
- * moment after its process dies, hence the retries; if it still fails, it warns and moves on.
+ * moment after its process dies, so a failed attempt pauses and tries again. `rmSync`'s own
+ * `retryDelay` cannot be that pause: on Windows Node 24 sleeps `retryDelay / 1000` ms, and a
+ * SQLite file still open failed with EPERM at once. If the last attempt fails too, it warns and
+ * moves on.
  *
- * @param {string} target Directory to remove.
- * @returns {boolean} Whether the directory is gone.
+ * @param {string} target File or directory to remove; a missing path is not an error.
+ * @returns {boolean} Whether the path is gone.
  */
-function removeOwnedDirectory(target) {
-	try {
-		rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-		return true;
-	} catch (error) {
-		console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
-		return false;
+function removeOwnedPath(target) {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			rmSync(target, { recursive: true, force: true });
+			return true;
+		} catch (error) {
+			if (attempt === removalAttempts) {
+				console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
+				return false;
+			}
+			Atomics.wait(removalPause, 0, 0, removalRetryDelayMs);
+		}
 	}
 }
 
@@ -58,7 +71,7 @@ function removeOwnedDirectory(target) {
  * @param {number} code Exit code the process is leaving with.
  */
 function releaseOwnedQualityRoot(code) {
-	const removed = removeOwnedDirectory(code === 0 ? ownedQualityRoot : qualityScratch);
+	const removed = removeOwnedPath(code === 0 ? ownedQualityRoot : qualityScratch);
 	if (removed && code !== 0) {
 		console.warn(`[run-web-tests] evidence kept at ${qualityRetained}`);
 	}
@@ -77,9 +90,24 @@ function releaseOwnedQualityRoot(code) {
  */
 function releaseOwnedArtifactRoot(code) {
 	if (code === 0) {
-		removeOwnedDirectory(artifactRoot);
+		removeOwnedPath(artifactRoot);
 	} else if (existsSync(artifactRoot)) {
 		console.warn(`[run-web-tests] Playwright output kept at ${artifactRoot}`);
+	}
+}
+
+/**
+ * Removes the databases this run derived inside a scratch it does not own, as the process exits.
+ *
+ * A supervised run's scratch belongs to the supervisor, which never deletes it, so the per-chunk
+ * databases (a few MB each) outlived every supervised run. Only the exact paths this run computed
+ * go, with their -shm/-wal companions and migration lock: the supervisor's other files and a concurrent run's stay.
+ */
+function releaseOwnedDatabases() {
+	for (const databasePath of ownedDatabasePaths) {
+		for (const file of [databasePath, `${databasePath}-shm`, `${databasePath}-wal`, `${databasePath}.migrate.lock`]) {
+			removeOwnedPath(file);
+		}
 	}
 }
 
@@ -87,6 +115,8 @@ if (ownedQualityRoot) {
 	mkdirSync(qualityScratch, { recursive: true });
 	mkdirSync(qualityRetained, { recursive: true });
 	process.on('exit', releaseOwnedQualityRoot);
+} else {
+	process.on('exit', releaseOwnedDatabases);
 }
 const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `playwright-control-center-${process.pid}.sqlite`);
 const playwrightProjects = ['desktop', 'mobile'];
@@ -345,6 +375,7 @@ if (status === 0) {
 				PLAYWRIGHT_DASHBOARD_PORT: chunkPort,
 				PLAYWRIGHT_DB_PATH: process.env.PLAYWRIGHT_DB_PATH || projectDbPath.replace(/\.sqlite$/, `-chunk${chunkIndex + 1}.sqlite`),
 			};
+			if (!process.env.PLAYWRIGHT_DB_PATH) ownedDatabasePaths.add(chunkEnv.PLAYWRIGHT_DB_PATH);
 			const chunkOutput = path.join(artifactRoot, safePathSegment(project), `chunk-${chunkIndex + 1}`);
 			mkdirSync(chunkOutput, { recursive: true });
 			const chunk = chunks[chunkIndex];

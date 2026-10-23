@@ -1,7 +1,9 @@
 # AIDO Local Control Center
 
+**AI-assisted development with connected workflows, approvals, and execution evidence.**
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-2f6f4e.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](pyproject.toml)
+[![Python 3.13.15](https://img.shields.io/badge/python-3.13.15-3776ab.svg)](.python-version)
 [![Node 24.16.x](https://img.shields.io/badge/node-24.16.x-339933.svg)](.nvmrc)
 [![PNPM 10.24.0](https://img.shields.io/badge/pnpm-10.24.0-f69220.svg)](package.json)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](docs/backend.md)
@@ -9,20 +11,35 @@
 [![Local Quality Gate](https://img.shields.io/badge/quality-local%20gate-555555.svg)](scripts/quality-local.ps1)
 [![Policy Gated](https://img.shields.io/badge/security-policy%20gated-8a2d2d.svg)](docs/security-policy.md)
 
-AIDO is a local-first control plane for AI-assisted software development. It
-coordinates projects, workflows, isolated workspaces, agent runtimes, model
-routing, policy decisions, approvals, QA evidence, cost records, telemetry, and
-audit events from a native local app.
+AIDO is an open-source, local-first control plane for developers working with
+AI agents. Its native local app brings projects, isolated workspaces, agent
+runtimes, model routing, and QA evidence into one operational console.
 
-It is not a chat clone and it is not an autonomous free-for-all. AIDO's core
-design principle is simple: no agent, model, CLI, or tool call is allowed to
-claim productive work unless the control plane can prove execution, workspace
-containment, policy approval, QA evidence, and artifact integrity.
+The goal: make it possible to trace a task from execution and human approval to
+the resulting diff, verification commands, and artifacts.
 
-**Suggested GitHub topics:** `ai-agents`, `local-first`, `developer-tools`,
-`fastapi`, `react`, `typescript`, `sqlite`, `model-gateway`, `policy-engine`,
-`evidence-ledger`, `workflow-automation`, `software-supply-chain`,
-`open-source-ai`, `windows-first`, `pnpm`, `uv`.
+**Status: experimental, under active development.** AIDO is Windows-first;
+platform and provider verification have explicit limits. Review
+[Current Maturity](#current-maturity) and the
+[verification report](docs/operational-hardening/p0-verification-report.md)
+before running productive workflows.
+
+[Get started](#quick-start) · [Explore the architecture](docs/architecture.md) ·
+[Read the security model](#security-model) · [Contribute](CONTRIBUTING.md) ·
+[Browse the docs](#documentation-map)
+
+## At a Glance
+
+- **Coordinate agent work:** connect tasks, jobs, approvals, and agent runs in
+  [controlled workflows](docs/workflows.md).
+- **Keep task changes isolated:** allocate Git worktrees and track their
+  [workspace lifecycle](docs/workspaces.md).
+- **Choose configured runtimes:** inspect provider readiness and route calls
+  through the [model gateway](docs/model-gateway.md).
+- **Review execution permissions:** apply policy decisions and scoped approvals
+  at the [tool execution boundary](docs/security-policy.md).
+- **Inspect the result:** link diffs, command outcomes, artifacts, and hashes in
+  [evidence packages](docs/evidence.md).
 
 ## Why AIDO Exists
 
@@ -247,7 +264,8 @@ Configured is not executable. A seeded catalog row is not readiness.
 ### Prerequisites
 
 - Git
-- Python 3.11+
+- Python 3.13.15, pinned in [`.python-version`](.python-version), with a patched
+  SQLite WAL runtime; follow the [installation preflight](docs/operational-hardening/p0-runbook.md#installation-and-preflight).
 - [`uv`](https://docs.astral.sh/uv/)
 - Node >=24.16.0 <25.0.0
 - Corepack, bundled with supported Node releases

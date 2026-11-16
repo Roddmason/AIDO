@@ -8,6 +8,7 @@ from __future__ import annotations
 import ctypes
 import signal
 import subprocess
+import threading
 import time
 from contextlib import suppress
 from dataclasses import replace
@@ -25,6 +26,8 @@ _BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 _JOB_OBJECT_CPU_RATE_CONTROL_INFORMATION = 15
 _JOB_OBJECT_CPU_RATE_CONTROL_ENABLE = 0x1
 _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP = 0x4
+_creator_guard_lock = threading.Lock()
+_creator_guard_state: str | None = None
 
 
 class _CpuRateControlInformation(ctypes.Structure):
@@ -44,6 +47,7 @@ class WindowsJobObjectProcessSupervisor:
         before_resume = popen_kwargs.pop("before_resume", None)
         scope = popen_kwargs.pop("resource_scope", {})
         native_spec = replace(spec, cpu_limit_percent=scope.get("nativeCpuPercent", spec.cpu_limit_percent))
+        _ensure_creator_guard()
         job = win32job.CreateJobObject(None, job_name(spec.managed_process_id))
         if win32api.GetLastError() == 183:
             job.Close()
@@ -366,6 +370,44 @@ def _readback(job: Any, process_handle: Any) -> dict:
         "cpuControlFlags": cpu.ControlFlags if ok else None,
         "cpuWin32Error": 0 if ok else ctypes.get_last_error(),
     }
+
+
+def _ensure_creator_guard() -> None:
+    """Contain this creator in a kill-on-close Job so a still-suspended child dies with it.
+
+    A CREATE_SUSPENDED child inherits its creator's Jobs and stays outside its own Job until
+    AssignProcessToJobObject. If the creator is killed in that window (e.g. a fixture hit by a
+    Playwright timeout) the child would remain suspended and orphaned forever. The guard handle is
+    detached and never closed by Python: only the OS closes it when the creator exits, which then
+    kills the remaining members. A failed assignment degrades to the previous behavior.
+    """
+    global _creator_guard_state
+    if _creator_guard_state is not None:
+        return
+    import win32api
+    import win32job
+
+    with _creator_guard_lock:
+        if _creator_guard_state is not None:
+            return
+        guard = None
+        try:
+            guard = win32job.CreateJobObject(None, "")
+            info = win32job.QueryInformationJobObject(guard, win32job.JobObjectExtendedLimitInformation)
+            info["BasicLimitInformation"]["LimitFlags"] |= (
+                win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | win32job.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            )
+            win32job.SetInformationJobObject(guard, win32job.JobObjectExtendedLimitInformation, info)
+            win32job.AssignProcessToJobObject(guard, win32api.GetCurrentProcess())
+            guard.Detach()
+            _creator_guard_state = "contained"
+        except Exception as error:
+            if guard is not None:
+                guard.Close()
+            _creator_guard_state = "unavailable"
+            diagnostic_event(
+                "process.creator_guard.error", component="windows_job", error=error, level="WARNING"
+            )
 
 
 def _resume_root_thread(pid: int) -> None:

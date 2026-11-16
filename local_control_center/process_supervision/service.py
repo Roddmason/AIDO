@@ -302,10 +302,11 @@ class ProcessSupervisorService:
                 ):
                     options = candidate_options
             phase = "resource_scope_preflight"
+            # parents() re-enumerates every host process per level; compute it once per launch.
+            native_ancestors = {
+                p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]
+            }
             if os.name == "nt" and hasattr(self.backend, "check_resource_scope"):
-                native_ancestors = {
-                    p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]
-                }
                 with closing(open_sqlite_connection(self.db_path)) as connection:
                     rows = connection.execute(
                         "SELECT * FROM managed_processes WHERE finished_at IS NULL AND released_at IS NULL ORDER BY started_at"
@@ -330,7 +331,7 @@ class ProcessSupervisorService:
 
                     request_session(self.context, "capture_preflight")
             phase = "native_root_reserve"
-            self._reserve_native_root(spec, lease.id)
+            self._reserve_native_root(spec, lease.id, native_ancestors)
             reserved = True
             if set(argv).intersection(
                 {"quality", "quality:fast", "quality:story", "quality:pr", "quality:release"}
@@ -611,9 +612,10 @@ class ProcessSupervisorService:
                 managedProcessId=managed.managed_process_id,
             )
 
-    def _reserve_native_root(self, spec: ProcessLaunchSpec, lease_id: str) -> None:
+    def _reserve_native_root(
+        self, spec: ProcessLaunchSpec, lease_id: str, ancestors: dict[int, float]
+    ) -> None:
         """Reserva antes del spawn; sólo un descendiente nativo puede compartir un presupuesto vivo."""
-        ancestors = {p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]}
         with (
             closing(open_sqlite_connection(self.db_path)) as connection,
             immediate_transaction(connection),

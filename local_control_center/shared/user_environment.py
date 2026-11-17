@@ -5,7 +5,7 @@ de entorno" no llega a AIDO ni a la terminal que ya estaban abiertos. El operado
 del sistema y AIDO responde "is not set". Se consulta primero el entorno del proceso (manda un valor
 explícito) y, solo en Windows, luego el del usuario (clave ``Environment`` de HKCU) y el del sistema.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,11 +14,17 @@ import os
 from collections.abc import Iterator, Mapping
 
 _SYSTEM_ENVIRONMENT_KEY = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+IGNORE_PERSISTED_ENVIRONMENT_VAR = "AIDO_IGNORE_PERSISTED_ENVIRONMENT"
+"""Con valor ``1`` AIDO solo ve el entorno de su proceso: lo usan las E2E para no heredar del registro
+las credenciales de proveedores del equipo del operador."""
 
 
 def _windows_persisted_value(name: str) -> str | None:
-    """Valor persistido de ``name`` para el usuario y luego el sistema; ``None`` fuera de Windows."""
-    if os.name != "nt":
+    """Valor persistido de ``name`` para el usuario y luego el sistema.
+
+    ``None`` fuera de Windows o cuando ``AIDO_IGNORE_PERSISTED_ENVIRONMENT=1``.
+    """
+    if os.name != "nt" or os.environ.get(IGNORE_PERSISTED_ENVIRONMENT_VAR) == "1":
         return None
     import winreg  # type: ignore[import-not-found]
 

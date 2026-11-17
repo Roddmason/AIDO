@@ -4,7 +4,7 @@ Reproduce el reporte "NIM da error de api-key siendo válida": un ``AIDO_NVIDIA_
 de keyring del account, un salto de línea pegado viajaba en ``Authorization: Bearer`` y el placeholder
 sembrado ``NVIDIA_NIM_API_KEY`` se ofrecía como credencial guardada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -141,6 +141,19 @@ def test_windows_persisted_variables_are_read_when_the_process_lacks_them(monkey
     assert resolution.value == "nvapi-FROM-REGISTRY"
     # Un environ explícito (tests, overrides) nunca consulta el registro.
     assert user_environment.lookup_environment_variable("NVIDIA_NIM_API_KEY", {}) is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="el registro de entorno solo existe en Windows")
+def test_e2e_switch_stops_reading_the_windows_registry(monkeypatch) -> None:
+    """AIDO_IGNORE_PERSISTED_ENVIRONMENT=1 (runner E2E) deja a AIDO solo con el entorno del proceso."""
+    from local_control_center.shared import user_environment
+
+    # Quita el stub autouse de conftest para ejercer la lectura real del registro.
+    monkeypatch.undo()
+    # El PATH del sistema siempre está persistido en HKLM: prueba que el registro se lee sin el switch.
+    assert user_environment._windows_persisted_value("Path") is not None
+    monkeypatch.setenv(user_environment.IGNORE_PERSISTED_ENVIRONMENT_VAR, "1")
+    assert user_environment._windows_persisted_value("Path") is None
 
 
 def test_status_reports_the_credential_the_request_will_use(connection, monkeypatch) -> None:

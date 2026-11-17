@@ -4,7 +4,7 @@ Usa una copia del sandbox `aido-e2e-sandbox` (pnpm + vitest, store de pnpm ya ca
 checkout principal de un proyecto AIDO: el git worktree que `allocate_workspace` crea para el QA
 nunca trae `node_modules` (esta en `.gitignore`), que es exactamente el bug reportado en vivo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -22,21 +22,24 @@ from local_control_center.projects.toolchain import NODE_NO_LOCKFILE_REASON, nod
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
-_SANDBOX = Path(os.environ.get("AIDO_E2E_NODE_SANDBOX", r"C:/workspaces\aido-e2e-sandbox"))
+_SANDBOX_PATH = os.environ.get("AIDO_E2E_NODE_SANDBOX", "").strip()
+_SANDBOX = Path(_SANDBOX_PATH) if _SANDBOX_PATH else None
 """Proyecto pnpm real (vitest) con el store caliente; es integración local, no parte de la suite portátil."""
 
 pytestmark = [
     pytest.mark.usefixtures("controlled_domain_host"),
     pytest.mark.skipif(not git_available(), reason="git CLI is not available"),
     pytest.mark.skipif(
-        not (_SANDBOX / "pnpm-lock.yaml").is_file(),
+        _SANDBOX is None or not (_SANDBOX / "pnpm-lock.yaml").is_file(),
         reason="Sandbox pnpm local no disponible (fija AIDO_E2E_NODE_SANDBOX)",
     ),
 ]
 _SANDBOX_ENTRIES = ("package.json", "pnpm-lock.yaml", "src", "tests", "js")
 
 pytestmark.append(
-    pytest.mark.skipif(not _SANDBOX.is_dir(), reason="aido-e2e-sandbox fixture project is not available")
+    pytest.mark.skipif(
+        _SANDBOX is None or not _SANDBOX.is_dir(), reason="aido-e2e-sandbox fixture project is not available"
+    )
 )
 
 
@@ -62,6 +65,7 @@ def _sandbox_copy_project(store: ControlPlaneFixture, tmp_path: Path, name: str)
     defecto (casi un proceso por CPU): cubre el `ActiveProcessLimit` real de las clases de QA
     (`host_resources.profiles.TEST_RUNNER_PROCESS_LIMIT`), que antes lo cortaba.
     """
+    assert _SANDBOX is not None, "AIDO_E2E_NODE_SANDBOX must name an explicit sandbox project"
     project_path = tmp_path / name.lower().replace(" ", "-")
     project_path.mkdir(parents=True, exist_ok=True)
     for entry in _SANDBOX_ENTRIES:

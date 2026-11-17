@@ -1,10 +1,11 @@
 """Latencia HTTP real bajo un árbol pequeño y acotado; no mide paint del navegador.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -31,11 +32,16 @@ def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path, low_imp
     db = tmp_path / "platform.sqlite"
     policy = low_impact_host_policy(db)
     require_host_capacity(db, ["qa_light", "qa_light"])
-    host = HostResourceProbe(relevant_paths=[tmp_path, Path.cwd()]).sample()
+    host = HostResourceProbe(relevant_paths=[tmp_path]).sample()
     assert not host.unreal_editor_running and not host.ollama_running
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
+    environment = os.environ.copy()
+    import_root = str(Path(__file__).resolve().parents[1])
+    environment["PYTHONPATH"] = os.pathsep.join(
+        path for path in (import_root, environment.get("PYTHONPATH")) if path
+    )
     service = ProcessSupervisorService(db_path=db)
     api = service.start(
         argv=[
@@ -54,7 +60,8 @@ def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path, low_imp
             "--static-dir",
             str(Path("local-control-center/dist/web").resolve()),
         ],
-        cwd=Path.cwd(),
+        cwd=tmp_path,
+        env=environment,
         workload_class="qa_light",
         cpu_limit_percent=10,
         stdout=subprocess.DEVNULL,
@@ -91,7 +98,8 @@ def test_panel_http_and_cancellation_under_bounded_native_load(tmp_path, low_imp
                     "--duration",
                     "30",
                 ],
-                cwd=Path.cwd(),
+                cwd=tmp_path,
+                env=environment,
                 workload_class="qa_light",
                 cpu_limit_percent=5,
                 memory_limit_bytes=256 * 1024**2,

@@ -5,7 +5,7 @@ persistirlo, promueve logs/diffs/screenshots grandes a artefactos en disco, emit
 auditoría, y abre riesgos de gobernanza ante veredictos fallidos o artefactos expirados. Las
 descargas de artefactos verifican el hash y confinan las rutas al root de artefactos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -545,13 +545,31 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             if len(content_bytes) > max_ingested_artifact_bytes:
                 raise HTTPException(status_code=422, detail="Artifact content exceeds maximum accepted size.")
             suffix = Path(name).suffix or ".bin"
-            artifact_file = write_binary_artifact(
-                root=platform.cwd,
-                artifact_id=artifact_id,
-                suffix=suffix,
-                content=content_bytes,
-            )
             mime_type = str(payload.get("mimeType") or "application/octet-stream")
+            normalized_mime = mime_type.partition(";")[0].strip().lower()
+            declared_text = (
+                normalized_mime.startswith("text/")
+                or normalized_mime == "application/json"
+                or normalized_mime.endswith("+json")
+                or suffix.lower()
+                in {".json", ".txt", ".log", ".patch", ".diff", ".md", ".csv", ".html", ".xml"}
+            )
+            try:
+                decoded_text = content_bytes.decode("utf-8")
+            except UnicodeDecodeError as error:
+                if declared_text:
+                    raise HTTPException(
+                        status_code=422, detail="Text artifacts require valid UTF-8."
+                    ) from error
+                decoded_text = None
+            if declared_text or (decoded_text is not None and "\x00" not in decoded_text):
+                artifact_file = write_text_artifact(
+                    root=platform.cwd, artifact_id=artifact_id, suffix=suffix, content=decoded_text
+                )
+            else:
+                artifact_file = write_binary_artifact(
+                    root=platform.cwd, artifact_id=artifact_id, suffix=suffix, content=content_bytes
+                )
         else:
             raise HTTPException(status_code=422, detail="Artifact requires content or contentBase64.")
 

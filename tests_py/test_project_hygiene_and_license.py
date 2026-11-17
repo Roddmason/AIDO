@@ -106,7 +106,11 @@ def test_open_source_governance_files_require_owner_review() -> None:
     assert "pull requests" in contributing.lower()
     assert "owner review" in contributing.lower()
     assert "report security issues privately" in security.lower()
-    assert codeowners.strip() == "* @Roddmason"
+    owner_rules = [
+        line for line in codeowners.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert owner_rules == []
+    assert "Maintainer review remains required by CONTRIBUTING.md." in codeowners
     assert "testing" in pull_request_template.lower()
     assert "no secrets" in pull_request_template.lower()
     assert "labels:" in bug_report
@@ -155,7 +159,16 @@ def test_quality_and_security_scripts_are_declared() -> None:
     assert "ruff check" in scripts["lint:py"]
     assert "python -X utf8 -m piplicenses" in scripts["security:licenses:py"]
     assert "licenses list" in scripts["security:licenses:js"]
-    assert "gitleaks detect" in scripts["security:secrets"]
+    secrets_command = scripts["security:secrets"].split()
+    assert secrets_command[:3] == ["gitleaks", "dir", "."]
+    assert secrets_command[secrets_command.index("--config") + 1] == ".gitleaks.toml"
+    assert {
+        "--redact=100",
+        "--ignore-gitleaks-allow",
+        "--max-archive-depth=3",
+        "--max-decode-depth=5",
+        "--timeout=1800",
+    } <= set(secrets_command)
     assert "semgrep scan" in scripts["security:sast"]
     assert "check-credentials.py" in scripts["security:credentials:preflight"]
 

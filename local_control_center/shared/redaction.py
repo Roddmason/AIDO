@@ -7,7 +7,7 @@ preservando contadores de tokens y campos de estado que no son secretos. No lanz
 ante valores no reconocidos los devuelve sin tocar, por lo que la cobertura del patrón
 es la última línea de defensa. Todo evento/auditoría debe redactarse antes de escribirse.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ import re
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-SECRET_KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|credential|secret|token)", re.I)
-SECRET_VALUE_PATTERN = re.compile(
-    r"("
-    r"\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|prompt|auth\.json)"
-    r"[\"']?\s*[:=]\s*[^\r\n]{1,16384}|"
+SECRET_KEY_PATTERN = re.compile(
+    r"(api[_-]?key|authorization|credential|secret|token)|(?:password|passwd|pwd|private[_-]?key)$", re.I
+)
+CREDENTIAL_VALUE_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
     r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{8,}|"
     r"Bearer\s+[A-Za-z0-9._-]+|"
     r"ghp_[A-Za-z0-9_]{12,}|"
@@ -28,10 +28,13 @@ SECRET_VALUE_PATTERN = re.compile(
     r"glpat-[A-Za-z0-9_-]{12,}|"
     r"xox[baprs]-[A-Za-z0-9-]{10,}|"
     r"AKIA[0-9A-Z]{16}|"
-    r"password\s*=\s*[^&\s]+|"
-    r"[a-z][a-z0-9+.\-]{0,30}://[^\s:@/]{1,256}:[^\s@/]{1,256}@[^\s]{1,256}|"
-    r"-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{1,10000}?-----END[A-Z0-9 ]{0,40}PRIVATE KEY-----"
-    r")",
+    r"[a-z][a-z0-9+.\-]{0,30}://[^\s:@/]{1,256}:[^\s@/]{1,256}@[^\s\"']{1,256}|"
+    r"-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{1,10000}?-----END[A-Z0-9 ]{0,40}PRIVATE KEY-----",
+    re.I,
+)
+SECRET_VALUE_PATTERN = re.compile(
+    r"\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|x-local-control-token|prompt|auth\.json)"
+    r"[\"']?\s*[:=]\s*[^\r\n]+|password\s*=\s*[^&\s]+|" + CREDENTIAL_VALUE_PATTERN.pattern,
     re.I,
 )
 GIT_REMOTE_LINE_PATTERN = re.compile(r"(?m)^(?P<prefix>\S+\s+)(?P<url>\S+)(?P<suffix>\s+\((?:fetch|push)\))$")

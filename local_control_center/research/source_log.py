@@ -2,11 +2,11 @@
 
 Cada fuente investigada se guarda como un artefacto (``kind="research_source"``): su contenido textual
 se escribe como archivo (hash de contenido) y su procedencia —URL, publisher, ``fetchedAt``,
-``trustLevel`` y artefacto relacionado— viaja en la metadata del artefacto. Además inserta una fila
+    ``trustLevel`` y artefacto relacionado— viaja en la metadata del artefacto. Además inserta una fila
 ``research_sources`` para que Research Source sea una entidad durable del producto y no metadata suelta.
 ``list_research_sources`` lee esa tabla canónica y mantiene la forma expuesta por el agente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -43,10 +43,11 @@ def persist_source(
 
     Escribe el contenido como archivo de artefacto y guarda la procedencia (``url``, ``publisher``,
     ``fetchedAt``, ``trustLevel``, ``relatedArtifact``) en la metadata, con ``content_hash`` igual al
-    ``hash`` del registro para que el artefacto sea verificable por hash.
+    hash de los bytes saneados para que la fuente y el artefacto sigan siendo verificables.
     """
     artifact_id = f"artifact-{uuid.uuid4()}"
     written = write_text_artifact(root=Path(root), artifact_id=artifact_id, suffix=".txt", content=content)
+    record = {**record, "hash": written["hash"]}
     artifact = evidence.create_artifact(
         artifact_id=artifact_id,
         project_id=project_id,

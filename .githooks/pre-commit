@@ -15,7 +15,7 @@ fi
 # GNU timeout (bundled with Git for Windows) supplies distinct deadline/signal statuses.
 scan_exit=0
 /usr/bin/timeout -k 5s 60s gitleaks git --staged --redact --no-banner --no-color \
-	--config .gitleaks.toml --exit-code 10 --report-format json --report-path - || scan_exit=$?
+	--config .gitleaks.toml --ignore-gitleaks-allow --exit-code 10 --report-format json --report-path - || scan_exit=$?
 case "$scan_exit" in
 	0) echo "pre-commit: analysis_clean: staged scan completed without findings." >&2 ;;
 	10) echo "pre-commit: secret_found: staged scan reported findings; commit blocked." >&2; exit 1 ;;

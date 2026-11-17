@@ -8,7 +8,7 @@ un daemon de Gradle con decenas de procesos.
 Estos tests fijan exactamente qué se relaja y, sobre todo, **qué no**: nada de `--privileged`, red
 del host, ni montaje del socket de Docker. Y que sea opt-in por proyecto, nunca por defecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -165,23 +165,40 @@ def test_without_docker_it_degrades_instead_of_failing(
     assert "Docker" in result["reason"], result["reason"]
 
 
-def test_the_container_still_goes_through_resource_admission(tmp_path: Path) -> None:
+def test_the_container_still_goes_through_resource_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Contenerizar no saca al build del gobernador de recursos del host.
 
     Observado al escribir estos tests: con el host cargado, la ejecucion devuelve
     `resource_wait` en vez de arrancar el contenedor. Es lo correcto — un build en contenedor
     consume la misma CPU y memoria del equipo — y queda fijado para que nadie lo "arregle".
     """
-    result = ProjectBuildContainer().execute(
-        image=TOOLCHAIN_IMAGES["java-maven"],
-        argv=["mvn", "--version"],
-        workspace_path=tmp_path,
-        timeout_seconds=5,
+    from local_control_center.host_resources.models import ResourceSnapshot
+    from local_control_center.process_supervision import docker
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    monkeypatch.setattr(
+        docker.HostResourceProbe,
+        "sample",
+        lambda *_args, **_kwargs: ResourceSnapshot.test_snapshot(cpu_percent_1s=100, cpu_percent_30s=100),
     )
 
-    assert "executed" in result and "blocked" in result
-    if not result["executed"]:
-        assert result["reason"], result
+    def forbid_native_capture(*_args, **_kwargs):
+        pytest.fail("Resource admission must reject the build before launching Docker.")
+
+    monkeypatch.setattr(docker, "run_supervised_capture", forbid_native_capture)
+    with execution_scope(ProcessExecutionContext(db_path=tmp_path / "admission.sqlite")):
+        result = ProjectBuildContainer(docker_executable="docker").execute(
+            image=TOOLCHAIN_IMAGES["java-maven"],
+            argv=["mvn", "--version"],
+            workspace_path=tmp_path,
+            timeout_seconds=5,
+        )
+
+    assert result["executed"] is False
+    assert result["blocked"] is True
+    assert result["reason"] == "resource_wait: host_cpu_saturated"
 
 
 def _project_connection(tmp_path: Path):

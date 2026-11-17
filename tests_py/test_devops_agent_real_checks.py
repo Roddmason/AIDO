@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
@@ -358,8 +359,21 @@ def test_devops_agent_runs_the_toolchain_in_a_container_when_the_project_opted_i
 
     if shutil.which("go"):
         pytest.skip("este host tiene Go: la toolchain local gana, que es lo correcto")
-    if not shutil.which("docker"):
+    docker = shutil.which("docker")
+    if not docker:
         pytest.skip("la ruta contenerizada necesita el ejecutable docker en el host")
+    try:
+        daemon = subprocess.run(
+            [docker, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        pytest.skip(f"no se pudo consultar el daemon Docker ({type(error).__name__})")
+    if daemon.returncode != 0 or not daemon.stdout.strip():
+        pytest.skip("la ruta contenerizada requiere un daemon Docker accesible")
 
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-container")

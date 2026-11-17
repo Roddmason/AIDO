@@ -259,6 +259,11 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
             settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
             settings.set_value("resources.minFreeMemoryGiB", "general", None, 2)
     service = ProcessSupervisorService(db_path=db, resource_snapshot=snapshot)
+    environment = os.environ.copy()
+    import_root = str(Path(__file__).resolve().parents[1])
+    environment["PYTHONPATH"] = os.pathsep.join(
+        path for path in (import_root, environment.get("PYTHONPATH")) if path
+    )
     parent = service.start(
         argv=[
             sys.executable,
@@ -268,7 +273,8 @@ def test_productive_supervisor_reconciles_nested_reservations(tmp_path, mode):
             mode,
             str(output),
         ],
-        cwd=Path.cwd(),
+        cwd=tmp_path,
+        env=environment,
         execution_id="scope-parent",
         workload_class="control_plane" if mode == "independent" else "qa_light",
         cpu_limit_percent=23 if mode == "quantized" else None,

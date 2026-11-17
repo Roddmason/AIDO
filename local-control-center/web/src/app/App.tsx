@@ -4,7 +4,7 @@
  * Resolves the active page from the URL hash, owns selection/dialog/drawer/palette
  * flags, wires the control-plane data hook and global shortcuts, and dispatches each
  * route to its feature page. Every chrome piece lives in its own component here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -132,7 +132,7 @@ export function App() {
 		for (const alert of runtimeAlerts) {
 			if (seen.has(alert.providerId)) continue;
 			notify({
-				title: t('app.runtime.health.toastTitle', 'An AI needs attention'),
+				title: t('app.runtime.health.attentionToastTitle', 'AI needs attention'),
 				body: `${alert.displayName} — ${t('app.runtime.health.toastBody', 'open AI health to see how to fix it.')}`,
 				tone: 'warn',
 				action: {
@@ -311,7 +311,10 @@ export function App() {
 							<Suspense fallback={<RouteSkeleton />}>
 								{state.error ? (
 									<ErrorState
-										title={t('app.controlPlane.error.operationFailed', 'Operation failed.')}
+										title={t(
+											'app.controlPlane.error.actionFailed',
+											"Couldn't complete the action. Retry.",
+										)}
 										body={state.error}
 									/>
 								) : null}

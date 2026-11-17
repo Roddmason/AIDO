@@ -6,7 +6,7 @@
  * token and refreshes afterwards. A write rejected for a stale token clears the cached
  * token so the next tick re-negotiates the handshake (backend restart). Secondary
  * reads are wrapped in a timeout so a slow optional endpoint cannot stall the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -222,7 +222,10 @@ export function useControlPlane() {
 					error:
 						error instanceof Error
 							? error.message
-							: tRef.current('app.controlPlane.error.operationFailed', 'Operation failed.'),
+							: tRef.current(
+									'app.controlPlane.error.actionFailed',
+									"Couldn't complete the action. Retry.",
+								),
 				}));
 				throw error;
 			}

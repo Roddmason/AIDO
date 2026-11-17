@@ -6,7 +6,7 @@
  * and header stay clean (Codex-style). Health numbers come pre-derived from {@link deriveShellStatus};
  * theme and density are owned by their hooks. Git workspace controls (branch, gitleaks, refresh) live
  * in the composer ({@link GitBranchBar}), next to the task prompt — not in this footer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Moon, Rows3, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -68,7 +68,7 @@ export function StatusBar({
 	const languageOptions = languages.length
 		? languages
 		: [
-				{ code: 'es', name: 'Spanish', nativeName: 'Espanol', enabled: true },
+				{ code: 'es', name: 'Spanish', nativeName: 'Español', enabled: true },
 				{ code: 'en', name: 'English', nativeName: 'English', enabled: true },
 			];
 
@@ -140,30 +140,30 @@ export function StatusBar({
 				<span className="tnum">{status.pendingApprovals}</span>{' '}
 				{t('app.statusBar.approvals', 'approvals')}
 			</span>
-			<span className="status-bar-item status-bar-item--minor">
-				<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
-				QA{' '}
-				<span className="tnum">
-					{status.qaPassed}/{status.qaTotal}
-				</span>
-			</span>
-			<span
-				className="status-bar-item status-bar-item--minor"
-				title={
-					status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : undefined
-				}
-			>
-				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
-				{status.recordedCost === null ? (
-					<>
-						<strong aria-hidden="true">—</strong>
-						<span className="sr-only">{t('app.statusBar.unavailable', 'unavailable')}</span>
-					</>
-				) : (
-					<strong>{`$${status.recordedCost.toFixed(2)}`}</strong>
-				)}
-			</span>
 			<div className="status-bar-controls">
+				<span className="status-bar-item status-bar-item--minor">
+					<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
+					QA{' '}
+					<span className="tnum">
+						{status.qaPassed}/{status.qaTotal}
+					</span>
+				</span>
+				<span
+					className="status-bar-item status-bar-item--minor"
+					title={
+						status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : undefined
+					}
+				>
+					<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
+					{status.recordedCost === null ? (
+						<>
+							<strong aria-hidden="true">—</strong>
+							<span className="sr-only">{t('app.statusBar.unavailable', 'unavailable')}</span>
+						</>
+					) : (
+						<strong>{`$${status.recordedCost.toFixed(2)}`}</strong>
+					)}
+				</span>
 				{/* biome-ignore lint/a11y/useSemanticElements: swapping to <fieldset> regresses layout — fieldset's UA margin-inline:2px and min-inline-size:min-content are not reset by .language-switch (a class shared only by this element) and inline-flex relies on content sizing; role="group"+aria-label keeps the labeled grouping semantics intact */}
 				<div
 					className="language-switch"

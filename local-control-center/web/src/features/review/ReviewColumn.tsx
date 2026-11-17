@@ -2,7 +2,7 @@
  * One presentational lane of the review board — header, live count, and a stack
  * of cards or an empty state. Stateless: the page passes the grouped items and
  * the localized copy, and the column just renders and forwards open callbacks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { StatusChip as Badge, EmptyState, StatusDot } from '../../components/ui';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';
@@ -50,7 +50,7 @@ export function ReviewColumn({
 			</header>
 			<div className="review-column-scroll">
 				{items.length === 0 ? (
-					<EmptyState title={meta.emptyTitle} body={meta.emptyBody} />
+					<EmptyState variant="compact" title={meta.emptyTitle} body={meta.emptyBody} />
 				) : (
 					items.map((item) => (
 						<ReviewCard

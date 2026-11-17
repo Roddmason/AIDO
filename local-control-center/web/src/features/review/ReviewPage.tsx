@@ -3,7 +3,7 @@
  * overview, and owns the two drawers (approve/reject and ship-a-run) plus their
  * focus handling. Board state lives here; lanes, cards and the decision/ship UI
  * are delegated to child components and the review hooks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AnimatePresence, m } from 'motion/react';
 import { useMemo, useRef, useState } from 'react';
@@ -148,35 +148,26 @@ export function ReviewPage({
 	> = {
 		needs_review: {
 			title: t('app.review.copy.4', 'Needs review'),
-			emptyTitle: t('app.review.copy.5', 'Nothing waiting on you'),
+			emptyTitle: t('app.review.column.needsReview.emptyTitle', 'Nothing waiting'),
 			emptyBody: t(
-				'app.review.copy.6',
-				'Runs land here when QA produces evidence and a sensitive action needs a human decision.',
+				'app.review.column.needsReview.emptyBody',
+				'Runs needing your decision appear here.',
 			),
 		},
 		blocked: {
 			title: t('app.review.copy.7', 'Blocked'),
-			emptyTitle: t('app.review.copy.8', 'No blocked runs'),
-			emptyBody: t(
-				'app.review.copy.9',
-				'A run appears here when QA fails, a runtime is unavailable, or a decision was rejected.',
-			),
+			emptyTitle: t('app.review.column.blocked.emptyTitle', 'No blockers'),
+			emptyBody: t('app.review.column.blocked.emptyBody', 'Failed or rejected runs appear here.'),
 		},
 		ready: {
 			title: t('app.review.copy.10', 'Ready'),
-			emptyTitle: t('app.review.copy.11', 'Nothing ready to ship'),
-			emptyBody: t(
-				'app.review.copy.12',
-				'Approved runs wait here for branch promotion or PR creation.',
-			),
+			emptyTitle: t('app.review.column.ready.emptyTitle', 'Nothing ready'),
+			emptyBody: t('app.review.column.ready.emptyBody', 'Approved runs wait here for promotion.'),
 		},
 		done: {
 			title: t('app.review.colDoneTitle', 'Done'),
-			emptyTitle: t('app.review.copy.14', 'No completed runs yet'),
-			emptyBody: t(
-				'app.review.copy.15',
-				'Runs move here once a PR is created, the workflow completes, or a request is decided.',
-			),
+			emptyTitle: t('app.review.column.done.emptyTitle', 'Nothing done yet'),
+			emptyBody: t('app.review.column.done.emptyBody', 'Finished runs appear here.'),
 		},
 	};
 
@@ -185,10 +176,7 @@ export function ReviewPage({
 			<PageHeader
 				kicker={t('app.review.copy.0', 'Review inbox')}
 				title={t('app.review.title', 'Review')}
-				summary={t(
-					'app.review.copy.2',
-					'One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.',
-				)}
+				summary={t('app.review.page.summary', 'Approve or reject runs with full evidence.')}
 			/>
 			<section className="review-board" aria-label={t('app.review.copy.3', 'Review board')}>
 				{REVIEW_COLUMNS.map((column) => (

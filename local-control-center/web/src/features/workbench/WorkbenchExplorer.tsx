@@ -1,7 +1,7 @@
 /**
  * Left rail of the Workbench: picks the active workspace folder and lets the user switch between
  * its work sessions and recent runs, which drives what the rest of the page shows.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 
@@ -50,7 +50,7 @@ export function WorkbenchExplorer({
 			className="workbench-session-rail"
 			aria-label={t('app.workbench.explorer.region', 'Workspace explorer')}
 		>
-			<Surface title={t('app.workbench.workspace.title', 'Workspace folder')}>
+			<Surface>
 				<div className="workspace-context">
 					<div className="field">
 						<label htmlFor="workbench-project">
@@ -110,9 +110,8 @@ export function WorkbenchExplorer({
 					>
 						<span>
 							<Bot aria-hidden="true" size={15} />{' '}
-							{t('app.workbench.sessions.new', 'New project thread')}
+							{t('app.workbench.sessions.newThread', 'New thread')}
 						</span>
-						<small>{t('app.workbench.sessions.newHint', 'Starts a real project thread')}</small>
 					</button>
 					{sessions.map((session) => {
 						return (

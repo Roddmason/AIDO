@@ -7,7 +7,7 @@
  * only calls `activeSection.render(ctx)` — no switch needed. Adding a new section
  * requires only this registry. Every section renders real control-plane data:
  * there are no placeholder sections.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -106,6 +106,24 @@ export type SectionContext = {
 	closeSettings: () => void;
 };
 
+/** Navigator groups of the General scope, in display order. */
+export type GeneralGroupId = 'workspace' | 'runtimes' | 'team' | 'governance';
+
+export const GENERAL_GROUPS: Array<{
+	id: GeneralGroupId;
+	titleKey: string;
+	titleFallback: string;
+}> = [
+	{ id: 'workspace', titleKey: 'app.settings.nav.groupWorkspace', titleFallback: 'Workspace' },
+	{
+		id: 'runtimes',
+		titleKey: 'app.settings.nav.groupRuntimes',
+		titleFallback: 'Runtimes & access',
+	},
+	{ id: 'team', titleKey: 'app.settings.nav.groupTeam', titleFallback: 'Team' },
+	{ id: 'governance', titleKey: 'app.settings.nav.groupGovernance', titleFallback: 'Governance' },
+];
+
 /** A single section definition in the settings navigator. */
 export type SectionDefinition = {
 	id: string;
@@ -117,6 +135,8 @@ export type SectionDefinition = {
 	icon: LucideIcon;
 	/** Whether this section edits wired settings or renders a display body. */
 	kind: 'wired' | 'display';
+	/** Navigator group of a General section; project sections share one group. */
+	group?: GeneralGroupId;
 	/** Renders the section's content given the shared context. */
 	render: (ctx: SectionContext) => ReactNode;
 };
@@ -229,9 +249,9 @@ function wiredSection(introKey: string, introFallback: string) {
 }
 
 /**
- * General scope sections in display order.
- * General, Appearance, Providers & CLI, Credentials, Default Team, Autonomy,
- * Security, Research, Costs, Plugins, Advanced — all wired to real data.
+ * General scope sections in display order, grouped for the navigator:
+ * Workspace (General, Appearance), Runtimes & access (Providers & CLI, Credentials, Plugins),
+ * Team (AI team, Default Team, Autonomy) and Governance (Security, Research, Costs, Advanced).
  */
 export const GENERAL_SECTIONS: SectionDefinition[] = [
 	{
@@ -239,6 +259,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.general',
 		titleFallback: 'General',
 		icon: SlidersHorizontal,
+		group: 'workspace',
 		kind: 'wired',
 		render: (ctx) => <GeneralSettingsPanel ctx={ctx} />,
 	},
@@ -247,6 +268,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.appearance',
 		titleFallback: 'Appearance',
 		icon: Palette,
+		group: 'workspace',
 		kind: 'display',
 		render: () => <AppearanceSettingsPanel />,
 	},
@@ -255,6 +277,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.providersCli',
 		titleFallback: 'Providers & CLI',
 		icon: Cpu,
+		group: 'runtimes',
 		kind: 'display',
 		render: (ctx) => (
 			<div className="settings-providers-cli">
@@ -272,26 +295,38 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		),
 	},
 	{
-		id: 'ai-team',
-		titleKey: 'app.settings.section.aiTeam',
-		titleFallback: 'AI team',
-		icon: Users,
-		kind: 'display',
-		render: (ctx) => <AiTeamPanel ctx={ctx} />,
-	},
-	{
 		id: 'credentials',
 		titleKey: 'app.settings.section.credentials',
 		titleFallback: 'Credentials',
 		icon: KeyRound,
+		group: 'runtimes',
 		kind: 'display',
 		render: (ctx) => <CredentialManagerPanel token={ctx.token} />,
+	},
+	{
+		id: 'plugins',
+		titleKey: 'app.settings.section.plugins',
+		titleFallback: 'Plugins',
+		icon: Puzzle,
+		group: 'runtimes',
+		kind: 'display',
+		render: (ctx) => <PluginsPanel token={ctx.token} />,
+	},
+	{
+		id: 'ai-team',
+		titleKey: 'app.settings.section.aiTeam',
+		titleFallback: 'AI team',
+		icon: Users,
+		group: 'team',
+		kind: 'display',
+		render: (ctx) => <AiTeamPanel ctx={ctx} />,
 	},
 	{
 		id: 'default-team',
 		titleKey: 'app.settings.section.defaultTeam',
 		titleFallback: 'Default Team',
 		icon: Users,
+		group: 'team',
 		kind: 'display',
 		render: (ctx) => (
 			<DefaultTeamSettingsPanel overview={ctx.overview} onNavigate={ctx.closeSettings} />
@@ -302,6 +337,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.autonomy',
 		titleFallback: 'Autonomy',
 		icon: ShieldCheck,
+		group: 'team',
 		kind: 'wired',
 		render: (ctx) => {
 			const setting = ctx.resolved.find((entry) => entry.key === 'autonomy.level');
@@ -319,6 +355,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.security',
 		titleFallback: 'Security',
 		icon: Lock,
+		group: 'governance',
 		kind: 'wired',
 		render: wiredSection(
 			'app.settings.intro.security',
@@ -330,6 +367,7 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.research',
 		titleFallback: 'Research',
 		icon: FlaskConical,
+		group: 'governance',
 		kind: 'wired',
 		render: (ctx) => <ResearchSettingsPanel ctx={ctx} />,
 	},
@@ -338,22 +376,16 @@ export const GENERAL_SECTIONS: SectionDefinition[] = [
 		titleKey: 'app.settings.section.costs',
 		titleFallback: 'Costs',
 		icon: CircleDollarSign,
+		group: 'governance',
 		kind: 'wired',
 		render: wiredSection('app.settings.intro.costs', 'Spending ceilings for runs and jobs.'),
-	},
-	{
-		id: 'plugins',
-		titleKey: 'app.settings.section.plugins',
-		titleFallback: 'Plugins',
-		icon: Puzzle,
-		kind: 'display',
-		render: (ctx) => <PluginsPanel token={ctx.token} />,
 	},
 	{
 		id: 'advanced',
 		titleKey: 'app.settings.section.advanced',
 		titleFallback: 'Advanced',
 		icon: Wrench,
+		group: 'governance',
 		kind: 'display',
 		render: (ctx) => (
 			<AdvancedBody

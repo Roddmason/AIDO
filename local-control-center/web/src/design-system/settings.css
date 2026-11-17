@@ -1188,3 +1188,125 @@
 		grid-column: 1 / -1;
 	}
 }
+
+/* ---- Settings modal forms: labels, compact actions, branded selects ---- */
+
+/* Field labels read as captions over their control, not as bold headings competing with the
+ * section title. */
+.modal-panel .field label {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-secondary);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: modal-wide default; earlier, more specific label rules (static cards) keep winning by design */
+.modal-panel .field-label {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-secondary);
+}
+
+/* Inside the settings content every action uses the small control height: rows of Save, Validate
+ * and Configure stay one calm line instead of 44px slabs. Still >= 32px (WCAG 2.5.8). */
+/* biome-ignore lint/style/noDescendingSpecificity: content-wide default; earlier, more specific button rules (AI team order, provider cards) keep winning by design */
+.settings-content .button {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-3);
+	font-size: var(--font-size-sm);
+}
+
+.settings-content .input,
+.settings-content .select {
+	min-height: var(--control-height-sm);
+	font-size: var(--font-size-sm);
+}
+
+/* Customizable select (appearance: base-select) in dialogs: the trigger and its picker share the
+ * input tokens. Browsers without support keep the native picker, which already follows
+ * color-scheme, so nothing else is needed as a fallback. */
+@supports (appearance: base-select) {
+	.modal-panel .select,
+	.modal-panel .select::picker(select) {
+		appearance: base-select;
+	}
+
+	.modal-panel .select {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		cursor: pointer;
+	}
+
+	.modal-panel .select::picker-icon {
+		color: var(--color-text-muted);
+		transition: rotate var(--duration-fast) var(--ease-standard);
+	}
+
+	.modal-panel .select:open::picker-icon {
+		rotate: 180deg;
+	}
+
+	.modal-panel .select::picker(select) {
+		margin-block: var(--space-1);
+		padding: var(--space-1);
+		border: 1px solid var(--color-border-default);
+		border-radius: var(--radius-md);
+		background: var(--color-surface-overlay);
+		color: var(--color-text-primary);
+		box-shadow: var(--shadow-md);
+	}
+
+	.modal-panel .select option {
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-sm);
+	}
+
+	.modal-panel .select option:hover,
+	.modal-panel .select option:focus-visible {
+		background: var(--color-surface-card-hover);
+		outline: none;
+	}
+
+	.modal-panel .select option:checked {
+		font-weight: var(--weight-semibold);
+	}
+
+	.modal-panel .select option::checkmark {
+		color: var(--color-accent-strong);
+	}
+
+	.modal-panel .select option:disabled {
+		color: var(--color-text-disabled);
+	}
+}
+
+/* ---- Provider grid sections: CLI, local and remote runtimes, each sorted by readiness ---- */
+.provider-section {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.provider-section + .provider-section {
+	margin-top: var(--space-2);
+}
+
+.provider-section-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.provider-section-count {
+	padding: 0 var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+	color: var(--color-text-secondary);
+	letter-spacing: 0;
+}

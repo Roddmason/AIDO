@@ -4,7 +4,7 @@
  * Dialog and code-splits this module, so the body and every section panel load on the first open.
  * Sections are sourced from the GENERAL_SECTIONS and PROJECT_SECTIONS registry;
  * each section's render(ctx) produces its own content — no switch needed here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { FolderPlus } from 'lucide-react';
@@ -20,6 +20,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
+	GENERAL_GROUPS,
 	GENERAL_SECTIONS,
 	labeledEnumOptions,
 	PROJECT_SECTIONS,
@@ -229,35 +230,37 @@ export function SettingsModalBody({
 					/>
 				</div>
 
-				{filteredGeneral.length > 0 && (
-					<>
-						<p className="settings-nav-group-label">
-							{t('app.settings.nav.groupGeneral', 'General')}
-						</p>
-						<ul className="settings-nav-list">
-							{filteredGeneral.map((section) => (
-								<li key={section.id}>
-									<button
-										type="button"
-										className="settings-nav-item"
-										data-section={section.id}
-										aria-current={activeSection === section.id ? 'true' : undefined}
-										onClick={() => {
-											setActiveSection(section.id);
-											setSearchQuery('');
-										}}
-									>
-										<section.icon aria-hidden="true" size={15} />
-										{t(section.titleKey, section.titleFallback)}
-									</button>
-								</li>
-							))}
-						</ul>
-					</>
-				)}
+				{GENERAL_GROUPS.map((group) => {
+					const groupSections = filteredGeneral.filter((section) => section.group === group.id);
+					if (!groupSections.length) return null;
+					return (
+						<div key={group.id} className="settings-nav-group">
+							<p className="settings-nav-group-label">{t(group.titleKey, group.titleFallback)}</p>
+							<ul className="settings-nav-list">
+								{groupSections.map((section) => (
+									<li key={section.id}>
+										<button
+											type="button"
+											className="settings-nav-item"
+											data-section={section.id}
+											aria-current={activeSection === section.id ? 'true' : undefined}
+											onClick={() => {
+												setActiveSection(section.id);
+												setSearchQuery('');
+											}}
+										>
+											<section.icon aria-hidden="true" size={15} />
+											{t(section.titleKey, section.titleFallback)}
+										</button>
+									</li>
+								))}
+							</ul>
+						</div>
+					);
+				})}
 
 				{filteredProject.length > 0 && (
-					<>
+					<div className="settings-nav-group">
 						<p className="settings-nav-group-label">
 							{t('app.settings.nav.groupProject', 'Project')}
 						</p>
@@ -280,7 +283,7 @@ export function SettingsModalBody({
 								</li>
 							))}
 						</ul>
-					</>
+					</div>
 				)}
 
 				{filteredGeneral.length === 0 && filteredProject.length === 0 && (

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 
-test.use({ trace: 'retain-on-failure' });
+test.use({ trace: 'off' });
 
 /**
  * Full-lifecycle journey against a REAL dashboard server, a REAL temporary git project and a

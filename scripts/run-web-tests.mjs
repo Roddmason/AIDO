@@ -30,6 +30,45 @@ const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.jo
 const removalAttempts = 5;
 const removalRetryDelayMs = 200;
 const removalPause = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * Provider credentials an E2E run must never inherit from the operator's machine (same list as
+ * PROVIDER_CREDENTIAL_ENV_VARS in tests_py/conftest.py). With NVIDIA_NIM_API_KEY set, the dashboard
+ * treated NIM's seeded placeholder as a stored credential and the wizard specs saw another flow.
+ */
+const providerCredentialEnvVars = [
+	'AIDO_ANTHROPIC_API_KEY',
+	'AIDO_GEMINI_API_KEY',
+	'AIDO_LITELLM_API_KEY',
+	'AIDO_NVIDIA_API_KEY',
+	'AIDO_OPENAI_COMPATIBLE_API_KEY',
+	'AIDO_OPENROUTER_API_KEY',
+	'ANTHROPIC_API_KEY',
+	'GEMINI_API_KEY',
+	'GOOGLE_API_KEY',
+	'LITELLM_API_KEY',
+	'NGC_API_KEY',
+	'NVIDIA_API_KEY',
+	'NVIDIA_NIM_API_KEY',
+	'OPENAI_API_KEY',
+	'OPENROUTER_API_KEY',
+	'TYPESAFE_API_KEY',
+];
+
+/**
+ * The runner's environment without provider credentials, and with AIDO told not to read variables
+ * persisted in the Windows registry (setx), which it would otherwise find even after removal here.
+ *
+ * @returns {NodeJS.ProcessEnv} Environment for the dashboard and Playwright processes.
+ */
+function hermeticProcessEnv() {
+	const env = { ...process.env, AIDO_IGNORE_PERSISTED_ENVIRONMENT: '1' };
+	// Windows env names are case-insensitive; the spread copy is not, so compare upper-cased.
+	for (const name of Object.keys(env)) {
+		if (providerCredentialEnvVars.includes(name.toUpperCase())) delete env[name];
+	}
+	return env;
+}
+
 /** Database paths this run derived; a PLAYWRIGHT_DB_PATH pinned by the operator is never added. */
 const ownedDatabasePaths = new Set();
 /**
@@ -353,7 +392,7 @@ if (status === 0) {
 		const project = playwrightProjects[projectIndex];
 		const projectDbPath = process.env.PLAYWRIGHT_DB_PATH || dbPath.replace(/\.sqlite$/, `-${project}.sqlite`);
 		const projectEnv = {
-			...process.env,
+			...hermeticProcessEnv(),
 			...(supervised ? {} : { TEMP: qualityScratch, TMP: qualityScratch, TMPDIR: qualityScratch }),
 			AIDO_QUALITY_SCRATCH: qualityScratch,
 			AIDO_QUALITY_RETAINED: qualityRetained,

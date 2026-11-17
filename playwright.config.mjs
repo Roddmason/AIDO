@@ -30,7 +30,7 @@ export default defineConfig({
 	reporter: [['list']],
 	use: {
 		baseURL: `http://127.0.0.1:${dashboardPort}`,
-		trace: 'on-first-retry',
+		trace: 'off',
 		launchOptions: chromiumLaunchOptions,
 	},
 	...webServerConfig,

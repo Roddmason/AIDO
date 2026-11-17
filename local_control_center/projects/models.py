@@ -4,7 +4,7 @@ Definen el contrato HTTP (validación de entrada y forma de salida) y traducen e
 ``snake_case`` de Python y el ``camelCase`` del frontend vía alias de campo. Solo modelan
 datos: no contienen lógica de negocio ni acceso a la base.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

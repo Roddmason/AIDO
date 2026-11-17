@@ -3,7 +3,7 @@
  * tasks) from the live project-scoped product-loop endpoint, with loading, error and empty
  * states. Pure presentation: the page owns the fetch (useProductLoop) and passes the data down; the
  * architecture section reuses the already-available overview architecture decisions.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { CheckCircle2, PlayCircle, Sparkles } from 'lucide-react';

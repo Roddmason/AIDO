@@ -16,7 +16,7 @@
  * on every tab. Every tab renders honest loading/error/empty/success states; data loads via
  * {@link useThreadInspectorData}. Read-only except for Cost, the one tab whose job is to change
  * what the next run may spend — every other mutation stays in the composer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	BrainCircuit,

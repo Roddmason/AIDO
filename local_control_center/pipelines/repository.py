@@ -5,7 +5,7 @@ opera en autocommit (`isolation_level=None`): cada `execute` confirma de forma i
 repositorio no abre transacciones. `create_pipeline` hace un `INSERT` y luego un `SELECT` (vía
 `get_pipeline`) en dos statements separados, por lo que no es una operación atómica.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

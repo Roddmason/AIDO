@@ -1,6 +1,6 @@
 """Perfiles de workload y resolución segura de la política de capacidad.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

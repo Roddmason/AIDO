@@ -3,7 +3,7 @@ import { expect, test } from './fixtures/operations.js';
 /**
  * Status bar worker item: a fresh install starts the worker paused on purpose, so the bar must say
  * so and resume it in one click; otherwise every queued operation waits forever without a cue.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 const pausedStatus = {

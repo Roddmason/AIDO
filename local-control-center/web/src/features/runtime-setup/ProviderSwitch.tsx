@@ -3,7 +3,7 @@
  * failover lo usa. Un solo marcado para las tarjetas de proveedores, de endpoints Ollama y de endpoints
  * locales, así que las tres se leen y se prueban igual. Queda bloqueado mientras una llamada en curso
  * usa el proveedor, y deshabilitado con una pista cuando todavía no hay cuenta que encender.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useI18n } from '../../i18n/I18nProvider';

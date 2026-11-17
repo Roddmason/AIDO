@@ -1,6 +1,6 @@
 """Admisión global, backpressure y recuperación de leases de recursos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

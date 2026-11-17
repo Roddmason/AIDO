@@ -9,7 +9,7 @@
  * exposes through its contextual primary. {@link buildFallbackCard} covers the honest gap: a run the
  * backend stopped without persisting any repair action. No React, no I/O — so the mapping is
  * unit-testable in isolation and the components stay thin.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { RemediationActionRecord } from '../../api/client';

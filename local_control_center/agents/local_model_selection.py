@@ -9,7 +9,7 @@ estado de carga desconocido nunca provoca un cambio de modelo. Los requisitos de
 ``review``, ``issue_to_patch``) y las capacidades ofrecidas se comparan en un solo vocabulario canónico
 (``normalize_model_capabilities``: ``code_edit``/``code_review``).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

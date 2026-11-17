@@ -4,7 +4,7 @@ Una validación exitosa que venció no prueba que falte login: repetir su mensaj
 iniciada") como causa del bloqueo es una contradicción que deja al operador sin saber qué hacer.
 Ese caso pide revalidación, no credenciales nuevas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

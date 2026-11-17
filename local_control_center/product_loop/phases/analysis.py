@@ -7,7 +7,7 @@ el alcance planificado. Es el productor del estado ``quality_review`` (huérfano
 es advisory por diseño: los hallazgos se persisten como evidencia visible para la aprobación humana,
 pero el veredicto de entrega sigue siendo de QA/Security — este análisis no puede aprobar ni vetar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

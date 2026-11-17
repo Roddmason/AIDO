@@ -1,7 +1,7 @@
 """Tests: el health-check de proveedor no persiste el catalogo completo de modelos, y su retencion
 conserva siempre la ultima fila por proveedor.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

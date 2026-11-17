@@ -5,7 +5,7 @@ runtimes Go, Rust o JVM reservan espacio de direcciones que nunca escriben, y ba
 4 GiB gitleaks (Go + wazero) aborta con "failed to reserve memory". Es además el equivalente del
 ``JobMemoryLimit`` de Windows, que limita memoria comprometida y no reservada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

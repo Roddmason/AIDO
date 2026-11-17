@@ -4,7 +4,7 @@ Cablea cada ruta a su comando de aplicación, construye el repositorio y el bus 
 por petición desde la conexión de la plataforma, y aplica el guard de escritura en las
 mutaciones (descubrir, crear, seleccionar directorio). No contiene lógica de negocio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

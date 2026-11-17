@@ -5,7 +5,7 @@
  * (runtime copy) plus `MotionProvider` (`LazyMotion`/`domMax` strict + `MotionConfig` whose
  * `reducedMotion` follows the user's persisted motion preference, falling back to the OS
  * media query).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import './design-system/tokens.css';
 import './design-system/base.css';

@@ -5,7 +5,7 @@ decisiones). Los literales acotados mantienen el contrato tipado de extremo a ex
 "Literal drift" que degrada el cliente generado a ``string`` o produce 500 al serializar. Solo modelan
 datos: la lógica vive en el repositorio y el coordinator.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

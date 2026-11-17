@@ -3,7 +3,7 @@
 No dependen del estado del coordinador; encapsulan las reglas de comparación entre una selección de
 recurso, sus aprobaciones previas y las observaciones de uso del runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
  * Lets the thread conversation fold the shell inspector away when it switches into the story board
  * layout, so the board, the chat column and the explorer fit without the inspector auto-opening;
  * the inspector stays one click away.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { createContext, useContext } from 'react';
 

@@ -2,7 +2,7 @@
 
 Only the summary rule changes; code, schemas, verification and runtime selection stay with their callers.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

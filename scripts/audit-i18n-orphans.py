@@ -17,7 +17,7 @@ default no la quita de las instalaciones ya sembradas (``ensure_seeded`` solo in
 Uso:
     python scripts/audit-i18n-orphans.py [--json ruta.json]
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

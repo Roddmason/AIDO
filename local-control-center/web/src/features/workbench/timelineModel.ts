@@ -2,7 +2,7 @@
  * Presentation model for the workbench run timeline: turns the staged status from
  * buildIssueTimeline into operator-facing phases with icon, i18n label and a human
  * reason per (phase, status), plus the index of the stage to focus.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideIcon } from 'lucide-react';

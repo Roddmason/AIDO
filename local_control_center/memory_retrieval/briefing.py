@@ -24,7 +24,7 @@ La redacción ocurre **antes** de medir, porque ``redact_secrets`` cambia el lar
 primero y redactar después podría reventar el presupuesto y, peor, cortar un patrón de secreto
 justo donde deja de ser reconocible.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

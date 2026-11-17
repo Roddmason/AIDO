@@ -4,7 +4,7 @@ Solo el argv exacto de una instalacion congelada y preferentemente offline (`--f
 `npm ci`, `--immutable`) es de bajo riesgo; cualquier otra invocacion de instalacion (agregar un
 paquete, instalar sin lockfile, actualizar) sigue en riesgo medio como hoy.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

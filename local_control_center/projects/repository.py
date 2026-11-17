@@ -7,7 +7,7 @@ no se agrupan escrituras atómicamente. ``create_project`` se confirma con su ú
 ``INSERT`` y es idempotente por ruta: si el proyecto ya existe no inserta y lo devuelve
 con ``_created=False``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

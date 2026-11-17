@@ -27,7 +27,7 @@ las reglas especificas, `_hard_cap_if_needed` poda la rama mas pesada del arbol 
 completo quepa en `DETAILS_HARD_CAP_BUDGET_BYTES`. Medido sobre las 498 filas reales: 0 filas sobre
 64 KiB tras la compactacion (maximo 61,4 KB), ~8 ms/fila.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 Regla del operador: si no elige, se asigna automáticamente; si eligió, manda su elección; solo cuentan
 los proveedores habilitados (switch propio, interruptor de grupo y política del proyecto).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

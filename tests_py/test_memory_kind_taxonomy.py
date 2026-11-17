@@ -2,7 +2,7 @@
 declarado, rechaza cualquier otro valor en el borde HTTP, y la migración normaliza filas legacy
 conservando el valor original sin perder legibilidad.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ pero la captura reportaba ``captured`` igual y enmascaraba la pérdida de eviden
 tests fijan el contrato fail-closed: denegación + untracked presentes => estado degradado
 distinguible de "no hay cambios" para los consumidores (gate del DeveloperAgent incluido).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

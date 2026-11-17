@@ -13,7 +13,7 @@ QAAgent los deje fuera del veredicto en vez de correrlos o contarlos como `skipp
 No ejecuta nada ni decide politica de seguridad: el comando real sigue pasando por el
 ToolBroker y la allowlist de `security_policy.permissions` como cualquier otro comando de QA.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

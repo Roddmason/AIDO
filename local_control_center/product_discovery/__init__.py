@@ -7,7 +7,7 @@ concepto vive en su propia tabla (nunca embebido en metadata) y se enlaza por re
 explícitas para mantener la trazabilidad. No exporta símbolos: cada consumidor importa de los
 submódulos `repository` o (a futuro) `models`/`api`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__: list[str] = []

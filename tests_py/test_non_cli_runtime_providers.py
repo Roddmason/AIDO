@@ -6,7 +6,7 @@ igual que el proveedor; y la familia OpenAI-compatible marca el uso como ``unkno
 cuando el proveedor no reporta tokens, en vez de inventar ceros. Todo contra un servidor
 HTTP de prueba que graba la cabecera ``Authorization`` recibida.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 Las transacciones sólo agrupan estado y auditoría; no ejecutan callbacks, red ni procesos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
  * of with the initial bundle. `DeferredLocalRuntime` wraps each one so a slow chunk shows a skeleton and
  * a failed download degrades to a retryable error inside Settings instead of blanking the dialog; the
  * wizard passes `placeholder={false}` because it renders nothing while closed.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

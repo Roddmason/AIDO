@@ -2,7 +2,7 @@
 categorías del panel (similares, decisiones, evidencia, lecciones, performance y funcionalidad
 ya implementada) desde datos reales sembrados por repositorio, sin tablas nuevas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

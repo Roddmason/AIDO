@@ -7,7 +7,7 @@ token OAuth de ``~/.claude/.credentials.json`` ya venció; la única señal hone
 credenciales y degradar a ``unauthenticated`` SOLO ante evidencia concluyente de vencimiento,
 preservando el invariante "unknown/ilegible nunca degrada".
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

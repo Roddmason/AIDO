@@ -1,6 +1,6 @@
 """roleModels se sella en el servidor, fija el modelo por rol en el loop y el cambio de modelo queda visible.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
  * quality gates) are applied by the repository before rendering. The overview roster
  * cannot be reused here: it resolves profiles without a project, so overrides and
  * their `projectOverride` marker would always be absent.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useEffect, useMemo, useState } from 'react';

@@ -4,7 +4,7 @@ Agrupa el router HTTP, el repositorio transaccional, los modelos de contrato y l
 helpers de aislamiento (copia de fuente o git worktree) y de snapshot/diff. No expone
 símbolos a nivel de paquete: cada consumidor importa desde el submódulo concreto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__ = []

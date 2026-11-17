@@ -4,7 +4,7 @@ Los modelos separan datos Git reales de estados operacionales. Cada respuesta ll
 ``status`` y ``reason`` para que la UI pueda mostrar execution/blocked/configuration_required
 sin inventar disponibilidad.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

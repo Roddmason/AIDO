@@ -3,7 +3,7 @@
 Se comprueba que el total incluye todos los archivos no ignorados, que se truncan los detalles a 200 y que el estado
 es "missing" cuando el directorio no existe.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

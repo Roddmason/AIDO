@@ -4,7 +4,7 @@
  * thread persists its team before the first message. Candidates, validate-runtime and
  * run-configuration are mocked so the scenarios never depend on real provider credentials; the
  * thread and its first message go to the real control plane.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

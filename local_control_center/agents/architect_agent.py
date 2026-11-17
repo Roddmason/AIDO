@@ -4,7 +4,7 @@ Selecciona un runtime de modelo, le envía el diff junto a docs/tests/riesgos ac
 JSON de salida cumpla el esquema y que cada finding/risk/cambio cite refs de evidencia presentes en la
 entrada (anti-alucinación). Solo persiste ADR y riesgos tras validar; falla cerrado si la evidencia falta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

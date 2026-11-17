@@ -5,7 +5,7 @@ verificando que el modo de integración configurado por proyecto gobierna el ate
 local a la base con GC de rama (``direct_push``), degradación explícita cuando los modos de PR
 no tienen remoto, y publicación de la rama de trabajo cuando sí lo hay.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

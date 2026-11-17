@@ -8,7 +8,7 @@ emite ``started``, ``tool_action``, ``file_changed`` (diff git de la sesión), y
 ``completed``/``failed``/``cancelled``. La fila de ``cli_sessions`` pasa de ``running`` al estado final
 con sus artifacts de stdout/stderr. La cancelación mata el proceso y marca la sesión como ``cancelled``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

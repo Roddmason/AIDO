@@ -7,7 +7,7 @@
  * the automatic ones follow the backend split for the current selection. A failed test shows each
  * model tried with its HTTP status and body; a row that cannot be ticked says why; API and gateway
  * rows can test one chosen model (a gateway may expose 1000+).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 

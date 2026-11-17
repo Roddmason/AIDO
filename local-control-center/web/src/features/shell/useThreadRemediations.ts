@@ -8,7 +8,7 @@
  * Reads keep the previous cards visible during a background refetch — no full-panel skeleton flash.
  * A successful `execute` also wakes the thread's event stream so the restarted work shows up without
  * waiting for the idle poll.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

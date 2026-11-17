@@ -2,7 +2,7 @@
  * Labelled radio row (`.checkbox-row`, shared with {@link Checkbox}). The native
  * `<input type="radio">` is wrapped by its `<label>` so the whole row toggles it; ref and native
  * props (checked, onChange, name, disabled) pass straight through.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { InputHTMLAttributes, ReactNode } from 'react';

@@ -6,7 +6,7 @@ gestionado por `workers.leadership.WorkerLeadershipRepository`; no hay heartbeat
 `jobs_approvals`) para no competir por el candado de escritura con un `VACUUM` que reescribe todo
 el archivo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

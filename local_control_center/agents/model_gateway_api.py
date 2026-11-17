@@ -4,7 +4,7 @@ Expone los endpoints REST que administran el catálogo de proveedores, modelos, 
 de ruteo, límites, presupuestos, ledger de uso, benchmarks y runtimes CLI, además de previsualizar y
 ejecutar rutas. La ejecución falla cerrada: exige aprobación, policy SQLite y credenciales válidas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

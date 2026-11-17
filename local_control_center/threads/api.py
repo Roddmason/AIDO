@@ -6,7 +6,7 @@ usuario —que dispara el ``ThreadCoordinator`` (responde o bloquea)— y resolv
 No contiene lógica de negocio: delega en ``ThreadsRepository`` y ``ThreadCoordinator``. Mapea
 ``KeyError→404`` y ``ValueError→422``; los errores no controlados los captura el handler global de la app.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ Invariante central (alineado con el motor y con el gate de front): un costo, tok
 se modelan como ``None``, nunca como ``0``. Sumar solo conoce valores presentes; si no hay ninguno, el
 total es ``None`` y el estado es ``unknown``. Solo lee: no ejecuta rutas ni muta estado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

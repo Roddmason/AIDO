@@ -8,7 +8,7 @@ para detectar el fallo.
 
 Las firmas de este test son transcripciones literales de las salidas reales de los CLIs.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

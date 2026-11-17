@@ -3,7 +3,7 @@
  * and surfaces the summary (stack, risk/gap counts, quality signals, debt markers) plus a
  * filterable findings table. Owns its own fetch lifecycle; does NOT touch client.ts or the
  * generated OpenAPI layer — consumes the three assessment endpoints via apiRequest directly.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

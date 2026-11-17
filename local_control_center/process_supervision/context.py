@@ -1,6 +1,6 @@
 """Propagación explícita de identidad, conexión y reserva de la ejecución productiva.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

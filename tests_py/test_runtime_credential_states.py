@@ -5,7 +5,7 @@ Una referencia de credencial presente y bien formada SÍ es configuración; que 
 valor es un estado de *verificación*, no de *configuración*. Y una cuenta deshabilitada está
 configurada: le falta habilitarse, no configurarse.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

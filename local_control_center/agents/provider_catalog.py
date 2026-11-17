@@ -5,7 +5,7 @@ operator inputs, credential mode, model discovery strategy, docs/pricing referen
 and representative model ids. Provider accounts remain the mutable runtime state; this
 module is the immutable product contract for creating those accounts safely.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

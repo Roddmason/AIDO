@@ -1,6 +1,6 @@
 """Protocolo común para supervisores nativos de árboles de procesos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Tests del ThreadCoordinator: ejecuta el clasificador determinista sobre el mensaje de usuario y
 responde (aido_lead) o bloquea (decision_request), dejando artifacts y eventos en el hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

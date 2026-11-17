@@ -3,7 +3,7 @@
  * it tried with the HTTP status the provider answered and an excerpt of its body (full text behind a
  * disclosure, secrets masked), so a reachable gateway that rejects upstreams without an account no
  * longer reads as a bare `runtime_validation_failed`. Also explains why a row cannot be selected.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { RuntimeTeamCandidate, RuntimeValidationResponse } from '../../api/client';
 import { useI18n } from '../../i18n/I18nProvider';

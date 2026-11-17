@@ -4,7 +4,7 @@ The validator is intentionally strict: a plugin manifest is a security boundary,
 catalog record. It requires explicit permissions, checksummed file contracts, ToolBroker-backed
 tools, and agent contracts with role, capabilities, and schema before persistence can proceed.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

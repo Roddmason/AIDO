@@ -3,7 +3,7 @@
 Una consulta no admite trabajos ni sondea procesos. Consume muestras durables con frescura
 acotada; la admisión atómica del scheduler sigue siendo la autoridad al ejecutar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

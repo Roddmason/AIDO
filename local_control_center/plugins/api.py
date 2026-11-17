@@ -3,7 +3,7 @@
 Every mutation revalidates the manifest fail-closed and appends install/audit events, so
 blocked third-party plugins always leave an inspectable reason trail.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

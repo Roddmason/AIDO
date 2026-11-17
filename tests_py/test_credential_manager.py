@@ -104,7 +104,7 @@ def test_create_persists_ref_and_fingerprint_without_returning_or_storing_value(
             value=SECRET,
             locator="AIDO/codex",
             auth_mode="subscription",
-            actor="rodd",
+            actor="fixture-operator",
         )
         assert created["backendKind"] == "memory"
         assert created["status"] == "active"
@@ -135,7 +135,7 @@ def test_validate_detects_match_mismatch_and_missing(tmp_path: Path) -> None:
         manager, repository, backend = _manager(connection)
         manager.create_credential(name="c", value=SECRET, locator="loc")
 
-        ok = manager.validate("c", actor="rodd")
+        ok = manager.validate("c", actor="fixture-operator")
         assert ok == {"name": "c", "present": True, "valid": True, "fingerprintMatches": True}
         assert SECRET not in str(ok)
 
@@ -159,7 +159,7 @@ def test_rotate_updates_fingerprint_and_revalidates(tmp_path: Path) -> None:
         manager.create_credential(name="c", value=SECRET, locator="loc")
         first = connection.execute("SELECT fingerprint FROM credential_refs WHERE name = 'c'").fetchone()[0]
 
-        rotated = manager.rotate("c", "rotated-secret-987", actor="rodd")
+        rotated = manager.rotate("c", "rotated-secret-987", actor="fixture-operator")
         assert rotated["rotatedAt"]
         assert SECRET not in str(rotated) and "rotated-secret-987" not in str(rotated)
         second = connection.execute("SELECT fingerprint FROM credential_refs WHERE name = 'c'").fetchone()[0]
@@ -175,7 +175,7 @@ def test_delete_removes_backend_secret_and_ref_but_keeps_audit(tmp_path: Path) -
         manager, repository, backend = _manager(connection)
         manager.create_credential(name="c", value=SECRET, locator="loc")
 
-        result = manager.delete("c", actor="rodd")
+        result = manager.delete("c", actor="fixture-operator")
         assert result == {"name": "c", "deleted": True}
         assert backend.read("loc") is None
         assert repository.find_credential_by_name("c") is None

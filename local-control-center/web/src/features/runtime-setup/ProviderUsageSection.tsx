@@ -3,7 +3,7 @@
  * weekly, daily, monthly) with the suspension threshold marked on it, the "Suspended until" state
  * with a manual resume, and the operator's per-provider threshold (or "inherit the general one").
  * A provider over its threshold is skipped by AIDO even mid-loop, so the card must say so plainly.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Gauge, RefreshCw } from 'lucide-react';

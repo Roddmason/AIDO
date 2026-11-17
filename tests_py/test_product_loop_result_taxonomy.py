@@ -8,7 +8,7 @@ entero en rojo porque el default era el evento ``blocked``), y el ``MILESTONE_IN
 ejecución (un estado sin entrada congela el stepper en el hito anterior). Si el coordinator gana un
 status nuevo, este gate obliga a decidir su ruteo en el mismo commit.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

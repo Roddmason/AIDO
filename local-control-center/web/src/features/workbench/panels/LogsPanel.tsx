@@ -1,7 +1,7 @@
 /**
  * Workbench Logs panel: merges project events and workflow events into one
  * recency-sorted, client-filterable table, capped to the latest entries.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo, useState } from 'react';
 

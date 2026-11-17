@@ -3,7 +3,7 @@
  * scope, policy reason, linked evidence/artifacts, the patch/diff/security gate,
  * and the decision reason with the gated Approve/Reject buttons. Purely
  * presentational — all decision state and side effects come in via the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';

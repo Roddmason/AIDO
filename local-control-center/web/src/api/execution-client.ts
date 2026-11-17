@@ -1,7 +1,7 @@
 /**
  * Resolves queued domain operations with short, cancellable HTTP reads.
  * Aborting observation never cancels durable server work; cancellation is an explicit control.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	type ApiOperationId,

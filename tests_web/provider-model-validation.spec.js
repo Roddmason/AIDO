@@ -7,7 +7,7 @@ import { fetchThrough } from './fixtures/network.js';
  * discarded" and a filterable result list where a discarded model offers Retest and Re-enable. The
  * backend is mocked end to end (providers, models, the queued operation, its execution and the
  * model-validation status): the domain behaviour is pinned by tests_py/test_gateway_catalog_validation.py.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 const PROVIDER = 'omniroute';

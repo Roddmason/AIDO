@@ -10,7 +10,7 @@
  *   (its old hashed chunks are gone), and the reload also picks up the new build. It stays an operator
  *   action: reloading automatically on a chunk that keeps failing would loop forever.
  * Reports a fixed correlated signal; never sends the exception or form contents.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

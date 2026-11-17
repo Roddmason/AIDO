@@ -2,7 +2,7 @@
 
 Vive aparte del coordinador para que las fases lo tipen sin importar la clase de 6 mil líneas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

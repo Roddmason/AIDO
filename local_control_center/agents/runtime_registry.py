@@ -5,7 +5,7 @@ DeveloperAgent runs (explicit configured argv first, otherwise the runtime's own
 builder), and exposes detection/health checks per CLI runtime. Every generated command
 stays inside the allocated workspace and never commits, pushes, or touches secrets.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

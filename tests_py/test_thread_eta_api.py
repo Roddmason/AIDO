@@ -1,6 +1,6 @@
 """Contrato HTTP del campo ``eta``: presente en el detalle y en el stream de eventos del hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

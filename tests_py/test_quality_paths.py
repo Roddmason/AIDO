@@ -1,6 +1,6 @@
 """Fail-closed scratch isolation and immutable runner receipts.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import hashlib

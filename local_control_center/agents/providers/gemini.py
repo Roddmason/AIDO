@@ -8,7 +8,7 @@ El millon de tokens publicado por Google es una ventana de contexto por solicitu
 una bolsa fija de cuota gratuita. Los limites del tier gratuito son dinamicos por
 proyecto y modelo, por lo que este modulo declara elegibilidad sin inventar cupos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

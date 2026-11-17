@@ -1,6 +1,6 @@
 """La prueba de runtime es una operación encolada por runtime con su propia clase de carga.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

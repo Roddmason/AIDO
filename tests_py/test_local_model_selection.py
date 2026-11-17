@@ -1,6 +1,6 @@
 """Selección determinista del modelo local: cargado, afinidad, por defecto, orden y bloqueo sin fallback.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ en su impacto de producto, decide la transición del loop y aplica sus efectos s
 aprobaciones de entrega y continuaciones, todo en la transacción del coordinator. Las operaciones del loop
 y de entrega se resuelven a través del coordinator para conservar el parcheo por clase o por instancia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

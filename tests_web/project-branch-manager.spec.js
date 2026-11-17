@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test';
  * keyboard operable, open-folder calls the backend (never a browser path), protected branches are
  * not selectable, and destructive requests carry exactly the reviewed selection — force delete
  * only after the extra acknowledgement, remote delete only when opted in.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 const SCREENSHOT_DIR = process.env.AIDO_BRANCHES_SCREENSHOT_DIR || '';
@@ -40,7 +40,7 @@ function branch(overrides) {
 		lastCommit: {
 			hash: 'a'.repeat(40),
 			date: '2026-09-20T10:00:00+00:00',
-			author: 'Rodrigo Mason',
+			author: 'AIDO contributors',
 			subject: `Work on ${overrides.name}`,
 		},
 		ageDays: 7,

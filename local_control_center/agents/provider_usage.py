@@ -23,7 +23,7 @@ Fuentes del porcentaje (best effort; sin dato, el proveedor no se suspende por u
 Ninguna consulta corre dentro de una transacción SQLite: el refresco lo dispara el worker líder o la
 API, y la suspensión se lee solo de la base.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ Cada comando valida lo mínimo (p. ej. razón obligatoria en aprobaciones), dele
 transacción en `JobsRepository` y convierte los `ValueError` de conflicto de estado en
 `HTTPException` 409/422. No conoce SQL ni el connection: ese contrato vive en el repositorio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

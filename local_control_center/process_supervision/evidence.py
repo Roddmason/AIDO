@@ -1,6 +1,6 @@
 """Proyección de evidencia nativa y hashes de artefactos, sin guardar argv ni prompts.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ the downstream approve -> promote-branch -> create-PR transitions, adapting each
 issue_to_pr steps and timeline. A blocked gate stops the DAG and records why; nothing is promoted
 until every required gate has passed and a human approval action exists.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

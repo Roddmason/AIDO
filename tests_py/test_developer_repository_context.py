@@ -3,7 +3,7 @@
 Reproduce lo visto en vivo: sin mapa, gemma creó ``textkit/utils.py`` en la raíz de un proyecto con
 layout ``src/textkit/`` (QA: ``ModuleNotFoundError``) y reescribió el README sin conocerlo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

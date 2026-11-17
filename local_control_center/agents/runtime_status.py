@@ -6,7 +6,7 @@ available/executable and a human reason. SQLite runtime settings are authoritati
 execution; legacy env flags are surfaced only as environment_override warnings. Error
 text is redacted.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

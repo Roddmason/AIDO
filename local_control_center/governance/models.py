@@ -5,7 +5,7 @@ respuesta para los tres recursos. Los Literal fijan los enums permitidos y los
 validadores `before` normalizan a minúsculas para que el alias camelCase del API
 sea estable frente a entradas con mayúsculas mixtas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

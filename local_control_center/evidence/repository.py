@@ -5,7 +5,7 @@ mutaciones usan la `connection` recibida del caller y NO hacen commit: el caller
 transacción (típicamente un INSERT de paquete + sus test_results + su qa_verdict deben confirmarse
 o revertirse juntos). Toda entrada se pasa por `redact_secrets` antes de serializarse a JSON.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

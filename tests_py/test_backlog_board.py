@@ -1,6 +1,6 @@
 """Módulo puro del tablero por historia: orden, "done", huella de spec, columnas y etapas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

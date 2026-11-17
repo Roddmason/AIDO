@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Encabezado de cada archivo productivo nuevo: docstring/JSDoc en español con `@author Rodrigo Mason` (gate `test:py`).
+- Encabezado de cada archivo productivo nuevo: docstring/JSDoc en español con `@author AIDO contributors` (gate `test:py`).
 - Copy de UI siempre por `t('clave', 'fallback en inglés')` y clave registrada en `local_control_center/i18n/default_catalog.json` con `en` y `es` distintos (gate i18n). Fallback en inglés = texto `en` del catálogo, exacto.
 - Archivos nuevos y editados terminan en LF (nunca CRLF). Tras un `Path.write_text` o edición multilínea, verificar con `python -c "import sys; print(b'\r\n' in open(sys.argv[1],'rb').read())" <archivo>` → `False`.
 - Nuevo contrato de respuesta HTTP ⇒ `response_model` tipado en Pydantic + `corepack pnpm@10.24.0 run openapi:generate` (gate de drift del cliente generado).
@@ -43,7 +43,7 @@
 # tests_py/test_global_team.py
 """Equipo de IA global: settings por rol, resolución sobre proveedores activos y sellado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -317,7 +317,7 @@ heredan del PO cuando quedan vacíos. Los ids que no son activos ni elegibles se
 y no rompen la resolución. La política del proyecto (`project.runtime.allowedProviders` y el veto de
 `runtime_policy_decision`) solo restringe.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1269,7 +1269,7 @@ git commit -m "Feature (Web): switch por proveedor en Providers & CLI y conteo d
  * Global AI team settings: per role, an ordered list of active providers (first = assigned, rest =
  * fallback) editable at general and project scope; "Automatic" clears the override. The team
  * endpoint and the settings writes are mocked; the Settings modal is the real one.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 
@@ -1381,7 +1381,7 @@ Expected: FAIL (no existe la sección "AI team").
 /**
  * Loads the effective global AI team of a project (or the general one with `projectId === null`).
  * Only the latest request writes state; `reload` re-queries after a settings write.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -1431,7 +1431,7 @@ export function useRuntimeTeam(projectId: string | null, enabled: boolean) {
  * The backend resolves eligibility, the automatic split and the effective order; this panel only
  * edits the `team.role.<role>` string lists of the current scope (general or project) and shows
  * where the effective order comes from. "Automatic" clears the scope's override.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useState } from 'react';
 
@@ -1748,7 +1748,7 @@ En `RuntimeTeamPanel.tsx:395`, cambiar el fallback del botón a `t('app.runtimeT
 /**
  * Effective AI team of a thread: per role, the provider that will run it and where the choice
  * comes from (this thread's own team, the project or general setting, or the automatic split).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useI18n } from '../../i18n/I18nProvider';
 import { readRuntimeTeam } from '../runtime-team/runtimeTeamModel';

@@ -13,7 +13,7 @@ contenido es que no pasó nada.
 Lo que estos tests protegen no es "borrar": es **qué NO se borra**. La auditoría, las decisiones y
 los eventos de dominio no se tocan nunca, por antiguos que sean.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

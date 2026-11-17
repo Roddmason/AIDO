@@ -6,7 +6,7 @@
  * opens a drawer with criteria, activity and — only while the loop awaits review — a real
  * `request_changes` feedback form. Desktop and phone. Routed fixture thread; the backend contract is
  * covered by tests_py/test_thread_board_api.py and tests_py/test_backlog_board.py.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

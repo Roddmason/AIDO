@@ -1,6 +1,6 @@
 """Pure NVIDIA NIM compatibility evaluation over sanitized host observations.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

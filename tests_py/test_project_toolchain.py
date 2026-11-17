@@ -5,7 +5,7 @@ fallaba: no corría nada y el resultado salía como saltado, que es peor que un 
 que se verificó. Acá se fija que el plan sale de los manifiestos del propio proyecto y que el
 wrapper versionado del repo le gana al binario global.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -284,7 +284,7 @@ def test_a_repo_wrapper_counts_as_available_even_though_it_is_not_on_the_path(
 ) -> None:
     """El wrapper vive en el repo, no en el PATH: buscarlo con `which` lo declara ausente.
 
-    Defecto real: `votacionEnLinea` tiene `mvnw.cmd` y se reportaba `java-maven` ausente en un host
+    Defecto real: `example-project` tiene `mvnw.cmd` y se reportaba `java-maven` ausente en un host
     que sí tiene Maven instalado. Pedirle al operador que instale algo que ya está ahí es el mismo
     error que motivó todo este trabajo, una capa más abajo.
     """

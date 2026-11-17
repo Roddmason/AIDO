@@ -1,6 +1,6 @@
 """Shared Product Loop metadata helpers.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

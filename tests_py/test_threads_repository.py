@@ -1,7 +1,7 @@
 """Tests del ThreadsRepository: header polimórfico, timeline con secuencia monótona,
 artifacts enlazados, bitácora de eventos y solicitudes de decisión.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

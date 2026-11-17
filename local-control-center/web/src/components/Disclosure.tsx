@@ -3,7 +3,7 @@
  *
  * Keeps the WAI-ARIA disclosure wiring (heading-level trigger, `aria-expanded`,
  * controlled region) in one place so feature panels can hide dense content safely.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';

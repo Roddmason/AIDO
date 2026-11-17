@@ -6,7 +6,7 @@
  * are healthy or were simply never set up produce nothing, so the shell never nags about unused AIs.
  * The blockerType reuses the remediation vocabulary so the modal renders the same plain-language chip
  * as a blocked loop. Pure data — the StatusBar and the health modal map it to localized copy.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { RuntimeProviders } from '../api/types';
 

@@ -13,7 +13,7 @@ encolada es exactamente la misma que dispara el operador desde la UI.
 Se refresca con margen: la evidencia se renueva antes de vencer, no después, para que no exista una
 ventana en la que un sistema sano se reporte bloqueado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

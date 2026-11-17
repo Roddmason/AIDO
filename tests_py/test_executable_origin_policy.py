@@ -10,7 +10,7 @@ ejecutable que no viene del PATH ni del workspace asignado no obtiene `allow`, y
 legitimos que el planificador emite —binario del PATH y wrapper versionado del repo— siguen
 pasando.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ Cada operacion crea un agent run auditable, registra un workspace de proyecto cu
 y ejecuta los comandos con argv estructurado bajo ``ToolBroker``. No usa shell ni invoca Git
 por fuera del broker; si el runtime local no esta disponible, devuelve estado explicito.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

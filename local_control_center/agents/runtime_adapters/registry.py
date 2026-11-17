@@ -5,7 +5,7 @@ probes, and every catalogued provider family); `RuntimeAdapterBrokerAdapter` nor
 broker tool call into a typed request; `UnavailableRuntimeAdapter` is the fail-closed
 placeholder for adapters that cannot run.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

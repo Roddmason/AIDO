@@ -260,4 +260,4 @@ migration twice and exercise upgrade from a baseline database copy.
   all exit zero, with no secrets and no unmanaged orphan processes.
 - No P1/P2 integration is implemented, pushed or merged.
 
-@author Rodrigo Mason
+@author AIDO contributors

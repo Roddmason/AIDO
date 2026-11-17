@@ -6,7 +6,7 @@ verificada; (2) Azure autentica con la cabecera ``api-key`` (no ``Authorization:
 factory despacha los ids nuevos al adaptador correcto; y (4) el endpoint ``test-prompt`` falla cerrado
 (CLI, deshabilitado, desconocido) y nunca expone el secreto en su respuesta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

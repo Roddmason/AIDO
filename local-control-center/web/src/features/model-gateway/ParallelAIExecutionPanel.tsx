@@ -1,7 +1,7 @@
 /**
  * Bounded one-or-many chat execution console. Every branch is explicit and the
  * backend owns quota admission, concurrency and auditable settlement.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 

@@ -6,7 +6,7 @@
  * not loopback, offering the audited "runs on this machine (WSL/Docker)" declaration. The models step
  * shows each model's load state and edits enabled, default and code capabilities; the validate step
  * runs the real validation of the default model. Secrets never enter this component: only references.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {

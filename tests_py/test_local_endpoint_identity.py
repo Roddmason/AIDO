@@ -1,6 +1,6 @@
 """Alta local desde el catálogo: URL del operador preservada y runtime por instancia completo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

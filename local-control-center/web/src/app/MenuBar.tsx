@@ -8,7 +8,7 @@
  * pointer-down outside closes. Theme, density and About are handled here via hooks;
  * every other command is delegated upward via props. Stateless beyond its own
  * open-menu/focus chrome.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/ui';

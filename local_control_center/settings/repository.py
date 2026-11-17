@@ -6,7 +6,7 @@ Values are stored as JSON so any JSON-serialisable type round-trips without info
 All writes are atomic upserts via ``INSERT ... ON CONFLICT`` (single-statement transactions);
 no explicit transaction management is needed because callers control the connection lifecycle.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

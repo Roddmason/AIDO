@@ -6,7 +6,7 @@
  * decision's options, a single "Send answers" button resolves everything the operator answered
  * together, and the chat gets one combined message — never the interactive card, never one message
  * per decision.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

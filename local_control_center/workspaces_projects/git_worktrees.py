@@ -5,7 +5,7 @@ sin tocar el árbol original, y al archivar captura el diff resultante. En flujo
 Git se ejecuta mediante ToolBroker/policy sobre workspaces asignados; ante git ausente o repo
 inválido devuelve estados ``degraded_*`` en vez de lanzar, para que el aislamiento sea opcional.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 /**
  * Plan tab of the Thread Inspector: blocked-loop banner with its clearing action, phase timeline, transitions, acceptance criteria and quality gates for the thread's product loop.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle } from 'lucide-react';
 import type { ThreadAgentEvent } from '../../../api/types';

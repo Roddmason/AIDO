@@ -5,7 +5,7 @@ aceptacion + responsabilidades por rol llegan ensamblados (build/render), el pro
 del DeveloperAgent los incluye solo cuando se proveen y el endpoint read-only los
 expone por proyecto/historia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

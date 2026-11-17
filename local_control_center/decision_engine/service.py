@@ -2,7 +2,7 @@
 
 No retorna comandos, reservas ni autoridad. Las cancelaciones se propagan y las
 respuestas externas se revalidan incluso cuando vienen de un adaptador inyectado.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

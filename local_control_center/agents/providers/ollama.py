@@ -6,7 +6,7 @@ Ollama. Por defecto (local) no usa credencial; cuando se configura un ``credenti
 sin exponer el secreto. Trata el costo como gratis y deriva el uso de los contadores
 `*_eval_count`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

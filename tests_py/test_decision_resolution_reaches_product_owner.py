@@ -1,13 +1,13 @@
 """Resolver la decisión del hilo debe cerrar también la decisión de producto que la originó.
 
-Bug observado en vivo (2026-07-23, votacionenlinea): el ProductOwnerAgent retuvo el backlog con
+Bug observado en vivo (2026-07-23, example-project): el ProductOwnerAgent retuvo el backlog con
 "3 blocking decision(s) remain unresolved" mientras las 9 decisiones del hilo estaban resueltas.
 La causa: el PO lee ``product_decisions`` (``status == 'proposed'`` + ``metadata.blocking``),
 pero la UI, el composer y la API resuelven ``thread_decisions``. El enlace existe —cada
 ``thread_decision`` guarda ``metadata.productDecisionId``— pero la resolución nunca se propagaba,
 así que el cliente respondía y el agente le volvía a preguntar indefinidamente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

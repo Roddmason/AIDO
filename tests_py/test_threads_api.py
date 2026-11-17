@@ -1,7 +1,7 @@
 """Tests del router HTTP de threads: crear hilo, enviar mensaje (coordinator responde o bloquea),
 artifacts visibles en el hilo, guardas de escritura y presencia en el overview.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

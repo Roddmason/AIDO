@@ -1,6 +1,6 @@
 """Regresiones de controles operacionales que no deben ejecutar trabajo en la API.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

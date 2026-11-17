@@ -6,7 +6,7 @@
  * proyecto. Output lista los comandos de QA realmente ejecutados (test results del proyecto).
  * El stream solo se suscribe con el dock abierto: el pane desktop mantiene montado a su hijo aun
  * colapsado, así que un poll incondicional correría invisible.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Terminal, X } from 'lucide-react';
 import { useMemo, useState } from 'react';

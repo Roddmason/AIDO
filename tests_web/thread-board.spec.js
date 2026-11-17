@@ -5,7 +5,7 @@
  * phone, and retrying a blocked story moves its card within the 2 s refresh SLA even when the event
  * stream had gone idle. Fixture thread with routed board/events/remediations; the backend contract
  * is covered by tests_py.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

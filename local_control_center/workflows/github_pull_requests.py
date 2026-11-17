@@ -5,7 +5,7 @@ environment, then opens a pull request over urllib with structured, secret-redac
 output. Failures never raise to the caller: every error path returns a ``status: failed``
 dict so the workflow can record the attempt instead of crashing.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

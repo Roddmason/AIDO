@@ -1,6 +1,6 @@
 """Ejecutor secuencial de quality tiers con árboles supervisados y reportes recuperables.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

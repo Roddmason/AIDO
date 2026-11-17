@@ -4,7 +4,7 @@ Hosts the runtime tool-name allowlist plus the argv/workspace/timeout guards eve
 applies before executing, and the `_ArtifactRecorder` that persists redacted adapter output
 as artifacts and evidence packages.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

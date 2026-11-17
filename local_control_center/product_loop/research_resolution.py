@@ -2,7 +2,7 @@
 
 This module never performs research or inference. Metadata supplied by callers is not authority.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

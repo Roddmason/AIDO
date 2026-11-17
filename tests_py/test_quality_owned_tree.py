@@ -1,6 +1,6 @@
 """Regresión nativa del redirector Python de Windows en el cierre de servidores de QA.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import os

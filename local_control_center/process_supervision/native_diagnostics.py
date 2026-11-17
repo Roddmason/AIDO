@@ -1,7 +1,7 @@
 """Captura Windows privada y opt-in: identidad exacta, ProcDump contenido, sin registro global.
 
 Los imports Windows son locales. Un minidump se clasifica SENSITIVE_NATIVE y nunca se exporta.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

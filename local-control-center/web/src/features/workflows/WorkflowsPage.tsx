@@ -3,7 +3,7 @@
  * concrete run in the shell Inspector (deep-linkable as `#workflows?run=<id>`); the run's full
  * detail — timeline, agents, evidence, artifacts, policy — lives there (see RunDetail), not in a
  * page-local drawer or an artificial step graph.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo } from 'react';
 

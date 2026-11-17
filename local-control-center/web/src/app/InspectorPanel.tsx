@@ -6,7 +6,7 @@
  * (Goal, Team, Plan, Backlog, Memory, Research, Artifacts, Settings) sobre el hilo activo. En
  * el resto de áreas conserva el resumen del proyecto (aprobaciones, evidencia, workspaces,
  * workflows), y cuando hay un run seleccionado muestra su detalle.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { Variants } from 'motion/react';

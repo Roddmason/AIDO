@@ -1,6 +1,6 @@
 """Gobierno durable de capacidad del host para workloads administrados por AIDO.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from .governor import HostResourceGovernor

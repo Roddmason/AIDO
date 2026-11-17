@@ -11,7 +11,7 @@
  * "Copy diagnostic" is always available and "Dismiss" appears only when there is a record to dismiss.
  * Executing runs through {@link ThreadRemediationsHandle}; opening a settings section is delegated to
  * the host so the same card works in the conversation and the inspector.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { AlertTriangle, ClipboardCopy, ExternalLink, RefreshCw, Settings2, X } from 'lucide-react';

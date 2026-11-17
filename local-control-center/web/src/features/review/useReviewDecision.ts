@@ -3,7 +3,7 @@
  * linked evidence/artifacts, lazily loads the patch and security payloads, derives
  * the evidence gate, and submits the decision (chaining the workflow-approval call
  * when the action approves a patch/PR run). All decision state lives here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';

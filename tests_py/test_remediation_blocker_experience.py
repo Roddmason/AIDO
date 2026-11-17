@@ -5,7 +5,7 @@ Cubre los tipos de bloqueo que ``test_product_loop_coordinator.py`` no ejercita 
 acciones destructivas y la metadata explícita (primary/destructive/technicalReason) que
 cada remediation debe exponer al frontend.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

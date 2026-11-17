@@ -9,7 +9,7 @@ del tamaño del equipo base). Por cada rol resuelve permission profile (de
 skills, tools, presupuesto, reviewer y quality gates. El reviewer nunca es ``self`` para roles o
 contextos sensibles a seguridad ni con riesgo alto, sin importar el modo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

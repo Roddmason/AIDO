@@ -2,7 +2,7 @@
 
 Only code-owned module names are imported; durable input cannot select a Python module.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import importlib

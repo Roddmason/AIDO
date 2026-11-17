@@ -6,7 +6,7 @@
  * renders the Goal view from actual thread data, and never strands a view on its loading
  * skeleton after rapid tab switching (regression: the in-flight dedup marker must reset
  * synchronously when a tab unmounts mid-fetch).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 import { fetchThrough } from './fixtures/network.js';

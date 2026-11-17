@@ -12,7 +12,7 @@
  * to the activated card (native `disabled` drops it to <body> during the write), and
  * the roving tab stop always lands on a real card even if the stored value drifts
  * outside the current option set.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideIcon } from 'lucide-react';

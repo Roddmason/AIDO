@@ -2,7 +2,7 @@
  * Data hook for the Workbench: scopes the global overview to the selected project and
  * session, builds the team/delivery/timeline rows and blockers, and keeps the session
  * selection valid as projects change. Holds all derivation so WorkbenchPage stays a thin shell.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideIcon } from 'lucide-react';

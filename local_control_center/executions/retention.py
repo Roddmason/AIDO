@@ -8,7 +8,7 @@ status='completed' ORDER BY finished_at DESC LIMIT 1``); esa fila nunca se poda,
 antiguedad. Las filas se insertan y transicionan en orden temporal real (nunca retrocede
 ``finished_at``), asi que el ``rowid`` mas alto de ese filtro es siempre la mas reciente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

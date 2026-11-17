@@ -4,7 +4,7 @@ Define el vocabulario tipado compartido por el API y el repositorio: tipos de ar
 de evidencia, veredictos QA y estados de test, más los modelos de entrada/salida HTTP. Los alias
 camelCase fijan la forma del JSON expuesto frente al snake_case interno de Python.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

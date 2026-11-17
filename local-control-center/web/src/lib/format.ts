@@ -2,7 +2,7 @@
  * Helpers de presentación que mapean datos crudos a texto/semántica para la UI.
  * Cubre el truncado de IDs largos, el enmascarado defensivo de secretos en texto
  * libre, y la traducción de estados de dominio al tono visual de la paleta.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { maskSecrets } from './redaction';
 

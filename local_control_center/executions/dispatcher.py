@@ -3,7 +3,7 @@
 La API no invoca este módulo. El worker mantiene su heartbeat y el supervisor puede terminar
 también una llamada remota bloqueada, sin depender de cancelar un hilo Python.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

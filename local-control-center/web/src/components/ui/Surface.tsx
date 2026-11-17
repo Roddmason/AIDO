@@ -1,7 +1,7 @@
 /**
  * Sección de contenido tipo card (`.surface`, variante `flat`) con título opcional;
  * participa en las animaciones de entrada de página vía `data-motion-item`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 

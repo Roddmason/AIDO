@@ -6,7 +6,7 @@ calcula la completitud de forma determinista y NO genera épicas/HU/criterios si
 bloqueantes sin resolver. Solo persiste discovery y backlog tras validar; falla cerrado si falta runtime
 o la salida es inválida.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

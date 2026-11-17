@@ -1,6 +1,6 @@
 """Tests de la resolución del workspace al encolar investigación de hilos no ligados a un workspace.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

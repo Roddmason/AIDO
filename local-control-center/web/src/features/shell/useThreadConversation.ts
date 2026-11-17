@@ -5,7 +5,7 @@
  * Reads go straight to the API; writes flow through the control-plane `mutate` runner so the
  * write token is injected and the global overview refreshes. After every write we reload the
  * thread detail so the transcript reflects the coordinator's response or block immediately.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getThread, postThreadMessage, resolveThreadDecisionsBatch } from '../../api/client';

@@ -3,7 +3,7 @@
  * `ReviewItem`s from the raw overview, classifies them into lanes, and owns the
  * single source of truth for the patch evidence gate (refs, QA, security).
  * No React here — every export is deterministic and unit-testable.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';

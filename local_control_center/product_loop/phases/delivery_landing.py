@@ -5,7 +5,7 @@ aprobación de entrega del loop —resolverla y registrar la decisión—, encol
 del trabajo entregado en la rama base, informa su resultado al hilo y, ante feedback sobre una entrega,
 encola la continuación con su pedido de cambio y sincroniza el estado del hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

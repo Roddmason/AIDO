@@ -1,6 +1,6 @@
 """Contrato del bootstrap POSIX de memoria: acota memoria escrita, no espacio de direcciones reservado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import subprocess

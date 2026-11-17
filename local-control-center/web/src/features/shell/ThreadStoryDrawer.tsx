@@ -10,7 +10,7 @@
  * the loop FSM only while it waits for review or approval ({@link REVIEWABLE_LOOP_STATES}). There is
  * no per-story approval — the loop is approved as a whole in Approvals — so outside those states the
  * drawer is read-only and says why.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { CheckCircle2, Circle, GitCommit } from 'lucide-react';
 import { type FormEvent, useState } from 'react';

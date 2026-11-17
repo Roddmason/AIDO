@@ -1,6 +1,6 @@
 """RSS real por lease: identidad verificada por create_time, nunca el pico histórico.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """API operacional de recursos: estado, muestreo y recuperación de leases.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

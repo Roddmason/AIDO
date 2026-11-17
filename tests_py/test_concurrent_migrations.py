@@ -5,7 +5,7 @@ Reporte del operador: tras actualizar, ``pnpm run start`` falló en la fase 52 c
 fase lee y luego escribe dentro de una transacción diferida que SQLite no puede promover si el
 otro proceso escribió entre medio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

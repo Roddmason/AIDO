@@ -6,7 +6,7 @@ serializa por `to_public_dict()` ni por el `__repr__` (que imprime '[redacted]')
 transporte Vault: dirección absoluta https (http solo en loopback con flag explícito), sin redirects,
 y refs de auth que no pueden referenciar recursivamente a otro vault.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

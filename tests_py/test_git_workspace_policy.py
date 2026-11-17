@@ -5,7 +5,7 @@ preexistente dentro de la misma función; como la primera retorna en todos sus c
 segunda quedó muerta y todo capture de diff con archivos nuevos empezó a producir un patch
 vacío. Estos tests fijan que ambas formas convivan y que el resto siga denegado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

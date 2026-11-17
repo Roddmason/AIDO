@@ -6,7 +6,7 @@ modelo violó el contrato, el JSON no valida) dice algo sobre la respuesta, y re
 proveedor solo gasta dinero repitiendo el mismo error. Este módulo separa ambos casos y decide si
 un candidato de reemplazo es aceptable bajo el tope de costo del rol.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

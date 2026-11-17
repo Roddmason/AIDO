@@ -5,7 +5,7 @@ previa del modelo por rol con el mismo resolvedor que sella ``roleModels`` en el
 de modelo (API, gateway o local) vale como validado si alguno de sus modelos habilitados lo está
 (validación por (provider, modelo), igual que el gate de envío y el sellado).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

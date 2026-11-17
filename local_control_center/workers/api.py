@@ -1,6 +1,6 @@
 """HTTP API for LocalWorkerRuntime status and operator controls.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
  * summarizes the effective PO and Developer providers.
  * A new thread keeps the selection as a draft that the intake persists before the first message;
  * an existing thread saves it straight away through the run-configuration PATCH.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Users } from 'lucide-react';
 import { useState } from 'react';

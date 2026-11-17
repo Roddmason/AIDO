@@ -2,7 +2,7 @@
  * Development-stage signal of a thread, derived from the same event log and pipeline derivation the
  * execution panel renders, so the conversation switches into the story board layout exactly when the
  * DeveloperAgent starts executing stories (and back when a new objective restarts planning).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo } from 'react';
 

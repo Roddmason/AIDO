@@ -3,7 +3,7 @@
  * chunk-preload hook. Most heavy feature pages are declared with `React.lazy` at module scope
  * (never inside a component) so each becomes its own build chunk; Home and the projects views
  * stay eager. `preloadRoute` warms a lazy chunk on intent.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 import { lazy } from 'react';

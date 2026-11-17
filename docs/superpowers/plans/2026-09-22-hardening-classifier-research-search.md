@@ -12,13 +12,13 @@
 
 ## Global Constraints
 
-- Python tests: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` desde la raíz del repo (workaround del access violation de faiss).
-- Ruff format: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format <py files>`; ruff check: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check <py files>` (nunca sobre `.json`).
+- Python tests: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` desde la raíz del repo (workaround del access violation de faiss).
+- Ruff format: `.\.venv\Scripts\python.exe -m ruff format <py files>`; ruff check: `.\.venv\Scripts\python.exe -m ruff check <py files>` (nunca sobre `.json`).
 - Web typecheck: `corepack pnpm@10.24.0 run typecheck:web`.
 - Web lint/format: `corepack pnpm@10.24.0 exec biome check <files>` (usar `--write` primero cuando haya imports nuevos: `biome format` NO arregla organizeImports).
 - Web build: `corepack pnpm@10.24.0 run build:web`.
 - OpenAPI regen tras cualquier cambio de API/`response_model`: `corepack pnpm@10.24.0 run openapi:generate` (LF). Este plan no cambia contratos de respuesta; ver Task 14 paso de comprobación.
-- Todo módulo productivo nuevo lleva header semántico (docstring/JSDoc) con `@author Rodrigo Mason`.
+- Todo módulo productivo nuevo lleva header semántico (docstring/JSDoc) con `@author AIDO contributors`.
 - Python productivo: sólo docstrings (sin comentarios `#` sueltos); docstrings de API pública obligatorias (ruff D101–D103, convención pep257: primera línea termina en punto).
 - Copy de UI sólo vía `t('key','English fallback')` con claves bilingües (`en != es`) en `local_control_center/i18n/default_catalog.json`, editado quirúrgicamente preservando formato (4 espacios para la clave, 6 para `en`/`es`).
 - Visual guardrails: nada de Inter/cyan/purple/radial-gradient ni `border-left|right >= 2px`; colores sólo por tokens oklch existentes.
@@ -130,7 +130,7 @@ Cierre                              (A1 + A2 + B) ──▶ T14 ──▶ T15 (o
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"
 ```
 Expected: FAIL en `test_productive_modules_declare_author` (lista los 6 módulos) y en `test_default_i18n_catalog_is_bilingual_and_complete` (`identical` = las 2 claves `riskReview.field.runtime`/`loopId`). Si aparece otro rojo, detenerse y reportarlo (no es de esta tarea).
 
@@ -144,7 +144,7 @@ por:
 ```python
 """Effective project role restrictions and their execution-time seal.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 `agents/runtime_preflight_cli.py` línea 1, reemplazar:
@@ -155,7 +155,7 @@ por:
 ```python
 """Fixed prompt-only CLI validation through the existing managed subprocess boundary.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 `executions/timeout_reconciliation.py` línea 1, reemplazar:
@@ -166,7 +166,7 @@ por:
 ```python
 """Close a proven stopped Product Loop without replaying its interrupted workspace.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 `agents/runtime_preflight.py`, reemplazar:
@@ -178,7 +178,7 @@ por:
 ```python
 No endpoint, credential, permission or operator selection is repaired implicitly.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 `product_loop/research_resolution.py`, reemplazar:
@@ -190,7 +190,7 @@ por:
 ```python
 This module never performs research or inference. Metadata supplied by callers is not authority.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 `product_loop/runtime_risk_review.py`, reemplazar:
@@ -202,7 +202,7 @@ por:
 ```python
 No inference, credential changes, cost approvals or OS permission grants occur here.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 
@@ -242,9 +242,9 @@ por:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/agents/agent_resource_policy.py local_control_center/agents/runtime_preflight.py local_control_center/agents/runtime_preflight_cli.py local_control_center/executions/timeout_reconciliation.py local_control_center/product_loop/research_resolution.py local_control_center/product_loop/runtime_risk_review.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/agents/agent_resource_policy.py local_control_center/agents/runtime_preflight.py local_control_center/agents/runtime_preflight_cli.py local_control_center/executions/timeout_reconciliation.py local_control_center/product_loop/research_resolution.py local_control_center/product_loop/runtime_risk_review.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/agents/agent_resource_policy.py local_control_center/agents/runtime_preflight.py local_control_center/agents/runtime_preflight_cli.py local_control_center/executions/timeout_reconciliation.py local_control_center/product_loop/research_resolution.py local_control_center/product_loop/runtime_risk_review.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/agents/agent_resource_policy.py local_control_center/agents/runtime_preflight.py local_control_center/agents/runtime_preflight_cli.py local_control_center/executions/timeout_reconciliation.py local_control_center/product_loop/research_resolution.py local_control_center/product_loop/runtime_risk_review.py
 ```
 Expected: PASS en ambos archivos de test; ruff sin cambios ni errores.
 
@@ -400,7 +400,7 @@ por:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_health_refresh.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_health_refresh.py','-q','-p','no:randomly']))"
 ```
 Expected: error de colección `ImportError: cannot import name 'HealthRefreshBackoff'` (el módulo aún no lo define); tras agregar sólo la clase vacía fallarían con `KeyError: 'coolingDown'` / `assert 1 == 0`, porque hoy se reencola en cada ciclo.
 
@@ -576,9 +576,9 @@ y reemplazar el bloque desde `pending, pending_targets, unresolved_operations = 
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_health_refresh.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/agents/runtime_health_refresh.py tests_py/test_runtime_health_refresh.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/agents/runtime_health_refresh.py tests_py/test_runtime_health_refresh.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_health_refresh.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/agents/runtime_health_refresh.py tests_py/test_runtime_health_refresh.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/agents/runtime_health_refresh.py tests_py/test_runtime_health_refresh.py
 ```
 Expected: PASS de todo el archivo (incluidos los tests de dedupe/pending previos); ruff limpio.
 
@@ -667,7 +667,7 @@ def test_resource_wait_is_written_once_per_reason_and_reaches_the_thread(tmp_pat
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_host_resource_governor.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_host_resource_governor.py','-q','-p','no:randomly']))"
 ```
 Expected: FAIL en el test nuevo: `Counter` con `hard_memory_floor: 5` y `thread_events == []`.
 
@@ -757,9 +757,9 @@ def _last_reason_code(payload: dict[str, Any]) -> str | None:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_host_resource_governor.py','tests_py/test_local_worker_runtime.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/host_resources/governor.py tests_py/test_host_resource_governor.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/host_resources/governor.py tests_py/test_host_resource_governor.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_host_resource_governor.py','tests_py/test_local_worker_runtime.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/host_resources/governor.py tests_py/test_host_resource_governor.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/host_resources/governor.py tests_py/test_host_resource_governor.py
 ```
 Expected: PASS en `test_host_resource_governor.py`; `test_local_worker_runtime.py` igual que antes de la tarea (su único rojo conocido es `test_worker_product_loop_exception_creates_worker_retry_remediation`, que resuelve Task 6); ruff limpio.
 
@@ -797,7 +797,7 @@ Los agentes anidados (ProductOwner, Architect, DevOps, Developer, assessment) cr
 sin lease dentro del job del worker; ``requeue_expired_jobs`` exige lease, así que cuando el padre
 pierde el suyo el hijo quedaba `running` para siempre (caso vivo: job-31a6b390, desde 2026-07-18).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -967,7 +967,7 @@ def test_legacy_cleanup_fails_only_validated_ids(tmp_path: Path) -> None:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_orphan_child_jobs.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_orphan_child_jobs.py','-q','-p','no:randomly']))"
 ```
 Expected: FAIL: `KeyError: 'parentJobId'`, hijos siguen `running`, y `AttributeError: 'JobsRepository' object has no attribute 'fail_orphaned_child_jobs'` / `'fail_legacy_orphan_child_jobs'`.
 
@@ -1107,9 +1107,9 @@ Agregar los métodos en `JobsRepository` (después de `requeue_expired_jobs`):
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_orphan_child_jobs.py','tests_py/test_host_resource_governor.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_remediation_job_lifecycle.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/jobs_approvals/repository.py tests_py/test_orphan_child_jobs.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/jobs_approvals/repository.py tests_py/test_orphan_child_jobs.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_orphan_child_jobs.py','tests_py/test_host_resource_governor.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_remediation_job_lifecycle.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/jobs_approvals/repository.py tests_py/test_orphan_child_jobs.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/jobs_approvals/repository.py tests_py/test_orphan_child_jobs.py
 ```
 Expected: PASS (los otros tres archivos ejercitan `requeue_expired_jobs`/`complete_job_run` y no deben cambiar); ruff limpio.
 
@@ -1328,7 +1328,7 @@ def test_run_user_message_ignores_functionality_from_a_thread_that_never_deliver
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_memory_service.py','tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','functionality']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_memory_service.py','tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','functionality']))"
 ```
 Expected: FAIL en `test_functionality_from_a_thread_that_never_delivered_is_not_a_match` (devuelve 1 match), en `test_functionality_with_an_approved_brief_matches` (`AttributeError: has_delivery_evidence`), en `test_thread_without_delivery_evidence_neither_creates_nor_confirms_functionality` (el reindex materializa: `COUNT(*) == 1`) y en `test_run_user_message_ignores_functionality_from_a_thread_that_never_delivered` (`blockedStage == 'functionality_memory'`). Los 5 tests del gate y los 5 existentes del servicio siguen en verde (el loop sembrado no altera nada todavía).
 
@@ -1413,9 +1413,9 @@ Reemplazar `find_existing_functionality` (`:375-387`) por:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_memory_service.py','tests_py/test_thread_similarity_service.py','tests_py/test_product_loop_coordinator.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly','-k','functionality or similarity or memory']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/threads/similarity.py tests_py/test_thread_memory_service.py tests_py/test_product_loop_coordinator.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/threads/similarity.py tests_py/test_thread_memory_service.py tests_py/test_product_loop_coordinator.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_memory_service.py','tests_py/test_thread_similarity_service.py','tests_py/test_product_loop_coordinator.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly','-k','functionality or similarity or memory']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/threads/similarity.py tests_py/test_thread_memory_service.py tests_py/test_product_loop_coordinator.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/threads/similarity.py tests_py/test_thread_memory_service.py tests_py/test_product_loop_coordinator.py
 ```
 Expected: PASS; ruff limpio.
 
@@ -1429,7 +1429,7 @@ from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.threads.similarity import ThreadMemoryService
 
 copy_path = sys.argv[1]
-source = sqlite3.connect("file:C:/Users/Rodd/.claude/local-control-center/platform.sqlite?mode=ro", uri=True)
+source = sqlite3.connect("file:C:/Users/example-user/.claude/local-control-center/platform.sqlite?mode=ro", uri=True)
 target = sqlite3.connect(copy_path)
 source.backup(target)
 target.close()
@@ -1468,7 +1468,7 @@ git commit -m "Fix (Threads): la funcionalidad solo se registra, confirma y bloq
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_local_worker_runtime.py::test_worker_product_loop_exception_creates_worker_retry_remediation','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_local_worker_runtime.py::test_worker_product_loop_exception_creates_worker_retry_remediation','-q','-p','no:randomly']))"
 ```
 Expected: FAIL con `KeyError: 'details'` en `:682` (`enriched_action["payload"]["details"]`). Criterio de decisión: el test afirma (`:681`) que la acción enriquecida es la MISMA genérica (`enriched_action["id"] == generic_action["id"]`), contrato previo a 013b1b26; el código actual crea una segunda acción porque `job_id('') != job_id(<job>)`. Diverge el código, no el test: el test documenta el contrato de "Run worker once" único por hilo en cola. Si el fallo es otro, detenerse y reportar el traceback (no corregir a ciegas).
 
@@ -1515,7 +1515,7 @@ def test_job_failure_enriches_the_pending_generic_worker_action(lane):
 ```
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_remediation_job_lifecycle.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_remediation_job_lifecycle.py','-q','-p','no:randomly']))"
 ```
 Expected: FAIL en el test nuevo (`enriched["id"] != generic["id"]`).
 
@@ -1537,9 +1537,9 @@ por:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_remediation_job_lifecycle.py','tests_py/test_local_worker_runtime.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_remediation_display_payload.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/remediations/repository.py tests_py/test_remediation_job_lifecycle.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/remediations/repository.py tests_py/test_remediation_job_lifecycle.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_remediation_job_lifecycle.py','tests_py/test_local_worker_runtime.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_remediation_display_payload.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/remediations/repository.py tests_py/test_remediation_job_lifecycle.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/remediations/repository.py tests_py/test_remediation_job_lifecycle.py
 ```
 Expected: PASS de los 4 archivos, incluido `test_worker_product_loop_exception_creates_worker_retry_remediation` (memoria: `local_worker_runtime` puede ser flaky bajo carga; si falla otro test de ese archivo, re-ejecutarlo aislado antes de concluir).
 
@@ -1578,7 +1578,7 @@ Crear `tests_py/test_overview_immutable_evidence_cache.py`:
 Medido sobre una copia de la BD viva: decodificar ~118 MB de JSON de evidencia por poll costaba
 ~2 s de los 2,8 s del overview. Esas columnas no se actualizan tras el INSERT.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1656,7 +1656,7 @@ def test_second_overview_does_not_reread_immutable_evidence(tmp_path: Path, monk
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_overview_immutable_evidence_cache.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_overview_immutable_evidence_cache.py','-q','-p','no:randomly']))"
 ```
 Expected: el primer test PASA (línea base de equivalencia); el segundo FALLA con `AttributeError` al hacer `monkeypatch.setattr` sobre `immutable_evidence_fields` inexistente (`raising=True` por defecto).
 
@@ -1872,9 +1872,9 @@ por:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_overview_immutable_evidence_cache.py','tests_py/test_control_plane_overview_caps.py','tests_py/test_overview_schema_drift.py','tests_py/test_operational_hardening_p0.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/evidence/repository.py local_control_center/control_plane/overview.py tests_py/test_overview_immutable_evidence_cache.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/evidence/repository.py local_control_center/control_plane/overview.py tests_py/test_overview_immutable_evidence_cache.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_overview_immutable_evidence_cache.py','tests_py/test_control_plane_overview_caps.py','tests_py/test_overview_schema_drift.py','tests_py/test_operational_hardening_p0.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/evidence/repository.py local_control_center/control_plane/overview.py tests_py/test_overview_immutable_evidence_cache.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/evidence/repository.py local_control_center/control_plane/overview.py tests_py/test_overview_immutable_evidence_cache.py
 ```
 Expected: PASS de los 4 archivos; ruff limpio.
 
@@ -2024,7 +2024,7 @@ def test_intake_keeps_change_requests_in_the_product_loop(tmp_path: Path, prompt
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly']))"
 ```
 Expected: FAIL: `AttributeError: 'IntentClassification' object has no attribute 'research_only'` y, en el coordinador, los prompts de cambio con "compare"/"analiza" salen como `thread.research.run` y los españoles de research como `thread.product_loop.run` (o bloqueados en `ask`).
 
@@ -2243,9 +2243,9 @@ lo siguiente:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','tests_py/test_i18n_platform.py','tests_py/test_git_workspace_api.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/intent_classifier.py local_control_center/threads/coordinator.py tests_py/test_intent_classifier.py tests_py/test_threads_coordinator.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/intent_classifier.py local_control_center/threads/coordinator.py tests_py/test_intent_classifier.py tests_py/test_threads_coordinator.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','tests_py/test_i18n_platform.py','tests_py/test_git_workspace_api.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/intent_classifier.py local_control_center/threads/coordinator.py tests_py/test_intent_classifier.py tests_py/test_threads_coordinator.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/intent_classifier.py local_control_center/threads/coordinator.py tests_py/test_intent_classifier.py tests_py/test_threads_coordinator.py
 ```
 Expected: PASS (los tests previos del clasificador —incluido `test_spanish_migration_and_architecture_request_requires_planning` y "aves migratorias"— siguen verdes; `test_git_workspace_api.py:216` cubre el otro consumidor, `git_workspace/service.py:1160`, que usa el nombre de rama sugerido). ruff limpio.
 
@@ -2295,7 +2295,7 @@ Crear `tests_py/test_research_web_search.py`:
 ```python
 """Proveedor SearXNG del ResearchAgent contra un servidor HTTP local de prueba, y su diagnóstico.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2669,7 +2669,7 @@ def test_research_run_never_fetches_a_non_public_source(
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_research_web_search.py','tests_py/test_research_agent.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_research_web_search.py','tests_py/test_research_agent.py','-q','-p','no:randomly']))"
 ```
 Expected: error de colección `ModuleNotFoundError: No module named 'local_control_center.research.web_search'`.
 
@@ -2690,7 +2690,7 @@ de bots de un tercero cambiando el User-Agent. La URL base sólo puede apuntar a
 que el agente descarga, en cambio, sólo pueden apuntar a hosts públicos (``assert_public_source_url``),
 revalidando cada redirect.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3112,9 +3112,9 @@ lo siguiente:
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_research_web_search.py','tests_py/test_research_agent.py','tests_py/test_research_resolution.py','tests_py/test_settings_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_i18n_platform.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/research/web_search.py local_control_center/agents/research_agent.py local_control_center/settings/registry.py local_control_center/remediations/payloads.py tests_py/test_research_web_search.py tests_py/test_research_agent.py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/research/web_search.py local_control_center/agents/research_agent.py local_control_center/settings/registry.py local_control_center/remediations/payloads.py tests_py/test_research_web_search.py tests_py/test_research_agent.py
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_research_web_search.py','tests_py/test_research_agent.py','tests_py/test_research_resolution.py','tests_py/test_settings_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_i18n_platform.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -m ruff format local_control_center/research/web_search.py local_control_center/agents/research_agent.py local_control_center/settings/registry.py local_control_center/remediations/payloads.py tests_py/test_research_web_search.py tests_py/test_research_agent.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center/research/web_search.py local_control_center/agents/research_agent.py local_control_center/settings/registry.py local_control_center/remediations/payloads.py tests_py/test_research_web_search.py tests_py/test_research_agent.py
 ```
 Expected: PASS (el test offline sigue devolviendo `"ResearchAgent web search failed: <urlopen error network unreachable>"` y "Check network access" porque fija `duckduckgo`); ruff limpio.
 
@@ -3159,7 +3159,7 @@ Crear `tests_web/thread-hardening.spec.js`:
  * Endurecimiento del panel de hilos: etiquetas legibles de decisión, tarjeta de research del intake,
  * espera por capacidad del equipo y pipeline detenido sin job activo. Cada caso mockea el overview,
  * el detalle, los eventos y las remediaciones del hilo para que el estado sea determinista.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from './fixtures/operations.js';
 
@@ -3275,7 +3275,7 @@ Crear `local-control-center/web/src/features/shell/decisionOptionCopy.ts`:
  * description are translated here, so an operator never has to read an internal identifier. Intake
  * questions travel with their i18n keys (`metadata.questionKeys`), aligned one-to-one with the
  * English text in `metadata.questions`, and render in the active language.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ThreadDecision } from '../../api/types';
@@ -3518,7 +3518,7 @@ Run:
 corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/shell/decisionOptionCopy.ts local-control-center/web/src/features/shell/ThreadConversation.tsx local-control-center/web/src/features/shell/ThreadBlockerCard.tsx
 corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/shell/decisionOptionCopy.ts local-control-center/web/src/features/shell/ThreadConversation.tsx local-control-center/web/src/features/shell/ThreadBlockerCard.tsx local-control-center/web/src/design-system/layout.css
 corepack pnpm@10.24.0 run typecheck:web
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
 corepack pnpm@10.24.0 run build:web
 $env:PLAYWRIGHT_DASHBOARD_PORT='9471'; $env:PLAYWRIGHT_DB_PATH='.tmp/pw-thread-hardening.sqlite'; node node_modules/@playwright/test/cli.js test tests_web/thread-hardening.spec.js --project=desktop
 ```
@@ -3693,7 +3693,7 @@ Run:
 corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/shell/remediationPresentation.ts
 corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/shell/remediationPresentation.ts
 corepack pnpm@10.24.0 run typecheck:web
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"
 corepack pnpm@10.24.0 run build:web
 $env:PLAYWRIGHT_DASHBOARD_PORT='9471'; $env:PLAYWRIGHT_DB_PATH='.tmp/pw-thread-hardening.sqlite'; node node_modules/@playwright/test/cli.js test tests_web/thread-hardening.spec.js tests_web/research-resolution.spec.js --project=desktop
 ```
@@ -3766,7 +3766,7 @@ Crear `local-control-center/web/src/features/runtime-setup/reasonCopy.ts`:
  * report (`minimum_free_memory`, `host_cpu_saturated`…). Host-capacity codes say the machine lacks
  * room, so they never read as a configuration problem. Shared by the AI health modal and the thread
  * execution panel so both explain the same code with the same words.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 type Translate = (key: string, fallback?: string) => string;
@@ -3980,7 +3980,7 @@ Run:
 corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/runtime-setup/reasonCopy.ts local-control-center/web/src/features/runtime-setup/RuntimeHealthModal.tsx local-control-center/web/src/features/shell/ThreadExecutionPanel.tsx
 corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/runtime-setup/reasonCopy.ts local-control-center/web/src/features/runtime-setup/RuntimeHealthModal.tsx local-control-center/web/src/features/shell/ThreadExecutionPanel.tsx
 corepack pnpm@10.24.0 run typecheck:web
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"
 corepack pnpm@10.24.0 run build:web
 $env:PLAYWRIGHT_DASHBOARD_PORT='9471'; $env:PLAYWRIGHT_DB_PATH='.tmp/pw-thread-hardening.sqlite'; node node_modules/@playwright/test/cli.js test tests_web/thread-hardening.spec.js tests_web/thread-pipeline.spec.js --project=desktop
 ```
@@ -4088,7 +4088,7 @@ Run:
 ```
 corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/shell/ThreadExecutionPanel.tsx local-control-center/web/src/design-system/layout.css
 corepack pnpm@10.24.0 run typecheck:web
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"
 corepack pnpm@10.24.0 run build:web
 $env:PLAYWRIGHT_DASHBOARD_PORT='9471'; $env:PLAYWRIGHT_DB_PATH='.tmp/pw-thread-hardening.sqlite'; node node_modules/@playwright/test/cli.js test tests_web/thread-hardening.spec.js tests_web/thread-pipeline.spec.js tests_web/research-resolution.spec.js --project=desktop
 ```
@@ -4116,7 +4116,7 @@ git commit -m "Fix (Threads): el pipeline marca detenido el paso activo cuando n
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','tests_py/test_runtime_health_refresh.py','tests_py/test_host_resource_governor.py','tests_py/test_orphan_child_jobs.py','tests_py/test_thread_memory_service.py','tests_py/test_thread_similarity_service.py','tests_py/test_product_loop_coordinator.py','tests_py/test_remediation_job_lifecycle.py','tests_py/test_local_worker_runtime.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_overview_immutable_evidence_cache.py','tests_py/test_control_plane_overview_caps.py','tests_py/test_overview_schema_drift.py','tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','tests_py/test_research_web_search.py','tests_py/test_research_agent.py','tests_py/test_research_resolution.py','tests_py/test_settings_slice.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','tests_py/test_runtime_health_refresh.py','tests_py/test_host_resource_governor.py','tests_py/test_orphan_child_jobs.py','tests_py/test_thread_memory_service.py','tests_py/test_thread_similarity_service.py','tests_py/test_product_loop_coordinator.py','tests_py/test_remediation_job_lifecycle.py','tests_py/test_local_worker_runtime.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_overview_immutable_evidence_cache.py','tests_py/test_control_plane_overview_caps.py','tests_py/test_overview_schema_drift.py','tests_py/test_intent_classifier.py','tests_py/test_threads_coordinator.py','tests_py/test_research_web_search.py','tests_py/test_research_agent.py','tests_py/test_research_resolution.py','tests_py/test_settings_slice.py','-q','-p','no:randomly']))"
 corepack pnpm@10.24.0 run quality:architecture
 ```
 Expected: PASS; `quality:architecture` exit 0.
@@ -4125,8 +4125,8 @@ Expected: PASS; `quality:architecture` exit 0.
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format --check local_control_center tests_py
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center tests_py
+.\.venv\Scripts\python.exe -m ruff format --check local_control_center tests_py
+.\.venv\Scripts\python.exe -m ruff check local_control_center tests_py
 ```
 Expected: sin archivos por reformatear ni errores.
 
@@ -4219,13 +4219,13 @@ El orquestador pide al operador confirmación explícita, en una línea y al mom
 
 (1) SELECT read-only (`mode=ro`) de precondiciones:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('file:C:/Users/Rodd/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); print(c.execute(\"select status, lease_expires_at, kind, json_extract(payload,'$.parentJobId') from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone())"
+.\.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('file:C:/Users/example-user/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); print(c.execute(\"select status, lease_expires_at, kind, json_extract(payload,'$.parentJobId') from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone())"
 ```
 Expected: `('running', None, 'agent.product_owner', None)`. Cualquier otro valor: detenerse y reportar.
 
 (2) Respaldo inmediatamente antes de la escritura, con la API `backup` de sqlite3 (copia consistente aunque AIDO esté corriendo en WAL), y verificación de integridad de la copia:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sqlite3, sys; src=sqlite3.connect('file:C:/Users/Rodd/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); print(dst.execute('pragma integrity_check').fetchone()); print(dst.execute(\"select status from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone()); dst.close(); src.close()" "<scratchpad>\platform-before-zombie-cleanup.sqlite"
+.\.venv\Scripts\python.exe -c "import sqlite3, sys; src=sqlite3.connect('file:C:/Users/example-user/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); dst=sqlite3.connect(sys.argv[1]); src.backup(dst); print(dst.execute('pragma integrity_check').fetchone()); print(dst.execute(\"select status from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone()); dst.close(); src.close()" "<scratchpad>\platform-before-zombie-cleanup.sqlite"
 ```
 Expected: `('ok',)` y `('running',)`. Sin ambas líneas, no escribir. Restauración si hiciera falta (con AIDO detenido por el operador): apartar `platform.sqlite-wal`/`-shm` (moverlos, no borrarlos) y copiar ese archivo sobre `platform.sqlite`.
 
@@ -4243,7 +4243,7 @@ with closing(open_sqlite_connection(sys.argv[1])) as connection, connection:
 ```
 Run (con `PYTHONPATH` = raíz del repo):
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe <scratchpad>\fail_legacy_zombie.py C:/Users/Rodd/.claude/local-control-center/platform.sqlite job-31a6b390-864a-4caf-96f0-980842fb6012
+.\.venv\Scripts\python.exe <scratchpad>\fail_legacy_zombie.py C:/Users/example-user/.claude/local-control-center/platform.sqlite job-31a6b390-864a-4caf-96f0-980842fb6012
 ```
 Expected: `['job-31a6b390-864a-4caf-96f0-980842fb6012']` (una lista vacía significa que el job ya no cumple las condiciones: no reintentar con otra consulta; reportar).
 
@@ -4251,7 +4251,7 @@ Expected: `['job-31a6b390-864a-4caf-96f0-980842fb6012']` (una lista vacía signi
 
 Run:
 ```
-H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('file:C:/Users/Rodd/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); print(c.execute(\"select status, json_extract(payload,'$.result.reason') from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone()); print(c.execute(\"select status from agent_runs where id like 'agent-run-905924ea%'\").fetchone()); print(c.execute(\"select operation, count(*) from operational_executions where operation in ('models.health_cli_runtime','models.provider_health_check') and created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes') group by operation\").fetchall()); print(c.execute(\"select count(*) from events where type='job.resource_wait' and created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes')\").fetchone())"
+.\.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('file:C:/Users/example-user/.claude/local-control-center/platform.sqlite?mode=ro', uri=True); print(c.execute(\"select status, json_extract(payload,'$.result.reason') from jobs where id='job-31a6b390-864a-4caf-96f0-980842fb6012'\").fetchone()); print(c.execute(\"select status from agent_runs where id like 'agent-run-905924ea%'\").fetchone()); print(c.execute(\"select operation, count(*) from operational_executions where operation in ('models.health_cli_runtime','models.provider_health_check') and created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes') group by operation\").fetchall()); print(c.execute(\"select count(*) from events where type='job.resource_wait' and created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes')\").fetchone())"
 ```
 Expected: `('failed', 'parent_lease_expired')`; `('failed',)`; en 30 min ≤ 1 check cada 5 min por runtime estable y como máximo 1 cada 60 s–15 min para uno que no renueva evidencia (antes 3–5/min); `job.resource_wait` = número de cambios de motivo, no ~900.
 

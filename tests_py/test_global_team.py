@@ -1,6 +1,6 @@
 """Equipo de IA global: settings por rol, resolución sobre proveedores activos y sellado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

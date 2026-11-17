@@ -5,7 +5,7 @@ cuentas gratuitas declaradas por el operador y Ollama primero, luego CLIs reales
 pagadas.
 Tambien calcula si existe un runtime ejecutable para emitir el brief y backlog en JSON.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

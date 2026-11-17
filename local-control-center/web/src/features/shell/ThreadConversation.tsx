@@ -17,7 +17,7 @@
  * Chat | Board toggle overrides the automatic choice per thread. The choice and a folded chat column
  * are remembered per thread ({@link readThreadLayout}); while the chat is folded its dock button
  * counts the transcript messages that arrived unseen. A board card opens {@link ThreadStoryDrawer}.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	AlertTriangle,

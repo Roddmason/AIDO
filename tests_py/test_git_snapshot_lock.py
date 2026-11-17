@@ -2,7 +2,7 @@
 
 El refresh corre fuera del request; los GET concurrentes comparten la evidencia persistida.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

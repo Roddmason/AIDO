@@ -1,6 +1,6 @@
 """Declaración local auditada (WSL/Docker) y borrado de endpoints locales con tombstone y 409.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

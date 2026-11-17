@@ -1,6 +1,6 @@
 """Planes de calidad por propósito, sin ejecutar comandos ni inferir resultados.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

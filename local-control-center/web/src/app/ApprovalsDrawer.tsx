@@ -1,6 +1,6 @@
 /**
  * Slide-over that surfaces pending action requests awaiting a human approval.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview } from '../api/types';
 import { StatusChip as Badge, DataTable, Drawer, EmptyState } from '../components/ui';

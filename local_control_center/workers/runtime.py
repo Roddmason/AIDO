@@ -4,7 +4,7 @@ The runtime owns process-level scheduling only. Actual job claiming/execution st
 ``ConcurrentWorker`` so execution continues to use JobsRepository leases and the existing
 Product Loop / ToolBroker / gitleaks corridor.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

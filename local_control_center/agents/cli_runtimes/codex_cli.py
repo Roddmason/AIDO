@@ -4,7 +4,7 @@ Resuelve el binario por env vars (AIDO_CODEX_COMMAND / CODEX_CLI_PATH), mapea pe
 y esfuerzo de razonamiento, y arma el comando con sandbox acorde al perfil y aprobación no interactiva.
 La ejecución bajo el sandbox de subprocesos y el registro del resultado los hereda de CliRuntime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ para que un seed fuera de rango nunca vuelva a bloquear la edición de una polí
 ancla la misma invariante por la ruta HTTP real (PATCH vacío por política sembrada más
 ``maxTokensPerRun=0`` como valor legítimo de "sin límite").
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

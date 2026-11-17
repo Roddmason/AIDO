@@ -13,7 +13,7 @@ misma habia supuesto.
 
 Es de solo lectura sobre el proyecto: lee manifiestos, nunca ejecuta nada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

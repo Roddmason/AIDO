@@ -1,6 +1,6 @@
 """Read-only NVIDIA NIM local-runtime API.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

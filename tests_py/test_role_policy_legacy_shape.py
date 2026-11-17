@@ -5,7 +5,7 @@ Una fila vieja de ``role_model_policies`` guardaba ``preferred_json`` como lista
 devolvía 500 ResponseValidationError en ``GET /role-policies`` y vaciaba el panel de la UI
 (cascada del ``Promise.all``). El mapper debe normalizar el formato viejo, no propagarlo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

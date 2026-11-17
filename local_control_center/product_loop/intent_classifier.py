@@ -5,7 +5,7 @@ decision operativa trazable. No llama proveedores por defecto; el hook LLM opcio
 confianza cuando el resultado deterministico queda bajo el umbral, manteniendo la salida validada por las
 taxonomias locales.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

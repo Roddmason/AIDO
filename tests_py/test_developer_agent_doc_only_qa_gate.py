@@ -1,6 +1,6 @@
 """Tests E2E: el DeveloperAgent aplica el gate de QA proporcional para historias de documentacion.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

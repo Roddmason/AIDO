@@ -5,7 +5,7 @@ y argv estructurado (sin interpolacion de strings, evitando inyeccion); si git n
 instalado no lanza, devuelve un ``CompletedProcess`` con returncode 127 para que el caller
 degrade de forma controlada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

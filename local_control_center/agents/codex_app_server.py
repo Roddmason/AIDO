@@ -15,7 +15,7 @@ corre dentro de una transacción SQLite (``assert_external_boundary``). El ejecu
 ``AIDO_CODEX_COMMAND``/``CODEX_CLI_PATH`` (como el runtime Codex) o de ``codex`` en el ``PATH`` del
 entorno dado; sin ``PATH`` solo se acepta una ruta absoluta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

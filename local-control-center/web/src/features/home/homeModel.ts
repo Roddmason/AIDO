@@ -3,7 +3,7 @@
  * payload into per-card data and the priority-ordered card list it renders.
  * No React, no I/O — plain control-plane arrays in, plain card descriptors out,
  * so the ordering/count rules stay unit-testable and the page stays presentational.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview, RuntimeProviders } from '../../api/types';
 

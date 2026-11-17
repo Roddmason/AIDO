@@ -4,7 +4,7 @@
  * plan, lets the operator review each candidate, and only deletes after an explicit
  * confirmation dialog. Uncommitted changes in removed worktrees are discarded; committed
  * work stays on its branch unless branch deletion is opted in.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useMemo, useState } from 'react';
 

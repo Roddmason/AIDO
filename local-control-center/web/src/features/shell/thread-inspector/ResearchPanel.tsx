@@ -1,6 +1,6 @@
 /**
  * Research tab of the Thread Inspector: research report artifacts with recommendation, recorded result, sources with trust levels and discrepancies.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import type { ThreadArtifact, ThreadDetail } from '../../../api/types';

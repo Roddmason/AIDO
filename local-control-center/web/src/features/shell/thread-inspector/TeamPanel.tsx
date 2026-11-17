@@ -1,6 +1,6 @@
 /**
  * Team tab of the Thread Inspector: the effective team card plus the agent roster grouped by state, with assignment, spend, reviewer policy and recovery actions derived from real data.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle, SlidersHorizontal } from 'lucide-react';
 import { m } from 'motion/react';

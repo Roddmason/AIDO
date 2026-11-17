@@ -8,7 +8,7 @@ no sirve el modelo configurado es `local_model_load_failed`. Lectura acotada: nu
 un host que no es loopback ni está declarado local (`insecure_credential_transport`, sin ningún pedido): el
 sync llega aquí sin pasar por el guard de `ModelGateway._provider_configuration`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

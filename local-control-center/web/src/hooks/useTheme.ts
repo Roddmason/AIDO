@@ -3,7 +3,7 @@
  *
  * Centralizes theme reads/writes so the pre-paint bootstrap and the runtime toggle
  * share one storage key and one DOM attribute, keeping `color-scheme` consistent.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 

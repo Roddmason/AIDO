@@ -1,6 +1,6 @@
 """Pure helpers that derive and compare operator resource approvals for blocked runs.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

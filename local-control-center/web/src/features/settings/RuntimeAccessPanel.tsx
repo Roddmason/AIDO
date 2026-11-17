@@ -11,7 +11,7 @@
  * off-transition is confirmed first; turning one back on stays a single click. The ceiling of one
  * local model call (`runtime.local.maxCallSeconds`) sits under the switches: it is a number that
  * commits with Save like any setting, so it never goes through the kill-switch confirmation.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useEffect, useRef, useState } from 'react';

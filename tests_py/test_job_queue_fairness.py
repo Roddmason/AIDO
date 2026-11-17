@@ -5,7 +5,7 @@ del mismo tier de prioridad, `peek_next_job` alterna hacia el proyecto cuyo últ
 es más antiguo (o `NULL` si nunca fue atendido), conservando FIFO por `created_at, rowid` dentro de
 cada proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

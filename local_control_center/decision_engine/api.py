@@ -2,7 +2,7 @@
 
 La configuración usa el API de Settings existente y su token; ninguna ruta aquí
 dispara inferencia, modifica outcomes o promociona recomendaciones.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

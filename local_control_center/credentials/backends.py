@@ -7,7 +7,7 @@ cifrado en su propio SQLite). Las dependencias externas (keyring, win32crypt) se
 perezosa y, si faltan o la operación no aplica, fallan cerrado con un error claro. Ningún adaptador
 imprime ni registra el valor.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ creates provider accounts from catalog presets without accepting raw secrets int
 ``provider_accounts``. Model synchronization reuses the existing provider adapters,
 so each provider has one integration path.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

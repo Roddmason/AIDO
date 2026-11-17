@@ -3,7 +3,7 @@
  * grid, then the runtime-access toggles and allowed-providers list as wired rows. Dedicated
  * to routing so it never reuses the Team roster panel — this surface governs which runtimes
  * and providers a project may use, not who is on the team.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCards';

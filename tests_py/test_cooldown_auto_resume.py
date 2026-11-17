@@ -3,7 +3,7 @@
 Sin esto, un hilo bloqueado porque todos los candidatos ejecutables estaban en cooldown de cuota
 espera para siempre a que el operador reintente a mano, aunque el cooldown ya haya vencido.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

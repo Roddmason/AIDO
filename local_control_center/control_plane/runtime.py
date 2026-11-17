@@ -5,7 +5,7 @@ conexion SQLite perezosamente, inicializa el esquema de plataforma y emite el to
 handshake loopback. Tambien garantiza que exista el proyecto que representa el cwd actual.
 Las lecturas/escrituras de dominio viven en los repositorios de cada slice, no aqui.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ proveedor queda validado con fallas parciales, que los fallidos quedan deshabili
 borrarse), que los transitorios no se descartan, que un resync no revive un descartado, que re-habilitar y
 volver a probar funcionan, y que la corrida respeta cancelación, presupuesto, switch y cuota.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

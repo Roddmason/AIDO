@@ -4,7 +4,7 @@
  * fade; exits faster (scale-down + fade). Under `MotionConfig reducedMotion="user"`
  * transforms are suppressed and only the opacity fade remains. Renders nothing when
  * unmounted by AnimatePresence after the exit animation completes.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { Variants } from 'motion/react';

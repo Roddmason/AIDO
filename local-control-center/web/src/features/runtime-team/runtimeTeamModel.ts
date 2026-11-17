@@ -2,7 +2,7 @@
  * Runtime team of a thread: selection shape, reader for the persisted `runConfiguration`, and the
  * helpers the composer panel uses to merge the backend's automatic split with manual choices.
  * Eligibility and the split are computed by the backend; nothing here re-derives them.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type {
 	RuntimeTeamCandidate,

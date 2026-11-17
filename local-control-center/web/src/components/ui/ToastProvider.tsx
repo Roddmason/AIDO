@@ -3,7 +3,7 @@
  * plus the `useToast` hook to push notifications from anywhere. Each toast auto-dismisses
  * after `durationMs` (default 5s; pass 0 to keep it until dismissed) and is announced via
  * an `aria-live` region.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

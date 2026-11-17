@@ -1724,7 +1724,7 @@ def test_specific_model_preference_outranks_earlier_provider_wildcard(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regresión de producción (votacionenlinea 2026-07-22): el comodín provider-level del
+    """Regresión de producción (example-project 2026-07-22): el comodín provider-level del
     ``runtime_order`` persistido eclipsaba la preferencia específica del rol solo por ir
     primero en la lista. Un match de modelo específico debe rankear antes que un comodín
     provider-level aunque el comodín esté antes en la lista y su candidato tenga mejor score.

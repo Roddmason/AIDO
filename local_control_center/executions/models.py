@@ -1,6 +1,6 @@
 """Contratos OpenAPI de aceptación, estado y eventos de una ejecución durable.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

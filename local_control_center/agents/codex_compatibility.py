@@ -3,7 +3,7 @@
 El help demuestra sintaxis, no aislamiento. Un cambio de binario, contrato o versión invalida
 el smoke anterior. GET sólo lee evidencia durable; el probe explícito se ejecuta en el worker.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ Persiste y lee dos flujos: ``events`` (telemetría/actividad por job/proyecto) y
 antes de escribir y normaliza las filas a dicts en camelCase para la capa de API.
 Escribe una fila por llamada usando el autocommit de la conexión; no abre transacciones propias.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

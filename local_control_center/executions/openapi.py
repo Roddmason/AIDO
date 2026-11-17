@@ -3,7 +3,7 @@
 La extensión OpenAPI enlaza cada aceptación con el esquema de ``ExecutionResponse.result``.
 Los DTO originales permanecen disponibles para clientes tipados y validación en el runner.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

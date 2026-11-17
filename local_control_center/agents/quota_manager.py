@@ -3,7 +3,7 @@
 Configured policy remains in ``provider_limits``. Runtime counters live in normalized
 window rows and are reserved through short SQLite ``BEGIN IMMEDIATE`` transactions.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

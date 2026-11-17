@@ -8,7 +8,7 @@
  * Control per descriptor type: enum → select, number → numeric input, boolean → switch
  * (immediate save in general scope), string_list → textarea (one item per line, shown as
  * chips when read-only), string → text input.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useCallback, useEffect, useId, useState } from 'react';

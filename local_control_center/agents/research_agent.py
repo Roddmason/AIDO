@@ -5,7 +5,7 @@ provenance completo, valida que las conclusiones técnicas basadas en web citen 
 emite hallazgos explícitos para claims en conflicto. No sintetiza conclusiones ni reemplaza fuentes:
 si las citas o la confianza no alcanzan el contrato, falla cerrado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

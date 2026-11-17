@@ -3,7 +3,7 @@
 Un app-server falso (script Python ejecutable) habla el mismo protocolo JSONL que ``codex app-server``:
 ``initialize`` → ``initialized`` → ``account/rateLimits/read``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

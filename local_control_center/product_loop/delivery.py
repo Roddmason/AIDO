@@ -7,7 +7,7 @@ Sin remoto configurado, los modos de PR degradan a ``direct_push`` con aviso exp
 mutación git corre por los primitivos auditados de ``git_worktrees`` (ToolBroker + policy) y el
 resultado se devuelve completo como evidencia; un aterrizaje bloqueado nunca lanza, reporta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

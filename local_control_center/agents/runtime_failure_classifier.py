@@ -14,7 +14,7 @@ Dos invariantes que vienen de comportamiento observado, no de teoría:
 El módulo no traduce: devuelve una causa estable y la evidencia. La copia para el cliente vive
 en el catálogo i18n indexada por esa causa, para que el gate bilingüe la gobierne.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

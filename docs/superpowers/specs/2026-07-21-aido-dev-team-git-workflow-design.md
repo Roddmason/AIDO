@@ -2,11 +2,11 @@
 
 **Fecha:** 2026-07-21
 **Estado:** Aprobado (diseño). Implementación por slices.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Contexto y objetivo
 
-El product loop de AIDO orquesta proyectos externos (p.ej. `votacionenlinea`). Hoy crea **una rama por mensaje de usuario** (`codex/product-owner-<loopid>` / `codex/product-loop-<loopid>`), nunca la limpia, y **no hace ningún `git commit`** (el entregable es un patch + evidencia). El objetivo es que AIDO trabaje como un **equipo de desarrollo real**: base `dev`, una rama por unidad de trabajo (HU), commits reales, review de Technical Lead + QA, y aterrizaje configurable (push directo o PR) con borrado de rama, iterando la misma rama ante hallazgos.
+El product loop de AIDO orquesta proyectos externos (p.ej. `example-project`). Hoy crea **una rama por mensaje de usuario** (`codex/product-owner-<loopid>` / `codex/product-loop-<loopid>`), nunca la limpia, y **no hace ningún `git commit`** (el entregable es un patch + evidencia). El objetivo es que AIDO trabaje como un **equipo de desarrollo real**: base `dev`, una rama por unidad de trabajo (HU), commits reales, review de Technical Lead + QA, y aterrizaje configurable (push directo o PR) con borrado de rama, iterando la misma rama ante hallazgos.
 
 ## 2. Estado actual (causas raíz, verificadas)
 
@@ -69,7 +69,7 @@ Por HU: rama `feature/<hu-slug>` off `dev`, estable y reusada entre turnos/rewor
 
 - `git push` no existe → agregarlo brokered con la policy de `run_brokered_git`.
 - Reusar el loop toca `coordinator.py:4408`; no reintroducir el bug de re-pregunta ni la race de cancel/worker.
-- Gates del repo: **i18n bilingüe (es≠en)**, **openapi regen**, arch tests, `test:py`, `check:web`, doc-author (`@author Rodrigo Mason`), el pre-commit ruff nuevo.
+- Gates del repo: **i18n bilingüe (es≠en)**, **openapi regen**, arch tests, `test:py`, `check:web`, doc-author (`@author AIDO contributors`), el pre-commit ruff nuevo.
 - El writer autónomo concurrente edita este checkout y commitea a `dev` a mitad de sesión → commits acotados por slice, re-fetch/rebase antes de push.
 - Proyectos externos pueden ser locales (sin remoto) → degradación de `auto_pr`/`manual_pr` a `direct_push`.
 

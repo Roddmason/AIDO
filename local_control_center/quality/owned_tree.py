@@ -3,7 +3,7 @@
 El runner conserva la hora de creación obtenida al lanzar el hijo. Si la identidad cambia o
 el root desaparece antes del cierre, falla sin seleccionar procesos sustitutos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

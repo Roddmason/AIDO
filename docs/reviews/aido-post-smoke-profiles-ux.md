@@ -26,7 +26,7 @@ Los IDs abreviados de esta fase son directorios bajo `../../.tmp/post-smoke-prof
 
 ## Diagramas reales Archify
 
-Instalación local de **skill**, no dependencia runtime ni plugin de AIDO: `C:/Users/Rodd/.agents/skills/archify`, [tt-a1i/archify v2.16.0](https://github.com/tt-a1i/archify/releases/tag/v2.16.0), licencia MIT (tt-a1i/Cocoon AI). ZIP oficial SHA-256 `4c59fa6557a2385beaaef8c7219cc414573acc9f0c30a932d5053b0b20689a46`, verificado. No actualización global, PATH ni otro paquete instalado. `doctor`: exit 0, recibo `99816856…/archify-doctor-command.json`. No había `.mmd` del paquete en el checkout: ausencia registrada, no se usaron como evidencia.
+Instalación local de **skill**, no dependencia runtime ni plugin de AIDO: `C:/Users/example-user/.agents/skills/archify`, [tt-a1i/archify v2.16.0](https://github.com/tt-a1i/archify/releases/tag/v2.16.0), licencia MIT (tt-a1i/Cocoon AI). ZIP oficial SHA-256 `4c59fa6557a2385beaaef8c7219cc414573acc9f0c30a932d5053b0b20689a46`, verificado. No actualización global, PATH ni otro paquete instalado. `doctor`: exit 0, recibo `99816856…/archify-doctor-command.json`. No había `.mmd` del paquete en el checkout: ausencia registrada, no se usaron como evidencia.
 
 | Vista | HTML / SVG / fuente JSON | Validación |
 |---|---|---|
@@ -155,10 +155,10 @@ Comandos reales (pasos secuenciales mediante `_run(QualityStep(...))`, superviso
 node node_modules/typescript/bin/tsc --noEmit -p local-control-center/web/tsconfig.json
 node node_modules/@biomejs/biome/bin/biome check local-control-center/web
 node scripts/run-web-tests.mjs tests_web/post-smoke-ux.spec.js tests_web/settings-providers.spec.js tests_web/control-center.spec.js --grep "Post-smoke|Add provider:|Configure provider:|language control localizes Settings"
-node C:/Users/Rodd/.agents/skills/archify/bin/archify.mjs doctor
-node C:/Users/Rodd/.agents/skills/archify/bin/archify.mjs validate architecture docs/diagrams/aido-post-smoke/architecture.json --quality showcase --json --repo-root H:/Proyectos/Personales/AIDO
-node C:/Users/Rodd/.agents/skills/archify/bin/archify.mjs deliver architecture docs/diagrams/aido-post-smoke/architecture.json docs/diagrams/aido-post-smoke/architecture.html --quality showcase --json --repo-root H:/Proyectos/Personales/AIDO
-node C:/Users/Rodd/.agents/skills/archify/bin/archify.mjs visual-check docs/diagrams/aido-post-smoke/architecture.html --json
+node C:/Users/example-user/.agents/skills/archify/bin/archify.mjs doctor
+node C:/Users/example-user/.agents/skills/archify/bin/archify.mjs validate architecture docs/diagrams/aido-post-smoke/architecture.json --quality showcase --json --repo-root .
+node C:/Users/example-user/.agents/skills/archify/bin/archify.mjs deliver architecture docs/diagrams/aido-post-smoke/architecture.json docs/diagrams/aido-post-smoke/architecture.html --quality showcase --json --repo-root .
+node C:/Users/example-user/.agents/skills/archify/bin/archify.mjs visual-check docs/diagrams/aido-post-smoke/architecture.html --json
 ```
 
 Typecheck/Biome/browser: **exit 0/0/0**. Biome conserva seis warnings preexistentes en AgentsPage/EvidencePage; dos dependencias de step intencionales llevan justificación local de foco, no se eliminó el comportamiento por un autofix. Vite advierte chunk >500 kB; Node advierte NO_COLOR/FORCE_COLOR. No ocultados. El build aislado fue ejecutado por run-web-tests; no valida por sí solo el PR entero. No cambió DTO/OpenAPI; drift completo queda en los gates correspondientes, no se regeneró el cliente.
@@ -168,7 +168,7 @@ Commit UI con hook real: `e181321d…/commit.json`, exit 0, Gitleaks `analysis_c
 **PR completo del nuevo candidato: BLOCKED antes del spawn.** Directorio `782da4083a004c549ec8fdd1c77ee94f`: `candidate.json`, `admission.json` y decisiones durables del gobernador. Comando solicitado, mediante `_run` y `capture_session`:
 
 ```text
-H:/aido-isolated-validation/candidate-ad0e3b000e7e4bab86f8b8fca13f80ed/.venv/Scripts/python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path H:/Proyectos/Personales/AIDO/.tmp/post-smoke-profiles-ux/782da4083a004c549ec8fdd1c77ee94f/quality.sqlite
+H:/aido-isolated-validation/candidate-ad0e3b000e7e4bab86f8b8fca13f80ed/.venv/Scripts/python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path ./.tmp/post-smoke-profiles-ux/782da4083a004c549ec8fdd1c77ee94f/quality.sqlite
 ```
 
 Presupuesto 18 GiB/65%/64 + reserva host 16 GiB = **36.507.222.016 bytes requeridos**. Preview 23:14:07 UTC: disponibles 35.815.096.320, déficit 692.125.696. Última admisión real 23:16:08 UTC (`resource-admission-6f5a5fff-86ba-4e3c-9f0e-650d8f6ec2d5`): disponibles **34.877.149.184**, déficit **1.630.072.832**, cero leases; `aggregate_memory_budget`. No se bajaron controles ni cerraron aplicaciones. La espera propia del runner fue acotada a 120 segundos; no se repitió la suite.

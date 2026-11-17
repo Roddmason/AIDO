@@ -6,7 +6,7 @@ tokens de cacheo (creacion + lectura) en `cached_input_tokens` y, como no hay ta
 publicada aqui, deja el costo como desconocido. La autoridad de ejecución vive en la
 política SQLite de runtime; este proveedor valida config/credencial y redacta payloads.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

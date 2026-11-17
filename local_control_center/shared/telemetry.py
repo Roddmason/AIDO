@@ -6,7 +6,7 @@ entorno. Provee helpers de correlación y de medición de latencia, y emisores t
 por dominio (HTTP, decisiones de política, tool/model/agent calls). Garantiza que un
 fallo del exportador externo nunca rompe el runtime local: se captura y se reporta en el estado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

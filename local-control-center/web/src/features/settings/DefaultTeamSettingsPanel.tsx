@@ -5,7 +5,7 @@
  *
  * Cards over a table: the roster is scanned by role to answer "can this agent run, and
  * what may it use", not compared column-by-column across every profile.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useMemo } from 'react';

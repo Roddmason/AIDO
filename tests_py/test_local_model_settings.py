@@ -1,6 +1,6 @@
 """Configuración por modelo local: por defecto único, procedencia, capacidades opt-in y fase 80.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

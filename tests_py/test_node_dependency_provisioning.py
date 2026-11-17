@@ -5,7 +5,7 @@ worktree nuevo lo trae, asi que todo comando Node del QA moria con `Cannot find 
 modulo decide, a partir del lockfile y de un marcador propio, si hace falta instalar, con que
 gestor, y si es posible hacerlo de forma determinista.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 Reporte del operador: Claude CLI estaba por llegar al 100 % del uso semanal y no quiere que AIDO lo use
 pasado un umbral (80 % para todos o por proveedor), ni siquiera a mitad de un loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

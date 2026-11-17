@@ -7,7 +7,7 @@ rol, el orden de runtimes del hilo y las aprobaciones de recurso cuya procedenci
 el Developer, el SecurityAgent y el ArchitectAgent. ``observe_resource_decision`` se resuelve en el
 módulo del coordinator para que el parcheo de los tests siga aplicando.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

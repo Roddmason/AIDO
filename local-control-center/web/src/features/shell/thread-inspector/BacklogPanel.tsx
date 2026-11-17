@@ -1,6 +1,6 @@
 /**
  * Backlog tab of the Thread Inspector: epics, stories and agent tasks of the product loop as a three-level list.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { EmptyState, StatusChip } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';

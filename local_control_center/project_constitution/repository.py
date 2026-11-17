@@ -15,7 +15,7 @@ Transacciones: la conexión llega en autocommit y estos métodos NO abren transa
 ``upsert`` escribe la fila principal y su versión en dos sentencias, así que el caller debe
 agruparlas en una única ``immediate_transaction`` para no desincronizar documento e historial.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

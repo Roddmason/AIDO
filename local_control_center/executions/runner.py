@@ -3,7 +3,7 @@
 Reutiliza los handlers registrados, valida la lease antes de cada resultado y conserva la
 autenticación interna del adaptador. Nunca recibe prompts ni credenciales por la línea de comandos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

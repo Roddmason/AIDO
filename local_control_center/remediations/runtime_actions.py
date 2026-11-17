@@ -1,6 +1,6 @@
 """Runtime validation results for remediation actions, free of service state.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

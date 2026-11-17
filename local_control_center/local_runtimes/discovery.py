@@ -6,7 +6,7 @@ timeout corto y lectura y listas acotadas. La firma identifica llama.cpp (``owne
 ``/v1/models`` sin firma conocida se sugiere como servidor genérico solo con confirmación del operador.
 Nunca crea cuentas: devuelve sugerencias para el asistente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 Transacciones: cada método usa la conexión SQLite del caller; inserciones y cambios de estado se
 confirman por statement salvo que el caller los envuelva en ``immediate_transaction``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-09-22
 **Estado:** Diseño aprobado — enfoque A (sub-proyecto 2 de 3). Pendiente de plan de implementación.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Objetivo
 

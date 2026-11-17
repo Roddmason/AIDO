@@ -2,7 +2,7 @@
  * Resuelve en el cliente el workspace dueño de un hilo nuevo. Ese id viaja luego como
  * `workspaceId` de los runs del hilo (p. ej. el ResearchAgent), así que debe ser el workspace
  * raíz del proyecto y nunca uno efímero (prompt del ProductOwner) o el worktree de otro hilo.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview, Project } from '../../api/types';
 import { samePath } from '../../lib/paths';

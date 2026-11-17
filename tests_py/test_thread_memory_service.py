@@ -1,6 +1,6 @@
 """Tests de ThreadMemoryService: registry de funcionalidad, reindex y API publica.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

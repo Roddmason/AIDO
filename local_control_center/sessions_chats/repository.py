@@ -6,7 +6,7 @@ forma atómica por sentencia: no agrupa varias escrituras ni abre `BEGIN/COMMIT`
 caller que necesite atomicidad entre el `INSERT` y el evento de dominio debe envolverlos él
 mismo (p. ej. con `immediate_transaction`); este repositorio no lo hace.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

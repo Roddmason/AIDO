@@ -17,7 +17,7 @@
  * and the selection is saved through the bulk models endpoint in batches with visible progress. The API key is
  * held in an uncontrolled masked input — never in React state, never serialized into the DOM — read
  * once to create the credential, and cleared the moment the provider is saved.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {

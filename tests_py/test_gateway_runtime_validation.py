@@ -5,7 +5,7 @@ depende del primero alfabético (prueba candidatos acotados y registra cada inte
 modelo no oculta el éxito de otro (candidatos, gate del equipo y reanudación), que el sync preselecciona
 solo la allowlist curada y que el flujo completo sync → validar deja al gateway elegible para el equipo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

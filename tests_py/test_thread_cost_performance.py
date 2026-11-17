@@ -6,7 +6,7 @@ de otro hilo no contamina el total), la vista de ruteo leída del rastro que el 
 escribe (``ai_routing_decisions``), la política de costo vigente y el 404 del hilo inexistente. Siembra
 datos reales por repositorio; no crea tablas nuevas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

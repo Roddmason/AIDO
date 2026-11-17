@@ -9,7 +9,7 @@ that touch two tables (e.g. `record_model_call` writing `model_calls` plus a
 `cost_usage` row, `create_agent_run` writing `agent_runs` plus telemetry) are atomic
 only within that caller-managed transaction.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

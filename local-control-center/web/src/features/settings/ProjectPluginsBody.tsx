@@ -3,7 +3,7 @@
  * for this workspace. Enablement is global and managed in the General → Plugins
  * registry; this surface only answers "what extends my runs right now", so it
  * deliberately carries no install/enable/disable affordances.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useEffect, useState } from 'react';

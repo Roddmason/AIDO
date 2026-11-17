@@ -12,7 +12,7 @@
  * ThreadCoordinator stamps onto the next queued run. The third never invents an approval: it executes
  * the backend's own pending `approve_resource_decision` remediation, and stays disabled with an honest
  * reason when no premium selection is actually waiting for a human.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { CircleDollarSign, Cpu, ShieldCheck, TrendingDown } from 'lucide-react';

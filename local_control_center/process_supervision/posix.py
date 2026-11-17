@@ -1,6 +1,6 @@
 """Supervisor POSIX basado en process groups y límites del proceso hijo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

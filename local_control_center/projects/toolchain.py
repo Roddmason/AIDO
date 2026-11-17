@@ -25,7 +25,7 @@ esos comandos, este módulo decide si hace falta instalar dependencias (con el g
 lockfile, de forma congelada y preferentemente offline) o si instalar sería no determinista
 (falta el lockfile), caso en el que bloquea en vez de instalar a ciegas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

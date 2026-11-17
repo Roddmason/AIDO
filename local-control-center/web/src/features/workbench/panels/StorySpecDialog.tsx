@@ -3,7 +3,7 @@
  * (goal, reviewer, dependencias) y el texto de prompt exacto que recibirá el agente que
  * implementa. Obtiene el spec bajo demanda desde el endpoint read-only al abrir el diálogo;
  * el estado vive local al componente para no inflar el estado agregado del product loop.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { FileText } from 'lucide-react';

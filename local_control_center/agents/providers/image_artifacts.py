@@ -1,6 +1,6 @@
 """Durable, project-scoped artifact boundary for generated NVIDIA images.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

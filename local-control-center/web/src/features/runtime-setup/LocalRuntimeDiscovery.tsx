@@ -4,7 +4,7 @@
  * how many models it lists and whether it is already configured. Nothing is created here: "Set up"
  * opens the local-runtime wizard prefilled with the suggestion, and an unrecognized server needs the
  * operator's explicit confirmation before it can be set up as a generic OpenAI-compatible runtime.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Radar, Server } from 'lucide-react';

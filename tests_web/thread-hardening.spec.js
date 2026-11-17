@@ -2,7 +2,7 @@
  * Endurecimiento del panel de hilos: etiquetas legibles de decisión, tarjeta de research del intake,
  * espera por capacidad del equipo y pipeline detenido sin job activo. Cada caso mockea el overview,
  * el detalle, los eventos y las remediaciones del hilo para que el estado sea determinista.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from './fixtures/operations.js';
 

@@ -2,7 +2,7 @@
  * Simulador de ruteo del Model Gateway: arma los parámetros de una tarea hipotética y muestra qué ruta elegiría.
  * Sub-dominio de previsualización (dry-run, sin ejecutar): renderiza la ruta seleccionada, los resultados de
  * presupuesto/cuota y los candidatos con su desglose de score. El estado del formulario es controlado por el padre.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ModelGatewayRoutePreviewResponse } from '../../api/client';
 import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';

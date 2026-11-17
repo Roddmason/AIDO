@@ -1,6 +1,6 @@
 """Policy for which executed remediation actions resolve their record.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Immutable acceptance receipts, including competing publishers.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import json

@@ -12,7 +12,7 @@ salta las historias cuya huella de spec ya quedó ``done`` en el loop de origen
 (``metadata.outcome=carried_over``). Los helpers del coordinator se importan de forma diferida para
 evitar el ciclo de imports (el coordinator importa este módulo al cargar).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

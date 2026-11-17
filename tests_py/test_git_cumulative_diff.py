@@ -1,6 +1,6 @@
 """Diff acumulado de la rama del hilo contra su base: evidencia de todas las historias del loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

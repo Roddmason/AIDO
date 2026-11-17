@@ -1,6 +1,6 @@
 """Versioned, source-attributed NVIDIA NIM local hardware requirements.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

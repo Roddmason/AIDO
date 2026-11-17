@@ -9,7 +9,7 @@ fuente. Y detecta claims en conflicto sobre un mismo tópico: emite un hallazgo 
 recomendación basada en la fuente de mayor confianza, marcando para revisión manual cuando las fuentes
 de máxima confianza discrepan entre sí.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

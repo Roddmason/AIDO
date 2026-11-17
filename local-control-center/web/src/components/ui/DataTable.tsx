@@ -2,7 +2,7 @@
  * Tabla genérica dirigida por columnas: renderiza `empty` cuando no hay filas, keyea por
  * `row.id` (fallback índice), expone caption sr-only y celdas con `data-label` para el
  * layout responsivo.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 

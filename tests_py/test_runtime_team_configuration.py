@@ -1,6 +1,6 @@
 """Equipo de runtimes guardado en el hilo: validación, estrechamiento, sellado y readiness.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

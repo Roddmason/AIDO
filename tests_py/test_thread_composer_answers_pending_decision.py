@@ -1,12 +1,12 @@
 """Un mensaje del composer que matchea una opción pendiente resuelve la decisión, no re-pregunta.
 
-Bug observado en vivo (votacionenlinea): el clasificador de intake pregunta el outcome con
+Bug observado en vivo (example-project): el clasificador de intake pregunta el outcome con
 confianza baja; el usuario responde "implementation" por el composer y el mensaje se re-clasifica
 desde cero → misma confianza → la MISMA pregunta otra vez, con decisiones duplicadas acumulándose
 (loop infinito de decisión). El composer debe consumir la respuesta como resolución del batch
 pendiente y reanudar el run, igual que el botón de la UI.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

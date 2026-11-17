@@ -6,7 +6,7 @@
  * `validation_failed`, never deleted) only when the provider proved it works; each discarded row offers
  * Retest and Re-enable. Transient failures (429, 5xx, timeouts) stay enabled as "not confirmed".
  * The provider stays usable as long as one model passed. Each tested model costs one short completion.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { ListChecks, RotateCcw, Search, Square } from 'lucide-react';

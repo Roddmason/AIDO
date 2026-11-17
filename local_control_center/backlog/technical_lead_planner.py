@@ -5,7 +5,7 @@ brief, las historias, sus criterios, assessment, clasificacion de intencion, rie
 disponible; produce un plan trazable con agent_tasks, dependencias, handoffs, gates y estrategia
 branch/worktree.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

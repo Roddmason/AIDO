@@ -2,7 +2,7 @@
  * Polls a thread's append-only event log incrementally so the Threads view can render a live console
  * without blocking on the background Product Loop job. An explicit operator action can wake an idle
  * stream through `wakeThreadEventStream`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useRef, useState } from 'react';
 

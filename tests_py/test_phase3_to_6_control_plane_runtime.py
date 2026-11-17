@@ -246,7 +246,7 @@ def test_command_classifier_and_policy_engine_gate_sensitive_actions(
     client = owned_runtime_resources.enter_context(TestClient(app))
     headers = auth_headers(client)
 
-    destructive = classify_command("Remove-Item C:\\Users\\Rodd -Recurse -Force")
+    destructive = classify_command("Remove-Item C:\\Users\\example-user -Recurse -Force")
     assert destructive["riskLevel"] == "critical"
     assert "destructive_delete" in destructive["categories"]
 
@@ -275,8 +275,8 @@ def test_command_classifier_and_policy_engine_gate_sensitive_actions(
             "projectId": project["id"],
             "role": "implementer",
             "tool": "shell",
-            "command": "Remove-Item C:\\Users\\Rodd -Recurse -Force",
-            "path": "C:\\Users\\Rodd",
+            "command": "Remove-Item C:\\Users\\example-user -Recurse -Force",
+            "path": "C:\\Users\\example-user",
             "workspaceId": "workspace-unsafe",
         },
         headers=headers,

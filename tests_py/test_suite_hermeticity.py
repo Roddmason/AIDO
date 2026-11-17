@@ -1,6 +1,6 @@
 """Guardas de hermeticidad de la suite: un test no puede depender de la configuracion del equipo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

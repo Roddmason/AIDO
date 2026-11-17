@@ -3,7 +3,7 @@
  * report (`minimum_free_memory`, `host_cpu_saturated`…). Host-capacity codes say the machine lacks
  * room, so they never read as a configuration problem. Shared by the AI health modal and the thread
  * execution panel so both explain the same code with the same words.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 type Translate = (key: string, fallback?: string) => string;

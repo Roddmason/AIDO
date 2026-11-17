@@ -8,7 +8,7 @@ acciones criticas escalan a revision humana; cada operacion de agente exige su p
 tool, perfil y contexto (workspace + agent run) o se deniega. Funcion pura: no ejecuta ni
 persiste, solo devuelve la decision; no lanza.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

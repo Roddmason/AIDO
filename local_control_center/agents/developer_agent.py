@@ -4,7 +4,7 @@ Selecciona un runtime CLI o de modelo, ejecuta la instrucción dentro del worksp
 captura el diff git resultante y corre el QAAgent; el run solo se da por completado si el QA lo permite.
 Todo queda asentado en un paquete de evidencia con artefactos y hashes; falla cerrado ante brechas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

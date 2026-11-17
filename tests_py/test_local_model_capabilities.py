@@ -1,6 +1,6 @@
 """Capacidades por modelo en cuentas locales: opt-in por modelo, sin siembra por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

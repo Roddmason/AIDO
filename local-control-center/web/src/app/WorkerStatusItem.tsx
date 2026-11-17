@@ -3,7 +3,7 @@
  * refresh, runtime validation, thread runs). A fresh install starts it paused on purpose ("requires
  * an explicit resume"), but nothing in the web said so or offered the resume: queued work sat in
  * `queued` forever. This item shows the worker state and, when paused, a one-click Resume.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 

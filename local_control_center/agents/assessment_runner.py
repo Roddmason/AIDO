@@ -8,7 +8,7 @@ deja una decisión de política y su fila de auditoría, sin ejecutar— y solo 
 assessment, sus hallazgos (ya redactados) y un artefacto JSON descargable dentro de una sola
 ``immediate_transaction``, y falla cerrado (status ``blocked``) si la política no concede el permiso.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

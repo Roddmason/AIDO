@@ -10,7 +10,7 @@ estos métodos NO abren transacciones propias; cada ``execute`` se confirma de i
 (``upsert_installation``/``upsert_preferences``) hacen lectura-luego-escritura (SELECT + INSERT/UPDATE),
 dos sentencias que solo son atómicas si el caller las agrupa en una única ``immediate_transaction``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

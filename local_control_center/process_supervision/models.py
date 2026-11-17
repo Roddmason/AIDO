@@ -1,6 +1,6 @@
 """Contratos tipados de procesos administrados, límites y estadísticas de ejecución.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

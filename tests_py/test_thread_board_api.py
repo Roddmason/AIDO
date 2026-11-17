@@ -1,6 +1,6 @@
 """Endpoint del tablero por historia de un hilo: resolución hilo→loop, columnas y payload acotado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

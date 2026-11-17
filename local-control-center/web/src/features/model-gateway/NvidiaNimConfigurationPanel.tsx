@@ -2,7 +2,7 @@
  * Endpoint-scoped NVIDIA NIM setup. Each account owns one API contract so chat,
  * retrieval and visual endpoints cannot accidentally share incompatible URLs,
  * credentials or quota policy.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 

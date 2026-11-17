@@ -7,7 +7,7 @@ COMMIT/ROLLBACK propios para serializar el reclamo de la cola entre workers conc
 Invariante de seguridad: todo command/payload/reason se redacta con `redact_secrets` antes de
 persistir o registrar, de modo que ningún secreto llega a `jobs`, `action_requests` ni eventos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

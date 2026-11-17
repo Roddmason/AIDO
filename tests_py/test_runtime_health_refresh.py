@@ -2,7 +2,7 @@
 productor es una operación encolada, así que sin refresco automático un sistema bien configurado se
 reporta bloqueado a los pocos minutos y después de cada reinicio del control plane.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

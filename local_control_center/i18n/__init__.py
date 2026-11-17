@@ -3,5 +3,5 @@
 Agrupa el modelo del catálogo (idiomas + traducciones), su repositorio SQLite,
 los comandos de orquestación y el router HTTP que expone lectura/reemplazo del catálogo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """

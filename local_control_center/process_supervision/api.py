@@ -1,6 +1,6 @@
 """API operacional de procesos y solicitudes durables de cancelación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

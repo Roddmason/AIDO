@@ -4,7 +4,7 @@
  * "unknown"/degraded state, and a searchable, project-scoped table of the underlying memory
  * items. Read-only; every value is sourced from `overview`/`retrievalStatus`/`selectedProject`
  * props, never invented.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo, useState } from 'react';
 

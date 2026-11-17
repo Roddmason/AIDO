@@ -1,6 +1,6 @@
 """La validación del equipo se evalúa por (provider, modelo): la falla de un modelo no invalida otro.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ natural y el snapshot se sirve en el poll de 5 s del dashboard. Con ``limit`` lo
 devuelven exactamente N filas (las más recientes, orden estable por rowid) y con
 ``limit=None`` el comportamiento previo queda intacto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

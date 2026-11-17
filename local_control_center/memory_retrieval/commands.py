@@ -4,7 +4,7 @@ Capa fina entre los handlers HTTP y la persistencia: arma los argumentos
 desde el body del contrato, registra los eventos de auditoría correspondientes
 y delega el ranking en el índice. No contiene SQL ni lógica de transporte.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

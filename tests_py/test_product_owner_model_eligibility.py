@@ -1,7 +1,7 @@
 """PO selection must remain inside the existing model-execution policy.
 
 These tests never execute a provider, probe a runtime or widen the broker allowlist.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
  * choice comes from (this thread's own team, the project or general setting, or the automatic
  * split). When the thread already ran, the provider sealed in its latest run is shown next to it if
  * it differs, so a team changed after the run never rewrites what actually executed.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 

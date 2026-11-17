@@ -2,7 +2,7 @@
 
 Funciones puras sobre la metadata del pedido, la intención clasificada y la salida del Product Owner.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

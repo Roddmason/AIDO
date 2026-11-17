@@ -5,7 +5,7 @@ generada del tablero, los eventos que lo refrescan, la señal de etapa derivada 
 del panel de ejecución (``MILESTONE_INDEX`` sigue literal por ``test_product_loop_result_taxonomy``)
 y los tripwires de clases del layout.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

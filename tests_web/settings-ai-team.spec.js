@@ -2,7 +2,7 @@
  * Global AI team settings: per role, an ordered list of active providers (first = assigned, rest =
  * fallback) editable at general and project scope; "Automatic" clears the override. The team
  * endpoint and the settings writes are mocked; the Settings modal is the real one.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

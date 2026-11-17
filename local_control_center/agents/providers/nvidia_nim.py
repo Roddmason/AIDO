@@ -4,7 +4,7 @@ Reutiliza el transporte estilo OpenAI pero endurece la lectura de uso (solo conf
 `usage` si el proveedor realmente lo devuelve) y traduce los 429 en cuota: registra el
 rate limit en `QuotaManager` con un retry-after fijo cuando hay conexion a la base.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

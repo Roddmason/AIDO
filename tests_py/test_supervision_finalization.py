@@ -1,6 +1,6 @@
 """Native exits survive a failing SQLite finalization; no provider or OS-cause claim.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import json

@@ -3,7 +3,7 @@
  * permission decisions, grants, policy revisions and tool-call executions that gate
  * every sensitive action, reading from the shared Overview snapshot and writing
  * through the gated `mutate` handshake.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 import { updateSandboxProfile } from '../../api/client';

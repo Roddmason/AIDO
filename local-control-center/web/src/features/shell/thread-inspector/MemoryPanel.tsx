@@ -1,6 +1,6 @@
 /**
  * Memory tab of the Thread Inspector: what AIDO recalls about work like this (similar threads, previous decisions, evidence, lessons, performance passes and implemented functionality).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 import type { ThreadMemoryRecallResponse } from '../../../api/client';

@@ -8,7 +8,7 @@
  * La animación es declarativa (Motion + variantes de `motion/variants.ts`). Aquí NO hay
  * manipulación imperativa de estilos ni `requestAnimationFrame`: solo estado publicado en
  * `<html>` y un evento de sincronización entre instancias del hook.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 

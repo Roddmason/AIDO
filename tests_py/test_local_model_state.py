@@ -1,6 +1,6 @@
 """Estado de carga de modelos locales: parseo defensivo por fuente y caché compartida no bloqueante.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

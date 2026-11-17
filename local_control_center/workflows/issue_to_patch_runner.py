@@ -7,7 +7,7 @@ evidence package, then gate the manual transitions evidence_ready -> approved_fo
 re-checks QA and security before mutating git, so no patch reaches a branch or PR unapproved;
 git operations refuse force-push and direct edits to main. Reused by the issue_to_pr runner.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

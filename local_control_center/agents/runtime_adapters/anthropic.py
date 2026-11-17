@@ -4,7 +4,7 @@ Resolves base URL/API key/model from constructor or runtime configuration, gap-c
 execution policy, converts OpenAI-style messages into the Anthropic `/messages` payload
 (system prompts included), and stores the redacted text reply as evidence.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

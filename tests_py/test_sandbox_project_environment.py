@@ -4,7 +4,7 @@ Visto en vivo: el QA de un proyecto uv avisaba ``VIRTUAL_ENV=...\\AIDO\\.venv do
 project environment`` porque AIDO corre desde su ``.venv`` (``uv run``) con ``Scripts`` primero en
 el ``PATH``; un ``python``/``pytest`` sin ``uv run`` resolvía al intérprete de AIDO.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

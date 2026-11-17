@@ -3,7 +3,7 @@
 Una rama puede ocupar el slot ya reservado por el job; las demás requieren reservas propias.
 Cada hilo usa su conexión y ninguna espera mantiene abierta una transacción SQLite.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

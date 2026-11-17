@@ -6,7 +6,7 @@ al escribir (`repository.create_action`); este modulo cubre lo que ese recorte e
 las filas ya persistidas antes del cambio (backfill por pasadas horarias acotadas, ver
 `backfill_oversized_remediation_payloads`) y la retencion por antiguedad de estados terminales.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

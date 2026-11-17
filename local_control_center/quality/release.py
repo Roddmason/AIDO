@@ -3,7 +3,7 @@
 Usa directorios temporales propios, locks de dependencias y árboles supervisados secuenciales.
 No cambia la instalación del operador, no activa proveedores y no ejecuta inferencia facturable.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

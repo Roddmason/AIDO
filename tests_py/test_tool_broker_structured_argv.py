@@ -4,7 +4,7 @@ Regresion de seguridad: `_structured_argv` en modo ejecutable jamas debe caer al
 `command` string (origen potencial LLM); ese fallback existe solo para display/auditoria.
 `_executable_argv_boundary` debe negar toda llamada ejecutable sin argv estructurado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from local_control_center.agents.tool_broker import _executable_argv_boundary, _structured_argv

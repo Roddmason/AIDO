@@ -5,7 +5,7 @@
  * A short module cache keeps the last answer per scope: reopening the inspector Team tab or the
  * composer chip shows it at once instead of an empty card, and a fresh entry skips the request.
  * `reload` and `invalidateRuntimeTeamCache` (after a provider switch) always go to the server.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

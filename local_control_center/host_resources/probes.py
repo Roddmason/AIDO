@@ -1,6 +1,6 @@
 """Sondas acotadas de CPU, memoria, disco, procesos y GPU para el gobernador.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

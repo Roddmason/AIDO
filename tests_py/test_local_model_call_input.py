@@ -1,6 +1,6 @@
 """Claves de la llamada de modelo local: arranque en frío previsto y salida estructurada ya validada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

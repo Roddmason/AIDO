@@ -2,7 +2,7 @@
 
 Reemplaza el antiguo gate de banners idénticos por una verificación de que cada módulo
 productivo (backend Python + frontend TS/TSX, excl. ``generated/``) explica qué hace y lleva
-``@author Rodrigo Mason`` en su header. Las docstrings de API pública Python se enforcan vía Ruff
+``@author AIDO contributors`` en su header. Las docstrings de API pública Python se enforcan vía Ruff
 (``D101/D102/D103``). Contrato completo en ``docs/development/documentation-standard.md``.
 """
 
@@ -22,7 +22,7 @@ GENERIC_MARKERS = (
     "AIDO frontend source module",
 )
 MIN_SUMMARY_CHARS = 30
-AUTHOR_TAG = "@author Rodrigo Mason"
+AUTHOR_TAG = "@author AIDO contributors"
 
 # Módulos con requisitos de dominio (ver §4 del estándar).
 SECURITY_KEYWORDS = ("invariant", "raises", "raise", "lanza")

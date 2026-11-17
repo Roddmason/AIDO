@@ -1,6 +1,6 @@
 """Strict public contracts for bounded one-or-many chat execution.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

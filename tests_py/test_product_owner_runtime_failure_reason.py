@@ -6,7 +6,7 @@ un subconjunto de campos y lo descartaba, sintetizando "ProductOwnerAgent runtim
 with return code 1". Con ese texto el cliente no puede saber que su sesión de Claude expiró ni
 que la cuota de Codex se agotó, y la remediación aguas abajo queda ciega.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

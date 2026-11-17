@@ -11,7 +11,7 @@ consumed directly by Pydantic models and the API layer. Precedence rules are:
 ``assignedBy`` es un eje aparte: dice si el valor efectivo lo puso una persona (``operator``) o
 la deteccion automatica (``auto``). ``origin`` sigue diciendo de que ambito salio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

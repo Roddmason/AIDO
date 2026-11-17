@@ -1,6 +1,6 @@
 """Captura incremental acotada con artefactos redactados y SHA-256.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

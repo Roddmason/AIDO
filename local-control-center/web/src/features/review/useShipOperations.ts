@@ -2,7 +2,7 @@
  * Hook encapsulating the post-approval ship lifecycle (promote a patch run to a
  * branch, then open a PR). Holds the reason and optional branch/PR fields, runs
  * the kind-aware endpoint, surfaces the last operation, and refreshes on success.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useState } from 'react';
 

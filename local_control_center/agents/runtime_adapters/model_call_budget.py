@@ -11,7 +11,7 @@ y una carga más lenta termina como timeout.
 ``response_format`` solo se pide como ``json_schema`` cuando el llamador declara esa capacidad
 validada para el modelo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

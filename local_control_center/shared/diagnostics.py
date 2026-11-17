@@ -2,7 +2,7 @@
 
 Un escritor por proceso; el presupuesto del directorio se coordina entre procesos.
 Sólo administra sus propios segmentos diag-*.closed.jsonl, nunca evidencia histórica.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

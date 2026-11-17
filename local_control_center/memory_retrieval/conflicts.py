@@ -15,7 +15,7 @@ su riesgo residual.
 Sin embeddings reales, con dimensionalidad demasiado baja o con un corpus demasiado chico, devuelve
 un estado degradado explícito en vez de adivinar, igual que hace ``index.py``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

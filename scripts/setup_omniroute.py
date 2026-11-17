@@ -15,7 +15,7 @@ Uso típico (con el control plane y OmniRoute levantados):
     uv run python scripts/setup_omniroute.py --dry-run
     uv run python scripts/setup_omniroute.py --rollback
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

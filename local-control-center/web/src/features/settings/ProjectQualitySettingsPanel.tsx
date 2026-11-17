@@ -3,7 +3,7 @@
  * work is accepted, edited as a wired string-list row, with a worked-example hint so the
  * field reads as a purpose-built panel rather than a bare list. Dedicated to quality gates
  * so it never reuses the Team roster panel.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { findSetting, WiredRows } from './SettingsChoiceCards';

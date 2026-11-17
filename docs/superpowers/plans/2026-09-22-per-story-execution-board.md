@@ -12,14 +12,14 @@
 
 ## Global Constraints
 
-- Python tests (desde la raíz del repo): `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` (workaround del access-violation de faiss).
-- Ruff format: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format <py files>` — nunca sobre `.json`.
-- Ruff lint: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check <py files>` — nunca sobre `.json`.
+- Python tests (desde la raíz del repo): `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` (workaround del access-violation de faiss).
+- Ruff format: `.\.venv\Scripts\python.exe -m ruff format <py files>` — nunca sobre `.json`.
+- Ruff lint: `.\.venv\Scripts\python.exe -m ruff check <py files>` — nunca sobre `.json`.
 - Web typecheck: `corepack pnpm@10.24.0 run typecheck:web`.
 - Web lint/format: `corepack pnpm@10.24.0 exec biome check <files>` (se permite `corepack pnpm@10.24.0 exec biome check --write <files>` antes, para organizeImports/format).
 - Web build: `corepack pnpm@10.24.0 run build:web`.
 - OpenAPI tras cualquier cambio de API/`response_model`: `corepack pnpm@10.24.0 run openapi:generate` (escribe LF).
-- Todo módulo productivo nuevo lleva header semántico (docstring Python / JSDoc `/** */` TS) con `@author Rodrigo Mason`.
+- Todo módulo productivo nuevo lleva header semántico (docstring Python / JSDoc `/** */` TS) con `@author AIDO contributors`.
 - Python productivo: solo docstrings (sin comentarios `#` sueltos); docstring en toda API pública (ruff D101-D103).
 - Copy de UI solo vía `t('key','English fallback')`; claves bilingües (en != es) en `local_control_center/i18n/default_catalog.json`, editado quirúrgicamente preservando formato (2 espacios, UTF-8 con tildes reales, LF).
 - Guardrails visuales CSS: prohibido `Inter`, `cyan`, `purple`, `radial-gradient`, `background-clip: text`, `border-left|right` ≥ 2px; colores vía tokens `oklch`/`var(--color-*)`.
@@ -135,7 +135,7 @@ Crear `tests_py/test_backlog_board.py`:
 ```python
 """Módulo puro del tablero por historia: orden, "done", huella de spec, columnas y etapas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -392,7 +392,7 @@ def test_story_progress_entry_has_a_stable_shape() -> None:
 
 - [ ] **Step 2: Correr el test y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','-q','-p','no:randomly']))"`
 Expected: FAIL en colección con `ModuleNotFoundError: No module named 'local_control_center.backlog.board'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -410,7 +410,7 @@ cursor durable ``durableRun.storyProgress`` y cómo se proyectan historias, tare
 columnas del tablero (``todo``/``in_progress``/``qa``/``done``). Diseño:
 docs/superpowers/specs/2026-09-22-per-story-execution-board-design.md §3.1, §3.4 y §4.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -691,10 +691,10 @@ En `local_control_center/backlog/repository.py`, después de `list_user_stories`
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','tests_py/test_source_documentation_headers.py','tests_py/test_backlog_slice.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','tests_py/test_source_documentation_headers.py','tests_py/test_backlog_slice.py','-q','-p','no:randomly']))"`
 Expected: PASS (todos).
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/backlog/board.py local_control_center/backlog/repository.py tests_py/test_backlog_board.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/backlog/board.py local_control_center/backlog/repository.py tests_py/test_backlog_board.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/backlog/board.py local_control_center/backlog/repository.py tests_py/test_backlog_board.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/backlog/board.py local_control_center/backlog/repository.py tests_py/test_backlog_board.py`
 Expected: `All checks passed!`
 
 - [ ] **Step 5: Commit**
@@ -725,7 +725,7 @@ Crear `tests_py/test_git_cumulative_diff.py`:
 ```python
 """Diff acumulado de la rama del hilo contra su base: evidencia de todas las historias del loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -837,7 +837,7 @@ def test_cumulative_diff_reports_uncommitted_work_outside_the_range(
 
 - [ ] **Step 2: Correr el test y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_git_cumulative_diff.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_git_cumulative_diff.py','-q','-p','no:randomly']))"`
 Expected: FAIL en colección con `ImportError: cannot import name 'capture_cumulative_diff'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -948,10 +948,10 @@ def capture_cumulative_diff(
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_git_cumulative_diff.py','tests_py/test_git_diff_capture.py','tests_py/test_execution_boundary_architecture.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_git_cumulative_diff.py','tests_py/test_git_diff_capture.py','tests_py/test_execution_boundary_architecture.py','-q','-p','no:randomly']))"`
 Expected: PASS.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/workspaces_projects/git_worktrees.py tests_py/test_git_cumulative_diff.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/workspaces_projects/git_worktrees.py tests_py/test_git_cumulative_diff.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/workspaces_projects/git_worktrees.py tests_py/test_git_cumulative_diff.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/workspaces_projects/git_worktrees.py tests_py/test_git_cumulative_diff.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -1046,7 +1046,7 @@ def test_next_story_transition_resets_the_rework_budget(tmp_path: Path) -> None:
 
 - [ ] **Step 2: Correr el test y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_fsm_matrix.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_fsm_matrix.py','-q','-p','no:randomly']))"`
 Expected: FAIL — `test_qa_running_can_hand_off_to_the_next_story` con `AssertionError` (arista ausente) y `test_next_story_transition_resets_the_rework_budget` con `TypeError: ... unexpected keyword argument 'fsm_patch'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -1077,10 +1077,10 @@ y pasar el patch a `self.transition(...)` (`:1139-1147`) agregando el argumento 
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"`
 Expected: PASS (incluye `test_no_path_from_executing_skips_qa_and_security` intacto: desde `executing` solo se llega a `qa_running`).
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/coordinator.py tests_py/test_product_loop_fsm_matrix.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/coordinator.py tests_py/test_product_loop_fsm_matrix.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/coordinator.py tests_py/test_product_loop_fsm_matrix.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/coordinator.py tests_py/test_product_loop_fsm_matrix.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -1153,7 +1153,7 @@ def test_qa_failure_exhausts_auto_rework_and_blocks_the_loop(tmp_path: Path) -> 
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','opens_rework_when_qa_fails or exhausts_auto_rework']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','opens_rework_when_qa_fails or exhausts_auto_rework']))"`
 Expected: FAIL con `AssertionError: assert 'reworking' == 'blocked'` en ambos.
 
 - [ ] **Step 3: Implementación mínima**
@@ -1202,10 +1202,10 @@ por:
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_remediation_blocker_experience.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_remediation_blocker_experience.py','-q','-p','no:randomly']))"`
 Expected: PASS (la suite del coordinator tarda varios minutos; correr en background y leer el exit real).
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/qa_gate.py tests_py/test_product_loop_coordinator.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/qa_gate.py tests_py/test_product_loop_coordinator.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/qa_gate.py tests_py/test_product_loop_coordinator.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/qa_gate.py tests_py/test_product_loop_coordinator.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -1259,7 +1259,7 @@ estados ``todo → in_progress → qa → done`` persistidos con eventos ``story
 durable, presupuesto de rework por historia, historia sin cambios cerrada como ``noop`` y bloqueo
 con cursor al agotar el rework.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1590,7 +1590,7 @@ def test_a_story_uncovered_by_llm_and_fallback_blocks_before_any_developer_run(
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly']))"`
 Expected: FAIL — `assert 1 == 2` en `len(runtime.run_payloads)` (hoy un solo run con todas las tareas), `KeyError: 'storyProgress'`, el test `noop` bloquea en `review` (hoy "sin cambios" bloquea), el de evidencias falla en `assert "evidence-story-2" in payload["evidenceRefs"]` (hoy hay un solo run, así que solo existe `evidence-story-1`), el del respaldo determinista falla en `assert fallback_story_ids == {reminders["id"]}` (hoy no hay respaldo: "Setup reminders" queda sin tareas y sin evento `technical_lead_fallback`) y el de historia sin tareas tras el respaldo termina `awaiting_approval` en vez de `blocked` (hoy solo se exige alguna tarea global, `team_planning.py:158`).
 
 - [ ] **Step 3: Implementación mínima**
@@ -1610,7 +1610,7 @@ Cada cambio de estado se persiste en ``user_stories``/``agent_tasks`` (nunca en
 ``done`` con ``metadata.outcome=noop``. Los helpers del coordinator se importan de forma diferida para
 evitar el ciclo de imports (el coordinator importa este módulo al cargar).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2246,12 +2246,12 @@ def test_run_user_message_does_not_execute_developer_without_backlog_tasks(
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run (nuevo + anclas de un solo run): `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_story_spec.py','tests_py/test_thread_cost_performance.py','-q','-p','no:randomly']))"`
+Run (nuevo + anclas de un solo run): `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_story_spec.py','tests_py/test_thread_cost_performance.py','-q','-p','no:randomly']))"`
 Expected: PASS. En particular siguen verdes las anclas `:3049`, `:3097`, `:3133`, `:5045` (backlog de una historia ⇒ `run_payloads[0]` sigue con todas las tareas), `:8478` (2 payloads, `taskId` termina en `:r1`), `:8539` (tope de operador 1 ⇒ 2 payloads y bloqueo `qa_rework`), `:8644`, `:8407`, `:5483`/`:5562` (sin cambios ⇒ bloqueo `review` con el mismo texto y learning `recorded`), y `:4716` adaptado en 3e (TL LLM y respaldo determinista vacíos ⇒ bloqueo `technical_lead` con remediación `technical_lead_planning_failed`). Cualquier otro test que use un TL LLM que omite historias (p. ej. `_RoleTaskPlanner` con backlog de varias historias) ahora recibe tareas del respaldo para las demás: adaptarlo a esa semántica sin relajar lo que protege y listarlo en el informe.
-Run (regresión del loop, background por duración): `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_aido_product_loop_real_e2e.py','tests_py/test_decision_engine_integration.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_jev_resource_selection.py','tests_py/test_product_loop_api.py','tests_py/test_product_loop_no_reask_e2e.py','tests_py/test_product_loop_persistence_reconciliation.py','tests_py/test_product_loop_reentry.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_project_constitution_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_research_resolution.py','tests_py/test_runtime_risk_review.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_product_loop_delivery.py','-q','-p','no:randomly']))"`
+Run (regresión del loop, background por duración): `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_aido_product_loop_real_e2e.py','tests_py/test_decision_engine_integration.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_jev_resource_selection.py','tests_py/test_product_loop_api.py','tests_py/test_product_loop_no_reask_e2e.py','tests_py/test_product_loop_persistence_reconciliation.py','tests_py/test_product_loop_reentry.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_project_constitution_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_research_resolution.py','tests_py/test_runtime_risk_review.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_product_loop_delivery.py','-q','-p','no:randomly']))"`
 Expected: PASS. Si un test fija "un solo run del developer" con backlog de varias historias, adaptarlo a "un run por historia" sin relajar lo que protege y listarlo en el informe.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/team_planning.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_product_loop_coordinator.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/team_planning.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_product_loop_coordinator.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/team_planning.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_product_loop_coordinator.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/team_planning.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_product_loop_coordinator.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -2388,7 +2388,7 @@ def test_uncommitted_work_blocks_the_cumulative_review(tmp_path: Path, monkeypat
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly','-k','cumulative_git_diff or commit_failure or uncommitted_work']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly','-k','cumulative_git_diff or commit_failure or uncommitted_work']))"`
 Expected: FAIL — `assert artifact_id` (hoy `diffArtifactId` es `None`: el `_ControlledRuntime` no reporta `patchArtifactId` y Security solo lee el último run); el test de commit fallido termina `awaiting_approval` (hoy el commit es best-effort) y el de trabajo sin commitear también llega a Security (`security.run_payloads` no vacío).
 
 - [ ] **Step 3: Implementación mínima**
@@ -2567,10 +2567,10 @@ por:
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_git_cumulative_diff.py','tests_py/test_product_loop_delivery.py','tests_py/test_execution_boundary_architecture.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_git_cumulative_diff.py','tests_py/test_product_loop_delivery.py','tests_py/test_execution_boundary_architecture.py','-q','-p','no:randomly']))"`
 Expected: PASS (`:5483` sigue bloqueando en `review` con "without real changed files": base `dev` inexistente ⇒ respaldo `sourceCommit` ⇒ diff vacío). Si un test existente con worktree git dependía de un commit fallido tolerado en un run por historia, investigar la causa del fallo del commit (policy/identidad git) y corregirla; nunca relajar la guarda.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/coordinator.py tests_py/test_product_loop_story_execution.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -2731,7 +2731,7 @@ def test_carried_over_matching_is_one_to_one_by_fingerprint() -> None:
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly','-k','retry or carried_over']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','-q','-p','no:randomly','-k','retry or carried_over']))"`
 Expected: FAIL en colección con `ImportError: cannot import name 'match_carried_over'`; tras crear solo el nombre, `test_a_retry_skips_stories_already_done_in_the_source_loop` falla con `assert 2 == 1` (las historias del reintento son filas nuevas y hoy se re-ejecutan todas) y `test_a_retry_with_every_story_done_runs_no_developer` falla con `assert [..2 payloads..] == []`. El test del hilo ajeno pasa ya (red de regresión de la guarda).
 
 - [ ] **Step 3: Implementación mínima**
@@ -2851,10 +2851,10 @@ def _carry_over_from_retry_source(
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_reentry.py','tests_py/test_remediation_blocker_experience.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_reentry.py','tests_py/test_remediation_blocker_experience.py','-q','-p','no:randomly']))"`
 Expected: PASS.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/story_loop.py tests_py/test_product_loop_story_execution.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/story_loop.py tests_py/test_product_loop_story_execution.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/phases/story_loop.py tests_py/test_product_loop_story_execution.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/phases/story_loop.py tests_py/test_product_loop_story_execution.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -2893,7 +2893,7 @@ Crear `tests_py/test_thread_board_api.py`:
 ```python
 """Endpoint del tablero por historia de un hilo: resolución hilo→loop, columnas y payload acotado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3116,7 +3116,7 @@ def test_thread_board_endpoint_runs_in_the_threadpool(
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_api.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_api.py','-q','-p','no:randomly']))"`
 Expected: FAIL — `assert 404 == 200` (ruta inexistente) y `StopIteration` en el test del threadpool.
 
 - [ ] **Step 3: Implementación mínima**
@@ -3157,7 +3157,7 @@ tareas), los criterios de aceptación y el cursor ``durableRun.storyProgress``, 
 columnas en ``backlog.board.build_board``. El payload
 queda acotado al hilo (nunca el agregado del proyecto). Solo lectura: no abre transacciones.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3320,11 +3320,11 @@ class ThreadBoardResponse(BaseModel):
 
 - [ ] **Step 4: Correr tests y lint**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_api.py','tests_py/test_ci_and_openapi_client.py','tests_py/test_vertical_slices_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_product_loop_api.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_api.py','tests_py/test_ci_and_openapi_client.py','tests_py/test_vertical_slices_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_product_loop_api.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run: `corepack pnpm@10.24.0 run typecheck:web`. Expected: exit 0.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_thread_board_api.py`
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_thread_board_api.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_thread_board_api.py`
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_thread_board_api.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -3373,7 +3373,7 @@ generada del tablero, los eventos que lo refrescan, la señal de etapa derivada 
 del panel de ejecución (``MILESTONE_INDEX`` sigue literal por ``test_product_loop_result_taxonomy``)
 y los tripwires de clases del layout.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3436,7 +3436,7 @@ def test_a_successful_remediation_wakes_the_idle_event_stream() -> None:
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly']))"`
 Expected: FAIL — `AssertionError` en el cliente y en el despertador del stream (`wakeThreadEventStream` no existe), y `FileNotFoundError` para `threadBoardModel.ts`/`useThreadStage.ts`/`useThreadBoard.ts`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -3471,7 +3471,7 @@ export function getThreadBoard(threadId: string, signal?: AbortSignal) {
  * Presentation model of the thread story board: the lane and stage vocabulary (i18n keys, English
  * fallbacks and tones), the thread event types that make the board stale, and the view mode of the
  * thread layout (chat-first or board-first).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ThreadBoardResponse } from '../../api/client';
 import type { ThreadAgentEvent } from '../../api/types';
@@ -3555,7 +3555,7 @@ export function latestBoardRefreshSequence(events: ThreadAgentEvent[]): number {
  * Loads the per-story board of a thread and refetches it whenever a board-relevant event (story
  * progress or a delivery-stage milestone) lands in the thread event stream, so a card move shows up
  * within one event poll plus one read.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 
@@ -3612,7 +3612,7 @@ export function useThreadBoard(threadId: string | null, refreshSequence: number)
  * Development-stage signal of a thread, derived from the same event log and pipeline derivation the
  * execution panel renders, so the conversation switches into the story board layout exactly when the
  * DeveloperAgent starts executing stories (and back when a new objective restarts planning).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo } from 'react';
 
@@ -3758,7 +3758,7 @@ por:
 
 - [ ] **Step 4: Correr tests, typecheck y Biome**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run: `corepack pnpm@10.24.0 run typecheck:web` → exit 0.
 Run: `corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/api/client.ts local-control-center/web/src/features/shell/threadBoardModel.ts local-control-center/web/src/features/shell/useThreadBoard.ts local-control-center/web/src/features/shell/useThreadStage.ts local-control-center/web/src/features/shell/ThreadExecutionPanel.tsx local-control-center/web/src/features/shell/useThreadEventStream.ts local-control-center/web/src/features/shell/useThreadRemediations.ts` y luego el mismo comando sin `--write` → sin errores.
@@ -3803,7 +3803,7 @@ def test_thread_board_component_never_reuses_review_board_classes() -> None:
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly','-k','review_board']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly','-k','review_board']))"`
 Expected: FAIL con `FileNotFoundError` (`ThreadBoard.tsx`).
 
 - [ ] **Step 3: Implementación mínima**
@@ -3817,7 +3817,7 @@ Expected: FAIL con `FileNotFoundError` (`ThreadBoard.tsx`).
  * board is a read-only projection: a stage strip (planning / executing / security / approval /
  * delivered / blocked) with the done-of-total progress, and four lanes with fixed headers and their
  * own scroll, one card per user story with its value statement, criteria and agent tasks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle } from 'lucide-react';
 import { m } from 'motion/react';
@@ -4253,11 +4253,11 @@ las entradas (misma indentación, UTF-8 real, LF):
     },
 ```
 
-Verificar tras editar: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import json;json.load(open('local_control_center/i18n/default_catalog.json',encoding='utf-8'))"` (JSON válido) y `git diff --stat` sin aviso de CRLF.
+Verificar tras editar: `.\.venv\Scripts\python.exe -c "import json;json.load(open('local_control_center/i18n/default_catalog.json',encoding='utf-8'))"` (JSON válido) y `git diff --stat` sin aviso de CRLF.
 
 - [ ] **Step 4: Correr tests, typecheck, Biome y build**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','-q','-p','no:randomly']))"`
 Expected: PASS (guardrails visuales y catálogo bilingüe completo).
 Run: `corepack pnpm@10.24.0 run typecheck:web` → exit 0.
 Run: `corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/shell/ThreadBoard.tsx local-control-center/web/src/design-system/layout.css` y luego sin `--write` → sin errores.
@@ -4319,7 +4319,7 @@ def test_thread_conversation_switches_into_board_mode() -> None:
  * phone, and retrying a blocked story moves its card within the 2 s refresh SLA even when the event
  * stream had gone idle. Fixture thread with routed board/events/remediations; the backend contract
  * is covered by tests_py.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 
@@ -4571,7 +4571,7 @@ test('Threads: the story board stacks above the chat on a phone without covering
 
 - [ ] **Step 2: Correr y confirmar que falla**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly','-k','board_mode']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','-q','-p','no:randomly','-k','board_mode']))"`
 Expected: FAIL (`data-mode={boardMode}` ausente).
 Run: `corepack pnpm@10.24.0 run build:web` y `$env:PLAYWRIGHT_DASHBOARD_PORT='9437'; node node_modules/@playwright/test/cli.js test tests_web/thread-board.spec.js --reporter=line`
 Expected: FAIL en ambos proyectos por timeout de `toHaveAttribute('data-mode', 'board')` (atributo inexistente); el test del reintento falla porque la región "Story board" no existe. Como prueba de que el SLA depende del despertador de T9 (no del azar del poll), tras dejar verde el resto correr una vez ese test con `wakeThreadEventStream(threadId);` comentado en `useThreadRemediations.ts` (build fresco): debe fallar en el `toContainText` de la columna `done` con timeout de 2 s (el stream inactivo espera 15 s); restaurar la línea antes de seguir.
@@ -4585,7 +4585,7 @@ Expected: FAIL en ambos proyectos por timeout de `toHaveAttribute('data-mode', '
  * Lets the thread conversation fold the shell inspector away when it switches into the story board
  * layout, so the board, the chat column and the explorer fit without the inspector auto-opening;
  * the inspector stays one click away.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { createContext, useContext } from 'react';
 
@@ -4810,7 +4810,7 @@ por:
 
 - [ ] **Step 4: Correr tests, gates web y E2E**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_thread_board_frontend_contract.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_product_loop_result_taxonomy.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run: `corepack pnpm@10.24.0 run typecheck:web` → exit 0.
 Run: `corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/shell/ThreadConversation.tsx local-control-center/web/src/features/shell/useShellInspector.ts local-control-center/web/src/app/AppShell.tsx local-control-center/web/src/design-system/layout.css` y luego sin `--write` → sin errores.
@@ -4838,17 +4838,17 @@ git commit -m "Feature (Threads): modo desarrollo con tablero principal, chat la
 
 - [ ] **Step 1: Suites Python del slice y regresión (background, leer exit real)**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','tests_py/test_git_cumulative_diff.py','tests_py/test_git_diff_capture.py','tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_reentry.py','tests_py/test_product_loop_delivery.py','tests_py/test_product_loop_api.py','tests_py/test_story_spec.py','tests_py/test_thread_cost_performance.py','tests_py/test_thread_board_api.py','tests_py/test_thread_board_frontend_contract.py','tests_py/test_aido_product_loop_real_e2e.py','tests_py/test_decision_engine_integration.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_jev_resource_selection.py','tests_py/test_product_loop_no_reask_e2e.py','tests_py/test_product_loop_persistence_reconciliation.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_project_constitution_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_research_resolution.py','tests_py/test_runtime_risk_review.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_python_control_center.py','tests_py/test_local_worker_runtime.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_backlog_board.py','tests_py/test_git_cumulative_diff.py','tests_py/test_git_diff_capture.py','tests_py/test_product_loop_story_execution.py','tests_py/test_product_loop_coordinator.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_reentry.py','tests_py/test_product_loop_delivery.py','tests_py/test_product_loop_api.py','tests_py/test_story_spec.py','tests_py/test_thread_cost_performance.py','tests_py/test_thread_board_api.py','tests_py/test_thread_board_frontend_contract.py','tests_py/test_aido_product_loop_real_e2e.py','tests_py/test_decision_engine_integration.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_jev_resource_selection.py','tests_py/test_product_loop_no_reask_e2e.py','tests_py/test_product_loop_persistence_reconciliation.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_project_constitution_slice.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_research_resolution.py','tests_py/test_runtime_risk_review.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_python_control_center.py','tests_py/test_local_worker_runtime.py','-q','-p','no:randomly']))"`
 Expected: PASS. `test_local_worker_runtime.py` es flaky conocido bajo carga: si falla, re-ejecutarlo aislado antes de atribuirlo al slice.
 
 - [ ] **Step 2: Gates de arquitectura, documentación, i18n y OpenAPI**
 
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_real_readiness_architecture.py','tests_py/test_internal_mock_product_boundary.py','tests_py/test_execution_boundary_architecture.py','tests_py/test_vertical_slices_architecture.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','tests_py/test_ci_and_openapi_client.py','tests_py/test_operational_hardening_p0.py','tests_py/test_operational_http_boundaries.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_real_readiness_architecture.py','tests_py/test_internal_mock_product_boundary.py','tests_py/test_execution_boundary_architecture.py','tests_py/test_vertical_slices_architecture.py','tests_py/test_web_rework_architecture.py','tests_py/test_source_documentation_headers.py','tests_py/test_i18n_platform.py','tests_py/test_ci_and_openapi_client.py','tests_py/test_operational_hardening_p0.py','tests_py/test_operational_http_boundaries.py','-q','-p','no:randomly']))"`
 Expected: PASS.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe scripts/productive-truth-scan.py` → exit 0.
+Run: `.\.venv\Scripts\python.exe scripts/productive-truth-scan.py` → exit 0.
 Run: `corepack pnpm@10.24.0 run openapi:generate` y `git status --porcelain local-control-center/web/src/api/generated/openapi.ts` → vacío (sin drift).
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff format --check local_control_center/backlog/board.py local_control_center/backlog/repository.py local_control_center/workspaces_projects/git_worktrees.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases/qa_gate.py local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_backlog_board.py tests_py/test_git_cumulative_diff.py tests_py/test_product_loop_fsm_matrix.py tests_py/test_product_loop_coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_thread_board_api.py tests_py/test_thread_board_frontend_contract.py` → sin cambios pendientes.
-Run: `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/backlog/board.py local_control_center/backlog/repository.py local_control_center/workspaces_projects/git_worktrees.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases/qa_gate.py local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_backlog_board.py tests_py/test_git_cumulative_diff.py tests_py/test_product_loop_fsm_matrix.py tests_py/test_product_loop_coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_thread_board_api.py tests_py/test_thread_board_frontend_contract.py` → `All checks passed!`
+Run: `.\.venv\Scripts\python.exe -m ruff format --check local_control_center/backlog/board.py local_control_center/backlog/repository.py local_control_center/workspaces_projects/git_worktrees.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases/qa_gate.py local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_backlog_board.py tests_py/test_git_cumulative_diff.py tests_py/test_product_loop_fsm_matrix.py tests_py/test_product_loop_coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_thread_board_api.py tests_py/test_thread_board_frontend_contract.py` → sin cambios pendientes.
+Run: `.\.venv\Scripts\python.exe -m ruff check local_control_center/backlog/board.py local_control_center/backlog/repository.py local_control_center/workspaces_projects/git_worktrees.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases/qa_gate.py local_control_center/product_loop/phases/story_loop.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py local_control_center/product_loop/phases/approval.py local_control_center/product_loop/repository.py local_control_center/product_loop/thread_board.py local_control_center/product_loop/models.py local_control_center/product_loop/api.py tests_py/test_backlog_board.py tests_py/test_git_cumulative_diff.py tests_py/test_product_loop_fsm_matrix.py tests_py/test_product_loop_coordinator.py tests_py/test_product_loop_story_execution.py tests_py/test_thread_board_api.py tests_py/test_thread_board_frontend_contract.py` → `All checks passed!`
 
 - [ ] **Step 3: Gates web y E2E de regresión**
 
@@ -4936,7 +4936,7 @@ Si el `pull --rebase` trae commits del escritor concurrente, re-ejecutar Steps 1
   - Cancelación a mitad de historia deja esa historia en `in_progress` en BD; el siguiente run la re-ejecuta (no está `done`). Aceptado por el spec ("Cancelación: sin cambios").
   - Edit-tool en Windows puede volver CRLF un archivo LF: verificar `git diff` sin aviso "CRLF will be replaced" en cada commit (catálogo JSON, CSS, TSX).
   - `.review-board` debe seguir siendo único en el DOM (lifecycle E2E en modo estricto); el tablero del hilo usa exclusivamente `.thread-board*`.
-- **Orden de imports (ruff `I001`):** los bloques de import mostrados pueden no quedar en el orden exacto de isort (p. ej. `contextlib`/`pathlib` en `test_product_loop_fsm_matrix.py`); si `ruff check` reporta `I001`, aplicar `H:\Proyectos\Personales\AIDO\.venv\Scripts\python.exe -m ruff check --fix <py files>` y re-ejecutar `ruff check`. En TS, `biome check --write` resuelve organizeImports.
+- **Orden de imports (ruff `I001`):** los bloques de import mostrados pueden no quedar en el orden exacto de isort (p. ej. `contextlib`/`pathlib` en `test_product_loop_fsm_matrix.py`); si `ruff check` reporta `I001`, aplicar `.\.venv\Scripts\python.exe -m ruff check --fix <py files>` y re-ejecutar `ruff check`. En TS, `biome check --write` resuelve organizeImports.
 - **Evidencia requerida por task:** salida del comando pytest/tsc/biome/build/Playwright con su exit code; no declarar verde sin haberlo visto.
 
 ## Cross-Model Review Log

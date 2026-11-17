@@ -4,7 +4,7 @@
  * and a section-local description key that states what choosing that member does.
  * The raw member values match the settings registry enums so a card commit writes
  * a value the backend validator accepts.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {

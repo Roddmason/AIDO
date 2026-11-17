@@ -9,7 +9,7 @@
  * HEAD → pick or create a branch, gitleaks missing → open setup. All writes go through the
  * token-guarded git API; the diff/patch and remote forms live in portalled Dialogs so they never
  * nest inside the composer <form>.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	AlertTriangle,

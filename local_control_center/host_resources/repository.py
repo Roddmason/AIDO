@@ -2,7 +2,7 @@
 
 Las transacciones compuestas pertenecen al gobernador; los helpers no mantienen locks externos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

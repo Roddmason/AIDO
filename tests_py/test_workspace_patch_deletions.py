@@ -3,7 +3,7 @@
 Visto en vivo: sin contexto del repo, gemma dejó ``textkit/utils.py`` en la raíz de un proyecto con
 layout ``src/``; con solo escritura ese archivo mal ubicado no tenía arreglo en ningún rework.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

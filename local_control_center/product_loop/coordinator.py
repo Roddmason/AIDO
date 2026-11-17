@@ -14,7 +14,7 @@ camino propio (``record_usage``) que NO incrementa la versión de la FSM ni inse
 no ensuciar la bitácora con métricas. Las condiciones de parada se evalúan de forma determinista bajo
 demanda (no hay scheduler en segundo plano) e inyectando ``now`` para que los tests sean reproducibles.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

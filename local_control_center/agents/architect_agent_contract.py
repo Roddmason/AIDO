@@ -4,7 +4,7 @@ Declara los esquemas de entrada/salida del agente arquitecto, los runtimes de mo
 y Claude CLI de solo lectura, y calcula si hay un runtime ejecutable para
 emitir veredictos de arquitectura fundados en el diff y la evidencia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

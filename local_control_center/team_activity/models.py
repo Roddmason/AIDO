@@ -6,7 +6,7 @@ artifact, reviewer, next step, duration, cost) plus collapsible low-level model/
 developer-details block with the run's already-redacted input/output/metadata. Python keeps
 snake_case while keys travel as camelCase via ``alias``; the service emits that camelCase.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

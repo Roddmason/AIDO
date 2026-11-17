@@ -5,7 +5,7 @@
  * the in-flight HTTP requests — the generated client threads the signal into fetch). Shared
  * resources (models, providers) are fetched on cache-miss so a cold deep-link to any tab
  * populates its dependencies, and skipped when already loaded so revisiting a tab never refetches.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	type Dispatch,

@@ -3,7 +3,7 @@
 Sin I/O ni acceso a la base: el coordinador persiste; este módulo solo decide qué es válido y qué
 condiciones de parada están activas para un loop dado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

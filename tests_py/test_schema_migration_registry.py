@@ -3,7 +3,7 @@
 Verifica que las versiones registradas sean contiguas desde 1 hasta ``CURRENT_SCHEMA_VERSION``, que cada
 una resuelva a un ``init_phaseN_schema`` público y que el guard delegado al decorador sea idempotente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

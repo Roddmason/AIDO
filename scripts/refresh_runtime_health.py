@@ -17,7 +17,7 @@ Uso tipico:
 Codigos de salida: 0 todos los perfiles quedaron disponibles, 1 quedan perfiles bloqueados,
 2 el control plane no respondio o el worker no drena la cola.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

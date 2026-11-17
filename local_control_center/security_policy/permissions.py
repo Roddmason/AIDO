@@ -6,7 +6,7 @@ lectura. Invariante: solo los scripts/ejecutables enumerados aqui obtienen una c
 bajo riesgo; cualquier cosa fuera de la lista queda sin categoria y el motor la denegara o
 elevara. No lanza: ante un comando mal formado devuelve ``None`` o categoria vacia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

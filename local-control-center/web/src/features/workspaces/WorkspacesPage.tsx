@@ -2,7 +2,7 @@
  * Read-only inventory of task-owned runtime workspaces (the isolated working trees agents run in).
  * Surfaces ownership and isolation type so two agents are never seen sharing one mutable tree.
  * Also hosts the confirmed cleanup panel that drains orphan worktrees from real repositories.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview } from '../../api/types';
 import type { Mutate } from '../../app/routes';

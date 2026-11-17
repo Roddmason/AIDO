@@ -4,7 +4,7 @@ Seguridad: cada ref se resuelve vía CredentialResolver y solo se reportan los c
 (ref/status/source/message); el valor resuelto nunca sale del preflight. El modo "fetch" exige
 status "configured"; el modo "status" admite además "unverified". Una lista vacía siempre es ok=False.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

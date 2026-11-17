@@ -17,7 +17,7 @@ Tres piezas, todas pensadas para el sondeo de alta frecuencia de la consola del 
 ``waiting_operator`` sin número; un loop terminal no tiene ETA; si algún estado del camino tiene menos de
 tres muestras históricas, ``insufficient_history`` en vez de un número inventado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

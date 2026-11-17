@@ -5,7 +5,7 @@ caller does not record it itself, a paired `cost_usage` row, sanitizing raw usag
 before storage. Also derives a trustworthy `usageSource`/`tokenStatus`/`costStatus` so
 downstream summaries can tell provider-reported usage from estimates.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ decisiones y el backlog (épicas, historias y tareas). Solo modelan datos: no co
 lógica de negocio ni acceso a la base; traducen ``snake_case`` de Python a ``camelCase`` del frontend
 vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_to_*`` de cada slice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

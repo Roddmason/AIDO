@@ -2,7 +2,7 @@
  * Loads the runtime-team candidates for a project plus the backend's automatic split for the
  * current selection. Only the latest request writes state: a changed selection or a reload
  * aborts the stale request, and a reload always queries the current selection.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

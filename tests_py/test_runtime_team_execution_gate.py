@@ -3,7 +3,7 @@
 Nunca cae en silencio a otro runtime: la remediación encola una validación por runtime vencido y,
 cuando todos responden, reanuda el retry pendiente del mismo loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 vencidos, los retira del índice vectorial, emite un evento por item, es idempotente en una segunda
 corrida, y no toca timestamps no canónicos que la comparación lexicográfica juzgaría mal.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

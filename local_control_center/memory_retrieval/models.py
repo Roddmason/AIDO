@@ -4,7 +4,7 @@ Definen el cuerpo de entrada y la forma de salida que la API expone al
 frontend, fijando alias camelCase y valores por defecto del contrato.
 Aíslan las claves del transporte de los nombres internos snake_case.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

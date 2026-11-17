@@ -1,6 +1,6 @@
 """HTTP contracts for persisted blocker remediation actions.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
  * navigates (conversation → review) and a per-section view (label key + tab count). Holds no
  * React and no I/O so the page stays a thin shell and this stays unit-testable, mirroring
  * timelineModel.ts.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 /** The ten loop stages, identified in flow order. */

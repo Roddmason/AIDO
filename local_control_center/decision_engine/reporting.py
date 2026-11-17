@@ -1,7 +1,7 @@
 """Comparación offline de decisión, recomendación y outcome sin atribuir contrafactuales.
 
 Las tasas excluyen observaciones desconocidas y declaran denominadores y ventana.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

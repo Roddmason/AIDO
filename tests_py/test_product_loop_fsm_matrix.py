@@ -8,7 +8,7 @@ diff disponible, y no existe ningún camino de ``executing`` a ``awaiting_approv
 ``qa_running`` y ``security_running``. El orden declarado de estados debe reflejar ese flujo porque
 el stepper del frontend rankea por índice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

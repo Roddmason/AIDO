@@ -5,7 +5,7 @@ al operador esperando sin feedback. Estas pruebas fijan que el endpoint masivo a
 sola transacción (todo o nada), marca las filas como elección del operador para que un resync las
 respete, exige el token de escritura y que el sync de un gateway informa su allowlist recomendada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

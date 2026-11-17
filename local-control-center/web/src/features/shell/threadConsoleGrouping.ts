@@ -12,7 +12,7 @@
  *
  * Shared by ThreadExecutionPanel (events + messages) and BottomPanel (events only), so both render
  * the same grouping for the same underlying data.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ConsoleEntry } from './ThreadExecutionPanel';

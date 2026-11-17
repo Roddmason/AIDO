@@ -1,6 +1,6 @@
 """Supervisor Windows aislado sobre Job Objects mediante la dependencia condicional pywin32.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

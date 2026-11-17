@@ -2,7 +2,7 @@
  * Shared chrome for every Home gallery card: the clickable card button and its
  * header row, kept in one place so the four card kinds share identical layout,
  * focus/selection affordances and a11y wiring instead of duplicating boilerplate.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { m } from 'motion/react';
 import type { ReactNode } from 'react';

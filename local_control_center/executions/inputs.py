@@ -3,7 +3,7 @@
 Reutiliza DPAPI en Windows y el keyring del sistema en POSIX. Si el almacén seguro no está
 disponible, falla cerrado: nunca degrada a JSON/plano. El locator es opaco y no contiene input.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

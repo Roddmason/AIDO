@@ -3,7 +3,7 @@
 Only Python control-plane children receive this ephemeral capability. It is not a
 provider credential and is never forwarded through the runtime environment isolator.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

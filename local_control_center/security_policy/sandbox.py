@@ -9,7 +9,7 @@ invocacion viola la politica; los metodos ``execute*`` no lanzan: devuelven
 ``{"blocked": True, "reason": ...}`` cuando rechazan. Toda ejecucion usa ``shell=False`` con argv
 estructurado (sin inyeccion) y la salida capturada se trunca a un maximo de caracteres.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

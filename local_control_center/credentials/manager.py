@@ -5,7 +5,7 @@ método lo devuelve. La base guarda solo la referencia al backend, un fingerprin
 por credencial) y la bitácora de auditoría. ``validate`` lee el secreto del backend internamente para
 comparar su fingerprint y lo descarta sin exponerlo. Toda operación queda registrada en la auditoría.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

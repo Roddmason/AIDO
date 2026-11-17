@@ -4,7 +4,7 @@
  * Fetches the catalog from the control plane, persists the chosen language in
  * localStorage, and falls back to the default language (then the key itself) when a
  * translation is missing, so the UI never renders an empty string.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

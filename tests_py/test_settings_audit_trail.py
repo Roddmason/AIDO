@@ -9,7 +9,7 @@ Se registra la clave, el alcance y el valor **nuevo**. El valor anterior no se r
 preferencia puede contener una ruta u otro dato del operador, y la auditoría no es el lugar para
 duplicarlo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

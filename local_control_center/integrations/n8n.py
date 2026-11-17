@@ -4,7 +4,7 @@ Outbound: envía eventos allowlisted a targets n8n project-scoped, resolviendo e
 ``credentialRef`` y persistiendo entregas con payloads redactados. Inbound: acepta solo creación de
 thread, mensaje o consulta de status con token scoped; bloquea comandos, secretos y aprobaciones críticas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

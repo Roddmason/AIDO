@@ -6,7 +6,7 @@ de ruteo, presupuestos) de forma reentrante: usa ``CREATE TABLE IF NOT EXISTS``,
 ``schema_migrations``. Cada ``init_phaseN_schema`` se ejecuta como su propia unidad DDL;
 re-ejecutar todo el conjunto sobre una base ya migrada no produce cambios.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

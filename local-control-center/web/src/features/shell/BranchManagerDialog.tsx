@@ -9,7 +9,7 @@
  * the same Dialog (one focus trap, Escape backs out one level) and list exactly what will happen.
  * Protected branches (dev/develop/main/master, HEAD, the integration branch, anything checked out in
  * a worktree) are never selectable; the server re-validates everything before touching git.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	AlertTriangle,

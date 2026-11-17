@@ -5,7 +5,7 @@ estados ``todo → in_progress → qa → done`` persistidos con eventos ``story
 durable, presupuesto de rework por historia, historia sin cambios cerrada como ``noop`` y bloqueo
 con cursor al agotar el rework.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -478,8 +478,8 @@ def test_security_and_approval_review_the_cumulative_git_diff(tmp_path: Path) ->
     security = _SecurityGate()
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
-        _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "cumulative-git")
+        _seed_ai_resource(connection)
         runtime = _WorkspaceWritingRuntime(connection, tmp_path)
 
         result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
@@ -518,8 +518,8 @@ def test_a_story_commit_failure_blocks_before_qa_and_security(
     monkeypatch.setattr(git_worktrees, "commit_workspace_changes", failing_commit)
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
-        _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "commit-failure")
+        _seed_ai_resource(connection)
         runtime = _WorkspaceWritingRuntime(connection, tmp_path)
 
         result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
@@ -549,8 +549,8 @@ def test_uncommitted_work_blocks_the_cumulative_review(
     monkeypatch.setattr(git_worktrees, "commit_workspace_changes", commit_that_leaves_the_tree_dirty)
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
-        _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "cumulative-dirty")
+        _seed_ai_resource(connection)
         runtime = _WorkspaceWritingRuntime(connection, tmp_path)
 
         result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)
@@ -789,8 +789,8 @@ def test_a_retry_with_every_story_done_runs_no_developer(tmp_path: Path) -> None
         pytest.skip("git CLI is required for the cumulative worktree diff")
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
-        _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "per-story-retry-all-done")
+        _seed_ai_resource(connection)
         coordinator = ProductLoopCoordinator(connection, root=tmp_path)
         blocked = _run(
             coordinator,
@@ -874,8 +874,8 @@ def test_a_staged_rename_into_aido_still_blocks_the_cumulative_review(
     monkeypatch.setattr(git_worktrees, "capture_cumulative_diff", capture_with_a_rename)
     with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
-        _seed_ai_resource(connection)
         project = _git_workspace_project(connection, tmp_path, "cumulative-aido-rename")
+        _seed_ai_resource(connection)
         runtime = _WorkspaceWritingRuntime(connection, tmp_path)
 
         result = _run(ProductLoopCoordinator(connection, root=tmp_path), project, runtime, security=security)

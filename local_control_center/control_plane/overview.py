@@ -5,7 +5,7 @@ colecciones de todos los slices activos (proyectos, threads, jobs, gobernanza, a
 seguridad, etc.). Solo lee: instancia repositorios sobre la conexion recibida, garantiza el
 proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

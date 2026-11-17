@@ -1,6 +1,6 @@
 """Exporta el worker sin cargar su runtime al importar contratos de liderazgo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

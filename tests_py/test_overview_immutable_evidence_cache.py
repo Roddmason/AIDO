@@ -3,7 +3,7 @@
 Medido sobre una copia de la BD viva: decodificar ~118 MB de JSON de evidencia por poll costaba
 ~2 s de los 2,8 s del overview. Esas columnas no se actualizan tras el INSERT.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

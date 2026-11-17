@@ -5,7 +5,7 @@ total-byte guards before writing, and records a redacted patch manifest artifact
 applied files. ``deleteFiles`` removes existing regular files under the same path guards: a model
 without tools could only add or rewrite files, so a misplaced file or a move was unfixable.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

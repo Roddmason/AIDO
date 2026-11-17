@@ -3,7 +3,7 @@
 El hash vincula el comando y argv originales; el resumen nunca se usa como autorización.
 Los comandos no CLI conservan el contrato previo. No interpreta ni ejecuta texto shell.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

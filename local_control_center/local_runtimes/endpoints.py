@@ -6,7 +6,7 @@ instancia a ``runtime_installations``, ``runtime_accounts`` y ``runtime_capabili
 (no la fila compartida de la familia), para que la readiness y el borrado de un endpoint no afecten a
 otro.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Remediaciones de runtimes locales: payload desde el perfil, sin API key inventada, acciones por causa.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

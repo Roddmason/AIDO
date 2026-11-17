@@ -1,6 +1,6 @@
 """Close a proven stopped Product Loop without replaying its interrupted workspace.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

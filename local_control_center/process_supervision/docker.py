@@ -3,7 +3,7 @@
 El contenedor pertenece al daemon, no al Job Object del cliente; su nombre aleatorio se
 registra antes del run y permite cleanup acotado y recuperable. Nunca se usa prune.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

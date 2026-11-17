@@ -4,7 +4,7 @@ Cada endpoint Ollama se proyecta a las tablas existentes del Model Gateway:
 ``provider_accounts`` identifica el endpoint, ``runtime_installations`` y ``runtime_accounts`` lo
 hacen visible como runtime, y ``model_catalog`` guarda sus modelos por ``providerId``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

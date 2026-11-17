@@ -8,7 +8,7 @@ global de runtimes y por último el ``provider_id`` alfabético, así el mismo c
 mismo resultado. Solo PO y Developer son obligatorios: Arquitecto y Seguridad pueden quedar sin
 asignar (el Arquitecto no corre y Seguridad queda en sus scanners deterministas).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

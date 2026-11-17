@@ -4,7 +4,7 @@ Definen el contrato HTTP para arrancar una sesión CLI en streaming, leer su bit
 incremental y cancelarla. Solo modelan datos: traducen el ``snake_case`` de Python al ``camelCase`` del
 frontend vía alias de campo y reflejan las claves del mapeador ``row_to_cli_session_event``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

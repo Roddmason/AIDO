@@ -9,7 +9,7 @@
  * Owns the panes' collapse state, the activity-rail / header toggles and the
  * Ctrl/Cmd+B (explorer), Ctrl/Cmd+Shift+B (inspector) and Ctrl/Cmd+J (bottom dock)
  * shortcuts. Everything else (routing, data, selection) arrives via props.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

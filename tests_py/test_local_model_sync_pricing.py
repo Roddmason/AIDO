@@ -1,6 +1,6 @@
 """El sync de una cuenta de inferencia self-hosted deja costo cero sin pisar el precio del operador.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

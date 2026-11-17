@@ -1,6 +1,6 @@
 """Ciclo completo de LM Studio, vLLM y servidor genérico: salud, sync, validación real y candidato del equipo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

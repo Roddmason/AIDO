@@ -3,7 +3,7 @@
 Funciones puras sobre el resultado del runtime y sus entradas de uso; no tocan la base ni el estado del
 coordinador.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

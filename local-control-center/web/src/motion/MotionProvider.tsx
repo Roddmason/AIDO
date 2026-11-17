@@ -3,7 +3,7 @@
  * más `MotionConfig` cuyo `reducedMotion` sigue el override del usuario — 'always' cuando la
  * preferencia guardada es "reducido", 'user' (media query del SO) en caso contrario. Así el
  * control de movimiento de Appearance gobierna de verdad las animaciones declarativas.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { domMax, LazyMotion, MotionConfig } from 'motion/react';
 import type { ReactNode } from 'react';

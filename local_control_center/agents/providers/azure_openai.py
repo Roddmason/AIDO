@@ -7,7 +7,7 @@ auth y la resolución de la base URL (siempre provista por el operador); el rest
 —`/models`, `/chat/completions`, parseo de uso— se hereda del proveedor OpenAI-compatible.
 El nombre del modelo es el del *deployment* de Azure y viaja en el cuerpo, como en OpenAI.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """RSS actual por lease de recursos, agregando el árbol nativo de cada proceso administrado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

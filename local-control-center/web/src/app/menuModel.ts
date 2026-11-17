@@ -4,7 +4,7 @@
  * optional shortcut hint), so MenuBar renders and dispatches from a single
  * source — mirroring navigation.ts and productLoopModel.ts. Pure: holds no React
  * and no callbacks; MenuBar maps each item's `command` to a handler.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { PageId } from './navigation';

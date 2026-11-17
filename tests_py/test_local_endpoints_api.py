@@ -1,6 +1,6 @@
 """Router genérico de endpoints locales: alta, vista con estado de carga, edición y modelos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

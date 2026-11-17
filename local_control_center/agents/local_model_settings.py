@@ -5,7 +5,7 @@ reescribe esas filas. ``upsert`` conserva lo no enviado, registra la procedencia
 un por defecto, desmarca el anterior en la misma transacción (índice único parcial por cuenta). Las
 capacidades de código son opt-in por modelo: nunca se siembran por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

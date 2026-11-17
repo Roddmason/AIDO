@@ -5,7 +5,7 @@ estado de runtimes, no lo elige la readiness de ningún agente, el ResourceManag
 TeamScheduler no lo propone. La migración 84 enciende una única vez los CLI que ya corrían para que nada
 que funciona hoy deje de funcionar, y Ollama se puede apagar y borrar sin que una semilla lo resucite.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

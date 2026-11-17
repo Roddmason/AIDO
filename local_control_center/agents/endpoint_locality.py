@@ -6,7 +6,7 @@ cada uno. Invariante: ante la duda la cuenta es remota (R13); la metadata del cl
 (`endpointKind="remote"`), nunca declarar una cuenta local. Una declaración local (WSL/Docker) solo cuenta si
 la escribió el servidor y su host sigue resolviendo a una IP aceptada en cada evaluación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

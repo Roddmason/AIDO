@@ -3,7 +3,7 @@
  * role policies into the facts a card states (kind, base URL, health, latency, models, roles it is
  * preferred for), and validates an endpoint draft against the same rules the backend enforces before
  * a request is spent. UI-agnostic so the panel, its dialogs and the tests read one source of truth.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ModelGatewayRolePolicy, OllamaEndpoint } from '../../api/types';

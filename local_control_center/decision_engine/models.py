@@ -1,7 +1,7 @@
 """Contratos inmutables de recomendaciones, restricciones y resultados observados.
 
 No contienen grants, herramientas ni operaciones ejecutables.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

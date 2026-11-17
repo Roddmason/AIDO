@@ -4,7 +4,7 @@ La lectura devuelve el documento vigente (o ``null``) con su historial; el upser
 escritura, valida vía el repositorio (única puerta de escritura) y confirma documento + versión en
 una transacción. No contiene SQL: delega en ``ProjectConstitutionRepository``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ It converts proposed changes into auditable Product Loop/backlog/workspace/workf
 The source installation is never edited here: changes are only represented as isolated
 workspaces and queued PR-oriented workflows that still require their normal evidence gates.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

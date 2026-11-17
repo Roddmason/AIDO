@@ -7,7 +7,7 @@ roles. Los dos motores (``ModelRouter`` legacy y ``AIResourceManager``) deben re
 el mismo conjunto o el rank preferred se degrada en silencio según el camino que tome
 la selección.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

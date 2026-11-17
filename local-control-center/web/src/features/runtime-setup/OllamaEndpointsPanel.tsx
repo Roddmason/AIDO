@@ -5,7 +5,7 @@
  * `/api/tags`, sync its model catalog, make it the preferred candidate of a role and delete it. Every
  * action writes through the real control plane and re-reads it; a failed probe surfaces the backend's
  * reason instead of a green tick, and a delete still in use lists what must be reassigned first.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Boxes, Plus, RefreshCw, Server, ShieldCheck, Trash2, Wand2 } from 'lucide-react';

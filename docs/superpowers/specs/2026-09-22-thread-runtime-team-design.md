@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-09-22
 **Estado:** Diseño aprobado (sub-proyecto 1 de 3). Pendiente de plan de implementación.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 > **Nota de estado (2026-09-27):** el equipo por hilo pasa a ser un override opcional del equipo de IA
 > global (`team.role.<rol>`, general > proyecto > automático). Sin equipo en el hilo, el run sella

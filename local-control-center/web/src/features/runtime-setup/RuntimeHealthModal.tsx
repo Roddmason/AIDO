@@ -7,7 +7,7 @@
  * per blocked AI — cause, impact and a deep-link into the settings section that repairs it — reusing
  * the shared remediation copy so the wording matches a blocked loop. Purely presentational: it opens
  * Settings through the injected callback and never mutates state itself.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { RuntimeHealthAlert } from '../../app/runtimeHealth';

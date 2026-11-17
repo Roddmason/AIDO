@@ -3,7 +3,7 @@
 No se ejecuta desde un GET ni al iniciar AIDO. Sólo se registra una aprobación a partir de
 un proceso propio terminado, sin timeout/cancelación, con salida JSON reconocida y sin tools.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

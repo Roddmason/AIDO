@@ -5,7 +5,7 @@ Reúne el repositorio SQLite que persiste cada loop y su bitácora de transicion
 memoria), de modo que el loop puede reanudarse tras reiniciar AIDO. No exporta símbolos: cada
 consumidor importa de los submódulos `coordinator` o `repository`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__: list[str] = []

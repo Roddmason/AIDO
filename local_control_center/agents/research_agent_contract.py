@@ -4,7 +4,7 @@ Declara el contrato estable del agente de investigación técnica. El agente no 
 runtime de modelo: normaliza fuentes verificables, aplica la jerarquía de confianza, exige citas
 para conclusiones basadas en web, detecta conflictos y persiste cada fuente como artefacto con hash.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

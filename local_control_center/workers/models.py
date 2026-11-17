@@ -1,6 +1,6 @@
 """Pydantic contracts for the LocalWorkerRuntime control API.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

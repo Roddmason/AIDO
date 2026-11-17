@@ -4,7 +4,7 @@ Expone los endpoints ``/api/v1/integrations``, ``/ide-connections``, ``/integrat
 y ``/open-design``; valida el registro MCP (defensa anti-inyección de shell) antes de persistir,
 exige permiso de escritura en las mutaciones y emite eventos/auditoría tras cada cambio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

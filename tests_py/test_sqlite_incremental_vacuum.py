@@ -1,7 +1,7 @@
 """Tests: la BD nueva nace en auto_vacuum incremental, el vacuum incremental solo corre en ese modo,
 y el comando de mantenimiento se niega a compactar con el worker vivo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

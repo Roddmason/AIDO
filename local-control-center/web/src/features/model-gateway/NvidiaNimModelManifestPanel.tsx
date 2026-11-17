@@ -2,7 +2,7 @@
  * Explicit NVIDIA model manifest and optional sourced token pricing. NVIDIA
  * visual/retrieval contracts cannot safely infer capabilities from one shared
  * `/models` response, so the operator records the exact endpoint/model facts.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 

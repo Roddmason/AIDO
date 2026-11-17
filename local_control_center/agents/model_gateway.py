@@ -5,7 +5,7 @@ ejecuta proveedores remotos cuando la política SQLite de runtime lo permite (CL
 van por sesiones de runtime aprobadas). Toda metadata/error se redacta y el consumo se asienta en el
 usage_ledger.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

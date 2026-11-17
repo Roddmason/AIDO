@@ -1,6 +1,6 @@
 """Rollup de runtimes y candidatos del equipo con endpoints locales y sus modelos cargados.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

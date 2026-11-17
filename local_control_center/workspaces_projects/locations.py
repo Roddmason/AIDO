@@ -11,7 +11,7 @@ que es lo que hace barato crearlo, y deja que el proyecto se mueva o se borre co
 ``LEGACY_WORKSPACES_ROOT`` se conserva sólo para que la política de limpieza siga reconociendo y
 pudiendo retirar lo que quedó de la ubicación anterior; nada nuevo se escribe ahí.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

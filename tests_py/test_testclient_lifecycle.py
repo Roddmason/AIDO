@@ -1,6 +1,6 @@
 """AIDO-69: implicit fixture lifespan and explicit context own one set of streams.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from contextlib import asynccontextmanager

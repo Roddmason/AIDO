@@ -1,6 +1,6 @@
 """Typed provider capability ports and transport-neutral request/response records.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

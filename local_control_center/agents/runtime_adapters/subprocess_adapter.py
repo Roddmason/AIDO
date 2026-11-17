@@ -4,7 +4,7 @@
 sandbox and captures stdout/stderr as evidence; `CliVersionAdapter` only allows a strict
 `[executable, version-flag]` liveness check for each CLI runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

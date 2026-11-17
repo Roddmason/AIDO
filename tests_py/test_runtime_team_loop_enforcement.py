@@ -1,6 +1,6 @@
 """El product loop solo usa runtimes del equipo sellado del hilo y, por rol, el asignado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

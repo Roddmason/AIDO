@@ -12,7 +12,7 @@ partir de ahi falla por disco, no por codigo.
 
 El scratch de un test que **paso** no tiene valor diagnostico. El de uno que fallo, si.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

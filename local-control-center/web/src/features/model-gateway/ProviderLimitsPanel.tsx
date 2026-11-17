@@ -1,7 +1,7 @@
 /**
  * Configurable endpoint/model quota policies. These are local authoritative
  * guardrails; provider-observed cooldowns update the same policy state.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 

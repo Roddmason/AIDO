@@ -12,7 +12,7 @@ and ``research.internetPolicy`` mirrors the conservative source-policy allowlist
 are the operator's standing cost decision: ``ThreadCoordinator`` stamps both onto every queued
 Product Loop run, so a change here governs the next run rather than only describing it.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

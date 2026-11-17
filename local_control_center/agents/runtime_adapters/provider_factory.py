@@ -7,7 +7,7 @@ classifies local-server failures into stable causes with redacted reasons, recor
 latency in the usage ledger, persists only the redacted reply as evidence and hands the
 unredacted reply to the in-process transient channel keyed by the broker tool-call id.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

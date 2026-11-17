@@ -3,7 +3,7 @@
 SQLite, filtering, pricing, receipts and revalidation are real. Only runtime status
 and the decision-provider boundary are controlled; no inference is executed.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

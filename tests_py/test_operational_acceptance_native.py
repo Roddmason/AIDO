@@ -1,6 +1,6 @@
 """Aceptación Windows acotada con procesos de prueba y evidencia opcional persistente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

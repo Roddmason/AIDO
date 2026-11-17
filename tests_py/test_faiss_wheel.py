@@ -1,6 +1,6 @@
 """The installed optional FAISS capability must work without native import warnings.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import subprocess

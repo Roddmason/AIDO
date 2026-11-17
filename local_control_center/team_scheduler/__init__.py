@@ -8,7 +8,7 @@ mismo plan, de modo que el plan se puede cachear, registrar y reproducir. Emite 
 de modelo concretos) para que el model gateway resuelva el modelo vigente sin que este módulo se
 quede obsoleto. No exporta símbolos: los consumidores importan de ``scheduler``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__: list[str] = []

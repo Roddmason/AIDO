@@ -1,6 +1,6 @@
 """Catálogo de runtimes locales: LM Studio, vLLM y servidor genérico con perfil, y lector de LM Studio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

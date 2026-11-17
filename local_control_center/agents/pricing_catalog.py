@@ -4,7 +4,7 @@ Reads `model_catalog` pricing (per-million-token rates, free-tier and source) to
 token counts into a USD estimate, signalling when the price is unknown or stale. Pure
 read path: it never writes and never executes a model call.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

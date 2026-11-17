@@ -4,7 +4,7 @@
  * Wraps the design-system `.button` classes — it does NOT reinvent a button, so the
  * native type/disabled/onClick/form semantics pass straight through. `loading` shows a
  * busy spinner, sets `aria-busy`, and disables interaction without shifting layout.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';

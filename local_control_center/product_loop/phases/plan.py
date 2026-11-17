@@ -8,7 +8,7 @@ durable visible (``specDriven: skipped_low_risk``), y el resto emite ``architect
 plan persistido como artefacto ``technical_plan`` y sellado en el contexto durable. Best-effort: un
 fallo de la fase deja evento y el run continúa al backlog (el plan es gobierno, no gate duro).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

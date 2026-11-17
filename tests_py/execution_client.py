@@ -5,7 +5,7 @@ Usa un snapshot de test y ejecución in-process para conservar los fakes inyecta
 No prueba aislamiento OS: test_durable_executions y test_process_supervision lo hacen con
 TestClient normal y procesos reales. No habilita providers ni altera políticas o resultados.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

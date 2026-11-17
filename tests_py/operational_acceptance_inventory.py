@@ -1,6 +1,6 @@
 """Inventario reproducible y adopción de copias; nunca inicializa la base operativa.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

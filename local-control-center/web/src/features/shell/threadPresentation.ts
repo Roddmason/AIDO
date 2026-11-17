@@ -3,7 +3,7 @@
  * `ThreadMessage` kind plus the defensive JSON-value readers used to humanize event payloads.
  * Kept apart from the components so the transcript (ThreadConversation) and the execution panel
  * (ThreadExecutionPanel) render the same message identity without importing each other.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ThreadMessage } from '../../api/types';
 

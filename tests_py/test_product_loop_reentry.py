@@ -5,7 +5,7 @@ huérfano; el próximo run del mismo hilo lo cancela como superseded (lo que ade
 remediaciones al llegar a terminal). Los cierres controlados apagan el marcador vía ``_run_result``,
 así que los estados de espera legítimos (awaiting_user, blocked, brief_ready) jamás se tocan.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

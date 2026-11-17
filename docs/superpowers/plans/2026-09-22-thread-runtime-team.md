@@ -12,11 +12,11 @@
 
 ## Global Constraints
 
-- Tests Python desde la raíz del repo: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` (workaround del access violation de faiss).
-- Ruff: `C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff format <py files>` y `C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff check <py files>` (nunca sobre `.json`).
+- Tests Python desde la raíz del repo: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test files>','-q','-p','no:randomly']))"` (workaround del access violation de faiss).
+- Ruff: `.\.venv\Scripts\python.exe -m ruff format <py files>` y `.\.venv\Scripts\python.exe -m ruff check <py files>` (nunca sobre `.json`).
 - Web: `corepack pnpm@10.24.0 run typecheck:web`, `corepack pnpm@10.24.0 exec biome check <files>`, `corepack pnpm@10.24.0 run build:web`.
 - Regenerar OpenAPI tras cualquier cambio de API/response_model: `corepack pnpm@10.24.0 run openapi:generate` (LF).
-- Todo módulo productivo nuevo lleva header semántico (docstring/JSDoc) con `@author Rodrigo Mason`.
+- Todo módulo productivo nuevo lleva header semántico (docstring/JSDoc) con `@author AIDO contributors`.
 - Python productivo: solo docstrings (sin comentarios `#` sueltos); docstrings en API pública (ruff D101-D103).
 - Copy de UI solo vía `t('key','English fallback')` con claves bilingües (en != es) en `local_control_center/i18n/default_catalog.json`, editado quirúrgicamente preservando el formato.
 - Guardrails visuales: nada de Inter/cyan/purple/radial-gradient/`border-left|right` ≥ 2px; tokens oklch.
@@ -146,7 +146,7 @@ Architect Decisions (2026-09-22) no agregan tasks ni dependencias: roles obligat
 ```python
 """Elegibilidad por rol y reparto automático del equipo de runtimes por hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -283,7 +283,7 @@ def test_only_product_owner_and_developer_are_required():
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
 Expected: FAIL con `ModuleNotFoundError: No module named 'local_control_center.runtime_team'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -293,7 +293,7 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'local_control_center.r
 ```python
 """Equipo de runtimes por hilo: selección validada, asignación por rol y enforcement en el loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 
@@ -310,7 +310,7 @@ global de runtimes y por último el ``provider_id`` alfabético, así el mismo c
 mismo resultado. Solo PO y Developer son obligatorios: Arquitecto y Seguridad pueden quedar sin
 asignar (el Arquitecto no corre y Seguridad queda en sus scanners deterministas).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -426,9 +426,9 @@ def missing_required_roles(role_runtimes: Mapping[str, str]) -> list[str]:
 
 - [ ] **Step 4: Ejecutar tests y lint**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
 Expected: PASS (26 tests).
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff format local_control_center/runtime_team tests_py/test_runtime_team_roles.py` y `C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center/runtime_team tests_py/test_runtime_team_roles.py`
+Run: `.\.venv\Scripts\python.exe -m ruff format local_control_center/runtime_team tests_py/test_runtime_team_roles.py` y `.\.venv\Scripts\python.exe -m ruff check local_control_center/runtime_team tests_py/test_runtime_team_roles.py`
 Expected: sin errores.
 
 - [ ] **Step 5: Commit**
@@ -463,7 +463,7 @@ La frescura se lee de la misma evidencia de ejecución que usa la validación de
 reusa el prompt fijo de test-prompt (API/local) y el preflight CLI con la aprobación explícita del
 operador. Los CLIs se simulan en el borde del proceso: ``validate_cli_candidate`` y el estado de runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -748,7 +748,7 @@ def test_cli_probe_deferred_by_the_preflight_keeps_its_reason(connection, tmp_pa
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validation.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validation.py','-q','-p','no:randomly']))"`
 Expected: FAIL con `ModuleNotFoundError: No module named 'local_control_center.runtime_team.probe'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -762,7 +762,7 @@ Lee la misma evidencia de ejecución real que ``model_execution_health`` usa par
 pero con una ventana propia: el selector del hilo exige una prueba de ida y vuelta reciente con la
 configuración actual. Los consumidores de 24 h no cambian.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -862,7 +862,7 @@ aprobación: queda auditado como ``runtime.validation.operator_approved`` y cons
 suscripción. Toda falla deja evidencia (salvo una denegación de política del proyecto), así una
 prueba fallida invalida también la validación de 24 h; la causa sale del clasificador compartido.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1135,7 +1135,7 @@ class RuntimeValidationService:
 
 - [ ] **Step 4: Ejecutar tests y lint**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validation.py','tests_py/test_model_execution_health.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validation.py','tests_py/test_model_execution_health.py','-q','-p','no:randomly']))"`
 Expected: PASS (los 18 nuevos + el archivo existente intacto).
 Run ruff format/check sobre `local_control_center/runtime_team tests_py/test_runtime_team_validation.py`. Expected: sin errores (si `ruff format` reparte líneas largas, aceptar).
 
@@ -1172,7 +1172,7 @@ Familia ``openai_compatible`` para quedar en ``MODEL_RUNTIME_TOOLS`` (PO y Devel
 adaptadores nuevos) y siembra de ``code_edit``/``code_review`` como OmniRoute, o los roles de build
 y review la descartan por capacidades faltantes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1231,7 +1231,7 @@ def test_from_catalog_llama_cpp_seeds_build_and_review_capabilities(
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_llama_cpp_provider.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_llama_cpp_provider.py','-q','-p','no:randomly']))"`
 Expected: FAIL con `KeyError: 'llama_cpp'` (el catálogo no la tiene).
 
 - [ ] **Step 3: Implementación mínima**
@@ -1311,7 +1311,7 @@ En `local_control_center/i18n/default_catalog.json`, con Edit (old_string = la e
 
 - [ ] **Step 4: Ejecutar tests, lint y gates web**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_llama_cpp_provider.py','tests_py/test_provider_setup_catalog.py','tests_py/test_all_provider_defaults.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_llama_cpp_provider.py','tests_py/test_provider_setup_catalog.py','tests_py/test_all_provider_defaults.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
 Expected: PASS (el test de defaults es dinámico sobre `PROVIDER_CATALOG`, `team_scheduler/scheduler.py:217-233`).
 Run: ruff format/check sobre los dos `.py` y el test; `corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/runtime-setup/runtimeSetup.ts`; `corepack pnpm@10.24.0 run typecheck:web`.
 Expected: sin errores. `git diff --stat local_control_center/i18n/default_catalog.json` muestra solo `+4`.
@@ -1345,7 +1345,7 @@ git commit -m "Feature (Providers): llama.cpp como runtime local OpenAI-compatib
 ```python
 """La prueba de runtime es una operación encolada por runtime con su propia clase de carga.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1442,7 +1442,7 @@ def test_cli_validation_without_a_project_is_deferred_not_failed(
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validate_api.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validate_api.py','-q','-p','no:randomly']))"`
 Expected: FAIL: `assert 'models.validate_runtime' in INFERENCE_OPERATIONS` y 404/405 en las rutas.
 
 - [ ] **Step 3: Implementación mínima**
@@ -1454,7 +1454,7 @@ Expected: FAIL: `assert 'models.validate_runtime' in INFERENCE_OPERATIONS` y 404
 
 Literales acotados para que el cliente generado no degrade a ``string`` (drift de response_model).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1527,7 +1527,7 @@ En `local_control_center/executions/workloads.py`, agregar `"models.validate_run
 
 - [ ] **Step 4: Ejecutar tests, lint y regen**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validate_api.py','tests_py/test_provider_setup_catalog.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_validate_api.py','tests_py/test_provider_setup_catalog.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run ruff format/check sobre `local_control_center/runtime_team/contracts.py local_control_center/agents/model_gateway_api.py local_control_center/executions/workloads.py tests_py/test_runtime_team_validate_api.py`.
 Run: `corepack pnpm@10.24.0 run openapi:generate`, luego `rg -n "validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post" local-control-center/web/src/api/generated/openapi.ts` (debe aparecer en `API_ENDPOINTS` y en `EXECUTION_OPERATIONS`) y `corepack pnpm@10.24.0 run typecheck:web`.
@@ -1570,7 +1570,7 @@ git commit -m "Feature (ModelGateway): operación encolada models.validate_runti
 ```python
 """Equipo de runtimes guardado en el hilo: validación, estrechamiento, sellado y readiness.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1819,7 +1819,7 @@ def test_request_meta_helpers_scope_each_role():
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_configuration.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_configuration.py','-q','-p','no:randomly']))"`
 Expected: FAIL con `ModuleNotFoundError: No module named 'local_control_center.runtime_team.configuration'`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -1834,7 +1834,7 @@ el panel y la validación del PATCH ven exactamente lo que verá el loop. La pol
 proyecto (``runtime_policy_decision``) se evalúa aquí para que un runtime denegado nunca sea
 seleccionable en ese proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -1900,7 +1900,7 @@ Al sellar un mensaje, la metadata del run recibe ``runtimeTeam`` estrechado por
 valor entrante del cliente se descarta siempre. Un equipo estrechado a vacío se conserva vacío para
 fallar cerrado en el loop en vez de volver al ruteo automático.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2166,7 +2166,7 @@ def restrict_to_allowlist(provider_ids: Iterable[str], allowlist: list[str] | No
 
 - [ ] **Step 4: Ejecutar tests y lint**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_configuration.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_configuration.py','-q','-p','no:randomly']))"`
 Expected: PASS (14 tests).
 Run ruff format/check sobre `local_control_center/runtime_team tests_py/test_runtime_team_configuration.py`. Expected: sin errores.
 
@@ -2199,7 +2199,7 @@ git commit -m "Feature (RuntimeTeam): equipo por hilo en runConfiguration con es
 ```python
 """Candidatos del equipo de runtimes: validación reciente, roles elegibles y reparto sugerido.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2294,7 +2294,7 @@ def test_a_runtime_denied_by_the_project_policy_is_flagged_and_never_suggested(t
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_candidates_api.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_candidates_api.py','-q','-p','no:randomly']))"`
 Expected: FAIL con `assert 404 == 200`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -2351,7 +2351,7 @@ class RuntimeTeamCandidatesResponse(BaseModel):
 ```python
 """Lectura de candidatos para el panel del equipo del hilo con el reparto calculado en backend.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2452,7 +2452,7 @@ y después del handler `list_runtime_providers` (`:1255-1258`):
 
 - [ ] **Step 4: Ejecutar tests, lint y regen**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_candidates_api.py','tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_candidates_api.py','tests_py/test_runtime_team_roles.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run ruff format/check sobre los `.py` tocados; `corepack pnpm@10.24.0 run openapi:generate`; `rg -n "list_runtime_team_candidates_api_v1_runtime_team_candidates_get" local-control-center/web/src/api/generated/openapi.ts`; `corepack pnpm@10.24.0 run typecheck:web`.
 Expected: operationId presente; typecheck OK.
@@ -2487,7 +2487,7 @@ git commit -m "Feature (RuntimeTeam): candidatos del equipo con validación reci
 ```python
 """El hilo guarda su equipo de runtimes, el envío lo exige fresco y el run lo recibe sellado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2687,7 +2687,7 @@ def test_clearing_the_team_restores_automatic_routing(tmp_path: Path) -> None:
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_thread_api.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_thread_api.py','-q','-p','no:randomly']))"`
 Expected: FAIL: PATCH responde 404/405 y el mensaje no se rechaza.
 
 - [ ] **Step 3: Implementación mínima**
@@ -2829,7 +2829,7 @@ from local_control_center.runtime_team.configuration import (
 
 - [ ] **Step 4: Ejecutar tests, lint y regen**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_thread_api.py','tests_py/test_thread_run_configuration.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_thread_api.py','tests_py/test_thread_run_configuration.py','tests_py/test_threads_api.py','tests_py/test_threads_operator_notes.py','tests_py/test_threads_coordinator.py','-q','-p','no:randomly']))"`
 Expected: PASS (nuevos + regresión de sellado/hilos).
 Run ruff format/check sobre los 4 `.py` modificados y el test; `corepack pnpm@10.24.0 run openapi:generate`; `rg -n "update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch" local-control-center/web/src/api/generated/openapi.ts`; `corepack pnpm@10.24.0 run typecheck:web`.
 Expected: operationId presente; typecheck OK.
@@ -2862,7 +2862,7 @@ git commit -m "Feature (Threads): equipo de runtimes por hilo con PATCH, gate de
 ```python
 """El product loop solo usa runtimes del equipo sellado del hilo y, por rol, el asignado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3061,7 +3061,7 @@ def test_architect_receives_the_assigned_runtime_or_is_skipped(coordinator, tmp_
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_loop_enforcement.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_loop_enforcement.py','-q','-p','no:randomly']))"`
 Expected: FAIL: `allowed_provider_ids is None != ['codex_cli']` y `TypeError: _developer_execution_resource() takes 2 positional arguments but 3 were given`.
 
 - [ ] **Step 3: Implementación mínima**
@@ -3282,9 +3282,9 @@ por
 
 - [ ] **Step 4: Ejecutar tests y regresión dirigida**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_loop_enforcement.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_project_constitution_slice.py','tests_py/test_product_loop_fsm_matrix.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_loop_enforcement.py','tests_py/test_product_owner_auto_recovery.py','tests_py/test_execution_timeout_reconciliation.py','tests_py/test_project_constitution_slice.py','tests_py/test_product_loop_fsm_matrix.py','-q','-p','no:randomly']))"`
 Expected: PASS.
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','failover or security or developer_execution or product_owner_resource or team_review or architect']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly','-k','failover or security or developer_execution or product_owner_resource or team_review or architect']))"`
 Expected: PASS (subconjunto; la suite completa corre en Task 13).
 Run ruff format/check sobre `local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases/execution.py local_control_center/product_loop/phases/security.py tests_py/test_runtime_team_loop_enforcement.py`. Expected: sin errores.
 
@@ -3325,7 +3325,7 @@ git commit -m "Feature (ProductLoop): el loop confina equipo, PO, failover, deve
 Nunca cae en silencio a otro runtime: la remediación encola una validación por runtime vencido y,
 cuando todos responden, reanuda el retry pendiente del mismo loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -3549,7 +3549,7 @@ def test_retest_without_the_registered_operation_is_blocked_not_silent(lane, mon
 
 - [ ] **Step 2: Ejecutarlo y ver que falla**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_execution_gate.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_execution_gate.py','-q','-p','no:randomly']))"`
 Expected: FAIL: la etapa es `resource_manager` (no hay gate), las acciones no incluyen `revalidate_runtime`, `resume_after_runtime_validation` no existe (`AttributeError`) y `operation_workload` devuelve `agent_cli` para la re-prueba.
 
 - [ ] **Step 3: Implementación mínima**
@@ -3842,7 +3842,7 @@ y después de `app.threads.remediation.action.retryLoop`:
 
 - [ ] **Step 4: Ejecutar tests, lint, regen y gates web**
 
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_execution_gate.py','tests_py/test_runtime_team_validate_api.py','tests_py/test_decision_engine_remediation.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_execution_gate.py','tests_py/test_runtime_team_validate_api.py','tests_py/test_decision_engine_remediation.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
 Expected: PASS.
 Run ruff format/check sobre `local_control_center/product_loop/phases/environment.py local_control_center/remediations/contracts.py local_control_center/remediations/payloads.py local_control_center/remediations/service.py local_control_center/executions/workloads.py local_control_center/agents/model_gateway_api.py tests_py/test_runtime_team_execution_gate.py tests_py/test_runtime_team_validate_api.py`.
 Run: `corepack pnpm@10.24.0 run openapi:generate`, `corepack pnpm@10.24.0 run typecheck:web` (falla si falta alguna entrada en los `Record<BlockerType|ActionType, …>`), `corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/shell/remediationPresentation.ts`.
@@ -3885,7 +3885,7 @@ Expected: FAIL con `Module '"../../api/client"' has no exported member 'RuntimeT
  * Runtime team of a thread: selection shape, reader for the persisted `runConfiguration`, and the
  * helpers the composer panel uses to merge the backend's automatic split with manual choices.
  * Eligibility and the split are computed by the backend; nothing here re-derives them.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type {
 	RuntimeTeamCandidate,
@@ -4148,7 +4148,7 @@ git commit -m "Feature (Web): cliente tipado y modelo del equipo de runtimes por
 - [ ] **Step 1: "Test que falla"**
 
 La verificación de comportamiento es el spec de Task 12 (se escribe después porque necesita esta UI). Aquí el gate previo es el catálogo i18n: tras crear los componentes (Step 3) y antes de agregar las claves, correr:
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','-q','-p','no:randomly']))"`
 Expected: FAIL en `test_every_static_t_call_key_is_registered_in_default_catalog` listando las claves `app.runtimeTeam.*`.
 
 - [ ] **Step 2: Agregar las claves y ver el gate verde**
@@ -4298,7 +4298,7 @@ Con Edit (old_string = entrada completa `app.composer.executableRuntime`), agreg
 /**
  * Loads the runtime-team candidates for a project plus the backend's automatic split for the
  * current selection; a changed selection aborts the stale request.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -4354,7 +4354,7 @@ export function useRuntimeTeamCandidates(
  * row keeps its last test outcome (failed or deferred with the cause, including the resource
  * governor's reason while the queued test waits), and roles the operator edited stay pinned while
  * the automatic ones follow the backend split for the current selection.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -4692,7 +4692,7 @@ export function RuntimeTeamPanel({ projectId, token, initial, onSave, onClose }:
  * Composer chip that states the thread's AI team ("AI team · 2 of 5") and opens the team drawer.
  * A new thread keeps the selection as a draft that the intake persists before the first message;
  * an existing thread saves it straight away through the run-configuration PATCH.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Users } from 'lucide-react';
 import { useState } from 'react';
@@ -4924,7 +4924,7 @@ y en su `<ThreadComposerBox>`, después de `onValueChange={setDraft}` agregar:
 - [ ] **Step 4: Ejecutar gates**
 
 Run: `corepack pnpm@10.24.0 exec biome check --write local-control-center/web/src/features/runtime-team local-control-center/web/src/features/shell/ThreadConversation.tsx` (aplica organizeImports/format), luego `corepack pnpm@10.24.0 exec biome check local-control-center/web/src/features/runtime-team local-control-center/web/src/features/shell/ThreadConversation.tsx local-control-center/web/src/design-system/layout.css`, `corepack pnpm@10.24.0 run typecheck:web`, `corepack pnpm@10.24.0 run build:web`.
-Run: `C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"`
+Run: `.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"`
 Expected: todo verde (i18n bilingüe completo, guardrails visuales y pins del composer). `git diff --stat local_control_center/i18n/default_catalog.json` solo agrega líneas.
 
 - [ ] **Step 5: Commit**
@@ -4956,7 +4956,7 @@ git commit -m "Feature (Web): panel Equipo IA en el composer con prueba automát
  * thread persists its team before the first message. Candidates, validate-runtime and
  * run-configuration are mocked so the scenarios never depend on real provider credentials; the
  * thread and its first message go to the real control plane.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 
@@ -5207,22 +5207,22 @@ git commit -m "Test (Web): spec del panel Equipo IA con auto-prueba, redistribuc
 - [ ] **Step 1: Lint Python de todo lo tocado**
 
 ```powershell
-C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff format --check local_control_center/runtime_team local_control_center/agents/provider_catalog.py local_control_center/agents/provider_catalog_api.py local_control_center/agents/model_gateway_api.py local_control_center/agents/api.py local_control_center/executions/workloads.py local_control_center/threads local_control_center/product_loop/metadata.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases local_control_center/remediations tests_py/test_runtime_team_*.py tests_py/test_llama_cpp_provider.py
-C:/workspaces\AIDO\.venv\Scripts\python.exe -m ruff check local_control_center tests_py
+.\.venv\Scripts\python.exe -m ruff format --check local_control_center/runtime_team local_control_center/agents/provider_catalog.py local_control_center/agents/provider_catalog_api.py local_control_center/agents/model_gateway_api.py local_control_center/agents/api.py local_control_center/executions/workloads.py local_control_center/threads local_control_center/product_loop/metadata.py local_control_center/product_loop/coordinator.py local_control_center/product_loop/phases local_control_center/remediations tests_py/test_runtime_team_*.py tests_py/test_llama_cpp_provider.py
+.\.venv\Scripts\python.exe -m ruff check local_control_center tests_py
 ```
 Expected: sin cambios pendientes ni errores.
 
 - [ ] **Step 2: Tests Python nuevos + regresión**
 
 ```powershell
-C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','tests_py/test_runtime_team_validation.py','tests_py/test_llama_cpp_provider.py','tests_py/test_runtime_team_validate_api.py','tests_py/test_runtime_team_configuration.py','tests_py/test_runtime_team_candidates_api.py','tests_py/test_runtime_team_thread_api.py','tests_py/test_runtime_team_loop_enforcement.py','tests_py/test_runtime_team_execution_gate.py','tests_py/test_model_execution_health.py','tests_py/test_provider_setup_catalog.py','tests_py/test_all_provider_defaults.py','tests_py/test_thread_run_configuration.py','tests_py/test_threads_api.py','tests_py/test_threads_coordinator.py','tests_py/test_threads_operator_notes.py','tests_py/test_decision_engine_remediation.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_runtime_team_roles.py','tests_py/test_runtime_team_validation.py','tests_py/test_llama_cpp_provider.py','tests_py/test_runtime_team_validate_api.py','tests_py/test_runtime_team_configuration.py','tests_py/test_runtime_team_candidates_api.py','tests_py/test_runtime_team_thread_api.py','tests_py/test_runtime_team_loop_enforcement.py','tests_py/test_runtime_team_execution_gate.py','tests_py/test_model_execution_health.py','tests_py/test_provider_setup_catalog.py','tests_py/test_all_provider_defaults.py','tests_py/test_thread_run_configuration.py','tests_py/test_threads_api.py','tests_py/test_threads_coordinator.py','tests_py/test_threads_operator_notes.py','tests_py/test_decision_engine_remediation.py','tests_py/test_remediation_blocker_experience.py','tests_py/test_product_loop_fsm_matrix.py','tests_py/test_product_loop_state_order_frontend.py','tests_py/test_product_loop_result_taxonomy.py','tests_py/test_i18n_platform.py','tests_py/test_web_rework_architecture.py','-q','-p','no:randomly']))"
 ```
 Expected: PASS.
 
 - [ ] **Step 3: Suite larga del coordinator (proceso desacoplado)**
 
 ```powershell
-C:/workspaces\AIDO\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly']))"
+.\.venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['tests_py/test_product_loop_coordinator.py','-q','-p','no:randomly']))"
 ```
 Correr en background (>10 min) y leer el exit real, no la notificación. Expected: PASS; cualquier rojo que no esté en la lista de fallas preexistentes conocidas es regresión de Task 8.
 

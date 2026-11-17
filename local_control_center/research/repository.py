@@ -4,7 +4,7 @@ Transacciones: el repositorio escribe sobre la conexión SQLite recibida y no ab
 propias; el caller debe agrupar operaciones multi-tabla con ``immediate_transaction`` cuando
 necesite atomicidad.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

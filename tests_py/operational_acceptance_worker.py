@@ -1,6 +1,6 @@
 """Worker de fault injection, usa cola/fencing/supervisor reales y un cuerpo de job de prueba.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

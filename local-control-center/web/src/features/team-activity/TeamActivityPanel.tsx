@@ -6,7 +6,7 @@
  * absent project, an empty board, a load error and a still-loading fetch each render their own state
  * rather than a fabricated roster. Mounted inside the workbench "AI team" drawer and fetches only
  * while `open`, so it adds no cost when the drawer is closed.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { StatusChip as Badge, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';

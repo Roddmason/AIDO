@@ -5,7 +5,7 @@
  * the `:root[data-density="compact"]` control-sizing overrides in tokens.css, so the
  * pre-paint bootstrap and the runtime toggle stay in sync. Comfortable is the default
  * (touch-safe); compact tightens controls for information-dense, mouse-first sessions.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 

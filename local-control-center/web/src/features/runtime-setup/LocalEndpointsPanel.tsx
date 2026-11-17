@@ -5,7 +5,7 @@
  * through the real control plane. Ollama endpoints keep their own panel. Deleting an endpoint that a
  * sealed thread team or a role policy still uses is refused by the backend with the references,
  * which the confirmation dialog lists instead of a generic failure.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Pencil, RefreshCw, Server, ShieldCheck, Trash2 } from 'lucide-react';

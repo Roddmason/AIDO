@@ -7,7 +7,7 @@
  * selected. Pure and side-effect free so the panel stays a thin render layer and the honest "unknown"
  * fallbacks live in one place instead of scattered across JSX. State names mirror the backend Team
  * Activity builder so the tab and the workbench drawer never disagree about what "active" means.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { AgentProfile } from '../../api/types';
 

@@ -7,7 +7,7 @@ elevaría a aprobación manual: la validación por proyecto no correría nunca s
 El test que importa no es la lista de verbos, es el acoplamiento: **todo comando que el planificador
 pueda emitir tiene que ser clasificable**, o el plan promete algo que la política no deja ejecutar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

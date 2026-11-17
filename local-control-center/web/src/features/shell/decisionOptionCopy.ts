@@ -4,7 +4,7 @@
  * description are translated here, so an operator never has to read an internal identifier. Intake
  * questions travel with their i18n keys (`metadata.questionKeys`), aligned one-to-one with the
  * English text in `metadata.questions`, and render in the active language.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ThreadDecision } from '../../api/types';

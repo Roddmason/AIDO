@@ -3,7 +3,7 @@
  * Concentra la carga de estado del gateway (overview, catálogos, ledger, decisiones) y las acciones de
  * mutación (toggle/health de proveedores, preview de ruta, alta de políticas y outcomes); cada panel
  * recibe sus datos por props y notifica de vuelta vía callbacks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 

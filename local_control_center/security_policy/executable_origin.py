@@ -21,7 +21,7 @@ Invariante: ante un argv mal formado, una ruta invalida o un workspace ausente d
 confiable". Sin workspace declarado no hay contencion que probar, y la duda se resuelve hacia el
 lado seguro en vez de heredar la confianza del basename.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

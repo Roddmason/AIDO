@@ -5,7 +5,7 @@
  * where the effective order comes from. "Automatic" clears the scope's override. When every provider
  * the operator chose is switched off, the role falls back to the automatic split and says so. A
  * provider without a fresh test shows it (a thread's own team only accepts validated runtimes).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useState } from 'react';
 

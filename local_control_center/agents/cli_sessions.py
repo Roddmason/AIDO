@@ -4,7 +4,7 @@ Por cada ejecución de un runtime CLI graba la fila en cli_sessions, escribe art
 saneados con redact_secrets y registra el uso en el UsageLedger (real o estimado). Garantiza que ningún
 secreto del comando, entorno o salida quede en disco o en la base sin redactar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

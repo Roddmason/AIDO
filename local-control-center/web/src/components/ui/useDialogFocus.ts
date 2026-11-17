@@ -2,7 +2,7 @@
  * WAI-ARIA dialog focus management shared by {@link Dialog} and {@link Drawer}:
  * move focus into the panel on open, keep Tab cycling inside it, and restore focus to
  * the previously focused element on close. Escape handling stays with the caller.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { RefObject } from 'react';

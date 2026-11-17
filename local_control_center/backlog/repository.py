@@ -17,7 +17,7 @@ por sí mismas; las que calculan el siguiente ``sequence`` antes de insertar
 (``create_acceptance_criterion``) solo son atómicas si el caller las agrupa en una única
 ``immediate_transaction``, que además evita colisiones en ``UNIQUE(story_id, sequence)``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

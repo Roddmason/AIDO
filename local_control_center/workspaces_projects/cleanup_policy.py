@@ -10,7 +10,7 @@ y reporta los worktrees físicos sin fila activa. ``apply_cleanup`` re-valida ca
 el usuario antes de archivar/remover, jamás toca rutas fuera de ``<root>/.tmp/workspaces`` y cierra
 con un único ``git worktree prune`` auditado por policy.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

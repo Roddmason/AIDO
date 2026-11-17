@@ -1,6 +1,6 @@
 /**
  * Goal tab of the Thread Inspector: thread title, status, captured objective, owner, timestamps and pending decision count.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ThreadDetail } from '../../../api/types';
 import { Disclosure, StatusChip } from '../../../components/ui';

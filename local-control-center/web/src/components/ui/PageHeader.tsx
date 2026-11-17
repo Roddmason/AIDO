@@ -1,7 +1,7 @@
 /**
  * Encabezado estándar de página (kicker + título h1 + resumen) que participa en las
  * animaciones de entrada vía `data-motion-item`; da jerarquía consistente entre rutas.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 export function PageHeader({
 	kicker,

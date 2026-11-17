@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-09-22
 **Estado:** Diseño aprobado (sub-proyecto 3 de 3). Pendiente de plan de implementación.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Objetivo
 
@@ -108,7 +108,7 @@ escribe en la BD viva, así que es un paso de operador con confirmación explíc
 
 ### 2.9 Rojos preexistentes
 
-- `@author Rodrigo Mason` en los 6 módulos de 013b1b26 (`agent_resource_policy.py`, `runtime_preflight.py`,
+- `@author AIDO contributors` en los 6 módulos de 013b1b26 (`agent_resource_policy.py`, `runtime_preflight.py`,
   `runtime_preflight_cli.py`, `timeout_reconciliation.py`, `research_resolution.py`,
   `runtime_risk_review.py`).
 - Claves i18n con `en == es`: `app.threads.remediation.riskReview.field.runtime` y `.field.loopId`.

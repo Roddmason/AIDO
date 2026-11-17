@@ -7,7 +7,7 @@
  * of crowding the row with a button per contract view. Trust, lifecycle status, and elevated
  * permissions surface as badges so an operator can judge a plugin at a glance; blocked installs
  * keep the exact validator reason so third-party manifests stay auditable.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {

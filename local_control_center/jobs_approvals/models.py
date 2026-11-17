@@ -4,7 +4,7 @@ Define los request/response de la API HTTP (en camelCase vía alias) y las tupla
 estados válidos para jobs, runs y action requests. `SENSITIVE_JOB_KINDS` es la lista
 canónica de kinds que fuerzan aprobación granular antes de ejecutarse.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

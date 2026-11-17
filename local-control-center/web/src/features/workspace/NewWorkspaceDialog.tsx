@@ -4,7 +4,7 @@
  * Pure presentation/step orchestration: all detection and the create call live in the
  * `useProjectDiscovery` hook; this component only sequences the steps, gates Next on
  * validation, and reports the created project id back to the caller.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { FolderOpen, FolderPlus, Search } from 'lucide-react';

@@ -4,7 +4,7 @@
 **Estado:** Diseño aprobado por el operador (2026-09-23); enmendado tras crítica adversarial multi-lente
 (arquitectura, seguridad/privacidad, hechos de API, Codex) con 29 hallazgos verificados; spec aprobada. Plan:
 `docs/superpowers/plans/2026-09-23-local-runtimes.md`.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Objetivo
 
@@ -452,7 +452,7 @@ cerrado; R5 costo desconocido ≠ gratis, uso desconocido = `NULL`; R6 habilitac
 R7 binding modelo↔runtime por familia en `MODEL_RUNTIME_TOOLS`; R8 cuentas endpoint-scoped; R9 ranking por
 tiers y comodines; R10 allowlist del hilo solo restringe; R11 la entrada genérica `openai_compatible` es la última
 de su familia; R12 no matar procesos ajenos y conflicto GPU con Unreal; R13 ante la duda, remoto; R14 User-Agent
-de gateways; R15 i18n bilingüe, `@author Rodrigo Mason`, `Literal` + OpenAPI regenerado, LF.
+de gateways; R15 i18n bilingüe, `@author AIDO contributors`, `Literal` + OpenAPI regenerado, LF.
 
 ## 11. Fuentes
 

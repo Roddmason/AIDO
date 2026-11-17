@@ -1,6 +1,6 @@
 /**
  * Pure value helpers shared by the Thread Inspector tabs: untyped-metadata readers, date and label formatting, status tone mapping and selection of the loop that belongs to a thread.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ProjectProductLoopResponse } from '../../../api/client';

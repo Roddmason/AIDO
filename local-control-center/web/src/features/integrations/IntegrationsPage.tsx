@@ -3,7 +3,7 @@
  * servers plus IDE connection events. Validates the server id and rejects shell
  * operators in the command; registration only stores argv-style config — execution
  * still passes through broker, policy and sandbox.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 import { registerMcpServer } from '../../api/client';

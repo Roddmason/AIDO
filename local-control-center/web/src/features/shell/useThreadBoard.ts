@@ -2,7 +2,7 @@
  * Loads the per-story board of a thread and refetches it whenever a board-relevant event (story
  * progress or a delivery-stage milestone) lands in the thread event stream, so a card move shows up
  * within one event poll plus one read.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 

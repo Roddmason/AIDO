@@ -1,6 +1,6 @@
 """Candidatos del equipo de runtimes: validación reciente, roles elegibles y reparto sugerido.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

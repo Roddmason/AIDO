@@ -2,7 +2,7 @@
  * Evidence & QA route page: lists evidence packages and audits package detail plus
  * patch and security-findings artifacts through token-protected endpoints, enforcing
  * "proof before approval" and redacting artifact text before rendering it inline.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactPayload, EvidenceDetailResponse } from '../../api/client';

@@ -1,6 +1,6 @@
 """Contratos tipados del gobernador global de recursos del host.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

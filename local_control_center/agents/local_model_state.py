@@ -8,7 +8,7 @@ el único id que expone el servidor y ``none`` no consulta nada. El estado nunca
 comparte la lectura: un solo refresco en vuelo por cuenta, en segundo plano, y como máximo ``max_wait_s`` de
 espera; un servidor lento o caído deja el estado desconocido en vez de bloquear a quien lee.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

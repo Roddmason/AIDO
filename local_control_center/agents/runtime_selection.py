@@ -6,7 +6,7 @@
 DIVERGEN por agente (``_runtime_mode``, ``_execution_result_from_tool_call``) se quedan
 en cada agente a propósito: su lógica es específica y unificarla cambiaría comportamiento.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

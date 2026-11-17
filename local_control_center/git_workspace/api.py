@@ -4,7 +4,7 @@ Expone estado Git, ramas, checkout, diff y gitleaks por proyecto. Las mutaciones
 token local y la ejecucion real se delega a ``GitWorkspaceService`` en el worker. Los GET
 sólo leen el último snapshot durable y explicitan cuándo requiere renovación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

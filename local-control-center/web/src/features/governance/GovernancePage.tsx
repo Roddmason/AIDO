@@ -3,7 +3,7 @@
  * first-class operational records with create/update forms, client-side filters and
  * a risk-status workflow; the local merge helpers fold optimistic write results back
  * into the shared Overview snapshot so the UI stays consistent before the next refresh.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 import {

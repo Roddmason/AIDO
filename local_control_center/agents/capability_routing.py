@@ -13,7 +13,7 @@ canónica de capacidades por provider y se alinea con las restricciones de runti
 (p. ej. ``code_edit`` solo en runtimes CLI); el ``model_router`` (DB-backed) sigue siendo el árbitro final
 del modelo concreto, su salud y el presupuesto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

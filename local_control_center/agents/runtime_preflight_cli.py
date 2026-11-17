@@ -1,6 +1,6 @@
 """Fixed prompt-only CLI validation through the existing managed subprocess boundary.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

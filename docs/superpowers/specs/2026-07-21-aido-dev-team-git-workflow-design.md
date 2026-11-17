@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-07-21
 **Estado:** Aprobado (diseño). Implementación por slices.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Contexto y objetivo
 
@@ -69,7 +69,7 @@ Por HU: rama `feature/<hu-slug>` off `dev`, estable y reusada entre turnos/rewor
 
 - `git push` no existe → agregarlo brokered con la policy de `run_brokered_git`.
 - Reusar el loop toca `coordinator.py:4408`; no reintroducir el bug de re-pregunta ni la race de cancel/worker.
-- Gates del repo: **i18n bilingüe (es≠en)**, **openapi regen**, arch tests, `test:py`, `check:web`, doc-author (`@author Rodrigo Mason`), el pre-commit ruff nuevo.
+- Gates del repo: **i18n bilingüe (es≠en)**, **openapi regen**, arch tests, `test:py`, `check:web`, doc-author (`@author AIDO contributors`), el pre-commit ruff nuevo.
 - El writer autónomo concurrente edita este checkout y commitea a `dev` a mitad de sesión → commits acotados por slice, re-fetch/rebase antes de push.
 - Proyectos externos pueden ser locales (sin remoto) → degradación de `auto_pr`/`manual_pr` a `direct_push`.
 

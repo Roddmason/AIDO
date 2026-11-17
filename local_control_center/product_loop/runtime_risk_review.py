@@ -2,7 +2,7 @@
 
 No inference, credential changes, cost approvals or OS permission grants occur here.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

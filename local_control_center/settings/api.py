@@ -11,7 +11,7 @@ Exposes three routes:
 Write routes call ``require_write(request)`` first and return 204 No Content on success so
 the client re-resolves rather than trying to interpret a partial response.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

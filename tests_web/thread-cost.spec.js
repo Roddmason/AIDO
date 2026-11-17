@@ -10,7 +10,7 @@
  *
  * The `/cost-performance` endpoint is mocked so each scenario is deterministic; the settings write it
  * triggers is asserted against the real control plane.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

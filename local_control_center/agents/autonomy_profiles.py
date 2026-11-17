@@ -6,7 +6,7 @@ decisión, una acción (auto/recommend/ask) según nivel efectivo, bloqueo, conf
 Toda decisión automática produce un registro auditable con sus alternativas, razón, confianza y
 reversibilidad, de modo que nada irreversible o de baja confianza se ejecuta en silencio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

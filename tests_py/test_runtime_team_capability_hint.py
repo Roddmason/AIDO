@@ -1,6 +1,6 @@
 """El bloqueo por rol sin candidatos nombra la capacidad que falta al runtime sano.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

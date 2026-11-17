@@ -6,7 +6,7 @@ ejecutando modelos que el gateway rechaza. El sync de modelos preselecciona solo
 (``scripts/omniroute_models.json``, la misma que aplica ``scripts/setup_omniroute.py``) y el operador
 puede habilitar otros a mano; sin allowlist legible el sync conserva el comportamiento anterior.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

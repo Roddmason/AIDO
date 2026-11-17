@@ -1,6 +1,6 @@
 """Local fixture overrides do not change product defaults or escape their disposable scope.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from contextlib import closing

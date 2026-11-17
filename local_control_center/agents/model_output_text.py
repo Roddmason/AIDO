@@ -7,7 +7,7 @@ acotada por ``MAX_MODEL_OUTPUT_SCAN_CHARS``, sin expresiones regulares con retro
 una salida hostil o enorme no degrade al proceso. No redacta secretos: esa política vive en
 ``shared.redaction`` y se aplica al persistir.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ Fase del pipeline spec-driven extraída de ``coordinator.py``: cada función rec
 ``None`` para continuar. Los helpers y constantes compartidos se importan de forma diferida desde
 el coordinator para evitar el ciclo de imports (el coordinator importa este módulo al cargar).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

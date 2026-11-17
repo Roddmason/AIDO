@@ -4,7 +4,7 @@ Un solo `Literal` que comparten salud, sincronización, ejecución, concurrencia
 y las remediaciones lean un código y no un texto libre. `LocalRuntimeError` lanza (raises) siempre con una
 causa de este conjunto y un mensaje ya libre de secretos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

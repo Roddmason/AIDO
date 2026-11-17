@@ -8,7 +8,7 @@ detección de no-op del loop: un run cuyo único cambio son estos renders no es 
 seguir bloqueando. El directorio del spec es estable por hilo (slug + sha corto del thread id), sin
 contadores compartidos: hilos paralelos del mismo proyecto nunca colisionan.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

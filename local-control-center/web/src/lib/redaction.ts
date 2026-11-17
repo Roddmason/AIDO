@@ -4,7 +4,7 @@
  * `maskSecrets` (vía un redactor de este módulo); ningún patrón de secreto soportado
  * (Bearer, sk-, ghp_/github_pat_, glpat-, xox*, AKIA…, pares clave=valor y query params)
  * puede alcanzar la UI sin reemplazarse. Defensa en profundidad: el backend ya redacta.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 /**

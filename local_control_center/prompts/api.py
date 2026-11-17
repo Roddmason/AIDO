@@ -3,7 +3,7 @@
 Cablea los endpoints REST contra `PromptsRepository`, abriendo el repositorio sobre la conexión
 de la plataforma por petición y exigiendo permiso de escritura antes de mutar el catálogo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

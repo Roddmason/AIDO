@@ -4,7 +4,7 @@
  * the endpoint step shows before the backend classifies the host, and the parsers for the structured
  * 409/422 details the local-endpoint routes return. UI-agnostic so the panel, the wizard, the
  * discovery list and the tests read one source of truth.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LocalEndpointView, LocalModelView, LocalRuntimeSuggestion } from '../../api/client';

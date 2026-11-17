@@ -5,7 +5,7 @@
  * overall progress meter, and four lanes with fixed headers and their own scroll. Each user story
  * (HU) card shows who is working it (loop role, runtime and model, live while the loop runs it), its
  * progress, criteria and QA badges and its agent tasks; the whole card opens the story drawer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle } from 'lucide-react';
 import { m } from 'motion/react';

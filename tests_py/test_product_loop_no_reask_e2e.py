@@ -6,7 +6,7 @@ assessment que carga las preguntas ya formuladas, la supresión por `detected_fa
 impacto, la persistencia y la reconciliación del coordinator— corre de verdad. Si el fix del hilo
 (estampar `threadId`) o el de doble-persistencia estuviera roto, el turno 2 repreguntaría el JDK.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

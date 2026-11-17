@@ -4,7 +4,7 @@ Los agentes anidados (ProductOwner, Architect, DevOps, Developer, assessment) cr
 sin lease dentro del job del worker; ``requeue_expired_jobs`` exige lease, así que cuando el padre
 pierde el suyo el hijo quedaba `running` para siempre (caso vivo: job-31a6b390, desde 2026-07-18).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

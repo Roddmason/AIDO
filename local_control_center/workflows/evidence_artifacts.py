@@ -6,7 +6,7 @@ los hallazgos de seguridad y el veredicto QA antes de una aprobacion o promocion
 lanzan ValueError cuando la evidencia falta, esta vacia o su hash no coincide: es el invariante que
 impide aprobar o promover un parche sin evidencia verificable. Reexportadas por issue_to_patch_runner.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

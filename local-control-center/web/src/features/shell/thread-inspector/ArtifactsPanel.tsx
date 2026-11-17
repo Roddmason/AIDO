@@ -1,6 +1,6 @@
 /**
  * Artifacts tab of the Thread Inspector: the thread's artifacts, newest first, capped to a visible limit with an honest count of the older ones.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { m } from 'motion/react';
 import type { ThreadDetail } from '../../../api/types';

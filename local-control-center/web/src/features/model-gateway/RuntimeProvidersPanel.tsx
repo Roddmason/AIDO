@@ -4,7 +4,7 @@
  * variables and the per-runtime healthcheck action. The primary view stays narrow; advanced
  * columns (capabilities, last error, version, detected command) are revealed on demand through the
  * column chooser. Secrets are always passed through `redactVisibleSecret`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 

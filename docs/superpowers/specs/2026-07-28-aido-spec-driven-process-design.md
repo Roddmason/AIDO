@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-07-28
 **Estado:** Diseño propuesto (pendiente de aprobación). Implementación por slices.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 **Inspiración:** [github/spec-kit](https://github.com/github/spec-kit) — `constitution → specify → clarify → plan → tasks → analyze → implement`
 
 ## 1. Objetivo

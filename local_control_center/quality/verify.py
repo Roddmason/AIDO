@@ -3,7 +3,7 @@
 El gate no llama proveedores reales ni transforma configuración ausente en éxito. Cada
 comando hijo usa el supervisor nativo y deja stdout/stderr redactados como artefactos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

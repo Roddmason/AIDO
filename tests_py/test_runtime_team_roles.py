@@ -1,6 +1,6 @@
 """Elegibilidad por rol y reparto automático del equipo de runtimes por hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

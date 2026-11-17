@@ -10,7 +10,7 @@ execution result is redacted before storage. A denied/unsupported call is record
 never executed. This module does not itself raise on policy violations — it returns a
 deny decision and a `denied`/`approval_required` status; downstream sandboxes raise.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ límite por estado, caché TTL) y ``estimate_thread_eta`` (espera del operador, 
 insuficiente, historias restantes, carril rápido) con transiciones sintéticas insertadas directamente
 en ``product_loop_transitions`` para controlar los timestamps exactos de cada permanencia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

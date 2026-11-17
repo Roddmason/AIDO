@@ -32,7 +32,7 @@ interfaces entre rebanadas está resumido en cada tarea (Interfaces: Consumes/Pr
 - No matar procesos ajenos; conflicto GPU con Unreal para `LOCAL_INFERENCE_CLASSES` (R12).
 - Ante la duda sobre la localidad, remoto (R13).
 - User-Agent `AIDO-ModelGateway/1.0` en gateways (R14).
-- i18n bilingüe (en ≠ es) por `t()`; `@author Rodrigo Mason` en cada módulo productivo nuevo; solo docstrings/JSDoc; `Literal` + OpenAPI regenerado; finales de línea LF (R15).
+- i18n bilingüe (en ≠ es) por `t()`; `@author AIDO contributors` en cada módulo productivo nuevo; solo docstrings/JSDoc; `Literal` + OpenAPI regenerado; finales de línea LF (R15).
 - Tests con el workaround de faiss; cada tarea con test que falla antes y pasa después; Ruff (check + format) y, en web, Biome + tsc.
 - Commits `Tipo (Ámbito): mensaje` con trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; commit y push a `dev` por funcionalidad autorizados en AIDO.
 - Ningún subagente llama a `http://127.0.0.1:4310` ni al `llama-server` real; la validación en vivo es del controlador (última tarea).
@@ -48,7 +48,7 @@ catálogo contra el doble del router llama.cpp queda `healthy`, ejecutable y adm
 job `agent_cli` (default `minFreeMemoryGiB=16`), y un smoke del ProductOwner por el broker completa contra el doble;
 `test_local_runtime_price_exemption_does_not_treat_loopback_proxy_as_free` sigue verde sin cambios.
 
-Convenciones de todas las tareas (PowerShell, raíz del repo `C:/workspaces\AIDO`):
+Convenciones de todas las tareas (PowerShell, raíz del repo `.`):
 
 - Pytest con el workaround de faiss (sin `.pytest_cache` ni pycache):
   `$env:PYTHONDONTWRITEBYTECODE='1'; .venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main([<archivos>,'-q','-p','no:cacheprovider']))"`
@@ -440,7 +440,7 @@ Un solo `Literal` que comparten salud, sincronización, ejecución, concurrencia
 y las remediaciones lean un código y no un texto libre. `LocalRuntimeError` lanza (raises) siempre con una
 causa de este conjunto y un mensaje ya libre de secretos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -549,7 +549,7 @@ cada uno. Invariante: ante la duda la cuenta es remota (R13); la metadata del cl
 (`endpointKind="remote"`), nunca declarar una cuenta local. Una declaración local (WSL/Docker) solo cuenta si
 la escribió el servidor y su host sigue resolviendo a una IP aceptada en cada evaluación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -2389,7 +2389,7 @@ no sirve el modelo configurado es `local_model_load_failed`. Lectura acotada: nu
 un host que no es loopback ni está declarado local (`insecure_credential_transport`, sin ningún pedido): el
 sync llega aquí sin pasar por el guard de `ModelGateway._provider_configuration`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -4242,7 +4242,7 @@ endpoint para siempre) y llevan un fence monótono por slot para que un holder v
 tomó otro. Ninguna espera mantiene abierta una transacción y el reloj es de pared porque lo comparan procesos
 distintos. Raises: `LocalRuntimeError("local_endpoint_busy")` si no se libera un slot dentro de la espera acotada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -5216,7 +5216,7 @@ acotada por ``MAX_MODEL_OUTPUT_SCAN_CHARS``, sin expresiones regulares con retro
 una salida hostil o enorme no degrade al proceso. No redacta secretos: esa política vive en
 ``shared.redaction`` y se aplica al persistir.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -6511,7 +6511,7 @@ antes de invocar: lanza ``LocalRuntimeError("insufficient_time_for_model_load")`
 ``response_format`` solo se pide como ``json_schema`` cuando el llamador declara esa capacidad
 validada para el modelo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -7097,7 +7097,7 @@ retira una sola vez. Invariantes: ningún valor de este almacén forma parte del
 entradas, descartando las más antiguas. Solo vive en el proceso que ejecutó la llamada: un
 runtime CLI u otro proceso nunca lo encuentran y usan el artifact.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -7258,7 +7258,7 @@ classifies local-server failures into stable causes with redacted reasons, recor
 latency in the usage ledger, persists only the redacted reply as evidence and hands the
 unredacted reply to the in-process transient channel keyed by the broker tool-call id.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 - Imports: agregar `import time`, `from typing import Any`, cambiar `from ..endpoint_locality import credential_transport_allowed, is_local_model_runtime` (de Task 11) por `from ..endpoint_locality import credential_transport_allowed, is_local_model_runtime, is_self_hosted_inference`, agregar `from ..usage_ledger import UsageLedger` y `from .transient_output import put_transient_output`.
@@ -8835,7 +8835,7 @@ exceder el line-length 110 del repo; el formateador los normaliza sin cambiar se
 ```python
 """Configuración por modelo local: por defecto único, procedencia, capacidades opt-in y fase 80.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -9006,7 +9006,7 @@ Familia ``openai_compatible`` para quedar en ``MODEL_RUNTIME_TOOLS`` (PO y Devel
 adaptadores nuevos). Las capacidades de código son opt-in por modelo (``local_model_settings``): el
 alta desde el catálogo ya no siembra ``code_edit``/``code_review`` por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 
@@ -9051,7 +9051,7 @@ reescribe esas filas. ``upsert`` conserva lo no enviado, registra la procedencia
 un por defecto, desmarca el anterior en la misma transacción (índice único parcial por cuenta). Las
 capacidades de código son opt-in por modelo: nunca se siembran por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -9372,7 +9372,7 @@ BUILD_REVIEW_SEEDED_CATALOG_IDS = frozenset({"omniroute"})
 ```python
 """Capacidades por modelo en cuentas locales: opt-in por modelo, sin siembra por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -9677,7 +9677,7 @@ def load_runtime_facts(connection: sqlite3.Connection, *, project_id: str | None
 ```python
 """El sync de una cuenta de inferencia self-hosted deja costo cero sin pisar el precio del operador.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -9916,7 +9916,7 @@ def self_hosted_model_pricing(discovered: dict[str, Any], existing: dict[str, An
 ```python
 """Estado de carga de modelos locales: parseo defensivo por fuente y caché compartida no bloqueante.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -10108,7 +10108,7 @@ def test_a_failing_read_is_unknown():
 ```python
 """Selección determinista del modelo local: cargado, afinidad, por defecto, orden y bloqueo sin fallback.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -10277,7 +10277,7 @@ el único id que expone el servidor y ``none`` no consulta nada. El estado nunca
 comparte la lectura: un solo refresco en vuelo por cuenta, en segundo plano, y como máximo ``max_wait_s`` de
 espera; un servidor lento o caído deja el estado desconocido en vez de bloquear a quien lee.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -10530,7 +10530,7 @@ estado de carga desconocido nunca provoca un cambio de modelo. Los requisitos de
 ``review``, ``issue_to_patch``) y las capacidades ofrecidas se comparan en un solo vocabulario canónico
 (``normalize_model_capabilities``: ``code_edit``/``code_review``).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -10677,7 +10677,7 @@ def resolve_local_model(
 ```python
 """Una cuenta local aporta un solo candidato por rol: el modelo resuelto; el resto queda rechazado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -11172,7 +11172,7 @@ def _pinned_local_selection(provider_id: str, model: str, load_states: Mapping[s
 ```python
 """La validación del equipo se evalúa por (provider, modelo): la falla de un modelo no invalida otro.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -11434,7 +11434,7 @@ def assess_runtime_team(
 ```python
 """Validación real por (provider, modelo) de un runtime local: JSON, 1024 tokens y razonamiento apagado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -12097,7 +12097,7 @@ def _validation_json_ok(content: str) -> bool:
 ```python
 """roleModels se sella en el servidor, fija el modelo por rol en el loop y el cambio de modelo queda visible.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -12524,7 +12524,7 @@ del proyecto solo restringe, nunca amplía, y un valor entrante del cliente (inc
 descarta siempre. Un equipo estrechado a vacío se conserva vacío para fallar cerrado en el loop en vez
 de volver al ruteo automático.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 
@@ -12932,7 +12932,7 @@ un objetivo duplicado exacto por debajo de ``HIGH_SIMILARITY_THRESHOLD``."""
 ```python
 """Claves de la llamada de modelo local: arranque en frío previsto y salida estructurada ya validada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -13066,7 +13066,7 @@ trae un schema y una validación real del modelo cumplió ``response_format`` js
 conserva la instrucción de JSON en el prompt. Una cuenta que no es runtime local no recibe ninguna clave, y
 nunca se agrega ``extraBody``: apagar el razonamiento es exclusivo de la sonda y de la validación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -13183,7 +13183,7 @@ cuenta; `GET /api/v1/runtime/providers` y `GET /api/v1/runtime/team-candidates` 
 Verificación: cada tarea agrega un test que falla antes y pasa después contra dobles HTTP en `127.0.0.1:0` (nunca
 contra el `llama-server` real ni puertos fijos), más `ruff`, OpenAPI `--check` y `tsc` cuando cambia la superficie HTTP.
 
-Convenciones de comandos (PowerShell, desde la raíz del repo `C:/workspaces\AIDO`):
+Convenciones de comandos (PowerShell, desde la raíz del repo `.`):
 
 - Tests (workaround de faiss): `$env:PYTHONDONTWRITEBYTECODE = '1'; .venv\Scripts\python.exe -c "import sys; sys.modules['faiss']=None; import pytest; sys.exit(pytest.main(['<test paths>','-q','-p','no:cacheprovider']))"`
 - Ruff: `uv run --no-sync --extra dev ruff format <files>; uv run --no-sync --extra dev ruff check <files>; uv run --no-sync --extra dev ruff format --check <files>`
@@ -13410,7 +13410,7 @@ def generic_openai_routes(*, models: Sequence[str]) -> dict[tuple[str, str], Any
 ```python
 """Catálogo de runtimes locales: LM Studio, vLLM y servidor genérico con perfil, y lector de LM Studio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -13774,7 +13774,7 @@ una entrada local y completa el runtime por instancia con `runtime_accounts` y `
 ```python
 """Alta local desde el catálogo: URL del operador preservada y runtime por instancia completo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -13840,7 +13840,7 @@ def test_local_presets_get_their_own_runtime_records(
 ```python
 """Runtimes locales de primera clase: endpoints, detección en loopback y vistas para la UI.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 ```
 
@@ -13855,7 +13855,7 @@ instancia a ``runtime_installations``, ``runtime_accounts`` y ``runtime_capabili
 (no la fila compartida de la familia), para que la readiness y el borrado de un endpoint no afecten a
 otro.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14095,7 +14095,7 @@ git commit -m "Feature (Runtimes): URL preservada y runtime por instancia comple
 ```python
 """Envoltorio Ollama y sync genérico: familia real, enabled del operador y modelos ausentes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14427,7 +14427,7 @@ git commit -m "Fix (Ollama): familia real, identidad de catálogo y reconciliaci
 ```python
 """Router genérico de endpoints locales: alta, vista con estado de carga, edición y modelos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14699,7 +14699,7 @@ def test_validate_model_operation_registers_for_the_dispatcher(tmp_path: Path) -
 ```python
 """Identidad de catálogo de las cuentas locales: qué cuentas son endpoints locales y con qué perfil.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14730,7 +14730,7 @@ def local_profile_entry(account: Mapping[str, Any]) -> ProviderCatalogEntry | No
 ```python
 """Contratos HTTP de endpoints locales y detección de runtimes, con Literal acotados para el cliente generado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15067,7 +15067,7 @@ de runtime por instancia), edición de URL/nombre/token/concurrencia, configurac
 validación real de un modelo. Sondear y sincronizar reutilizan las rutas del Model Gateway y del
 catálogo de providers. Toda escritura exige el token de loopback (``require_write``).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15362,7 +15362,7 @@ git commit -m "Feature (Runtimes): router genérico /api/v1/local-endpoints con 
 ```python
 """Declaración local auditada (WSL/Docker) y borrado de endpoints locales con tombstone y 409.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15717,7 +15717,7 @@ git commit -m "Feature (Runtimes): declaración local auditada y borrado con tom
 
 Los puertos siempre son los de dobles efímeros: ningún test sondea los puertos fijos del host.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15844,7 +15844,7 @@ timeout corto y lectura y listas acotadas. La firma identifica llama.cpp (``owne
 ``/v1/models`` sin firma conocida se sugiere como servidor genérico solo con confirmación del operador.
 Nunca crea cuentas: devuelve sugerencias para el asistente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16040,7 +16040,7 @@ git commit -m "Feature (Runtimes): detección de runtimes locales en puertos con
 ```python
 """Remediaciones de runtimes locales: payload desde el perfil, sin API key inventada, acciones por causa.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16335,7 +16335,7 @@ de nuevo, abrir el asistente y validar modelo, ordenadas por causa. Un bloqueo d
 colapso dejó una cuenta local sin modelos validados (``local_model_not_validated``, spec §4.3 paso 4) también
 se remedia aquí, con "Validar modelo" primero. Funciones puras: no leen la base ni la red.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16879,7 +16879,7 @@ git commit -m "Feature (Remediations): remediaciones de runtimes locales derivad
 ```python
 """Rollup de runtimes y candidatos del equipo con endpoints locales y sus modelos cargados.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17016,7 +17016,7 @@ def test_team_candidates_preview_role_models_with_the_sealing_resolver(
 ```python
 """Ciclo completo de LM Studio, vLLM y servidor genérico: salud, sync, validación real y candidato del equipo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17178,7 +17178,7 @@ previa del modelo por rol con el mismo resolvedor que sella ``roleModels`` en el
 local vale como validado si alguno de sus modelos habilitados lo está (validación por (provider,
 modelo), igual que el gate de envío y el sellado).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17321,7 +17321,7 @@ Biome `--error-on-warnings` y `tsc`.
 
 Convenciones de esta rebanada (valen para todas sus tareas):
 
-- Todo comando se ejecuta en PowerShell desde `C:/workspaces\AIDO`.
+- Todo comando se ejecuta en PowerShell desde `.`.
 - Las claves i18n nuevas se insertan en `local_control_center/i18n/default_catalog.json` inmediatamente **después**
   del bloque ancla (hoy `:12439-12442`, único en el archivo y que ninguna otra rebanada toca):
 
@@ -18071,7 +18071,7 @@ Fallo esperado: los 3 tests `Local endpoints` de `desktop` fallan en `openProvid
  * the endpoint step shows before the backend classifies the host, and the parsers for the structured
  * 409/422 details the local-endpoint routes return. UI-agnostic so the panel, the wizard, the
  * discovery list and the tests read one source of truth.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LocalEndpointView } from '../../api/client';
@@ -18195,7 +18195,7 @@ export function endpointInUseReferences(error: unknown): EndpointReference[] | n
  * through the real control plane. Ollama endpoints keep their own panel. Deleting an endpoint that a
  * sealed thread team or a role policy still uses is refused by the backend with the references,
  * which the confirmation dialog lists instead of a generic failure.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Pencil, PlugZap, RefreshCw, Server, ShieldCheck, Trash2 } from 'lucide-react';
@@ -19308,7 +19308,7 @@ export function errorCode(error: unknown): string {
  * not loopback, offering the audited "runs on this machine (WSL/Docker)" declaration. The models step
  * shows each model's load state and edits enabled, default and code capabilities; the validate step
  * runs the real validation of the default model. Secrets never enter this component: only references.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { CheckCircle2, KeyRound, RefreshCw, XCircle } from 'lucide-react';
@@ -20552,7 +20552,7 @@ export function draftFromSuggestion(suggestion: LocalRuntimeSuggestion): LocalRu
  * how many models it lists and whether it is already configured. Nothing is created here: "Set up"
  * opens the local-runtime wizard prefilled with the suggestion, and an unrecognized server needs the
  * operator's explicit confirmation before it can be set up as a generic OpenAI-compatible runtime.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Radar, Server } from 'lucide-react';

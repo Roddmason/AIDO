@@ -5,7 +5,7 @@ del Product Owner, decide su estado de flujo y la materializa de forma idempoten
 el hilo —reutilizando lo que el runner ya persistió— para que un replay o un reintento no duplique
 registros.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

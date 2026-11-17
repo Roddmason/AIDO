@@ -4,7 +4,7 @@ Resuelve el binario por env vars (AIDO_CLAUDE_COMMAND / CLAUDE_CODE_CLI_PATH), m
 de agente a modelo y arma el comando en modo no interactivo (--print) con edición aceptada y el
 workspace acotado vía --add-dir. La ejecución segura y el registro los hereda de CliRuntime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

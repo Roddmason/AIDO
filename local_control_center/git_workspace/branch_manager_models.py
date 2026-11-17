@@ -3,7 +3,7 @@
 Cada respuesta conserva ``status``/``reason`` y el rastro brokered (``toolCalls`` y
 ``policyDecisionIds``) para que la UI muestre el resultado por rama sin inventar estados.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

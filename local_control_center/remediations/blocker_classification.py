@@ -1,6 +1,6 @@
 """Classify a blocked Product Loop stage into a remediation blocker type.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ de volver a insertarlos, y estampar el ``threadId`` en la iniciativa reusada par
 en el turno siguiente. Sin esto: filas duplicadas cada turno, decisiones de hilo huérfanas y una iniciativa
 sin ``threadId`` que rompe la persistencia por hilo y hace que el PO vuelva a preguntar todo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

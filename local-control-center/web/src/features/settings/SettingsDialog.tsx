@@ -4,7 +4,7 @@
  * dialog opens instead of with the initial bundle. A slow chunk shows a loading skeleton and a
  * failed download shows the route error state, both inside the same dialog, so its focus,
  * Escape and close keep working while the body is missing.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';

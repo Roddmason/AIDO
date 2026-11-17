@@ -3,7 +3,7 @@
  * 1000+ enabled models, so the list loads only when opened, filters as the operator types and shows
  * a bounded number of matches; the chosen model goes to `validate-runtime` as `model`, so the test
  * checks what the operator will actually use instead of the backend's automatic sample.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useId, useMemo, useState } from 'react';
 

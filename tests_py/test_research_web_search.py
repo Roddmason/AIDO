@@ -1,6 +1,6 @@
 """Proveedor SearXNG del ResearchAgent contra un servidor HTTP local de prueba, y su diagnóstico.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 /**
  * Settings tab of the Thread Inspector: read-only resolved project and general settings with their source and inheritance.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ResolvedSetting, SettingsResponse } from '../../../api/client';
 import { EmptyState, StatusChip } from '../../../components/ui';

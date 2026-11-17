@@ -4,7 +4,7 @@ Recorre el árbol del workspace ignorando artefactos de build/cachés y produce 
 con tamaño y SHA-256 por archivo. Sirve como huella verificable del contenido en el momento
 de capturar o archivar; trunca el detalle a un máximo de archivos pero conserva el conteo real.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Validate and normalise operator answers to thread decisions.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ The caller owns the transaction boundary: repository methods reuse the supplied 
 not commit or roll back.
 No method edits the running source tree or promotes lessons into global memory directly.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

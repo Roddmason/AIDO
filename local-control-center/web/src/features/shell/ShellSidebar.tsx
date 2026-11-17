@@ -9,7 +9,7 @@
  * and copy-id — while selection flows up via callbacks so the center (the Workbench) stays in sync.
  * Project heads add their own actions: open the registered folder in the OS file manager (a token-
  * guarded backend call — the browser cannot), copy its path, and the gitflow branch manager dialog.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Archive, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';

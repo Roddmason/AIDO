@@ -1,6 +1,6 @@
 """Orquestación durable de supervisores nativos y registro de handles AIDO activos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

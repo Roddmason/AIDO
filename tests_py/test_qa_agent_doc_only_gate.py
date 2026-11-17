@@ -1,6 +1,6 @@
 """Tests de integracion: QAAgentRunner ejecuta el plan reducido del gate de documentacion.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

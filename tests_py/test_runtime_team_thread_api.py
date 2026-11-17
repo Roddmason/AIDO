@@ -1,6 +1,6 @@
 """El hilo guarda su equipo de runtimes, el envío lo exige fresco y el run lo recibe sellado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

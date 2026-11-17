@@ -1,7 +1,7 @@
 """Tests: _prune_telemetry_if_due encadena la retencion de disco completa y nunca deja que un
 fallo de poda interrumpa el batch del worker; el fallo queda como diagnostico WARNING.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

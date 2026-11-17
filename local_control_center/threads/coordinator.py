@@ -11,7 +11,7 @@ Al encolar un Product Loop sella además la decisión de costo vigente del opera
 force-local) sobre la metadata del run, para que los controles de Settings gobiernen la ejecución
 siguiente en vez de solo describirla.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

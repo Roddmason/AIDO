@@ -5,7 +5,7 @@ fallaba: no corría nada y el resultado salía como saltado, que es peor que un 
 que se verificó. Acá se fija que el plan sale de los manifiestos del propio proyecto y que el
 wrapper versionado del repo le gana al binario global.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

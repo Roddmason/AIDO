@@ -1,6 +1,6 @@
 """Pure scoring helpers that weigh cost, privacy, risk, context and latency factors for AI resource candidates.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

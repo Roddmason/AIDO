@@ -9,7 +9,7 @@
  * cleanup so a quick tab-away/tab-back refetches instead of hanging on a stale marker, and a
  * `reload` keeps the previous data visible while the refetch runs (no full-panel skeleton
  * flash); data resets only when the backing key itself changes.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

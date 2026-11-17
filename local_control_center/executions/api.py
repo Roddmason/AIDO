@@ -1,6 +1,6 @@
 """Consulta y cancela ejecuciones sin depender del proceso worker ni esperar su trabajo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

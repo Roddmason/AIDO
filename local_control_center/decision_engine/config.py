@@ -1,6 +1,6 @@
 """Configuración shadow resuelta por settings con precedencia proyecto/general/default.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

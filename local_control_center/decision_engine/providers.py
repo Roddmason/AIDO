@@ -4,7 +4,7 @@ Jev recibe opciones opacas y categorías permitidas: nunca identificadores, text
 huellas ni correlaciones. Los errores públicos son códigos constantes sin cuerpos HTTP.
 El proveedor determinista conserva la selección existente sin inventar probabilidades.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

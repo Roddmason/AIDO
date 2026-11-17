@@ -4,7 +4,7 @@ La disponibilidad no se infiere de que un perfil exista ni de que declare ``runt
 debe existir un proveedor candidato real que cumpla las capacidades requeridas por su
 politica de runtime. Si no, se devuelve un bloqueo auditable con la razon del runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

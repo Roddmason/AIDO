@@ -20,7 +20,7 @@ y sin transacción abierta; el hilo principal persiste cada resultado en transac
 cancelación de la ejecución, el switch del proveedor y la suspensión por cuota, y respeta el presupuesto
 total (tope por modelo y por corrida, dentro del sobre de 900 s de la ejecución).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 /**
  * Shares thread invalidation between the conversation and inspector without remounting either.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { createContext, useContext } from 'react';
 

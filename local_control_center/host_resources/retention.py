@@ -1,6 +1,6 @@
 """Política acotada de retención para muestras de capacidad del host.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ conexión y del loop durable) y registra outcome, costo y ruteo de los recursos 
 variantes ``*_best_effort`` nunca rompen el run: una falla de persistencia queda como estado
 ``persistence_failed`` en el resumen.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

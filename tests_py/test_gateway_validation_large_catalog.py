@@ -9,7 +9,7 @@ candidatos repartidos, que una respuesta válida no estándar cuenta como éxito
 su falla con el estado HTTP y el cuerpo, que nunca excede su presupuesto de tiempo y que una credencial
 que falla antes de la red dice qué referencia revisó y por qué.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

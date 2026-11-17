@@ -1,6 +1,6 @@
 """Pure rejection rules that explain why an AI resource candidate is not executable or allowed for a request.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

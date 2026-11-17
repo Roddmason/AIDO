@@ -2,7 +2,7 @@
  * "Open artifacts" dialog for one sidebar thread: fetches the real thread detail and lists its
  * attached artifacts (kind, title, when) with honest loading/error/empty states. Read-only — it
  * never fabricates rows; an empty thread says so explicitly.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useState } from 'react';
 import { getThread, type ThreadDetailResponse } from '../../api/client';

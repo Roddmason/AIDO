@@ -4,7 +4,7 @@ El workspace de un proyecto no puede materializarse dentro del repositorio de AI
 pertenecen al proyecto, no al sistema. Antes vivían en ``<aido>/.tmp/workspaces``, así que un
 worktree de otro repositorio quedaba anidado en el árbol de trabajo de AIDO.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

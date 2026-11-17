@@ -6,7 +6,7 @@ every command to exit 0 inside the allocated workspace with captured stdout/stde
 output artifact hashes. It assembles a contract-checked evidence package; if the package
 is incomplete it downgrades the run to `blocked`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

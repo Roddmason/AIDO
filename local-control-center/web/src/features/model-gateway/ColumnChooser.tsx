@@ -3,7 +3,7 @@
  * columns) while letting operators reveal advanced columns on demand. The chosen set persists
  * per table in localStorage (best-effort) so a workspace keeps its layout.
  * Advanced columns default to hidden.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useState } from 'react';
 

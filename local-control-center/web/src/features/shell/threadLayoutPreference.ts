@@ -3,7 +3,7 @@
  * picked by hand and whether they folded the chat column while the board leads. Stored as one
  * versioned JSON map in `localStorage` keyed by thread id; every read and write is guarded, so a
  * private window or blocked storage just falls back to the automatic layout.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { BoardMode } from './threadBoardModel';
 

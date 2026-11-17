@@ -4,7 +4,7 @@ Visto en vivo: gemma entró en un bucle de repetición en un rework y cortó el 
 (46 KB de la misma línea). El runner lo clasificaba como ``runtime_unavailable`` y el loop mostraba
 "DeveloperAgent runtime llama_cpp is not executable", con acciones de revalidar un runtime sano.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

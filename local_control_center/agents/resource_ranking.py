@@ -1,6 +1,6 @@
 """Pure ranking helpers that order AI resource candidates by provider order, preferred resources and score.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

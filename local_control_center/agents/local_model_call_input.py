@@ -7,7 +7,7 @@ trae un schema y una validación real del modelo cumplió ``response_format`` js
 conserva la instrucción de JSON en el prompt. Una cuenta que no es runtime local no recibe ninguna clave, y
 nunca se agrega ``extraBody``: apagar el razonamiento es exclusivo de la sonda y de la validación.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

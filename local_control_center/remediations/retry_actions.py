@@ -7,7 +7,7 @@ retry genérico o de research verificada, re-aprobación de la entrega tras gitl
 recursos, y continuación en modo plan-only. Lo que el servicio expone o los tests parchean sigue
 disponible como delegador en la clase.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

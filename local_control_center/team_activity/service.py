@@ -8,7 +8,7 @@ each run is enriched with its assignment (matched by agent identity, because the
 delivered artifact) and review (reviewer), its model/tool calls (cost, duration inputs, low-level
 events) and the agent profile (role, runtime). It only reads; no statement here writes or commits.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

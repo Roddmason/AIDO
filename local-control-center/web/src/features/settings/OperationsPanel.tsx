@@ -1,7 +1,7 @@
 /**
  * Read-only operational snapshots and explicit, authenticated worker controls.
  * Lifecycle and cancellation availability come from backend DTOs, never UI inference.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useId, useState } from 'react';
 import {

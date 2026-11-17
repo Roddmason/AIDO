@@ -4,7 +4,7 @@
  * the effective value is inherited from General or overridden here — followed by the
  * allowlist domains and the prefer-official-docs preference as wired rows. The allowlist
  * is the project-level counterpart to the general trusted domains.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCards';

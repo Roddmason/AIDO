@@ -1,7 +1,7 @@
 """CLI local de diagnóstico: capacidades, activación temporal y exportación sin memoria.
 
 Activar no aprueba trabajo ni inicia inferencia. La ejecución sigue la ruta HTTP/worker normal.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

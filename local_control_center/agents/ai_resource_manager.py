@@ -11,7 +11,7 @@ price) and the premium gate (a KNOWN estimated cost above the role's approval th
 Because an unknown cost is never coerced to ``0``, it can never look "cheap enough" to skip
 the premium gate — it is escalated by the unknown-cost policy instead.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

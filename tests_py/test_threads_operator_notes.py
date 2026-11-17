@@ -5,7 +5,7 @@ Cubren las reglas del control: un hilo en ejecución no acepta un post normal (e
 concurrentes accidentales), la nota se registra como ``operator_note`` sin encolar job, cancelar
 detiene los jobs en vuelo y reabre el hilo, y crear un hilo nuevo desde uno en ejecución funciona.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

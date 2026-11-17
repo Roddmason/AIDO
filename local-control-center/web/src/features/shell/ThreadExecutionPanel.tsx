@@ -6,7 +6,7 @@
  * ({@link ThreadBlockerList}) plus the two thread-state blockers that are not remediations (pending
  * decision, approval), and the humanized execution console. Raw event payloads stay behind a per-row
  * disclosure — never rendered by default.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle, ExternalLink, Play } from 'lucide-react';
 import { m } from 'motion/react';

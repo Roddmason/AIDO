@@ -3,7 +3,7 @@
  * the only worker decision most operators ever make; the throughput knobs (poll interval,
  * job concurrency) sit behind a disclosure so the section opens on that choice instead of
  * on three numeric fields. Every row is a wired SettingRow, so each keeps its source chip.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Disclosure } from '../../components/Disclosure';

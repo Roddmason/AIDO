@@ -6,7 +6,7 @@ unit-tests), el backend clasifica cada status de proveedor a un ``blockerType`` 
 vocabulario de ``remediations`` (runtime_auth_missing / runtime_not_executable), o ``None`` cuando el
 proveedor está sano o simplemente no configurado (no es un problema, solo no se usa).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

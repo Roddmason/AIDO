@@ -12,7 +12,7 @@ recuerda en el propio hilo, así que un hilo nuevo sigue naciendo con lo del pro
 `forceLocal` queda deliberadamente fuera: es un control de privacidad del proyecto y un nivel más
 fino jamás puede relajarlo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

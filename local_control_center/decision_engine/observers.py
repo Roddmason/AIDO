@@ -2,7 +2,7 @@
 
 La frontera síncrona espera una evaluación acotada y nunca crea tareas huérfanas.
 Los fallos de evidencia se registran y no cambian autorizaciones operacionales.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

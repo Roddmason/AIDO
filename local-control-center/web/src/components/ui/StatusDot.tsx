@@ -2,7 +2,7 @@
  * Punto de estado tonal (ok/warn/danger/info/pending) coloreado vía CSS `data-tone`,
  * con un crossfade breve de opacidad al cambiar de tono (keyed por tono) que respeta
  * prefers-reduced-motion.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { m, useReducedMotion } from 'motion/react';
 

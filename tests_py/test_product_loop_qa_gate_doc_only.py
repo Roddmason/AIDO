@@ -6,7 +6,7 @@ solo documentacion NO son resultados de QA y no deben bloquear `evaluate_qa_gate
 `skipped_with_reason` genuino (comando que si debia correr y no pudo) sigue bloqueando igual que
 antes, y un `git diff --check` fallido sigue mandando la historia a rework.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

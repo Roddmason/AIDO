@@ -5,7 +5,7 @@
  * reducedMotion="user"` el motor descarta el transform y deja solo el fundido (fallback
  * accesible). No contienen autoplay decorativo salvo `statusPulse`, que el consumidor
  * debe condicionar con `useReducedMotion`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Variants } from 'motion/react';
 

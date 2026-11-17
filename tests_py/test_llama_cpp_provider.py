@@ -4,7 +4,7 @@ Familia ``openai_compatible`` para quedar en ``MODEL_RUNTIME_TOOLS`` (PO y Devel
 adaptadores nuevos). Las capacidades de código son opt-in por modelo (``local_model_settings``): el
 alta desde el catálogo ya no siembra ``code_edit``/``code_review`` por runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

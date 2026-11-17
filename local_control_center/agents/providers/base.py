@@ -5,7 +5,7 @@ catalogo de modelos) y la clase base abstracta `ModelProvider`. Los DTO usan ali
 camelCase para serializar hacia el frontend; las implementaciones concretas viven en
 los demas modulos de este paquete y dependen solo de estos tipos, no entre si.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

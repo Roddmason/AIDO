@@ -3,7 +3,7 @@
 Los catálogos seed son documentación de compatibilidad, no evidencia de disponibilidad actual.
 Una selección manual o un discovery explícito habilitado sí puede participar en la resolución.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

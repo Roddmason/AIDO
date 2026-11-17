@@ -6,7 +6,7 @@
  * viewport. Focus lands on the first enabled item; arrow keys/Home/End move it, Escape or an outside
  * press closes and restores focus to the anchor. Disabled items stay focusable with `aria-disabled`
  * plus a visible note so blockers (e.g. "stop the run first") are perceivable, not hidden.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { LucideIcon } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';

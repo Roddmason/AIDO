@@ -3,7 +3,7 @@
  * y, si el backend responde 409 `local_endpoint_in_use`, se convierte en la lista de equipos de hilo y
  * role policies del operador que hay que reasignar antes; AIDO nunca los reasigna solo. Vive en su
  * propio módulo para que el panel de Ollama no arrastre el chunk diferido del panel local.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useEffect, useState } from 'react';

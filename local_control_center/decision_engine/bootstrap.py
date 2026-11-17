@@ -2,7 +2,7 @@
 
 Only the Windows vault entry AIDO/Jev is read. No credential or provider permissions
 are written; the dedicated guard never enables other runtime providers.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

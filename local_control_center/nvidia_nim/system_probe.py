@@ -1,6 +1,6 @@
 """Bounded allowlisted system probes for NVIDIA NIM local compatibility facts.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

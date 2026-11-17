@@ -5,7 +5,7 @@ eliminar un endpoint local. El unico lector conocido (``ollama.api._latest_laten
 pide siempre la fila mas reciente por ``provider_id``, asi que esa fila nunca se borra sin importar
 su antiguedad.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

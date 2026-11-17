@@ -3,7 +3,7 @@
 Solo modelan el contrato HTTP (camelCase vía alias); la validación de vocabularios y contenido vive
 en el repositorio, que es la única puerta de escritura.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ similitud inicial sin proveedores externos: normalización lexical, keywords y o
 Embeddings/memory_retrieval quedan fuera del camino crítico hasta que exista un contrato operativo
 disponible; el índice relacional sigue siendo la fuente auditable.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

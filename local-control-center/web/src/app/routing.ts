@@ -6,7 +6,7 @@
  * Legacy `#settings` and `#settings-*` hashes are remapped to `home`; the App
  * hashchange handler detects them first and opens the Settings modal at the
  * mapped section before falling back to the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { PageId } from './navigation';

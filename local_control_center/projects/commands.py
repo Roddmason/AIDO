@@ -4,7 +4,7 @@ Cada función envuelve su resultado en el shape de respuesta que espera la API y
 persistencia al repositorio. La creación resuelve la ruta destino, redacta la telemetría
 sensible del metadata y emite un evento de auditoría tras escribir el proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

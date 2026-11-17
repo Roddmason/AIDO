@@ -1,6 +1,6 @@
 """Dependency-neutral PNG/JPEG header validation shared by artifact write and download paths.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

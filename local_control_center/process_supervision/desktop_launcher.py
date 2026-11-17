@@ -5,7 +5,7 @@ fijo por plataforma (``explorer.exe`` en Windows, ``open`` en macOS, ``xdg-open`
 única ruta absoluta de directorio existente; nunca usa shell ni acepta flags del llamador. El
 proceso queda desacoplado (el explorador debe sobrevivir a la request) y un hilo daemon lo reaperá.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

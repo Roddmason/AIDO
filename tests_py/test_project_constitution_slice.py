@@ -5,7 +5,7 @@ el documento es fuente de verdad en BD con historial inmutable, el bootstrap der
 pisar jamás lo del operador, cada run del loop sella la versión + hash que lo gobernó, y la API
 expone lectura abierta + upsert protegido por token de escritura.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@
  * "Inherited from General". It states the truth instead: a baseline value reads Default,
  * an explicit choice reads Custom · This browser, and Motion left on the OS preference
  * reads Inherited · System — the only preference here with a real upstream source.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { Moon, Sun } from 'lucide-react';

@@ -10,7 +10,7 @@ las políticas de rol, preferidos del operador, allowlist curada del gateway y u
 upstream) hasta que uno pase, dentro de un presupuesto total de tiempo: un gateway con 1000+ modelos
 anuncia upstreams sin cuenta y probarlos en orden alfabético no representa lo que el operador usa.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ de dominio (jobs, memoria, workflows, seguridad, evidencia, agents, gateway, etc
 middleware que aísla la conexión por request y registra correlacion/telemetria, expone las rutas
 de salud/handshake/overview/eventos y, si hay build web, sirve los estaticos con fallback al SPA.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

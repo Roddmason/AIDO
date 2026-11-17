@@ -23,7 +23,7 @@ proyecto). El primero es el asignado; los siguientes son fallback.
 elegibles se reportan (`invalid`) y no rompen la resolución. Todo se lee de SQLite (sin sondas con
 ``offline``): el sellado corre dentro de la transacción del envío.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ los DTOs request/resultado y el parseo tolerante de uso de tokens desde stdout/s
 Invariante: ninguna ejecución real ocurre sin política SQLite que habilite el runtime y
 decisión 'allow' de la policy; los flags peligrosos se rechazan antes de construir el comando.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

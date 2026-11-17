@@ -2,7 +2,7 @@
 
 Sólo crea procesos dormidos y guarda el resultado observado; exit 1 significa rechazo
 de aceptación, nunca éxito por tener tests verdes en otro escenario.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

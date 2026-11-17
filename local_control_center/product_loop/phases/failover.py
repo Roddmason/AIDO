@@ -5,7 +5,7 @@ reemplazo del recurso caído —dentro del orden, la política de transporte y e
 rol, y cortando proveedores suspendidos por cuota— o ejecuta el runner con esa política de failover. Las funciones aceptan cualquier
 objeto con la interfaz del coordinator (los tests ejercitan el failover con dobles mínimos).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

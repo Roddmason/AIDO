@@ -9,7 +9,7 @@ existente. Solo lecturas sobre la conexión del caller; el índice se refresca v
 ``ThreadSimilarityService`` antes de buscar para no devolver falsos negativos. Todo texto que sale
 al cliente pasa por ``redact_secrets``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

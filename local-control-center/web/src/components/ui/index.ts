@@ -4,7 +4,7 @@
  *
  * Each component wraps the design-system classes with typed variants, forwardRef where a
  * ref is useful, and uniform label/help/error/loading/disabled handling.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 export { Disclosure } from '../Disclosure';

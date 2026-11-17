@@ -1,6 +1,6 @@
 """Regresiones de la auditoría de dureza de remediaciones (octubre 2026).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

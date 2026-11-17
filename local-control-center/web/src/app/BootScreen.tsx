@@ -7,7 +7,7 @@
  * an animated signal mark, a static legend of the components it brings online, and an
  * automatic-reconnect status when contact is lost. All motion is CSS and degrades under
  * prefers-reduced-motion. The status line is a polite live region so AT is told when contact drops.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useI18n } from '../i18n/I18nProvider';
 

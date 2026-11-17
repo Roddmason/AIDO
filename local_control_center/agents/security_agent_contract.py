@@ -5,7 +5,7 @@ input/output JSON schema, plus the logic that decides whether an optional model 
 is eligible to assist. The deterministic controls are always executable; the model
 runtime only augments them and never overrides the deterministic verdict.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

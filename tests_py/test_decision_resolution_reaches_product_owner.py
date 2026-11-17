@@ -7,7 +7,7 @@ pero la UI, el composer y la API resuelven ``thread_decisions``. El enlace exist
 ``thread_decision`` guarda ``metadata.productDecisionId``— pero la resolución nunca se propagaba,
 así que el cliente respondía y el agente le volvía a preguntar indefinidamente.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

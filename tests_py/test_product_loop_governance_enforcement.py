@@ -1,6 +1,6 @@
 """Gobernanza del Product Loop hecha cumplir en el flujo vivo: presupuesto, deadline y medición de consumo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

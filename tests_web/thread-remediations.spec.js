@@ -6,7 +6,7 @@
  * headline blocker types against a mocked remediations endpoint (so each blocker is deterministic)
  * and asserts the card exposes the right primary repair: a runtime block opens Providers & CLI, an
  * uninitialized Git repo offers "Initialize Git", and a stopped worker offers "Run now".
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

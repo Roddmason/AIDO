@@ -4,7 +4,7 @@ Cada test fija un hallazgo reproducido: la politica autorizaba un string distint
 sandbox ejecuta, ``shell`` sin comando caia en ``allow`` y las reglas criticas del clasificador no
 cubrian las variantes reales de force-push y ``rm``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

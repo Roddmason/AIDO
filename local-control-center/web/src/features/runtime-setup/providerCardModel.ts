@@ -5,7 +5,7 @@
  * provider), so the card can state status, cost knowledge and "use for roles" without extra queries.
  * Also owns the rule that turns "use this provider for this role" into the role's preferred candidate
  * list, so the card and the wizard share one definition of cost knowledge and role routing.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type {

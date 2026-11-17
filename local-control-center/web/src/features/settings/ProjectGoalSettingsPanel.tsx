@@ -4,7 +4,7 @@
  * policy is what seeds every run for this project, so each mode and risk level is shown as
  * an explained option rather than a bare dropdown. Card commits write project overrides;
  * the chip shows inherited-vs-overridden per selector.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCards';

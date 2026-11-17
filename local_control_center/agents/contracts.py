@@ -4,7 +4,7 @@ Centraliza el contrato de datos del slice de agentes: roles, perfiles, runs, too
 modelo y los DTO de cada agente (developer/qa/devops/security/architect). Define los Literal de estados
 permitidos y los alias camelCase con que viajan hacia/desde la API; no contiene lógica de negocio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

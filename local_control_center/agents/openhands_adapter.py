@@ -5,7 +5,7 @@ detection status and, when invoked, re-validates the tool call against the runti
 contract before delegating execution to the restricted subprocess sandbox. The
 adapter never bypasses policy, workspace isolation, or evidence capture.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

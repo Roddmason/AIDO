@@ -4,7 +4,7 @@
  * and presents them across six tabs — Overview, Timeline, Agents, Evidence, Artifacts, Policy —
  * reusing the same primitives and evidence derivations the Workflows page uses, so a run is a
  * first-class, linkable object instead of a transient drawer selection.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 

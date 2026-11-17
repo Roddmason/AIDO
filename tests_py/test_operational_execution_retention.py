@@ -1,7 +1,7 @@
 """Tests: la retencion de operational_executions distingue salud (7 dias) del resto (30 dias) y
 nunca borra el ultimo git.refresh completado de cada proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

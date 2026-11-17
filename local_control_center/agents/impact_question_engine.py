@@ -6,7 +6,7 @@ repositorio (para no repreguntar), ordena por impacto (bloqueo > menor confianza
 y agrupa como máximo cinco preguntas por turno; el resto queda diferido con su decisión por defecto
 para que el flujo pueda avanzar sin bloquearse.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

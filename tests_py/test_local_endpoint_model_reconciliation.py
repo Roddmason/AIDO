@@ -1,6 +1,6 @@
 """Envoltorio Ollama y sync genérico: familia real, enabled del operador y modelos ausentes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

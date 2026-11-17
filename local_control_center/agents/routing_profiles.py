@@ -5,7 +5,7 @@ provider limits, budget rules) plus the immutable record of each routing decisio
 CLI session it produced. This module only reads/writes those tables; it does not score
 candidates or choose a model (that is the router's job).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

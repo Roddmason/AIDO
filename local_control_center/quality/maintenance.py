@@ -4,7 +4,7 @@ Invariante: nunca sobrescribe un destino ni copia archivos WAL vivos; los backup
 SQLite backup bajo un bloqueo de escritura breve. Se exige detener el worker previamente.
 Los secretos externos y los workspaces no se exportan; DPAPI sigue ligado al usuario nativo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

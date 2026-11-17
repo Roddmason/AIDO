@@ -4,7 +4,7 @@ Each write method runs as an atomic transaction on the shared platform connectio
 install/upsert, status flips, and install events commit together or not at all, so a
 failed manifest validation can never leave a partially persisted plugin version.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

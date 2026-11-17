@@ -3,7 +3,7 @@
 Visto en vivo: gemma-4 repitió cientos de veces el mismo comentario dentro del JSON del patch del
 DeveloperAgent (~10k tokens, 3,5 min por llamada) y la salida terminaba inválida igual.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

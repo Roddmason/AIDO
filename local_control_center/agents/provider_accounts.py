@@ -5,7 +5,7 @@ they expose (capabilities and prices), point-in-time pricing snapshots, and the 
 health-check result. Credential references are validated/normalized via the resolver and
 never stored raw; error text and metadata are redacted before persistence.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

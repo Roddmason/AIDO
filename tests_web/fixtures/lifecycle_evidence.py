@@ -1,6 +1,6 @@
 """Preserve only the disposable lifecycle fixture, never an operational database.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import argparse

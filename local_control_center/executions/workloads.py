@@ -1,6 +1,6 @@
 """Clasificación de operaciones desde cuentas persistidas antes de reclamar recursos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

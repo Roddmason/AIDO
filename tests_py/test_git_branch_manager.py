@@ -1,6 +1,6 @@
 """Gestor de ramas gitflow y apertura de carpeta del proyecto sobre repos Git reales temporales.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

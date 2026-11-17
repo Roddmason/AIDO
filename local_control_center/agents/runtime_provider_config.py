@@ -5,7 +5,7 @@ URLs, models) and reads the current process environment into typed configuration
 objects. Secret values are never returned to clients: presence is reported as a
 truncated SHA-256 fingerprint instead of the raw value.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

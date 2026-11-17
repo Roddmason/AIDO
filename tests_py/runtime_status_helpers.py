@@ -3,7 +3,7 @@
 No sustituye autenticación, policy ni compatibilidad; los tests inyectan sus probes donde corresponde.
 Las lecturas HTTP sin probes se verifican con el servicio normal en test_durable_executions.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from local_control_center.agents.runtime_status import RuntimeStatusService

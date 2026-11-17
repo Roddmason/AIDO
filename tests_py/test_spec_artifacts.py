@@ -5,7 +5,7 @@ Ancla los tres guardrails del slice 5 (docs/superpowers/specs/2026-07-28 §5.2):
 Lead), la escritura ocurre solo dentro del worktree con directorio estable por hilo, y el gitignore
 por defecto versiona ``memory/``/``specs/`` mientras sigue ignorando el resto de ``.aido/``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

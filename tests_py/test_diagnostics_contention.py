@@ -1,6 +1,6 @@
 """AIDO-68: real OS contention is not a denied diagnostic destination.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import json

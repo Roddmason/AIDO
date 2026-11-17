@@ -3,7 +3,7 @@
 Catalog discovery, health checks and performance priors never constitute model validation.
 Only identifiers, configuration hashes, timestamps and structured outcomes are retained.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -87,7 +87,7 @@ Los tiempos de los recibos están en UTC. Fecha local: 5 de septiembre de 2026, 
 - HEAD comprobado: `94240a05d839329dd93cc4d4d339c2d51ba815d5`.
   Rama: `codex/aido-operational-hardening-p0`; árbol inicialmente limpio.
 - Se leyó el pedido original completo en
-  `C:/Users/Developer\.codex\attachments\c81e980c-e5b4-4cc3-97aa-d882b700e46b\pasted-text.txt`,
+  `C:\Users\example-user\.codex\attachments\c81e980c-e5b4-4cc3-97aa-d882b700e46b\pasted-text.txt`,
   el informe `docs/operational-hardening/p0-verification-report.md`, los documentos P0 de
   arquitectura, recursos y recuperación, y los recibos originales con sus salidas.
 - Se verificaron por SHA-256 los **56 artefactos de stdout/stderr referenciados** por los cinco
@@ -100,7 +100,7 @@ Los tiempos de los recibos están en UTC. Fecha local: 5 de septiembre de 2026, 
   No se reemplazó la arquitectura, no se inició P1/P2, ni se añadieron integraciones externas,
   credenciales, APIs pagadas o control de Unreal. Trabajo serial, sin subagentes.
 
-Raíz de evidencia local: `C:/workspaces\AIDO\.tmp\operational-hardening-p0\`.
+Raíz de evidencia local: `.\.tmp\operational-hardening-p0\`.
 En este informe, **A/** significa `acceptance/` y **F/** significa `acceptance/final/` bajo esa raíz.
 Son archivos locales ignorados por Git: conservarlos junto al informe si se transporta la evidencia.
 `F/evidence-index.json` contiene hashes de los recibos finales y de sus artefactos; no es una firma externa.
@@ -281,14 +281,14 @@ auditor; no se usa como prueba de que haya cuatro workers operativos. No se term
 
 Instalación identificada: checkout de este repositorio, `.venv` local y `node_modules`; el instalador
 existente instala en esa ubicación. Base predeterminada real:
-`C:/Users/Developer\.claude\local-control-center\platform.sqlite`. No había variable de entorno de DB
+`C:\Users\example-user\.claude\local-control-center\platform.sqlite`. No había variable de entorno de DB
 alternativa ni API/worker operativo verificado al inicio. No se supone que esta sea la única copia
 de AIDO que pueda existir en otros discos.
 
 | Runtime | Binario / versión instalada | Estado registrado en DB | Aceptación |
 | --- | --- | --- | --- |
-| Codex | `C:/Users/Developer\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`, 0.149.0 | Versión cacheada 0.142.2/offline; salud de cuenta antigua; 0 capability probes y 0 smoke receipts | BLOCKED, no readiness vigente para el binario actual |
-| Claude | `C:/Users/Developer\.local\bin\claude.exe`, 2.1.218 | Instalación healthy de julio; cuenta `unauthenticated`, sin validación | BLOCKED, no sesión autorizada verificable |
+| Codex | `C:\Users\example-user\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`, 0.149.0 | Versión cacheada 0.142.2/offline; salud de cuenta antigua; 0 capability probes y 0 smoke receipts | BLOCKED, no readiness vigente para el binario actual |
+| Claude | `C:\Users\example-user\.local\bin\claude.exe`, 2.1.218 | Instalación healthy de julio; cuenta `unauthenticated`, sin validación | BLOCKED, no sesión autorizada verificable |
 
 Se usó únicamente `--version` y lectura de metadatos. Un CLI instalado, un estado healthy antiguo
 o esta sesión de Codex Desktop **no constituyen autorización para consumir ambos runtimes desde AIDO**.
@@ -399,13 +399,13 @@ exclusiones preexistentes. No equivale a revisar secretos en todo el disco ni a 
 
 ## 10. Instalación, copia operativa y rollback
 
-Base real: `C:/Users/Developer\.claude\local-control-center\platform.sqlite`, **404.254.720 bytes**,
+Base real: `C:\Users\example-user\.claude\local-control-center\platform.sqlite`, **404.254.720 bytes**,
 schema **67**. No hay overrides `resources.*`/`worker.*` almacenados; se resolvieron defaults.
 SHA-256 antes del backup y al cierre:
 `aadfc254b34e9f13309cd9d4f48a1530ce6e36e9cc28524a0cd4493f634f1dc2`.
 
 Ensayo aislado en
-`C:/Users/Developer\AppData\Local\Temp\aido-acceptance-adoption-20260905-0748\`:
+`C:\Users\example-user\AppData\Local\Temp\aido-acceptance-adoption-20260905-0748\`:
 `consistent-backup/`, `adoption/`, `rollback/`. Se usó backup SQLite consistente y el bundle
 de inputs del producto, sin descifrar ni copiar credenciales externas. El backup toma brevemente
 el lock de coordinación existente; no migra ni modifica filas originales.
@@ -443,7 +443,7 @@ Los recibos de checks estáticos incluyen el argv exacto; los tests siguientes e
 | Comando / selección | Exit | Resultado / recibo |
 | --- | ---: | --- |
 | `git rev-parse HEAD`, `git branch --show-current`, `git status --short` | 0 | HEAD/rama y conservación de cambios; F/source-*.json |
-| `uv run python -m tests_py.operational_acceptance_inventory --source C:/Users/Developer\.claude\local-control-center\platform.sqlite --output .tmp/operational-hardening-p0/acceptance/inventory.json --adoption-root C:/Users/Developer\AppData\Local\Temp\aido-acceptance-adoption-20260905-0748` | 0 | 56 hashes verificados; diagnóstico de adopción corregido por assessment |
+| `uv run python -m tests_py.operational_acceptance_inventory --source C:\Users\example-user\.claude\local-control-center\platform.sqlite --output .tmp/operational-hardening-p0/acceptance/inventory.json --adoption-root C:\Users\example-user\AppData\Local\Temp\aido-acceptance-adoption-20260905-0748` | 0 | 56 hashes verificados; diagnóstico de adopción corregido por assessment |
 | `python -m pytest` con selección detallada abajo, perfil `agent_cli`, timeout 1.800 s | 0 | 134 PASS / 278,21 s; F/affected-python.json y .xml |
 | `node scripts/run-web-tests.mjs tests_web/control-center.spec.js --grep "Workbench shows the Git branch detected"`, perfil `browser_test`, timeout 600 s | 0 | 2 PASS; build Vite incluido; F/git-panel-latency.json |
 | `python scripts/productive-truth-scan.py` | 0 | F/productive-truth.json |
@@ -531,7 +531,7 @@ autorreferente dentro del propio commit.
 
 **C/** significa `.tmp/operational-hardening-p0/closure/`. Los recibos, SQLite, copias y scripts
 temporales no se incorporan a Git. Los scripts de diagnóstico están en
-`C:/Users/Developer\AppData\Local\Temp\aido-p0-closure-a9cb34c76f2a4bc3a75c45bc37298d6f\` (**T/**).
+`C:\Users\example-user\AppData\Local\Temp\aido-p0-closure-a9cb34c76f2a4bc3a75c45bc37298d6f\` (**T/**).
 Se conservaron para auditoría local y no se deben publicar con las bases.
 
 `C/source-start.json` y `C/source-candidate.json` registran todos los hashes de fuentes, pruebas,
@@ -546,7 +546,7 @@ pytest 9.0.3; Pydantic 2.13.4. Los ajustes efectivos del gobernador están en
 ### 13.2. Copia consistente: diagnóstico, cuotas y tratamiento propuesto
 
 La instalación operativa sigue usando
-`C:/Users/Developer\.claude\local-control-center\platform.sqlite`, esquema **67**. No se ejecutó 58→67
+`C:\Users\example-user\.claude\local-control-center\platform.sqlite`, esquema **67**. No se ejecutó 58→67
 como reparación. `backup_bundle` verificó quiescencia; `restore_bundle` creó destinos nuevos bajo
 T/diagnosis y T/rollback. No se restauró encima de la base del usuario.
 
@@ -603,13 +603,13 @@ base original para probar una restricción. Evidencia: `C/copy-diagnosis.json`, 
 
 ### 13.3. Readiness nativo y ciclo real bloqueado
 
-Se usó el usuario nativo Rodd y el entorno heredado del launcher local del worker; no había un
+Se usó el usuario nativo fixture-operator y el entorno heredado del launcher local del worker; no había un
 worker operativo residente. `sameEnvironmentAsWorkerLauncher` en el recibo **no prueba aún**
 el entorno aislado por ejecución que ProductOwner crea después. Esa verificación end-to-end y
 los modelos efectivamente ejecutados siguen NOT_RUN. No se copiaron tokens manualmente ni se
 modificaron ajustes globales.
 
-Codex: `C:/Users/Developer\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE`, **0.149.0**.
+Codex: `C:\Users\example-user\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE`, **0.149.0**.
 `login status` exit 0, autenticación ChatGPT. Help/version/exec-help: exit 0, ninguna capacidad
 requerida ausente. SHA del binario
 `14b7e6b2356e82d1d9275579eaa588757b4e0a501b65dcc19fccdf77bd83dc00`;
@@ -631,10 +631,10 @@ No se compraron ni canjearon créditos, no se activó extra usage ni fallback.
 La distinción acceso por suscripción/API está documentada por
 [OpenAI](https://learn.chatgpt.com/docs/auth).
 
-Claude: `C:/Users/Developer\.local\bin\claude.EXE`, **2.1.218**; help exit 0. Estado nativo
+Claude: `C:\Users\example-user\.local\bin\claude.EXE`, **2.1.218**; help exit 0. Estado nativo
 `auth status --json`: exit 1, `loggedIn=false`, `authMethod=none`. Suscripción y consumo efectivo:
 desconocidos. Intervención humana exacta: ejecutar
-`& 'C:/Users/Developer\.local\bin\claude.exe' auth login` como Rodd y elegir la cuenta de suscripción
+`& 'C:\Users\example-user\.local\bin\claude.exe' auth login` como fixture-operator y elegir la cuenta de suscripción
 ya existente, **no Console/API key ni gateway**. Después se debe revalidar el estado nativo y el
 consumo incluido, sin habilitar cargos. La precedencia de credenciales y el login están descritos
 en la [documentación de Claude Code](https://code.claude.com/docs/en/iam).
@@ -728,10 +728,10 @@ No se añadieron agentes, integraciones, P1/P2 ni capas operacionales.
 Rutas de esta continuación:
 
 - `N/` = `.tmp/operational-hardening-p0/authorized-close/` (evidencia privada, fuera de Git).
-- `T/` = `C:/Users/Developer\AppData\Local\Temp\aido-p0-authorized-c12ffc376b2d4e379c045821afa0a9fa/`.
+- `T/` = `C:\Users\example-user\AppData\Local\Temp\aido-p0-authorized-c12ffc376b2d4e379c045821afa0a9fa/`.
 - `F/` = `.tmp/operational-hardening-p0/` (recibos del runner público).
 - DB de calidad: `.tmp/operational-hardening-p0/closure/quality.sqlite`.
-- DB original: `C:/Users/Developer\.claude\local-control-center\platform.sqlite`.
+- DB original: `C:\Users\example-user\.claude\local-control-center\platform.sqlite`.
 
 ### 14.1. Candidato y trazabilidad del contenido final
 
@@ -807,7 +807,7 @@ ejecuciones de inferencia en el cierre anterior. No se trasladó esa cuenta cero
 de esta continuación cuando apareció incertidumbre sobre el arranque nativo.
 
 Codex **0.149.0**, binario
-`C:/Users/Developer\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE`:
+`C:\Users\example-user\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE`:
 `login status` exit 0, sesión ChatGPT; probes de capacidades sin flags faltantes. Se comprobó además
 login en el entorno mínimo generado por el aislador productivo, con CODEX_HOME distinto y sin
 API key. No se extrajeron ni copiaron tokens manualmente: el manager existente aisló la sesión.
@@ -815,7 +815,7 @@ No se modificó el entorno global del usuario. Binario y contrato conservan resp
 SHA `14b7e6b2356e82d1d9275579eaa588757b4e0a501b65dcc19fccdf77bd83dc00` y
 `fefa6ddf5a9b7750db0a1592bd2309670763f6e503ad849b81bad5a98cf8b53d`.
 
-Claude **2.1.218**, binario `C:/Users/Developer\.local\bin\claude.EXE`: ahora `auth status --json`
+Claude **2.1.218**, binario `C:\Users\example-user\.local\bin\claude.EXE`: ahora `auth status --json`
 termina exit **0**, `loggedIn=true`, `authMethod=claude.ai`, `apiProvider=firstParty`,
 `subscriptionType=max`. Help exit 0, flags de contrato read-only presentes. **No requiere login
 humano ahora.** No se ejecutó revisión ni se comprobó su entorno efectivo de inferencia. Cuota
@@ -923,13 +923,13 @@ El aislador de AIDO dejó una carpeta privada creada a `16:56:19Z`, dentro del i
 intento, con sólo su copia de `auth.json`. Se inspeccionaron nombre/tamaño/fecha, **no el contenido**:
 
 ```text
-C:/Users/Developer\AppData\Local\AIDO\product-owner-codex-homes\89d4c072-1f4d-451b-97f7-062ce80412a5
+C:\Users\example-user\AppData\Local\AIDO\product-owner-codex-homes\89d4c072-1f4d-451b-97f7-062ce80412a5
 ```
 
 La herramienta rechazó la limpieza de esta ruta exacta por política; no hubo exit code de shell
 ni se intentó evadir el rechazo mediante otra herramienta. **Limpieza BLOCKED**. Intervención
 manual exacta: retirar únicamente esa carpeta temporal de este intento. No eliminar ni alterar
-`C:/Users/Developer\.codex\auth.json`, que es la credencial original. No se requiere nuevo login para
+`C:\Users\example-user\.codex\auth.json`, que es la credencial original. No se requiere nuevo login para
 Claude ni se solicita de nuevo el consentimiento del smoke.
 
 ### 14.6. PR, release y Unreal independientes
@@ -1361,7 +1361,7 @@ CLI **implementado y ejecutado**, recibos en `N/diagnostics-cli-commands.json`, 
 exit 0. La activación siguiente es el comando histórico usado, no una invitación a repetir el smoke:
 
 ```powershell
-uv run python -m local_control_center.diagnostics enable --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349 --ttl-seconds 900 --native-collector C:/Users/Developer/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe --executable-sha256 444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b
+uv run python -m local_control_center.diagnostics enable --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349 --ttl-seconds 900 --native-collector C:/Users/example-user/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe --executable-sha256 444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b
 uv run python -m local_control_center.diagnostics incident --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349
 uv run python -m local_control_center.diagnostics export --execution-id job-4815897c-2a27-42e4-b16b-eaf507681349 --output .tmp/operational-hardening-p0/authorized-close/diagnostics-sanitized.zip
 uv run python -m local_control_center.diagnostics capabilities
@@ -1502,10 +1502,10 @@ hashes de los dumps privados intactos y cero leases de análisis; `N/resource-sc
 Comando ejecutado para los 121 tests y la admisión HTTP (variables opt-in sólo de ese proceso):
 
 ```powershell
-$env:AIDO_TEST_PROCDUMP='C:/Users/Developer/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
-$env:AIDO_TEST_CDB='C:/Users/Developer/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
-$env:AIDO_TEST_QUALITY_DB='C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite'
-$env:AIDO_ACCEPTANCE_EVIDENCE='C:/workspaces/AIDO/.tmp/operational-hardening-p0/authorized-close'
+$env:AIDO_TEST_PROCDUMP='C:/Users/example-user/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
+$env:AIDO_TEST_CDB='C:/Users/example-user/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
+$env:AIDO_TEST_QUALITY_DB='./.tmp/operational-hardening-p0/closure/quality.sqlite'
+$env:AIDO_ACCEPTANCE_EVIDENCE='./.tmp/operational-hardening-p0/authorized-close'
 uv run python -m local_control_center.quality --tier fast --base 0bb5ee04624b72b9f8d2ea9f5a03362a69fee7bd --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_host_resource_governor.py --python-test tests_py/test_windows_resource_scope.py --python-test tests_py/test_process_supervision.py --python-test tests_py/test_watchdog_contention.py --python-test tests_py/test_watchdog_identity.py --python-test tests_py/test_watchdog_temporary_auth.py --python-test tests_py/test_worker_leadership.py --python-test tests_py/test_operational_recovery.py --python-test tests_py/test_native_diagnostics.py --python-test tests_py/test_structured_diagnostics.py --python-test tests_py/test_transaction_begin_failure.py --python-test tests_py/test_quality_tiers.py --python-test tests_py/test_watchdog_http_pipeline.py
 ```
 
@@ -1679,10 +1679,10 @@ Comandos de las verificaciones supervisadas, con variables sólo en el proceso d
 
 ```powershell
 $env:PYTEST_ADDOPTS='--basetemp=H:/aido-test-session-<id-unico>'
-$env:AIDO_TEST_PROCDUMP='C:/Users/Developer/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
-$env:AIDO_TEST_CDB='C:/Users/Developer/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
-$env:AIDO_TEST_QUALITY_DB='C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite'
-$env:AIDO_ACCEPTANCE_EVIDENCE='C:/workspaces/AIDO/.tmp/operational-hardening-p0/authorized-close/launcher-session-tests'
+$env:AIDO_TEST_PROCDUMP='C:/Users/example-user/AppData/Local/AIDO/diagnostic-tools/procdump/procdump64.exe'
+$env:AIDO_TEST_CDB='C:/Users/example-user/AppData/Local/AIDO/diagnostic-tools/windbg/x64/amd64/cdb.exe'
+$env:AIDO_TEST_QUALITY_DB='./.tmp/operational-hardening-p0/closure/quality.sqlite'
+$env:AIDO_ACCEPTANCE_EVIDENCE='./.tmp/operational-hardening-p0/authorized-close/launcher-session-tests'
 uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_launcher_capture_http.py
 uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_watchdog_http_pipeline.py --python-test tests_py/test_native_diagnostics.py
 uv run python -m local_control_center.quality --tier fast --base 1e6e34c706f5459d02bff2fd5934cb02d24ee0e2 --db-path .tmp/operational-hardening-p0/closure/quality.sqlite --python-test tests_py/test_launcher_capture_session.py --python-test tests_py/test_execution_registration.py --python-test tests_py/test_quality_tiers.py
@@ -1855,8 +1855,8 @@ de sus recibos; --python-test recibe archivos, no node IDs):
 
 ~~~powershell
 uv run --no-sync python -m local_control_center.quality --tier fast --temporary-root H:/aido-quality-scratch --python-test tests_py/test_windows_resource_scope.py --python-test tests_py/test_process_supervision.py --db-path .tmp/operational-hardening-p0/closure/quality.sqlite
-uv run --no-sync python -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
-uv run --no-sync python -m local_control_center.quality --tier release --temporary-root H:/aido-quality-scratch --db-path C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+uv run --no-sync python -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path ./.tmp/operational-hardening-p0/closure/quality.sqlite
+uv run --no-sync python -m local_control_center.quality --tier release --temporary-root H:/aido-quality-scratch --db-path ./.tmp/operational-hardening-p0/closure/quality.sqlite
 ~~~
 
 Los dos últimos se ejecutaron sobre 7dd3dd44: PR 0, release 75. Los gates estáticos y la
@@ -1992,7 +1992,7 @@ Comando público ejecutado desde `H:/aido-isolated-validation/candidate-ad0e3b00
 dentro del `_run(QualityStep("complete-pr-public-cli", command, "capture_session", 21600), …)` existente:
 
 ~~~powershell
-& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path ./.tmp/operational-hardening-p0/closure/quality.sqlite
 ~~~
 
 El envoltorio real propagó `result["returnCode"]` mediante `sys.exit` y PowerShell `exit $LASTEXITCODE`:
@@ -2097,8 +2097,8 @@ existente; deadlines 3600 s para captura/release local y 21600 s para PR. Entorn
 proveedores/runtimes deshabilitados y herramientas ProcDump/CDB existentes para los tests sintéticos.
 
 ~~~powershell
-& .\.venv\Scripts\python.exe -m local_control_center.quality --tier fast --python-test tests_py/test_launcher_capture_http.py --temporary-root H:/aido-quality-scratch --db-path C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
-& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path C:/workspaces/AIDO/.tmp/operational-hardening-p0/closure/quality.sqlite
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier fast --python-test tests_py/test_launcher_capture_http.py --temporary-root H:/aido-quality-scratch --db-path ./.tmp/operational-hardening-p0/closure/quality.sqlite
+& .\.venv\Scripts\python.exe -m local_control_center.quality --tier pr --temporary-root H:/aido-quality-scratch --db-path ./.tmp/operational-hardening-p0/closure/quality.sqlite
 & .\.venv\Scripts\python.exe -m local_control_center.quality.release
 ~~~
 

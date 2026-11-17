@@ -4,7 +4,7 @@ La frescura se lee de la misma evidencia de ejecución que usa la validación de
 reusa el prompt fijo de test-prompt (API/local) y el preflight CLI con la aprobación explícita del
 operador. Los CLIs se simulan en el borde del proceso: ``validate_cli_candidate`` y el estado de runtime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

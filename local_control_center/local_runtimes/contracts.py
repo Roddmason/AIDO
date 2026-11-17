@@ -1,6 +1,6 @@
 """Contratos HTTP de endpoints locales y detección de runtimes, con Literal acotados para el cliente generado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

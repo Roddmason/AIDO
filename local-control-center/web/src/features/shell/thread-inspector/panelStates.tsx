@@ -1,6 +1,6 @@
 /**
  * Shared loading, error and no-thread states plus the resource gate and section title used by every Thread Inspector tab, so each panel renders the same honest skeleton/error/empty chrome.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../../components/ui';

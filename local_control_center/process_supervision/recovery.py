@@ -3,7 +3,7 @@
 Nunca termina un PID reutilizado ni un proceso ajeno. Las transacciones sólo abarcan la
 persistencia, no las consultas OS ni el cleanup Docker.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ retira una sola vez. Invariantes: ningún valor de este almacén forma parte del
 entradas, descartando las más antiguas. Solo vive en el proceso que ejecutó la llamada: un
 runtime CLI u otro proceso nunca lo encuentran y usan el artifact.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

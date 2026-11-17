@@ -1,6 +1,6 @@
 """Failure-phase receipts survive a later hard exit; no database or provider needed.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import json

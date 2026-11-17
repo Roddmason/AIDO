@@ -7,7 +7,7 @@
  * dismiss). Single-overlay behaviour is unchanged. {@link hasOpenModalLayer} lets the
  * shell keyboard layer defer its own Escape handling to the topmost overlay so its
  * capture-phase "close overlays" broom never dismisses the layer beneath.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useEffect, useRef } from 'react';

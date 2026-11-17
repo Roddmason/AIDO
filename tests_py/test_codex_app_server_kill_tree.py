@@ -1,6 +1,6 @@
 """Cierre del app-server de Codex: liberar el proceso nunca debe colgar al worker (Windows incluido).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

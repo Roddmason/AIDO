@@ -4,7 +4,7 @@ The launcher remains in the aggregate Job and creates sibling control-plane,
 execution and collector Jobs. Only registered operations and owned target IDs
 cross the authenticated local pipe; argv, paths and arbitrary PIDs do not.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

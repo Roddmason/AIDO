@@ -8,7 +8,7 @@ el período de deprecación: cada variable usada emite un warning y queda marcad
 ``source=environment_override``.
 La migración es idempotente (upsert por runtime/credencial) y no almacena ni registra ningún secreto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

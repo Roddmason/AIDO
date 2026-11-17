@@ -3,7 +3,7 @@
  * fallbacks and tones), the thread event types that make the board stale, the view mode of the
  * thread layout (chat-first or board-first), the per-story activity filter and the loop states in
  * which the operator can send a story back for changes.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ThreadBoardCard, ThreadBoardResponse } from '../../api/client';
 import type { ThreadAgentEvent } from '../../api/types';

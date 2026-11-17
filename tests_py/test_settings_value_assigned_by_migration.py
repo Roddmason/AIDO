@@ -1,6 +1,6 @@
 """`settings_value` conserva una sola columna de procedencia (`assigned_by`) tras reinicializar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

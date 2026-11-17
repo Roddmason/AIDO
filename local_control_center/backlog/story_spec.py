@@ -5,7 +5,7 @@ compone el spec canonico de una historia y lo renderiza como texto acotado apto 
 prompt de los agentes ejecutores. El texto truncado siempre termina con un marcador
 explicito para que el agente sepa que el spec no esta completo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

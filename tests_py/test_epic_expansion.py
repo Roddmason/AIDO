@@ -5,7 +5,7 @@ registro existente (sin duplicar la épica), que la validación rechace historia
 referencian otra épica sin persistir nada, y que el endpoint devuelva 404 para épicas
 de otro proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

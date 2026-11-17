@@ -4,7 +4,7 @@ Decide dónde vive la base de datos SQLite y cuál es el directorio de trabajo,
 con valores por defecto bajo el home del usuario y overrides por entorno para
 tests y despliegues. Mantiene esta política en un solo lugar para no dispersar rutas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

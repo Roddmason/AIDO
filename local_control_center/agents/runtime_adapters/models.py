@@ -4,7 +4,7 @@ Defines the request/result models a broker-approved tool call is normalized into
 `RuntimeAdapter` / `RuntimeExecutionAdapter` protocols implemented by concrete adapters
 and broker-facing bridges.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

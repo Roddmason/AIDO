@@ -1,6 +1,6 @@
 """Captura Windows real de una excepción sintética, sin red ni credenciales.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import hashlib

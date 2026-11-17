@@ -5,7 +5,7 @@ a un conjunto de métodos permitidos. Invariantes de seguridad: el comando se va
 (``validate_restricted_process``) y se arranca con ``open_restricted_text_process``; cada llamada se
 persiste en ``mcp_tool_calls`` con secretos redactados (``redact_secrets``) y la salida se trunca.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

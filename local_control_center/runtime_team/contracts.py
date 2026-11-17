@@ -2,7 +2,7 @@
 
 Literales acotados para que el cliente generado no degrade a ``string`` (drift de response_model).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ Resolves base URL and credential as one trust unit (a persisted bearer never cro
 override host), health-checks `/api/tags`, sends `input.messages` to `/api/chat`, and stores
 the redacted reply as evidence.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
  * The lane is mirrored in the URL hash (`#projects-<lane>`) so old per-lane deep links keep
  * resolving and back/forward stays in sync. Only the active lane can select a project to run
  * work against; other lanes stay audit-only. Per-lane copy lives in `statusCopy`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { FolderGit2, FolderPlus, GitBranch, ListChecks, Settings, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';

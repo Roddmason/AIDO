@@ -2,7 +2,7 @@
 
 Funciones puras: convierten diffs y resultados de runtime en las vistas compactas que guarda el loop.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

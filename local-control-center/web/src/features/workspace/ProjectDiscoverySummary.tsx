@@ -2,7 +2,7 @@
  * Presentational review-step panel for the new-workspace wizard: renders what project
  * discovery found (manifest markers present/absent and detected runtimes) for the chosen
  * folder. Stateless — all data is supplied by the caller via props.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Check, Minus } from 'lucide-react';
 

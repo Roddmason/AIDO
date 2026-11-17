@@ -1,6 +1,6 @@
 """Tests del gate de QA proporcional para historias cuyo cambio es solo documentacion.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

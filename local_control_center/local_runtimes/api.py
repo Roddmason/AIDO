@@ -5,7 +5,7 @@ de runtime por instancia), edición de URL/nombre/token/concurrencia, configurac
 validación real de un modelo. Sondear y sincronizar reutilizan las rutas del Model Gateway y del
 catálogo de providers. Toda escritura exige el token de loopback (``require_write``).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

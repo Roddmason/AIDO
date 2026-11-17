@@ -19,7 +19,7 @@ lleve el prefijo de automatización, y solo poda cuando TODAS estas condiciones 
 Corre en DRY-RUN por defecto: lista lo que podaría y por qué se salta cada worktree. Requiere
 ``--apply`` explícito para remover. Idempotente: re-ejecutarlo no hace daño.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

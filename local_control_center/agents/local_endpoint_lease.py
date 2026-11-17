@@ -6,7 +6,7 @@ endpoint para siempre) y llevan un fence monótono por slot para que un holder v
 tomó otro. Ninguna espera mantiene abierta una transacción y el reloj es de pared porque lo comparan procesos
 distintos. Raises: `LocalRuntimeError("local_endpoint_busy")` si no se libera un slot dentro de la espera acotada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

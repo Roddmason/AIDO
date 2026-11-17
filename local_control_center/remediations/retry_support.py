@@ -1,6 +1,6 @@
 """Pure helpers shared by the Product Loop retry and plan-only remediation paths.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

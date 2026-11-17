@@ -1,6 +1,6 @@
 """Tests for the local worker runtime: settings, API controls, and queued thread execution.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

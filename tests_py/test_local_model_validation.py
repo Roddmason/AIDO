@@ -1,6 +1,6 @@
 """Validación real por (provider, modelo) de un runtime local: JSON, 1024 tokens y razonamiento apagado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

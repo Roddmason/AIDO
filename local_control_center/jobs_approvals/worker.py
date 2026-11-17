@@ -4,7 +4,7 @@
 drena la cola con un pool de hilos. Los jobs de Threads ejecutan el Product Loop real; otros kinds
 siguen fallando cerrados si todavía no tienen executor configurado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

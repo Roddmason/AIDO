@@ -8,7 +8,7 @@ containment, and bounded timeouts; output is redacted, persisted as artifacts, a
 as evidence. Re-exports the full public API so `local_control_center.agents.runtime_adapters`
 imports keep working unchanged.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from .anthropic import (

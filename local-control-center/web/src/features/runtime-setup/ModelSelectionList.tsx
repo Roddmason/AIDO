@@ -6,7 +6,7 @@
  * tri-state checkbox mirrors the shown set (all / none / some). Rows render in pages of
  * {@link PAGE_SIZE} with "Show more", so a huge catalog never mounts thousands of inputs at once.
  * Selection is owned by the caller: this component only reports the next set.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { ListChecks, Search, Sparkles } from 'lucide-react';

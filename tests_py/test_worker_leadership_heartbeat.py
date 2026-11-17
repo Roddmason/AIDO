@@ -1,6 +1,6 @@
 """Heartbeat de liderazgo del worker: un fallo transitorio de SQLite no puede matar el hilo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

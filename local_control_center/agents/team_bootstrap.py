@@ -4,7 +4,7 @@ El roster base vive en ``agent_profiles`` porque esos perfiles ya son el contrat
 runs, permisos, skills, limites de costo y UI. La fuente única de defaults es el scheduler;
 el bootstrap crea solamente los roles activos que falten y no sobrescribe perfiles existentes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

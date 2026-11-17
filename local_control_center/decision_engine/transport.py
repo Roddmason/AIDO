@@ -4,7 +4,7 @@ Resolver con dnspython evita el executor getaddrinfo que asyncio.run espera al c
 La extensión pública sni_hostname conserva verificación TLS del dominio al conectar su IP:
 https://www.python-httpx.org/advanced/extensions/#sni_hostname
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

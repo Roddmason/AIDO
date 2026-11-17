@@ -1,6 +1,6 @@
 """Regresiones del canal diagnóstico: pérdida visible, privacidad y correlación real.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 import errno

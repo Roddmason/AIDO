@@ -5,7 +5,7 @@ El bloque es estrictamente opcional: los constructores de prompt lo anteponen so
 byte-idéntico cuando no hay constitución. Tope de caracteres propio con marcador de truncado para
 que el documento nunca compita por contexto con el spec de la historia ni con el assessment.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Tests: compactacion de teamSchedule.roles/resourceBlockers antes de persistir una remediacion,
 retencion de terminales antiguos, y backfill idempotente de filas ya infladas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

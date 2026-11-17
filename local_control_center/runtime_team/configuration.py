@@ -15,7 +15,7 @@ Sin equipo en el hilo, el sellado deja ``globalRuntimeTeam`` (snapshot del equip
 hilo tiene prioridad. Un run sellado antes del equipo global (sin snapshot) conserva la herencia del
 proveedor del PO.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

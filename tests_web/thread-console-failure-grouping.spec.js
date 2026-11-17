@@ -5,7 +5,7 @@
  * seeds that exact shape against the real control plane and verifies the execution console folds it
  * into one failure row, while two genuinely distinct failures (different reason, different loop)
  * stay two separate rows.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { expect, test } from '@playwright/test';
 

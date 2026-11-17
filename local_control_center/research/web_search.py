@@ -12,7 +12,7 @@ que el agente descarga, en cambio, sólo pueden apuntar a hosts públicos (``ass
 revalidando cada redirect y conectando a la misma IP que se validó en cada salto. Este módulo es la
 única fuente de las constantes y del fetch acotado que comparten ambos proveedores.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

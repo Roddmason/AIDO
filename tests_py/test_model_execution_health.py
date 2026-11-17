@@ -1,6 +1,6 @@
 """Model validation requires real execution evidence, never catalog or provider health.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

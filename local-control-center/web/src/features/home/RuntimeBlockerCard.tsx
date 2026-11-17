@@ -3,7 +3,7 @@
  * thread is using) that cannot execute yet: a warning with its reason and a way to fix it.
  * `SetupRuntimesCard` is the single neutral call to action shown while no runtime can run at all;
  * a provider nobody set up is not an error, so it never gets a card or a danger tone of its own.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ArrowRight, PlugZap } from 'lucide-react';
 

@@ -1,7 +1,7 @@
 """Bounded runtime ranking: Jev proposes, fresh AIDO checks authorize the candidate.
 
 No provider preference or deterministic choice is supplied as a fallback.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

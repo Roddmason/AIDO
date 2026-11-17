@@ -4,7 +4,7 @@ Conecta los endpoints REST con los casos de uso, abriendo un repositorio sobre l
 conexión de la plataforma por request. El PUT está protegido por el guard de escritura
 inyectado, dejando el GET de lectura abierto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

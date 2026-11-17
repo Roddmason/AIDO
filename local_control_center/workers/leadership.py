@@ -4,7 +4,7 @@ Cada instancia local tiene una única fila de lease. La adquisición, renovació
 se serializan con ``BEGIN IMMEDIATE``; el token nunca se reutiliza, por lo que un leader vencido no
 puede cerrar trabajo después de que un standby tome control.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

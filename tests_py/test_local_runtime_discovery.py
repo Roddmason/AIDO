@@ -2,7 +2,7 @@
 
 Los puertos siempre son los de dobles efímeros: ningún test sondea los puertos fijos del host.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

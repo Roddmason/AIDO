@@ -3,7 +3,7 @@
  * then the in-progress and pending-review counts that signal where attention is needed, and a
  * footer with the last activity and the open action. Every card keeps the same three bands, so a
  * row of projects lines up whatever each one holds.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Activity, ArrowRight, ClipboardCheck, FolderGit2 } from 'lucide-react';
 

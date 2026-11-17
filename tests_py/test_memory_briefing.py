@@ -2,7 +2,7 @@
 se excede, con orden determinista y documentado, todo el texto redactado, y degradación honesta
 cuando no hay un proveedor de embeddings real.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

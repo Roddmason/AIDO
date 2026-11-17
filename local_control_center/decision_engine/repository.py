@@ -2,7 +2,7 @@
 
 Cada escritura es una sentencia atómica en autocommit; no modifica ejecuciones,
 grants, cuotas ni reservas. Nunca permite sustituir un receipt ya finalizado.
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

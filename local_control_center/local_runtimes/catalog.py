@@ -1,6 +1,6 @@
 """Identidad de catálogo de las cuentas locales: qué cuentas son endpoints locales y con qué perfil.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

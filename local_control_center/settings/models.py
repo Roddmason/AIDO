@@ -5,7 +5,7 @@ Defines ``ResolvedSetting`` (a single resolved key with value, origin, inheritan
 (the write body for PUT). All models use the ``_Aliased`` base to support both Python
 snake_case field access and camelCase wire serialization, mirroring the team_activity slice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

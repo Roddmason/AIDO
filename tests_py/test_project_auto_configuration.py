@@ -8,7 +8,7 @@ que llegaba al alta venía del **cliente** — dato no confiable — en vez de c
 El invariante que estos tests protegen no es "auto-asignar", es **no pisar nunca al operador**: un
 valor que la persona puso gana siempre, y se puede distinguir de uno que puso la máquina.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

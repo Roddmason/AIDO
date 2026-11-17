@@ -8,7 +8,7 @@ pure: they never touch the database — DB-backed inputs such as the persisted G
 re-add specs are injected by the service through the context factory
 ``build_blocker_payload_context``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

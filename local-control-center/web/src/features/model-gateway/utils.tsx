@@ -2,7 +2,7 @@
  * Helpers de formato y celdas compartidas por los paneles del Model Gateway.
  * Normalizan valores potencialmente nulos del API a texto legible (con fallbacks), formatean montos
  * en USD y redactan secretos antes de pintarlos, evitando que cada panel reimplemente esa lógica.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';

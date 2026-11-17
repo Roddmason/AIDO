@@ -5,7 +5,7 @@ Cada parser por ecosistema extrae nombre, fuentes y runtimes detectados sin ejec
 Es solo lectura y acota el tamaño de cada manifiesto a ``MAX_MANIFEST_BYTES`` para no leer
 archivos arbitrariamente grandes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

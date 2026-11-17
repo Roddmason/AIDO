@@ -4,7 +4,7 @@
 Este router mantiene consulta historica de registros migrados; no monta POST ni rutas activas
 sin el prefijo legacy.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

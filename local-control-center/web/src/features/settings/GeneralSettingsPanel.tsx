@@ -3,7 +3,7 @@
  * live i18n catalog), the startup-worker panel, and the read-only platform defaults.
  * The worker rows are composed as a panel over the section context rather than injected
  * as pre-rendered nodes, so this panel owns its whole surface.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { SegmentedControl } from '../../components/ui';

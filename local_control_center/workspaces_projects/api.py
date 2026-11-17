@@ -6,7 +6,7 @@ promueve patches grandes a artefactos, crea el paquete de evidencia y emite los 
 dominio (``workspace.created/archived``, ``qa.evidence.created``). La escritura exige el guard
 ``require_write`` inyectado por la app.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

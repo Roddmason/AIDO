@@ -10,7 +10,7 @@ the caller owns the commit/rollback boundary. ``start_workflow`` performs a mult
 unit of work (workflow status UPDATE + run INSERT + one INSERT per step + gate side effects)
 that is only durable if the caller commits, so a failed start leaves no partial run behind.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

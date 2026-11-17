@@ -4,7 +4,7 @@ Existe porque los pickers del navegador no exponen rutas absolutas del SO; este 
 abre un diálogo Tk del runtime local para obtenerlas. Usa solo la stdlib y degrada con
 gracia (estado ``unavailable``) cuando Tk o la sesión de escritorio no están disponibles.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

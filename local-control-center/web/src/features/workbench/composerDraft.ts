@@ -3,7 +3,7 @@
  * derived/edited title alive across session switches, route-aways and reloads — so a task is
  * never re-typed. Stored as one versioned JSON map keyed by project id; the version suffix
  * retires stale shapes on upgrade.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 /** A composer draft for a single project. */

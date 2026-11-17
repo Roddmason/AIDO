@@ -8,7 +8,7 @@ tareas), los criterios de aceptación y el cursor ``durableRun.storyProgress``, 
 columnas en ``backlog.board.build_board``. El payload
 queda acotado al hilo (nunca el agregado del proyecto). Solo lectura: no abre transacciones.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

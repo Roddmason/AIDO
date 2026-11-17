@@ -17,7 +17,7 @@ y luego inserta) y ``upsert_product_brief`` (actualiza el brief y anexa su snaps
 ``immediate_transaction``. Sin esa envoltura, una caída entre sentencias puede dejar el brief y
 su historial desincronizados o colisionar en ``UNIQUE(session_id, sequence)``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

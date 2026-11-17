@@ -7,7 +7,7 @@ la respuesta. El gestor nunca reescribe historia: no hace rebase, no hace force-
 para forzar. Las ramas protegidas (``dev``/``develop``/``main``/``master``, HEAD, la rama de
 integración configurada y cualquier rama con worktree) se rechazan antes de llegar a Git.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

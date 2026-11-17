@@ -3,7 +3,7 @@
  *
  * Groups actions by intent (navigate/actions/runtime) and exposes them as an ARIA
  * combobox+listbox. Open/close and Escape are owned by the App shortcut layer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { m } from 'motion/react';

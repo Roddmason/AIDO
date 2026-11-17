@@ -5,7 +5,7 @@ el panel y la validación del PATCH ven exactamente lo que verá el loop. La pol
 proyecto (``runtime_policy_decision``) se evalúa aquí para que un runtime denegado nunca sea
 seleccionable en ese proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

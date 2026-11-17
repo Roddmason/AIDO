@@ -6,7 +6,7 @@ loop, registra la respuesta (y la de clarificación de discovery) y, en transacc
 preguntas del ProductOwnerAgent o reemplaza el loop respondido por su continuación. Lo que el servicio
 expone o los tests parchean sigue disponible como delegador en la clase.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

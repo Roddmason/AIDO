@@ -4,7 +4,7 @@ Por cada candidato descarta los que no pasan filtros duros (salud, capacidades, 
 rol), aplica presupuesto y cuota, y puntúa el resto combinando ajuste de rol/capacidad, costo, presión de
 cuota y benchmarks; elige el de mayor score. Registra la decisión salvo record=False. No ejecuta el modelo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

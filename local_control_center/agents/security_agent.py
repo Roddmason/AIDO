@@ -7,7 +7,7 @@ The verdict is deterministic: any critical finding blocks, otherwise risk/passed
 model analysis is advisory only and can never override the deterministic verdict; missing
 scanners are recorded as skipped_with_reason, never silently passed.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

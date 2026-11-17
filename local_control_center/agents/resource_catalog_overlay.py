@@ -1,6 +1,6 @@
 """Pure helpers that project model catalog entries and overlay observed performance onto them.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

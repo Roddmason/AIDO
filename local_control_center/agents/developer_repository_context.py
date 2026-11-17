@@ -15,7 +15,7 @@ En un rework también entra la versión base (el commit del que partió el hilo)
 hilo ya cambió: sin ella un pedido como "restaura el README original" era imposible, porque el modelo
 solo veía la versión actual, la que él mismo había dañado (visto en vivo).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

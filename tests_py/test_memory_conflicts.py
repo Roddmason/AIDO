@@ -2,7 +2,7 @@
 similitud coseno es un outlier del corpus del proyecto, no toca jamás el contenido existente, y
 degrada de forma explícita cuando no hay embeddings reales o el corpus es demasiado chico.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

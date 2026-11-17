@@ -6,7 +6,7 @@ desde cero → misma confianza → la MISMA pregunta otra vez, con decisiones du
 (loop infinito de decisión). El composer debe consumir la respuesta como resolución del batch
 pendiente y reanudar el run, igual que el botón de la UI.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

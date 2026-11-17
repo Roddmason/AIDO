@@ -2,7 +2,7 @@
  * Newest-wins merging for id-keyed records shown in editable tables. Pages hold local copies of overview
  * rows and fold in both the periodic overview refresh and the result of their own writes; a stale
  * overview snapshot must never overwrite a row that was just saved.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 type TimestampedRecord = { id: string; updatedAt?: string; createdAt?: string };

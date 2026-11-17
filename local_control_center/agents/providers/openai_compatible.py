@@ -6,7 +6,7 @@ con `urllib`, y sirve de base reutilizable para todos los proveedores compatible
 política SQLite de runtime; este proveedor valida configuración/credenciales y redacta
 secretos antes de exponer payloads.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

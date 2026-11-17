@@ -4,7 +4,7 @@
  * maximum sources, trusted domains) as wired rows. The headline policy — the choice that
  * most changes agent behaviour — reads as a set of explained option cards instead of an
  * opaque dropdown, and its chip keeps the effective value's source visible.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { findSetting, SettingChoiceCards, WiredRows } from './SettingsChoiceCards';

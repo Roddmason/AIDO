@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-09-26
 **Estado:** Diseño aprobado por el operador (enfoque A, tres rebanadas). Pendiente de plan de implementación.
-**Autor:** Rodrigo Mason (diseño asistido)
+**Autor:** AIDO contributors (diseño asistido)
 
 ## 1. Objetivo
 

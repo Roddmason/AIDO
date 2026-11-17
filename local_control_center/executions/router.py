@@ -3,7 +3,7 @@
 El decorador declara operaciones explícitas. La autenticación ocurre antes de encolar y el
 handler original sólo se registra para el worker; nunca se invoca desde el wrapper HTTP.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

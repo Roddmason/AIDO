@@ -6,7 +6,7 @@ de nuevo, abrir el asistente y validar modelo, ordenadas por causa. Un bloqueo d
 colapso dejó una cuenta local sin modelos validados (``local_model_not_validated``, spec §4.3 paso 4) también
 se remedia aquí, con "Validar modelo" primero. Funciones puras: no leen la base ni la red.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

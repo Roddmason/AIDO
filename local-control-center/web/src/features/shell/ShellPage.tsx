@@ -6,7 +6,7 @@
  * navigation lives in the {@link ShellSidebar}; selection is controlled by the shell
  * (`ctx.selectedSessionId` holds the active thread id, `ctx.onSelectSession` changes it) so the sidebar
  * and the center stay in sync. Backed by `project_threads` — no decorative chat, no fabricated timeline.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { RouteContext } from '../../app/routes';
 import { ThreadConversation } from './ThreadConversation';

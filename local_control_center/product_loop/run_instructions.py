@@ -3,7 +3,7 @@
 Funciones puras sobre cadenas; el tope existe porque cada ronda de rework y cada failover reenvían la
 instrucción completa.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

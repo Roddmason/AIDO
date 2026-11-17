@@ -1,6 +1,6 @@
 """Typed contracts for read-only NVIDIA NIM local preflight.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

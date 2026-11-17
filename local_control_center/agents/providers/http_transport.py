@@ -1,6 +1,6 @@
 """Credential-safe urllib transport primitives shared by model providers.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 Operaciones en autocommit; las transacciones compuestas pertenecen al caller.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ varias filas de forma atómica o asignar una ``sequence`` monótona sin colision
 caller). Los mapeadores ``row_to_*`` proyectan cada fila al dict camelCase del contrato y ``redact_secrets``
 limpia todo contenido libre antes de persistirlo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

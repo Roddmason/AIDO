@@ -5,7 +5,7 @@ search) sobre /api/v1, cableando cada handler con repositorio, event bus e
 índice construidos por petición. Las mutaciones pasan por require_write; la
 lógica vive en commands, este módulo solo traduce HTTP a casos de uso.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

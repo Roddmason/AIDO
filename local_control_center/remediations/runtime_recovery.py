@@ -5,7 +5,7 @@ y encola la re-validación de los runtimes cuya evidencia venció, reanuda los r
 esperando esa validación o el fin de un cooldown de cuota, y fija el runtime por defecto al cambiar de
 runtime. Lo que el servicio expone o los tests parchean sigue disponible como delegador en la clase.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

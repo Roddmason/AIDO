@@ -16,7 +16,7 @@ tareas usa su propio estado. El avance del tablero es la media simple de las tar
 cuenta como cumplido si su estado persistido lo dice o si la historia quedó ``done``: el loop solo
 cierra una historia tras pasar su gate QA (o sin cambios que verificar).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ repetida (con salto real o escapado dentro de un string JSON) y la frase repetid
 toma por bucle un separador ni un relleno (uno o dos caracteres), y código legítimo no repite diez
 veces seguidas un bloque idéntico de ese largo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

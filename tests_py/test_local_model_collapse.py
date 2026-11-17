@@ -1,6 +1,6 @@
 """Una cuenta local aporta un solo candidato por rol: el modelo resuelto; el resto queda rechazado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

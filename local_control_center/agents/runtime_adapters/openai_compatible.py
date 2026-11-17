@@ -4,7 +4,7 @@ Covers the openai_compatible, openrouter, and nvidia_nim provider families: reso
 base URL/API key/model from constructor or runtime configuration, gap-checks config and
 runtime policy, health-checks `/models`, and stores the redacted chat reply as evidence.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

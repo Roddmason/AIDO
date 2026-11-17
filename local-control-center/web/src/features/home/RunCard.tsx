@@ -1,7 +1,7 @@
 /**
  * Home gallery card for a recent run, surfacing its title and live status so the
  * user can jump back into in-flight work. One of the four masonry card kinds.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ArrowRight, Workflow as WorkflowIcon } from 'lucide-react';
 

@@ -5,7 +5,7 @@ metadatos seguros. SQLite conserva referencias, fingerprints internos, metadata 
 valores quedan exclusivamente en el backend configurado (keyring por defecto, OpenBao/Vault,
 dpapi_sqlite o environment_override para bootstrap).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ estado real del backend falta en esa lista, ``indexOf`` devuelve ``-1`` y el ste
 "upcoming" aunque el loop esté avanzado. Este gate falla si el backend agrega un estado que el frontend no
 lista, evitando que la lista vuelva a derivar en silencio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

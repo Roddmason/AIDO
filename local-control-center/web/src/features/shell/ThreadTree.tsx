@@ -10,7 +10,7 @@
  * parent enables it, an "Archived" section with the project's archived threads. Each workspace head
  * carries its own "⋯" menu (new thread, open folder in the OS file manager, copy path, manage
  * branches, project settings) using the same keyboard-accessible menu pattern as the thread rows.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	Archive,

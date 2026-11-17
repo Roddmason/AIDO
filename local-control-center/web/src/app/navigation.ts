@@ -5,7 +5,7 @@
  * "Developer Details" link groups from one declarative source. The icon rail and
  * the ExplorerPanel were retired; the ShellSidebar, Go menu and command palette
  * now carry page navigation.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideProps } from 'lucide-react';

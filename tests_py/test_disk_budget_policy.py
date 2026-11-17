@@ -13,7 +13,7 @@ disco de 256 GB que en uno de 2 TB.
 Acá el piso efectivo es el **menor** de los dos: el absoluto deja de volverse inalcanzable en discos
 chicos, y el porcentaje conserva protección proporcional en los grandes.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

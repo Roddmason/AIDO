@@ -1,6 +1,6 @@
 """Per-invocation scratch paths; retained receipts never become pytest basetemp.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

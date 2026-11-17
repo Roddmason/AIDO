@@ -1,6 +1,6 @@
 """Instrumentación de aceptación Windows: sólo fixtures, sin inferencia ni cambios operativos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

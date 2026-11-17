@@ -5,7 +5,7 @@ pero con una ventana propia: el selector del hilo exige una prueba de ida y vuel
 configuración actual. Los consumidores de 24 h no cambian. Los runtimes de modelo (API, gateway,
 local) se evalúan por modelo habilitado: basta uno validado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

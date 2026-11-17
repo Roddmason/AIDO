@@ -5,7 +5,7 @@ repositorio del coordinator; toda llamada a otra operación del loop (``transiti
 ``transition_in_transaction``, ``_apply_transition``, ``_state_deadline``) se resuelve a través del
 coordinator para conservar sus delegadores públicos y el parcheo por clase o por instancia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

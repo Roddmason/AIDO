@@ -1,7 +1,7 @@
 /*
  * Branch manager dialog (gitflow cleanup): toolbar, health summary, grouped branch list,
  * confirmation steps and per-branch results. Tokens only; wraps down to phone width.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 .branch-manager.modal-panel {

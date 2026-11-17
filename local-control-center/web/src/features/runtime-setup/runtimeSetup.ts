@@ -4,7 +4,7 @@
  * URL, and how they authenticate), the left-join of live runtime status with configuration, and the
  * rule that collapses the backend readiness booleans into one user-facing state. UI-agnostic so the
  * full panel, the wizard and the compact inspector card all read the same source of truth.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideProps } from 'lucide-react';
@@ -483,6 +483,48 @@ export function deriveRuntimeState(provider: MergedProvider): RuntimeSetupState 
 		return 'blocked';
 	}
 	return 'configured';
+}
+
+/** Display sections of the provider grid, in order: how the runtime is reached. */
+export type ProviderDisplayGroup = 'cli' | 'local' | 'remote';
+
+const STATE_RANK: Record<RuntimeSetupState, number> = {
+	executable: 0,
+	available: 1,
+	configured: 2,
+	blocked: 3,
+	not_configured: 4,
+};
+
+function displayGroupOf(provider: MergedProvider): ProviderDisplayGroup {
+	const group = catalogEntry(provider.id)?.group ?? provider.kind;
+	if (group === 'cli') return 'cli';
+	if (group === 'local') return 'local';
+	return 'remote';
+}
+
+/**
+ * Splits the merged providers into CLI / local / remote sections and sorts each one by readiness
+ * (executable first, unconfigured last), keeping catalog order among equals. Empty sections are omitted.
+ */
+export function groupProvidersForDisplay(
+	providers: readonly MergedProvider[],
+): Array<{ group: ProviderDisplayGroup; providers: MergedProvider[] }> {
+	const order: ProviderDisplayGroup[] = ['cli', 'local', 'remote'];
+	return order
+		.map((group) => ({
+			group,
+			providers: providers
+				.map((provider, index) => ({ provider, index }))
+				.filter(({ provider }) => displayGroupOf(provider) === group)
+				.sort(
+					(a, b) =>
+						STATE_RANK[deriveRuntimeState(a.provider)] -
+							STATE_RANK[deriveRuntimeState(b.provider)] || a.index - b.index,
+				)
+				.map(({ provider }) => provider),
+		}))
+		.filter((section) => section.providers.length > 0);
 }
 
 export type RuntimeSetupAction = 'setup' | 'validate' | 'use';

@@ -5,7 +5,7 @@
  * Secret values are accepted only by the create/rotate forms and are cleared immediately after a
  * request. The rendered tables use `CredentialRecord`/`CredentialAuditRecord`, which intentionally
  * do not carry raw values, salt or hash material.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {
@@ -17,7 +17,7 @@ import {
 	Trash2,
 	UploadCloud,
 } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
 	createCredential,
@@ -57,6 +57,7 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 	const [backends, setBackends] = useState<CredentialBackend[]>([]);
 	const [audit, setAudit] = useState<CredentialAudit[]>([]);
 	const [form, setForm] = useState(DEFAULT_FORM);
+	const formTitleId = useId();
 	const [selectedCredentialId, setSelectedCredentialId] = useState('');
 	const secretRef = useRef<HTMLInputElement>(null);
 	const rotateRef = useRef<HTMLInputElement>(null);
@@ -279,7 +280,14 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 				))}
 			</div>
 
-			<form className="form-grid" onSubmit={(event) => void handleCreate(event)}>
+			<form
+				className="form-grid credential-form"
+				aria-labelledby={formTitleId}
+				onSubmit={(event) => void handleCreate(event)}
+			>
+				<h4 className="credential-form-title" id={formTitleId}>
+					{t('settings.credentials.addTitle', 'Add credential')}
+				</h4>
 				<TextField
 					label={t('settings.credentials.label', 'Label')}
 					value={form.label}
@@ -303,17 +311,17 @@ export function CredentialManagerPanel({ token }: { token: string }) {
 					))}
 				</SelectField>
 				<TextField
+					label={t('settings.credentials.authMode', 'Auth mode')}
+					value={form.authMode}
+					onChange={(event) => setForm((current) => ({ ...current, authMode: event.target.value }))}
+					required
+				/>
+				<TextField
 					label={t('settings.credentials.credentialRef', 'Credential ref')}
 					value={form.credentialRef}
 					onChange={(event) =>
 						setForm((current) => ({ ...current, credentialRef: event.target.value }))
 					}
-					required
-				/>
-				<TextField
-					label={t('settings.credentials.authMode', 'Auth mode')}
-					value={form.authMode}
-					onChange={(event) => setForm((current) => ({ ...current, authMode: event.target.value }))}
 					required
 				/>
 				<TextField

@@ -4,7 +4,7 @@
  * up?" (credential state, base URL, discovered models, cost knowledge, and which roles route to it).
  * CLI runtimes keep their Detect & check flow; API/local providers add Test prompt, Sync models and a
  * Configure action that opens the Add-provider wizard. Re-probes API/gateway providers on refresh.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import {
@@ -74,6 +74,7 @@ import {
 	catalogEntry,
 	deriveRuntimeAction,
 	deriveRuntimeState,
+	groupProvidersForDisplay,
 	INSTRUCTIONS_KEY,
 	isLocalOpenAiRuntime,
 	KIND_LABEL,
@@ -83,6 +84,13 @@ import {
 	readinessFacts,
 	STATE_META,
 } from './runtimeSetup';
+
+/** Heading copy of each provider grid section (see groupProvidersForDisplay). */
+const PROVIDER_SECTION_COPY = {
+	cli: { key: 'app.runtime.group.cli', fallback: 'CLI runtimes' },
+	local: { key: 'app.runtime.group.local', fallback: 'Local runtimes' },
+	remote: { key: 'app.runtime.group.remote', fallback: 'Remote APIs & gateways' },
+} as const;
 
 /** Non-CLI providers offered individually in the empty state; the CLIs are covered by a single
  *  "Detect installed CLIs" action so a user with 0 executable runtimes gets one obvious first step. */
@@ -254,6 +262,8 @@ export function RuntimeSetupPanel({
 		for (const entry of usage?.providers ?? []) map.set(entry.providerId, entry);
 		return map;
 	}, [usage]);
+	const providerSections = useMemo(() => groupProvidersForDisplay(providers), [providers]);
+	const sectionIdBase = useId();
 	const suspendedCount = usage?.providers.filter((entry) => entry.suspended).length ?? 0;
 	const executableCount = providers.filter(
 		(provider) => deriveRuntimeState(provider) === 'executable',
@@ -536,56 +546,71 @@ export function RuntimeSetupPanel({
 						</div>
 					</section>
 				) : null}
-				<div className="masonry-grid provider-grid">
-					{providers.map((provider) => {
-						const entry = catalogEntry(provider.id);
-						const setup = entry
-							? deriveProviderSetup(
-									entry,
-									accountById.get(provider.id) ?? null,
-									models,
-									rolePolicies,
-								)
-							: null;
-						return (
-							<ProviderCard
-								key={provider.id}
-								provider={provider}
-								account={accountById.get(provider.id) ?? null}
-								setup={setup}
-								busyAction={busyAction}
-								onSetupAction={() => runSetupAction(provider.id)}
-								onTest={(model) => runProviderTask(provider.id, 'test', model)}
-								onSync={() => runProviderTask(provider.id, 'sync')}
-								onToggleEnabled={(enabled) => void toggleProvider(provider.id, enabled)}
-								onConfigure={() => openWizard(provider.id)}
-								modelValidation={
-									canValidateAllModels(setup) ? (
-										<ModelValidationRun
-											token={token}
-											providerId={provider.id}
-											providerName={provider.displayName}
-											disabled={busyAction !== null}
-											onChanged={() => void loadGateway()}
-										/>
-									) : null
-								}
-								usage={
-									hasUsageToShow(usageById.get(provider.id)) ? (
-										<ProviderUsageSection
-											entry={usageById.get(provider.id) as ProviderUsageEntry}
-											generalThresholdPercent={usage?.generalThresholdPercent ?? 80}
-											token={token}
-											busy={busyAction !== null}
-											onChanged={onUsageChanged}
-											onRefresh={refreshUsage}
-										/>
-									) : null
-								}
-							/>
-						);
-					})}
-				</div>
+				{providerSections.map((section) => (
+					<section
+						key={section.group}
+						className="provider-section"
+						aria-labelledby={`${sectionIdBase}-${section.group}`}
+					>
+						<h4 className="provider-section-title" id={`${sectionIdBase}-${section.group}`}>
+							{t(
+								PROVIDER_SECTION_COPY[section.group].key,
+								PROVIDER_SECTION_COPY[section.group].fallback,
+							)}
+							<span className="provider-section-count tnum">{section.providers.length}</span>
+						</h4>
+						<div className="masonry-grid provider-grid">
+							{section.providers.map((provider) => {
+								const entry = catalogEntry(provider.id);
+								const setup = entry
+									? deriveProviderSetup(
+											entry,
+											accountById.get(provider.id) ?? null,
+											models,
+											rolePolicies,
+										)
+									: null;
+								return (
+									<ProviderCard
+										key={provider.id}
+										provider={provider}
+										account={accountById.get(provider.id) ?? null}
+										setup={setup}
+										busyAction={busyAction}
+										onSetupAction={() => runSetupAction(provider.id)}
+										onTest={(model) => runProviderTask(provider.id, 'test', model)}
+										onSync={() => runProviderTask(provider.id, 'sync')}
+										onToggleEnabled={(enabled) => void toggleProvider(provider.id, enabled)}
+										onConfigure={() => openWizard(provider.id)}
+										modelValidation={
+											canValidateAllModels(setup) ? (
+												<ModelValidationRun
+													token={token}
+													providerId={provider.id}
+													providerName={provider.displayName}
+													disabled={busyAction !== null}
+													onChanged={() => void loadGateway()}
+												/>
+											) : null
+										}
+										usage={
+											hasUsageToShow(usageById.get(provider.id)) ? (
+												<ProviderUsageSection
+													entry={usageById.get(provider.id) as ProviderUsageEntry}
+													generalThresholdPercent={usage?.generalThresholdPercent ?? 80}
+													token={token}
+													busy={busyAction !== null}
+													onChanged={onUsageChanged}
+													onRefresh={refreshUsage}
+												/>
+											) : null
+										}
+									/>
+								);
+							})}
+						</div>
+					</section>
+				))}
 			</div>
 			<AddProviderWizard
 				open={wizardOpen}

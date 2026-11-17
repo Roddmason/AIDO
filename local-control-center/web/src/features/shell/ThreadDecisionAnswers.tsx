@@ -15,7 +15,7 @@
  * inspector intentionally does not duplicate this form (its remediation list keeps loading/
  * reflowing independently of the thread poll, which fought this one for layout stability); it
  * still surfaces a pending-decision count via `ThreadVitals`, and the operator answers from here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AlertTriangle } from 'lucide-react';
 import { m } from 'motion/react';
@@ -110,7 +110,7 @@ export function ThreadDecisionAnswers({ decisions, busy, onSubmit }: ThreadDecis
 			const reason =
 				error instanceof Error && error.message
 					? error.message
-					: t('app.controlPlane.error.operationFailed', 'Operation failed.');
+					: t('app.controlPlane.error.actionFailed', "Couldn't complete the action. Retry.");
 			setSubmitError(
 				t('app.threads.decision.submitFailed', 'The answers could not be sent: {reason}').replace(
 					'{reason}',

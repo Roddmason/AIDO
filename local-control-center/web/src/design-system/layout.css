@@ -218,9 +218,9 @@
 	justify-content: center;
 	gap: var(--space-2);
 	height: var(--control-height-sm);
-	border: 1px solid var(--color-accent-muted);
-	background: transparent;
-	color: var(--color-accent-strong);
+	border: 1px solid var(--color-accent);
+	background: var(--color-accent);
+	color: var(--color-text-inverse);
 	font: inherit;
 	font-weight: var(--weight-semibold);
 	border-radius: var(--radius-md);
@@ -228,8 +228,8 @@
 }
 
 .shell-new-thread:hover {
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-accent);
+	background: var(--color-accent-strong);
+	border-color: var(--color-accent-strong);
 }
 
 .shell-new-thread:focus-visible {
@@ -857,27 +857,43 @@
 	overflow: auto;
 }
 
-/* Resize handles: a thin visible line; the group's resizeTargetMinimumSize widens
-   the actual drag/touch hit zone beyond this so it is hard to miss. */
+/* Resize handles: a 1px hairline at rest, 3px accent on hover / keyboard focus / drag. The
+   group's resizeTargetMinimumSize widens the actual drag/touch hit zone beyond this so it is hard
+   to miss; box-shadow draws the thicker line without shifting layout. Double-click restores the
+   adjacent panel's default size (native react-resizable-panels behavior). */
 .ide-separator {
-	width: 3px;
+	position: relative;
+	flex: 0 0 1px;
+	width: 1px;
 	background: var(--color-border-subtle);
-	transition: background var(--duration-fast) var(--ease-standard);
+	cursor: col-resize;
+	transition: box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .ide-separator--horizontal {
 	width: auto;
-	height: 3px;
+	flex-basis: 1px;
+	height: 1px;
+	cursor: row-resize;
 }
 
 .ide-separator:hover,
+.ide-separator[data-separator="hover"],
+.ide-separator[data-separator="active"],
 .ide-separator:focus-visible {
 	background: var(--color-accent);
+	box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .ide-separator:focus-visible {
-	outline: none;
-	box-shadow: var(--shadow-focus);
+	outline: 2px solid var(--color-focus);
+	outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ide-separator {
+		transition: none;
+	}
 }
 
 /* Collapsible bottom dock (logs / terminal). */
@@ -958,9 +974,9 @@
 }
 
 .language-switch .button[aria-pressed="true"] {
-	background: var(--color-text-primary);
-	color: var(--color-text-inverse);
-	border-color: var(--color-text-primary);
+	background: var(--color-surface-panel-raised);
+	color: var(--color-text-primary);
+	border-color: var(--color-accent);
 }
 
 .status-strip,
@@ -1554,7 +1570,11 @@
    how the git bar ended up overflowing its column and sliding underneath the aside. */
 .workbench-layout {
 	display: grid;
-	grid-template-columns: minmax(15rem, 18rem) minmax(28rem, 1.12fr) minmax(21rem, 0.74fr);
+	/* --workbench-columns carries the user's persisted column order (WorkbenchPage); default order otherwise. */
+	grid-template-columns: var(
+			--workbench-columns,
+			minmax(15rem, 18rem) minmax(28rem, 1.12fr) minmax(21rem, 0.74fr)
+		);
 	gap: var(--space-4);
 	align-items: start;
 }
@@ -1581,6 +1601,16 @@
 @container workbench (max-width: 66rem) {
 	.workbench-layout {
 		grid-template-columns: minmax(14rem, 17rem) minmax(20rem, 1fr);
+		/* Rail and composer keep their tracks whatever the user's DOM order; dense back-fills row one. */
+		grid-auto-flow: row dense;
+	}
+
+	.workbench-session-rail {
+		grid-column: 1;
+	}
+
+	.workbench-primary {
+		grid-column: 2;
 	}
 
 	.workbench-side {
@@ -1598,6 +1628,11 @@
 	.workbench-layout,
 	.workbench-side {
 		grid-template-columns: 1fr;
+	}
+
+	.workbench-session-rail,
+	.workbench-primary {
+		grid-column: auto;
 	}
 }
 
@@ -3106,7 +3141,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
-	font-family: var(--font-data);
+	font-family: var(--font-ui);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
 	padding: var(--space-1) var(--space-2);
@@ -3319,9 +3354,15 @@
 	align-items: center;
 	gap: 0;
 	min-width: 0;
-	font-family: var(--font-data);
+	font-family: var(--font-ui);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
+}
+
+/* Prose chrome stays in the UI face; monospace is reserved for branch names and counters. */
+.shell-chat-context .status-branch-select,
+.shell-chat-context .tnum {
+	font-family: var(--font-data);
 }
 
 /* Project name: semibold secondary text, left-anchored workspace identity.
@@ -3658,6 +3699,29 @@
 	align-items: center;
 	gap: var(--space-2);
 	white-space: nowrap;
+	color: var(--color-text-muted);
+}
+
+/* Normal state is quiet: values stay muted; only warn / danger tones (dots, alert links) carry color. */
+.status-bar-item strong:not(.status-bar-project),
+.status-bar-item .tnum {
+	color: var(--color-text-muted);
+	font-weight: var(--weight-regular);
+}
+
+/* "Resume" and similar inline actions read as links, not bordered buttons. */
+.status-bar-item .settings-console-link.button {
+	min-height: 0;
+	padding: 0 var(--space-1);
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-accent-strong);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.status-bar-item .settings-console-link.button:hover:not(:disabled) {
+	background: var(--color-surface-card-hover);
 }
 
 .status-bar-label {
@@ -3667,6 +3731,8 @@
 /* A long project name truncates (full path in the item's tooltip) instead of pushing items down. */
 .status-bar-project {
 	display: inline-block;
+	color: var(--color-text-secondary);
+	font-weight: var(--weight-semibold);
 	max-width: 14rem;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -3745,9 +3811,11 @@
 /* ---- Settings modal: two-pane layout, section nav, setting rows, chips ---- */
 
 /* Wide two-pane modal: overrides the base .modal-panel width for the settings surface. */
+/* Fixed height (not max-height) so switching sections never resizes the dialog under the pointer. */
 .settings-modal.modal-panel {
-	width: min(64rem, 92vw);
-	max-height: 90dvh;
+	width: min(84rem, 96vw);
+	height: min(58rem, 92dvh);
+	max-height: 92dvh;
 	padding: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -3764,9 +3832,15 @@
 /* Body of the settings modal: nav column + content column side by side. */
 .settings-modal-body {
 	display: grid;
-	grid-template-columns: 14rem minmax(0, 1fr);
+	grid-template-columns: 15rem minmax(0, 1fr);
 	min-height: 0;
 	overflow: hidden;
+}
+
+/* Group wrapper is layout-neutral: its label and list stay direct children of the nav flex
+ * (column on desktop, one horizontal strip on phones). */
+.settings-nav-group {
+	display: contents;
 }
 
 /* Left section navigator. */
@@ -3886,11 +3960,12 @@
 .settings-content {
 	min-height: 0;
 	overflow-y: auto;
-	padding: var(--space-5);
+	padding: var(--space-5) var(--space-6);
 	display: grid;
 	gap: var(--space-4);
 	align-content: start;
 	background: var(--color-surface-inset);
+	scrollbar-gutter: stable;
 }
 
 /* Ruled section header: separates "where am I" from the section's controls. */
@@ -4219,7 +4294,7 @@
 	grid-template-areas:
 		"meta control"
 		"help control"
-		"actions actions";
+		"actions control";
 	align-items: center;
 	column-gap: var(--space-5);
 	row-gap: var(--space-1);
@@ -4401,20 +4476,25 @@
 	font-size: var(--font-size-sm);
 }
 
-.setting-action-revert {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-3);
-	font-size: var(--font-size-sm);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
+/* Quiet text action under the label (not a slab on its own row): reverting is secondary to
+ * reading and editing the value. Height stays >= 24px (WCAG 2.5.8). */
+.setting-row-actions > .button.setting-action-revert {
+	min-height: 1.75rem;
+	padding-inline: var(--space-2);
+	margin-inline-start: calc(var(--space-2) * -1);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: var(--color-text-muted);
+	color: var(--color-accent-strong);
 	cursor: pointer;
 }
 
-.setting-action-revert:hover {
+.setting-row-actions > .button.setting-action-revert:hover {
+	border-color: transparent;
 	background: var(--color-surface-card-hover);
-	color: var(--color-text-secondary);
+	color: var(--color-text-primary);
 }
 
 .setting-action-revert:focus-visible {
@@ -4488,14 +4568,16 @@
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: var(--space-4);
-	align-items: start;
+	align-items: stretch;
+	min-height: 24rem;
 }
 
 .review-column {
 	min-width: 0;
+	min-height: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
-	gap: var(--space-3);
+	gap: var(--space-2);
 }
 
 .review-column-header {
@@ -4505,33 +4587,39 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
+	padding: var(--space-2);
 	background: var(--color-surface-inset);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-md);
 	color: var(--color-text-secondary);
 }
 
+/* The focal lane is marked by an accent outline on its whole header (not a side stripe and not a
+ * tinted fill), with the title in primary text. */
 .review-column[data-focal="true"] .review-column-header {
-	background: color-mix(in oklch, var(--color-accent) 10%, var(--color-surface-inset));
-	border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-border-subtle));
+	border-color: color-mix(in oklch, var(--color-accent) 55%, var(--color-border-subtle));
 	color: var(--color-text-primary);
 }
 
 .review-column-title {
 	margin: 0;
-	font-size: var(--font-size-sm);
+	font-size: var(--font-size-xs);
 	font-weight: var(--weight-semibold);
-	color: var(--color-text-primary);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--color-text-secondary);
 }
 
 .review-column-count {
 	margin-left: auto;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
 }
 
+/* The lane fills the stretched column and scrolls by itself only when the board is height-bound;
+   otherwise the page scrolls, so the two never nest. */
 .review-column-scroll {
 	min-height: 0;
-	max-height: calc(100dvh - 16rem);
 	overflow: auto;
 	display: grid;
 	gap: var(--space-3);
@@ -4550,12 +4638,15 @@
 		grid-template-columns: 1fr;
 	}
 
+	.review-board {
+		min-height: 0;
+	}
+
 	.review-column-header {
 		position: static;
 	}
 
 	.review-column-scroll {
-		max-height: none;
 		overflow: visible;
 	}
 }
@@ -5223,4 +5314,22 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-2);
+}
+
+/* Workbench column-order disclosure (WorkbenchColumnControls): collapsed by default, sits above the grid. */
+.workbench-column-order {
+	justify-self: end;
+}
+
+.workbench-column-order > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.workbench-column-order > summary::-webkit-details-marker {
+	display: none;
+}
+
+.workbench-column-order[open] > .inline {
+	margin-block-start: var(--space-2);
 }

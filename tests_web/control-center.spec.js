@@ -1272,10 +1272,10 @@ test('Workbench intake creates a thread and posts the first message', async ({ p
 
 	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
 	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
-	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Agents', exact: true })).toBeVisible();
 
 	// The Team activity board is reachable from the composer drawer.
-	await page.getByRole('button', { name: 'Open Agents / Loop' }).click();
+	await page.getByRole('button', { name: 'Team activity', exact: true }).click();
 	const teamDialog = page.getByRole('dialog', { name: 'Team activity' });
 	await expect(teamDialog).toBeVisible();
 	await teamDialog.getByRole('button', { name: 'Close Team activity' }).click();
@@ -1287,9 +1287,9 @@ test('Workbench intake creates a thread and posts the first message', async ({ p
 
 	// The single composer is always visible: compose the intake directly, no tab switch needed.
 	await page.getByLabel('Workspace folder', { exact: true }).selectOption(project.id);
-	await page.getByRole('button', { name: 'New project thread' }).click();
+	await page.locator('.workbench-session-rail').getByRole('button', { name: 'New thread', exact: true }).click();
 	await page.getByLabel('What should AIDO do?').fill(prompt);
-	await page.getByRole('button', { name: 'Agents / Loop', exact: true }).click();
+	await page.getByRole('button', { name: 'Agents', exact: true }).click();
 
 	await expect(page.getByText('Thread intake created')).toBeVisible({ timeout: 30_000 });
 	// The new thread appears in the Conversation section transcript.
@@ -3466,10 +3466,10 @@ test('Workbench composer infers task type and hides direct issue_to_patch contro
 
 	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
 	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
-	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeDisabled();
+	await expect(page.getByRole('radio', { name: 'Agents', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeDisabled();
 	await page.getByLabel('What should AIDO do?').fill('Change a small file through the autonomous Product Owner intake.');
-	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeEnabled();
 });
 
 test('Model Gateway route preview submits request without exposing credentials', async ({ page }) => {
@@ -3574,13 +3574,13 @@ test('strict operational forms cover workflows governance sandbox and MCP settin
 	await expect(page.getByRole('button', { name: 'Advanced' })).toHaveCount(0);
 	await expect(page.getByRole('radiogroup', { name: 'Workbench mode' })).toBeVisible();
 	await expect(page.getByRole('radio', { name: 'Consultation' })).toBeVisible();
-	await expect(page.getByRole('radio', { name: 'Agents / Loop' })).toBeVisible();
+	await expect(page.getByRole('radio', { name: 'Agents', exact: true })).toBeVisible();
 	// Runtime/QA/cost are not selected manually from Workbench; intake policy resolves them server-side.
 	await expect(page.getByLabel('Preferred runtime')).toHaveCount(0);
 	await expect(page.getByLabel('QA preset')).toHaveCount(0);
 	await expect(page.getByLabel('Maximum cost USD')).toHaveCount(0);
 	await expect(page.locator('textarea[data-json-editor="true"]')).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Agents / Loop', exact: true })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeDisabled();
 
 	const suffix = Date.now();
 

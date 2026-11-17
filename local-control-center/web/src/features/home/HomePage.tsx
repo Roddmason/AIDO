@@ -3,7 +3,7 @@
  * cards, then one band for what needs attention (runtime blockers, pending reviews, recent runs).
  * Card-first by design (no tables, no jargon) and steers the user to open a
  * folder or continue work; all ordering/count logic is delegated to homeModel.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { FolderOpen, Plus } from 'lucide-react';
 
@@ -69,10 +69,7 @@ export function HomePage({
 					<span className="home-hero-kicker">{'AIDO Studio'}</span>
 					<h2 className="home-hero-title">{t('app.home.title', 'Open or continue a project')}</h2>
 					<p className="home-hero-summary">
-						{t(
-							'app.home.summary',
-							'Point AIDO at a local folder. It detects the project, prepares the workspace, and takes you straight to work — review the diff and evidence, then approve.',
-						)}
+						{t('app.home.intro', 'Open a local folder and start working.')}
 					</p>
 				</div>
 				<div className="home-hero-actions">

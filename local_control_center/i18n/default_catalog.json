@@ -10,7 +10,7 @@
     {
       "code": "es",
       "name": "Spanish",
-      "nativeName": "Espanol",
+      "nativeName": "Español",
       "enabled": true
     }
   ],
@@ -3191,10 +3191,6 @@
       "en": "Control plane is still connecting; retry once the session token is ready.",
       "es": "El plano de control aún se está conectando; reintenta cuando el token de sesión esté listo."
     },
-    "app.controlPlane.error.operationFailed": {
-      "en": "Operation failed.",
-      "es": "La operación falló."
-    },
     "app.boot.loading": {
       "en": "Loading control plane",
       "es": "Cargando plano de control"
@@ -3882,10 +3878,6 @@
     "app.home.title": {
       "en": "Open or continue a project",
       "es": "Abre o continúa un proyecto"
-    },
-    "app.home.summary": {
-      "en": "Point AIDO at a local folder. It detects the project, prepares the workspace, and takes you straight to work — review the diff and evidence, then approve.",
-      "es": "Apunta AIDO a una carpeta local. Detecta el proyecto, prepara el workspace y te lleva directo a trabajar — revisa el diff y la evidencia, y aprueba."
     },
     "app.home.openFolder": {
       "en": "Open folder",
@@ -8503,10 +8495,6 @@
       "en": "Write a prompt before starting intake.",
       "es": "Escribe un prompt antes de iniciar el intake."
     },
-    "app.workbench.error.submitFailed": {
-      "en": "Workbench intake failed.",
-      "es": "Fallo el intake del workbench."
-    },
     "app.workbench.kicker": {
       "en": "AI project workbench",
       "es": "Workbench de proyecto IA"
@@ -8526,10 +8514,6 @@
     "app.workbench.sideRegion": {
       "en": "AI team and deliverables",
       "es": "Equipo IA y entregables"
-    },
-    "app.workbench.workspace.title": {
-      "en": "Workspace folder",
-      "es": "Carpeta workspace"
     },
     "app.workbench.workspace.label": {
       "en": "Workspace folder",
@@ -8579,21 +8563,9 @@
       "en": "Workflows",
       "es": "Flujos de trabajo"
     },
-    "app.workbench.chat.title": {
-      "en": "Start from thread",
-      "es": "Iniciar desde thread"
-    },
     "app.workbench.chat.history": {
       "en": "Thread history",
       "es": "Historial del thread"
-    },
-    "app.workbench.chat.emptyTitle": {
-      "en": "No messages in this thread",
-      "es": "Sin mensajes en este thread"
-    },
-    "app.workbench.chat.emptyBody": {
-      "en": "Use the composer to start coordinated project work for this workspace.",
-      "es": "Usa el compositor para iniciar trabajo coordinado de proyecto en este workspace."
     },
     "app.workbench.chat.creating": {
       "en": "Creating thread intake",
@@ -8627,17 +8599,37 @@
       "en": "Consultation",
       "es": "Consulta"
     },
-    "app.workbench.mode.loop": {
-      "en": "Agents / Loop",
-      "es": "Agentes / Loop"
+    "app.workbench.columns.group": {
+      "en": "Column order",
+      "es": "Orden de columnas"
+    },
+    "app.workbench.columns.explorer": {
+      "en": "Explorer",
+      "es": "Explorador"
+    },
+    "app.workbench.columns.conversation": {
+      "en": "Conversation",
+      "es": "Conversación"
+    },
+    "app.workbench.columns.status": {
+      "en": "Runtime status",
+      "es": "Estado del runtime"
+    },
+    "app.workbench.columns.moveLeft": {
+      "en": "Move left",
+      "es": "Mover a la izquierda"
+    },
+    "app.workbench.columns.moveRight": {
+      "en": "Move right",
+      "es": "Mover a la derecha"
+    },
+    "app.workbench.columns.position": {
+      "en": "position",
+      "es": "posición"
     },
     "app.workbench.composer.titleLabel": {
       "en": "Title",
       "es": "Título"
-    },
-    "app.workbench.composer.titleHelp": {
-      "en": "Auto-derived from your prompt — edit to override.",
-      "es": "Derivado de tu prompt; edítalo para sobrescribir."
     },
     "app.workbench.composer.cancel": {
       "en": "Cancel intake",
@@ -8650,14 +8642,6 @@
     "app.workbench.sessions.title": {
       "en": "Project threads",
       "es": "Threads de proyecto"
-    },
-    "app.workbench.sessions.new": {
-      "en": "New project thread",
-      "es": "Nuevo thread de proyecto"
-    },
-    "app.workbench.sessions.newHint": {
-      "en": "Starts a real project thread",
-      "es": "Inicia un thread real de proyecto"
     },
     "app.workbench.sessions.chatCount": {
       "en": "threads",
@@ -9127,17 +9111,9 @@
       "en": "real changes",
       "es": "cambios reales"
     },
-    "app.workbench.empty.body": {
-      "en": "Select a project folder or import an existing workspace to start coordinated, evidence-backed work.",
-      "es": "Selecciona una carpeta de proyecto o importa un workspace existente para iniciar trabajo coordinado y respaldado por evidencia."
-    },
     "app.workbench.empty.cta": {
       "en": "Open folder",
       "es": "Abrir carpeta"
-    },
-    "app.workbench.empty.title": {
-      "en": "Open a workspace to begin",
-      "es": "Abre un workspace para comenzar"
     },
     "app.workbench.evidence.artifact": {
       "en": "Artifact",
@@ -9891,10 +9867,6 @@
       "en": "AI team",
       "es": "Equipo IA"
     },
-    "app.workbench.team.openLoop": {
-      "en": "Open Agents / Loop",
-      "es": "Abrir Agentes / Loop"
-    },
     "app.workbench.timeline.colPipeline": {
       "en": "Pipeline",
       "es": "Canalización"
@@ -9954,10 +9926,6 @@
     "app.workbench.runTimeline.emptyTitle": {
       "en": "No run yet",
       "es": "Aún no hay ejecución"
-    },
-    "app.workbench.runTimeline.emptyBody": {
-      "en": "Submit an intake to track its autonomous run here.",
-      "es": "Envía un intake para seguir aquí su ejecución autónoma."
     },
     "app.workbench.chat.viewFull": {
       "en": "View full thread history",
@@ -10107,10 +10075,6 @@
       "en": "Review inbox",
       "es": "Bandeja de revisión"
     },
-    "app.review.copy.2": {
-      "en": "One inbox for every human decision: pending approvals, QA failures, security blockers, evidence-ready runs, approvals for integration and recent decisions. Cards reflect server state — open one to approve or reject with full evidence.",
-      "es": "Una sola bandeja para cada decisión humana: aprobaciones pendientes, fallas de QA, bloqueos de seguridad, ejecuciones con evidencia lista, aprobaciones para integración y decisiones recientes. Las cards reflejan el estado del servidor — abre una para aprobar o rechazar con evidencia completa."
-    },
     "app.review.copy.3": {
       "en": "Review board",
       "es": "Tablero de revisión"
@@ -10119,49 +10083,17 @@
       "en": "Needs review",
       "es": "Por revisar"
     },
-    "app.review.copy.5": {
-      "en": "Nothing waiting on you",
-      "es": "Nada esperando por ti"
-    },
-    "app.review.copy.6": {
-      "en": "Runs land here when QA produces evidence and a sensitive action needs a human decision.",
-      "es": "Las ejecuciones llegan aquí cuando QA produce evidencia y una acción sensible necesita una decisión humana."
-    },
     "app.review.copy.7": {
       "en": "Blocked",
       "es": "Bloqueado"
-    },
-    "app.review.copy.8": {
-      "en": "No blocked runs",
-      "es": "Sin ejecuciones bloqueadas"
-    },
-    "app.review.copy.9": {
-      "en": "A run appears here when QA fails, a runtime is unavailable, or a decision was rejected.",
-      "es": "Una ejecución aparece aquí cuando QA falla, un runtime no está disponible o una decisión fue rechazada."
     },
     "app.review.copy.10": {
       "en": "Ready",
       "es": "Listo"
     },
-    "app.review.copy.11": {
-      "en": "Nothing ready to ship",
-      "es": "Nada listo para integrar"
-    },
-    "app.review.copy.12": {
-      "en": "Approved runs wait here for branch promotion or PR creation.",
-      "es": "Las ejecuciones aprobadas esperan aquí la promoción de rama o la creación del PR."
-    },
     "app.review.copy.13": {
       "en": "Done",
       "es": "Hecho"
-    },
-    "app.review.copy.14": {
-      "en": "No completed runs yet",
-      "es": "Aún sin ejecuciones completadas"
-    },
-    "app.review.copy.15": {
-      "en": "Runs move here once a PR is created, the workflow completes, or a request is decided.",
-      "es": "Las ejecuciones llegan aquí cuando se crea un PR, el flujo termina o se decide una solicitud."
     },
     "app.review.copy.16": {
       "en": "risk",
@@ -11054,14 +10986,6 @@
     "app.workbench.shell.secondaryActions": {
       "en": "Loop actions",
       "es": "Acciones del ciclo"
-    },
-    "app.workbench.shell.emptyTranscriptTitle": {
-      "en": "Start a conversation",
-      "es": "Inicia una conversación"
-    },
-    "app.workbench.shell.emptyTranscriptBody": {
-      "en": "Describe what you want to build. AIDO plans, implements and tests it in this workspace.",
-      "es": "Describe lo que quieres construir. AIDO lo planifica, implementa y prueba en este workspace."
     },
     "app.settings.title": {
       "en": "Settings",
@@ -12827,22 +12751,70 @@
       "en": "Quality gate commands",
       "es": "Comandos de puertas de calidad"
     },
-    "app.settings.decisionEngine.enabled": {"en": "Decision Engine enabled", "es": "Decision Engine habilitado"},
-    "app.settings.decisionEngine.provider": {"en": "Decision provider", "es": "Proveedor de decisiones"},
-    "app.settings.decisionEngine.mode": {"en": "Decision mode", "es": "Modo de decisiones"},
-    "app.settings.decisionEngine.shadow.enabled": {"en": "Shadow observation enabled", "es": "Observación shadow habilitada"},
-    "app.settings.decisionEngine.jev.enabled": {"en": "Jev provider enabled", "es": "Proveedor Jev habilitado"},
-    "app.settings.decisionEngine.endpoint": {"en": "Jev endpoint", "es": "Endpoint Jev"},
-    "app.settings.decisionEngine.api_key_reference": {"en": "Jev credential reference", "es": "Referencia de credencial Jev"},
-    "app.settings.decisionEngine.model": {"en": "Jev pinned model", "es": "Modelo Jev fijado"},
-    "app.settings.decisionEngine.version": {"en": "Jev pinned version", "es": "Versión Jev fijada"},
-    "app.settings.decisionEngine.timeout_seconds": {"en": "Decision timeout (seconds)", "es": "Timeout de decisión (segundos)"},
-    "app.settings.decisionEngine.confidence_threshold": {"en": "Minimum confidence", "es": "Confianza mínima"},
-    "app.settings.decisionEngine.margin_threshold": {"en": "Minimum probability margin", "es": "Margen mínimo de probabilidades"},
-    "app.settings.decisionEngine.max_risk": {"en": "Maximum recommendation risk", "es": "Riesgo máximo de recomendación"},
-    "app.settings.decisionEngine.probability_tolerance": {"en": "Probability sum tolerance", "es": "Tolerancia de suma de probabilidades"},
-    "app.settings.decisionEngine.circuit_failure_threshold": {"en": "Failures before circuit opens", "es": "Fallos antes de abrir circuito"},
-    "app.settings.decisionEngine.circuit_cooldown_seconds": {"en": "Circuit cooldown (seconds)", "es": "Pausa de circuito (segundos)"},
+    "app.settings.decisionEngine.enabled": {
+      "en": "Decision Engine enabled",
+      "es": "Decision Engine habilitado"
+    },
+    "app.settings.decisionEngine.provider": {
+      "en": "Decision provider",
+      "es": "Proveedor de decisiones"
+    },
+    "app.settings.decisionEngine.mode": {
+      "en": "Decision mode",
+      "es": "Modo de decisiones"
+    },
+    "app.settings.decisionEngine.shadow.enabled": {
+      "en": "Shadow observation enabled",
+      "es": "Observación shadow habilitada"
+    },
+    "app.settings.decisionEngine.jev.enabled": {
+      "en": "Jev provider enabled",
+      "es": "Proveedor Jev habilitado"
+    },
+    "app.settings.decisionEngine.endpoint": {
+      "en": "Jev endpoint",
+      "es": "Endpoint Jev"
+    },
+    "app.settings.decisionEngine.api_key_reference": {
+      "en": "Jev credential reference",
+      "es": "Referencia de credencial Jev"
+    },
+    "app.settings.decisionEngine.model": {
+      "en": "Jev pinned model",
+      "es": "Modelo Jev fijado"
+    },
+    "app.settings.decisionEngine.version": {
+      "en": "Jev pinned version",
+      "es": "Versión Jev fijada"
+    },
+    "app.settings.decisionEngine.timeout_seconds": {
+      "en": "Decision timeout (seconds)",
+      "es": "Timeout de decisión (segundos)"
+    },
+    "app.settings.decisionEngine.confidence_threshold": {
+      "en": "Minimum confidence",
+      "es": "Confianza mínima"
+    },
+    "app.settings.decisionEngine.margin_threshold": {
+      "en": "Minimum probability margin",
+      "es": "Margen mínimo de probabilidades"
+    },
+    "app.settings.decisionEngine.max_risk": {
+      "en": "Maximum recommendation risk",
+      "es": "Riesgo máximo de recomendación"
+    },
+    "app.settings.decisionEngine.probability_tolerance": {
+      "en": "Probability sum tolerance",
+      "es": "Tolerancia de suma de probabilidades"
+    },
+    "app.settings.decisionEngine.circuit_failure_threshold": {
+      "en": "Failures before circuit opens",
+      "es": "Fallos antes de abrir circuito"
+    },
+    "app.settings.decisionEngine.circuit_cooldown_seconds": {
+      "en": "Circuit cooldown (seconds)",
+      "es": "Pausa de circuito (segundos)"
+    },
     "app.settings.agents.responseStyle": {
       "en": "DeveloperAgent summary",
       "es": "Resumen de DeveloperAgent"
@@ -13103,11 +13075,26 @@
       "en": "Workspace changes are preserved. Reviewing them does not restart the run.",
       "es": "Los cambios del workspace están conservados. Revisarlos no reinicia la ejecución."
     },
-    "app.threads.remediation.partialChanges": { "en": "Preserved workspace changes", "es": "Cambios conservados" },
-    "app.threads.remediation.trackedChanges": { "en": "Tracked changes", "es": "Cambios en archivos versionados" },
-    "app.threads.remediation.noTrackedChanges": { "en": "No tracked changes.", "es": "Sin cambios en archivos versionados." },
-    "app.threads.remediation.diffPreviewTruncated": { "en": "Preview truncated; full changes remain in the workspace.", "es": "Vista previa recortada; los cambios completos permanecen en el workspace." },
-    "app.threads.remediation.untrackedFiles": { "en": "Untracked files (contents are not included in this diff)", "es": "Archivos nuevos (su contenido no se incluye en este diff)" },
+    "app.threads.remediation.partialChanges": {
+      "en": "Preserved workspace changes",
+      "es": "Cambios conservados"
+    },
+    "app.threads.remediation.trackedChanges": {
+      "en": "Tracked changes",
+      "es": "Cambios en archivos versionados"
+    },
+    "app.threads.remediation.noTrackedChanges": {
+      "en": "No tracked changes.",
+      "es": "Sin cambios en archivos versionados."
+    },
+    "app.threads.remediation.diffPreviewTruncated": {
+      "en": "Preview truncated; full changes remain in the workspace.",
+      "es": "Vista previa recortada; los cambios completos permanecen en el workspace."
+    },
+    "app.threads.remediation.untrackedFiles": {
+      "en": "Untracked files (contents are not included in this diff)",
+      "es": "Archivos nuevos (su contenido no se incluye en este diff)"
+    },
     "app.threads.remediation.blocker.runtime_execution_failed.explanation": {
       "en": "The selected provider returned an HTTP error. Review the reported cause and model.",
       "es": "El proveedor seleccionado devolvió un error HTTP. Revisa la causa informada y el modelo."
@@ -14988,10 +14975,6 @@
       "en": "need attention",
       "es": "requieren atención"
     },
-    "app.runtime.health.toastTitle": {
-      "en": "An AI needs attention",
-      "es": "Una IA requiere atención"
-    },
     "app.runtime.health.toastBody": {
       "en": "open AI health to see how to fix it.",
       "es": "abre Salud de las IAs para ver cómo resolverlo."
@@ -16255,6 +16238,126 @@
     "app.runtime.health.reason.local_model_not_selected": {
       "en": "Another model of this runtime was chosen for this role.",
       "es": "Se eligió otro modelo de este runtime para este rol."
+    },
+    "app.controlPlane.error.actionFailed": {
+      "en": "Couldn't complete the action. Retry.",
+      "es": "No se pudo completar la acción. Reintenta."
+    },
+    "app.home.intro": {
+      "en": "Open a local folder and start working.",
+      "es": "Abre una carpeta local y empieza a trabajar."
+    },
+    "app.workbench.error.sendFailed": {
+      "en": "Couldn't send the request. Retry.",
+      "es": "No se pudo enviar la solicitud. Reintenta."
+    },
+    "app.workbench.chat.newThreadTitle": {
+      "en": "New thread",
+      "es": "Nuevo hilo"
+    },
+    "app.workbench.chat.noMessagesTitle": {
+      "en": "No messages yet",
+      "es": "Sin mensajes aún"
+    },
+    "app.workbench.chat.noMessagesBody": {
+      "en": "Describe the work in the composer.",
+      "es": "Describe el trabajo en el compositor."
+    },
+    "app.workbench.mode.agents": {
+      "en": "Agents",
+      "es": "Agentes"
+    },
+    "app.workbench.composer.titleAutoHelp": {
+      "en": "Auto-filled; editable.",
+      "es": "Se completa solo; editable."
+    },
+    "app.workbench.sessions.newThread": {
+      "en": "New thread",
+      "es": "Nuevo hilo"
+    },
+    "app.workbench.noWorkspace.body": {
+      "en": "Select a project folder to start.",
+      "es": "Elige una carpeta para empezar."
+    },
+    "app.workbench.noWorkspace.title": {
+      "en": "Open a workspace",
+      "es": "Abre un workspace"
+    },
+    "app.workbench.runTimeline.noRunsBody": {
+      "en": "Send a task to see its run here.",
+      "es": "Envía una tarea para ver su ejecución aquí."
+    },
+    "app.review.page.summary": {
+      "en": "Approve or reject runs with full evidence.",
+      "es": "Aprueba o rechaza ejecuciones con evidencia completa."
+    },
+    "app.review.column.needsReview.emptyTitle": {
+      "en": "Nothing waiting",
+      "es": "Nada pendiente"
+    },
+    "app.review.column.needsReview.emptyBody": {
+      "en": "Runs needing your decision appear here.",
+      "es": "Aquí aparecen las ejecuciones que necesitan tu decisión."
+    },
+    "app.review.column.blocked.emptyTitle": {
+      "en": "No blockers",
+      "es": "Sin bloqueos"
+    },
+    "app.review.column.blocked.emptyBody": {
+      "en": "Failed or rejected runs appear here.",
+      "es": "Aquí aparecen las ejecuciones fallidas o rechazadas."
+    },
+    "app.review.column.ready.emptyTitle": {
+      "en": "Nothing ready",
+      "es": "Nada listo"
+    },
+    "app.review.column.ready.emptyBody": {
+      "en": "Approved runs wait here for promotion.",
+      "es": "Las ejecuciones aprobadas esperan aquí su promoción."
+    },
+    "app.review.column.done.emptyTitle": {
+      "en": "Nothing done yet",
+      "es": "Nada terminado aún"
+    },
+    "app.review.column.done.emptyBody": {
+      "en": "Finished runs appear here.",
+      "es": "Aquí aparecen las ejecuciones terminadas."
+    },
+    "app.runtime.health.attentionToastTitle": {
+      "en": "AI needs attention",
+      "es": "Una IA requiere atención"
+    },
+    "app.settings.nav.groupWorkspace": {
+      "en": "Workspace",
+      "es": "Espacio de trabajo"
+    },
+    "app.settings.nav.groupRuntimes": {
+      "en": "Runtimes & access",
+      "es": "Runtimes y acceso"
+    },
+    "app.settings.nav.groupTeam": {
+      "en": "Team",
+      "es": "Equipo"
+    },
+    "app.settings.nav.groupGovernance": {
+      "en": "Governance",
+      "es": "Gobierno"
+    },
+    "app.runtime.group.cli": {
+      "en": "CLI runtimes",
+      "es": "Runtimes CLI"
+    },
+    "app.runtime.group.local": {
+      "en": "Local runtimes",
+      "es": "Runtimes locales"
+    },
+    "app.runtime.group.remote": {
+      "en": "Remote APIs & gateways",
+      "es": "APIs remotas y gateways"
+    },
+    "settings.credentials.addTitle": {
+      "en": "Add credential",
+      "es": "Agregar credencial"
     }
   }
 }

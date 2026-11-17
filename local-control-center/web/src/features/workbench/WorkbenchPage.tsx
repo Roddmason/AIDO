@@ -8,10 +8,10 @@
  *
  * When hideExplorer=true (shell mode) the center renders a clean chat-first layout: transcript
  * leads, composer is pinned at the bottom, auxiliary panels are hidden.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { CheckCircle2, FolderKanban, Rocket, Users } from 'lucide-react';
-import type { KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
 	aidoDecideProductLoop,
@@ -57,12 +57,21 @@ import { TimelinePanel } from './panels/TimelinePanel';
 import { WorkbenchDiffPanel } from './panels/WorkbenchDiffPanel';
 import { WorkbenchEvidencePanel } from './panels/WorkbenchEvidencePanel';
 import { buildProductLoopSections, type ProductLoopSectionId } from './productLoopModel';
+import { useColumnOrder, type WorkbenchColumnId } from './useColumnOrder';
 import { useProductLoop } from './useProductLoop';
 import { NEW_SESSION_ID, useWorkbenchData } from './useWorkbenchData';
+import { WorkbenchColumnControls } from './WorkbenchColumnControls';
 import { WorkbenchExplorer } from './WorkbenchExplorer';
 import { WorkbenchInspector } from './WorkbenchInspector';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { WorkflowTimeline } from './WorkflowTimeline';
+
+/** Track widths per column (mirrors the default `.workbench-layout` template). */
+const COLUMN_TRACKS: Record<WorkbenchColumnId, string> = {
+	explorer: 'minmax(15rem, 18rem)',
+	conversation: 'minmax(28rem, 1.12fr)',
+	status: 'minmax(21rem, 0.74fr)',
+};
 
 type Mutate = <T>(
 	operation: (token: string) => Promise<T>,
@@ -157,6 +166,7 @@ export function WorkbenchPage({
 	const [activeSection, setActiveSection] = useState<ProductLoopSectionId>('conversation');
 	const [selectedRunId, setSelectedRunId] = useState('');
 	const [teamOpen, setTeamOpen] = useState(false);
+	const columns = useColumnOrder();
 	const [showAllChats, setShowAllChats] = useState(false);
 	const [loopStarting, setLoopStarting] = useState(false);
 	const [loopActionBusy, setLoopActionBusy] = useState('');
@@ -323,7 +333,7 @@ export function WorkbenchPage({
 			setError(
 				submitError instanceof Error
 					? submitError.message
-					: t('app.workbench.error.submitFailed', 'Workbench intake failed.'),
+					: t('app.workbench.error.sendFailed', "Couldn't send the request. Retry."),
 			);
 		} finally {
 			setBusy(false);
@@ -569,11 +579,8 @@ export function WorkbenchPage({
 				{header}
 				<div className="workbench-empty">
 					<EmptyState
-						title={t('app.workbench.empty.title', 'Open a workspace to begin')}
-						body={t(
-							'app.workbench.empty.body',
-							'Select a project folder or import an existing workspace to start coordinated, evidence-backed work.',
-						)}
+						title={t('app.workbench.noWorkspace.title', 'Open a workspace')}
+						body={t('app.workbench.noWorkspace.body', 'Select a project folder to start.')}
 					/>
 					<button className="button primary" type="button" onClick={onCreateProject}>
 						<FolderKanban aria-hidden="true" size={16} />
@@ -603,14 +610,14 @@ export function WorkbenchPage({
 			onChange={setUserMode}
 			options={[
 				{ value: 'consulta', label: t('app.workbench.mode.consulta', 'Consultation') },
-				{ value: 'aido_decide', label: t('app.workbench.mode.loop', 'Agents / Loop') },
+				{ value: 'aido_decide', label: t('app.workbench.mode.agents', 'Agents') },
 			]}
 		/>
 	);
 	const submitLabel =
 		userMode === 'consulta'
 			? t('app.workbench.mode.consulta', 'Consultation')
-			: t('app.workbench.mode.loop', 'Agents / Loop');
+			: t('app.workbench.mode.agents', 'Agents');
 
 	if (hideExplorer) {
 		return (
@@ -643,11 +650,8 @@ export function WorkbenchPage({
 					) : (
 						<div className="shell-chat-transcript-empty">
 							<EmptyState
-								title={t('app.workbench.shell.emptyTranscriptTitle', 'Start a conversation')}
-								body={t(
-									'app.workbench.shell.emptyTranscriptBody',
-									'Describe what you want to build. AIDO plans, implements and tests it in this workspace.',
-								)}
+								title={t('app.workbench.chat.noMessagesTitle', 'No messages yet')}
+								body={t('app.workbench.chat.noMessagesBody', 'Describe the work in the composer.')}
 							/>
 						</div>
 					)}
@@ -722,321 +726,328 @@ export function WorkbenchPage({
 		);
 	}
 
+	const columnNodes: Record<WorkbenchColumnId, ReactNode> = {
+		explorer: (
+			<WorkbenchExplorer
+				key="explorer"
+				projects={projects}
+				project={project}
+				branch={displayBranch}
+				sessions={projectSessions}
+				recentRuns={projectWorkflowRuns}
+				workflows={projectWorkflows}
+				selectedSessionId={selectedSessionId}
+				selectedRunId={selectedRunId}
+				newSessionSentinel={NEW_SESSION_ID}
+				onSelectProject={onSelectProject}
+				onSelectSession={setSelectedSessionId}
+				onSelectRun={onSelectRun}
+				onCreateProject={onCreateProject}
+			/>
+		),
+		conversation: (
+			<section
+				key="conversation"
+				className="workbench-primary"
+				aria-label={t('app.workbench.primaryRegion', 'Task and progress')}
+			>
+				<div className="surface flat workbench-composer-header">
+					<div className="workbench-composer-meta">
+						<strong>
+							{activeSession
+								? activeSession.title
+								: t('app.workbench.chat.newThreadTitle', 'New thread')}
+						</strong>
+						<div className="inline">
+							<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
+						</div>
+					</div>
+					<button className="button" type="button" onClick={() => setTeamOpen(true)}>
+						<Users aria-hidden="true" size={15} />{' '}
+						{t('app.teamActivity.drawerTitle', 'Team activity')}
+					</button>
+				</div>
+
+				<Surface flat>
+					<div className="stack">
+						<TextArea
+							label={t('app.workbench.composer.promptLabel', 'What should AIDO do?')}
+							value={prompt}
+							rows={6}
+							disabled={!project || busy}
+							placeholder={t(
+								'app.workbench.composer.promptPlaceholder',
+								'Describe the work in plain language.',
+							)}
+							onChange={(event) => setPrompt(event.target.value)}
+						/>
+						{modeControl}
+						<TextField
+							label={t('app.workbench.composer.titleLabel', 'Title')}
+							help={t('app.workbench.composer.titleAutoHelp', 'Auto-filled; editable.')}
+							value={effectiveTitle}
+							disabled={!project || busy}
+							onChange={(event) => {
+								setTitle(event.target.value);
+								setTitleEdited(true);
+							}}
+						/>
+						<div className="inline">
+							<Button
+								variant="primary"
+								icon={<Rocket aria-hidden="true" size={16} />}
+								disabled={composerDisabled}
+								onClick={submitComposer}
+							>
+								{busy ? t('app.workbench.chat.creating', 'Creating thread intake') : submitLabel}
+							</Button>
+							{busy ? (
+								<Button onClick={cancelConversation}>
+									{t('app.workbench.composer.cancel', 'Cancel intake')}
+								</Button>
+							) : null}
+						</div>
+
+						{error ? (
+							<div className="form-error" role="alert">
+								{error}
+							</div>
+						) : null}
+						{created ? (
+							<div className="form-success" role="status">
+								<CheckCircle2 aria-hidden="true" size={16} />
+								<span>{t('app.workbench.chat.created', 'Thread intake created')}</span>
+								<span className="mono">{shortId(created.threadId)}</span>
+								<span>{t('app.workbench.chat.pipelineLinked', 'message')}</span>
+								<span className="mono">{shortId(created.messageId)}</span>
+							</div>
+						) : null}
+
+						<div className="shell-chat-context">
+							<span className="shell-chat-context-project">{project.name}</span>
+							<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />
+						</div>
+					</div>
+				</Surface>
+
+				<Surface title={t('app.workbench.runTimeline.title', 'Run timeline')} flat>
+					{hasRun ? (
+						<WorkflowTimeline
+							variant="rail"
+							stages={runTimeline}
+							label={t('app.workbench.runTimeline.title', 'Run timeline')}
+						/>
+					) : (
+						<EmptyState
+							title={t('app.workbench.runTimeline.emptyTitle', 'No run yet')}
+							body={t('app.workbench.runTimeline.noRunsBody', 'Send a task to see its run here.')}
+						/>
+					)}
+				</Surface>
+
+				<Surface title={t('app.workbench.loop.stepperTitle', 'Loop status')} flat>
+					<ProductLoopStepper
+						loop={loop.data?.loops[0] ?? null}
+						onStart={startLoop}
+						starting={loopStarting}
+					/>
+				</Surface>
+
+				<WorkbenchTabs tabs={loopTabs} activeTab={activeSection} onChangeTab={setActiveSection}>
+					{activeSection === 'conversation' ? (
+						<div className="workbench-chat">
+							<div
+								id="workbench-chat-transcript"
+								className="chat-transcript"
+								aria-label={t('app.workbench.chat.history', 'Thread history')}
+								role="log"
+							>
+								{sessionChats.length ? (
+									(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
+										(chat) => (
+											<article className="chat-bubble" key={chat.id}>
+												<div className="chat-bubble-header">
+													<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
+														{String(chat.status ?? 'active')}
+													</Badge>
+													<span className="mono">{shortId(chat.id)}</span>
+													<span className="muted">{formatTime(chat.createdAt)}</span>
+												</div>
+												<strong>{chat.title}</strong>
+												<p>{chat.summary}</p>
+											</article>
+										),
+									)
+								) : (
+									<EmptyState
+										title={t('app.workbench.chat.noMessagesTitle', 'No messages yet')}
+										body={t(
+											'app.workbench.chat.noMessagesBody',
+											'Describe the work in the composer.',
+										)}
+									/>
+								)}
+							</div>
+							{sessionChats.length > CHAT_PREVIEW_COUNT ? (
+								<Button
+									aria-expanded={showAllChats}
+									aria-controls="workbench-chat-transcript"
+									onClick={() => setShowAllChats((open) => !open)}
+								>
+									{showAllChats
+										? t('app.workbench.chat.showFewer', 'Show fewer')
+										: t('app.workbench.chat.viewFull', 'View full thread history')}
+								</Button>
+							) : null}
+						</div>
+					) : null}
+
+					{activeSection === 'questions' ? (
+						<ProductLoopSection
+							section="questions"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+					{activeSection === 'brief' ? (
+						<ProductLoopSection
+							section="brief"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+					{activeSection === 'assumptions' ? (
+						<ProductLoopSection
+							section="assumptions"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+					{activeSection === 'decisions' ? (
+						<ProductLoopSection
+							section="decisions"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+					{activeSection === 'architecture' ? (
+						<ProductLoopSection
+							section="architecture"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+					{activeSection === 'backlog' ? (
+						<ProductLoopSection
+							section="backlog"
+							data={loop.data}
+							architectureDecisions={projectArchitectureDecisions}
+							loading={loop.loading}
+							error={loop.error}
+							actions={productLoopActions}
+						/>
+					) : null}
+
+					{activeSection === 'iteration' ? (
+						<div className="stack">
+							<TimelinePanel
+								runTimeline={runTimeline}
+								hasRun={hasRun}
+								deliveryTimeline={deliveryTimeline}
+								hasPipeline={hasPipeline}
+								signals={{
+									workflows: projectWorkflows.length,
+									evidence: projectEvidence.length,
+									approvals: pendingApprovals.length,
+									workspaces: projectWorkspaces.length,
+								}}
+								workflows={projectWorkflows}
+								workflowRuns={projectWorkflowRuns}
+								workflowEvents={projectWorkflowEvents}
+								onOpenArtifact={() => setActiveSection('review')}
+							/>
+						</div>
+					) : null}
+
+					{activeSection === 'execution' ? (
+						<div className="stack">
+							<WorkbenchDiffPanel
+								token={token}
+								evidenceId={resolvedEvidenceId}
+								artifacts={projectArtifacts}
+								evidencePackage={activeEvidence}
+							/>
+							<LogsPanel events={projectEvents} workflowEvents={projectWorkflowEvents} />
+						</div>
+					) : null}
+
+					{activeSection === 'review' ? (
+						<WorkbenchEvidencePanel
+							token={token}
+							evidenceId={resolvedEvidenceId}
+							evidencePackage={activeEvidence}
+							testResults={projectTestResults}
+							artifacts={projectArtifacts}
+							activeProductLoop={activeProductLoop}
+							tasks={loop.data?.tasks ?? []}
+							decisionBusy={
+								loopActionBusy === 'accept_delivery' ||
+								loopActionBusy === 'request_delivery_changes' ||
+								loopActionBusy === 'continue_delivery'
+							}
+							onAcceptDelivery={handleAcceptDelivery}
+							onRequestChanges={handleRequestDeliveryChanges}
+							onContinueDelivery={handleContinueDelivery}
+						/>
+					) : null}
+				</WorkbenchTabs>
+			</section>
+		),
+		status: (
+			<WorkbenchInspector
+				key="status"
+				runtimeProviders={runtimeProviders}
+				runtimeProviderConfiguration={runtimeProviderConfiguration}
+				token={token}
+				pendingApprovals={pendingApprovals}
+				latestEvidence={latestEvidence}
+				testResults={projectTestResults}
+				blockers={blockers}
+				onOpenJobs={onOpenJobs}
+				onOpenEvidence={onOpenEvidence}
+				onOpenSettings={onOpenSettings}
+				onOpenRuntimeSetup={onOpenRuntimeSetup}
+				onRefresh={onRefresh}
+			/>
+		),
+	};
+
+	const columnTracks = columns.order.map((id) => COLUMN_TRACKS[id]).join(' ');
+
 	return (
 		<div className="workbench-canvas">
 			{header}
-			<div className="workbench-layout">
-				<WorkbenchExplorer
-					projects={projects}
-					project={project}
-					branch={displayBranch}
-					sessions={projectSessions}
-					recentRuns={projectWorkflowRuns}
-					workflows={projectWorkflows}
-					selectedSessionId={selectedSessionId}
-					selectedRunId={selectedRunId}
-					newSessionSentinel={NEW_SESSION_ID}
-					onSelectProject={onSelectProject}
-					onSelectSession={setSelectedSessionId}
-					onSelectRun={onSelectRun}
-					onCreateProject={onCreateProject}
-				/>
-
-				<section
-					className="workbench-primary"
-					aria-label={t('app.workbench.primaryRegion', 'Task and progress')}
-				>
-					<div className="surface flat workbench-composer-header">
-						<div className="workbench-composer-meta">
-							<strong>
-								{activeSession
-									? activeSession.title
-									: t('app.workbench.chat.title', 'New project thread')}
-							</strong>
-							<div className="inline">
-								<Badge tone={toneForStatus(latestRunStatus)}>{latestRunStatus}</Badge>
-							</div>
-						</div>
-						<button
-							aria-label={t('app.workbench.team.openLoop', 'Open Agents / Loop')}
-							className="button"
-							type="button"
-							onClick={() => setTeamOpen(true)}
-						>
-							<Users aria-hidden="true" size={15} /> {t('app.workbench.mode.loop', 'Agents / Loop')}
-						</button>
-					</div>
-
-					<Surface flat>
-						<div className="stack">
-							<TextArea
-								label={t('app.workbench.composer.promptLabel', 'What should AIDO do?')}
-								value={prompt}
-								rows={6}
-								disabled={!project || busy}
-								placeholder={t(
-									'app.workbench.composer.promptPlaceholder',
-									'Describe the work in plain language.',
-								)}
-								onChange={(event) => setPrompt(event.target.value)}
-							/>
-							{modeControl}
-							<TextField
-								label={t('app.workbench.composer.titleLabel', 'Title')}
-								help={t(
-									'app.workbench.composer.titleHelp',
-									'Auto-derived from your prompt — edit to override.',
-								)}
-								value={effectiveTitle}
-								disabled={!project || busy}
-								onChange={(event) => {
-									setTitle(event.target.value);
-									setTitleEdited(true);
-								}}
-							/>
-							<div className="inline">
-								<Button
-									variant="primary"
-									icon={<Rocket aria-hidden="true" size={16} />}
-									disabled={composerDisabled}
-									onClick={submitComposer}
-								>
-									{busy ? t('app.workbench.chat.creating', 'Creating thread intake') : submitLabel}
-								</Button>
-								{busy ? (
-									<Button onClick={cancelConversation}>
-										{t('app.workbench.composer.cancel', 'Cancel intake')}
-									</Button>
-								) : null}
-							</div>
-
-							{error ? (
-								<div className="form-error" role="alert">
-									{error}
-								</div>
-							) : null}
-							{created ? (
-								<div className="form-success" role="status">
-									<CheckCircle2 aria-hidden="true" size={16} />
-									<span>{t('app.workbench.chat.created', 'Thread intake created')}</span>
-									<span className="mono">{shortId(created.threadId)}</span>
-									<span>{t('app.workbench.chat.pipelineLinked', 'message')}</span>
-									<span className="mono">{shortId(created.messageId)}</span>
-								</div>
-							) : null}
-
-							<div className="shell-chat-context">
-								<span className="shell-chat-context-project">{project.name}</span>
-								<GitBranchBar selectedProject={project} token={token} onRefresh={onRefresh} />
-							</div>
-						</div>
-					</Surface>
-
-					<Surface title={t('app.workbench.runTimeline.title', 'Run timeline')} flat>
-						{hasRun ? (
-							<WorkflowTimeline
-								variant="rail"
-								stages={runTimeline}
-								label={t('app.workbench.runTimeline.title', 'Run timeline')}
-							/>
-						) : (
-							<EmptyState
-								title={t('app.workbench.runTimeline.emptyTitle', 'No run yet')}
-								body={t(
-									'app.workbench.runTimeline.emptyBody',
-									'Submit an intake to track its autonomous run here.',
-								)}
-							/>
-						)}
-					</Surface>
-
-					<Surface title={t('app.workbench.loop.stepperTitle', 'Loop status')} flat>
-						<ProductLoopStepper
-							loop={loop.data?.loops[0] ?? null}
-							onStart={startLoop}
-							starting={loopStarting}
-						/>
-					</Surface>
-
-					<WorkbenchTabs tabs={loopTabs} activeTab={activeSection} onChangeTab={setActiveSection}>
-						{activeSection === 'conversation' ? (
-							<div className="workbench-chat">
-								<div
-									id="workbench-chat-transcript"
-									className="chat-transcript"
-									aria-label={t('app.workbench.chat.history', 'Thread history')}
-									role="log"
-								>
-									{sessionChats.length ? (
-										(showAllChats ? sessionChats : sessionChats.slice(0, CHAT_PREVIEW_COUNT)).map(
-											(chat) => (
-												<article className="chat-bubble" key={chat.id}>
-													<div className="chat-bubble-header">
-														<Badge tone={toneForStatus(String(chat.status ?? 'active'))}>
-															{String(chat.status ?? 'active')}
-														</Badge>
-														<span className="mono">{shortId(chat.id)}</span>
-														<span className="muted">{formatTime(chat.createdAt)}</span>
-													</div>
-													<strong>{chat.title}</strong>
-													<p>{chat.summary}</p>
-												</article>
-											),
-										)
-									) : (
-										<EmptyState
-											title={t('app.workbench.chat.emptyTitle', 'No messages in this thread')}
-											body={t(
-												'app.workbench.chat.emptyBody',
-												'Use the composer to start coordinated project work for this workspace.',
-											)}
-										/>
-									)}
-								</div>
-								{sessionChats.length > CHAT_PREVIEW_COUNT ? (
-									<Button
-										aria-expanded={showAllChats}
-										aria-controls="workbench-chat-transcript"
-										onClick={() => setShowAllChats((open) => !open)}
-									>
-										{showAllChats
-											? t('app.workbench.chat.showFewer', 'Show fewer')
-											: t('app.workbench.chat.viewFull', 'View full thread history')}
-									</Button>
-								) : null}
-							</div>
-						) : null}
-
-						{activeSection === 'questions' ? (
-							<ProductLoopSection
-								section="questions"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-						{activeSection === 'brief' ? (
-							<ProductLoopSection
-								section="brief"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-						{activeSection === 'assumptions' ? (
-							<ProductLoopSection
-								section="assumptions"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-						{activeSection === 'decisions' ? (
-							<ProductLoopSection
-								section="decisions"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-						{activeSection === 'architecture' ? (
-							<ProductLoopSection
-								section="architecture"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-						{activeSection === 'backlog' ? (
-							<ProductLoopSection
-								section="backlog"
-								data={loop.data}
-								architectureDecisions={projectArchitectureDecisions}
-								loading={loop.loading}
-								error={loop.error}
-								actions={productLoopActions}
-							/>
-						) : null}
-
-						{activeSection === 'iteration' ? (
-							<div className="stack">
-								<TimelinePanel
-									runTimeline={runTimeline}
-									hasRun={hasRun}
-									deliveryTimeline={deliveryTimeline}
-									hasPipeline={hasPipeline}
-									signals={{
-										workflows: projectWorkflows.length,
-										evidence: projectEvidence.length,
-										approvals: pendingApprovals.length,
-										workspaces: projectWorkspaces.length,
-									}}
-									workflows={projectWorkflows}
-									workflowRuns={projectWorkflowRuns}
-									workflowEvents={projectWorkflowEvents}
-									onOpenArtifact={() => setActiveSection('review')}
-								/>
-							</div>
-						) : null}
-
-						{activeSection === 'execution' ? (
-							<div className="stack">
-								<WorkbenchDiffPanel
-									token={token}
-									evidenceId={resolvedEvidenceId}
-									artifacts={projectArtifacts}
-									evidencePackage={activeEvidence}
-								/>
-								<LogsPanel events={projectEvents} workflowEvents={projectWorkflowEvents} />
-							</div>
-						) : null}
-
-						{activeSection === 'review' ? (
-							<WorkbenchEvidencePanel
-								token={token}
-								evidenceId={resolvedEvidenceId}
-								evidencePackage={activeEvidence}
-								testResults={projectTestResults}
-								artifacts={projectArtifacts}
-								activeProductLoop={activeProductLoop}
-								tasks={loop.data?.tasks ?? []}
-								decisionBusy={
-									loopActionBusy === 'accept_delivery' ||
-									loopActionBusy === 'request_delivery_changes' ||
-									loopActionBusy === 'continue_delivery'
-								}
-								onAcceptDelivery={handleAcceptDelivery}
-								onRequestChanges={handleRequestDeliveryChanges}
-								onContinueDelivery={handleContinueDelivery}
-							/>
-						) : null}
-					</WorkbenchTabs>
-				</section>
-
-				<WorkbenchInspector
-					runtimeProviders={runtimeProviders}
-					runtimeProviderConfiguration={runtimeProviderConfiguration}
-					token={token}
-					pendingApprovals={pendingApprovals}
-					latestEvidence={latestEvidence}
-					testResults={projectTestResults}
-					blockers={blockers}
-					onOpenJobs={onOpenJobs}
-					onOpenEvidence={onOpenEvidence}
-					onOpenSettings={onOpenSettings}
-					onOpenRuntimeSetup={onOpenRuntimeSetup}
-					onRefresh={onRefresh}
-				/>
+			<WorkbenchColumnControls order={columns.order} onMove={columns.move} />
+			<div
+				className="workbench-layout"
+				style={{ '--workbench-columns': columnTracks } as CSSProperties}
+			>
+				{columns.order.map((id) => columnNodes[id])}
 			</div>
 
 			<Drawer

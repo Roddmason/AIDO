@@ -4,41 +4,197 @@ Configura la conexión con los PRAGMA de durabilidad/concurrencia (WAL, foreign
 keys, busy_timeout) y autocommit, e implementa el límite transaccional explícito
 del backend: ``BEGIN IMMEDIATE`` con COMMIT al salir o ROLLBACK ante cualquier excepción.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import sqlite3
+import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 
-def open_sqlite_connection(db_path: str | Path) -> sqlite3.Connection:
-    """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit."""
+def open_sqlite_connection(db_path: str | Path, *, busy_timeout_ms: int = 30000) -> sqlite3.Connection:
+    """Abre la SQLite creando su directorio y fija PRAGMA de WAL, foreign keys y autocommit.
+
+    Una BD que todavia no existe (o existe con 0 bytes) nace en ``auto_vacuum=INCREMENTAL``. Ese
+    PRAGMA debe fijarse antes de cualquier escritura real al archivo: verificado empiricamente que
+    ``journal_mode=WAL`` ya cuenta como esa primera escritura (fija el header de la pagina 1) y
+    congela el modo en NONE aunque todavia no exista ninguna tabla — más estricto que "antes del
+    primer CREATE TABLE" (https://www.sqlite.org/pragma.html#pragma_auto_vacuum).
+    """
+    require_safe_sqlite_runtime()
     resolved = Path(db_path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(
-        resolved,
-        timeout=30,
-        isolation_level=None,
-        check_same_thread=False,
+    is_new_database = not resolved.exists() or resolved.stat().st_size == 0
+    connection = None
+    started = time.monotonic()
+    try:
+        connection = sqlite3.connect(
+            resolved, timeout=busy_timeout_ms / 1000, isolation_level=None, check_same_thread=False
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        if is_new_database:
+            connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
+        return connection
+    except sqlite3.Error as error:
+        from .diagnostics import diagnostic_event
+
+        diagnostic_event(
+            "sqlite.open.error",
+            component="sqlite",
+            error=error,
+            operation="open_configure",
+            connectionId=f"conn-{id(connection):x}" if connection is not None else None,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
+        if connection is not None:
+            connection.close()
+        raise
+
+
+def require_safe_sqlite_runtime() -> None:
+    """Rechaza runtimes afectados por WAL-reset y la versión 3.52 retirada por SQLite.
+
+    Fuente: https://www.sqlite.org/wal.html#walresetbug y https://www.sqlite.org/news.html.
+    La verificación ocurre antes de crear la base: actualizar Python/SQLite, no desactivar WAL.
+    """
+    version = sqlite3.sqlite_version_info
+    supported = (
+        (version >= (3, 51, 3) and version[:2] != (3, 52))
+        or (version[:2] == (3, 50) and version >= (3, 50, 7))
+        or (version[:2] == (3, 44) and version >= (3, 44, 6))
     )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute("PRAGMA busy_timeout = 30000")
-    return connection
+    if not supported:
+        raise RuntimeError(
+            "SQLite runtime requires the WAL-reset fix: use 3.51.3+ (excluding withdrawn 3.52), "
+            "or patched 3.50.7/3.44.6. Upgrade the project Python runtime before starting AIDO."
+        )
+
+
+def row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
+    """Lee una columna opcional de una fila SQLite sin romper bases previas a una migración."""
+    return row[column] if column in row.keys() else default
+
+
+def db_bool(value: Any) -> bool:
+    """Convierte un valor SQLite (entero 0/1 o ya booleano) a ``bool``."""
+    return bool(int(value)) if isinstance(value, int) else bool(value)
 
 
 @contextmanager
 def immediate_transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Abre una transacción atómica (``BEGIN IMMEDIATE``): COMMIT al salir, ROLLBACK si algo falla."""
+    from .diagnostics import diagnostic_event
+
+    started = time.monotonic()
+    transaction_id = f"txn-{uuid.uuid4().hex}"
+    operation = "begin"
     try:
         connection.execute("BEGIN IMMEDIATE")
-        yield connection
-        connection.execute("COMMIT")
-    except Exception:
-        connection.execute("ROLLBACK")
+    except Exception as error:
+        diagnostic_event(
+            "sqlite.transaction.error",
+            component="sqlite",
+            error=error,
+            operation=operation,
+            connectionId=f"conn-{id(connection):x}",
+            transactionId=transaction_id,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
         raise
+    try:
+        operation = "body"
+        yield connection
+        operation = "commit"
+        connection.execute("COMMIT")
+    except Exception as error:
+        diagnostic_event(
+            "sqlite.transaction.error",
+            component="sqlite",
+            error=error,
+            operation=operation,
+            connectionId=f"conn-{id(connection):x}",
+            transactionId=transaction_id,
+            waitDurationMs=(time.monotonic() - started) * 1000,
+            attempt=1,
+        )
+        if connection.in_transaction:
+            try:
+                connection.execute("ROLLBACK")
+            except Exception as rollback_error:
+                diagnostic_event(
+                    "sqlite.rollback.error",
+                    component="sqlite",
+                    error=rollback_error,
+                    connectionId=f"conn-{id(connection):x}",
+                    transactionId=transaction_id,
+                )
+        raise
+
+
+def sqlite_database_diagnostics(
+    connection: sqlite3.Connection,
+    *,
+    db_path: str | Path,
+) -> dict[str, Any]:
+    """Devuelve señales operacionales de SQLite/WAL sin iniciar una transacción de escritura."""
+    resolved = Path(db_path)
+    journal_mode = str(connection.execute("PRAGMA journal_mode").fetchone()[0])
+    busy_timeout_ms = int(connection.execute("PRAGMA busy_timeout").fetchone()[0])
+    wal_autocheckpoint_pages = int(connection.execute("PRAGMA wal_autocheckpoint").fetchone()[0])
+    page_size_bytes = int(connection.execute("PRAGMA page_size").fetchone()[0])
+    wal_path = Path(f"{resolved}-wal")
+    shm_path = Path(f"{resolved}-shm")
+    return {
+        "sqliteVersion": sqlite3.sqlite_version,
+        "journalMode": journal_mode,
+        "busyTimeoutMs": busy_timeout_ms,
+        "walAutoCheckpointPages": wal_autocheckpoint_pages,
+        "pageSizeBytes": page_size_bytes,
+        "databaseBytes": resolved.stat().st_size if resolved.exists() else 0,
+        "walBytes": wal_path.stat().st_size if wal_path.exists() else 0,
+        "sharedMemoryBytes": shm_path.stat().st_size if shm_path.exists() else 0,
+    }
+
+
+def incremental_vacuum_if_enabled(connection: sqlite3.Connection, *, pages: int = 8192) -> bool:
+    """Libera hasta ``pages`` paginas ya truncables si la BD esta en ``auto_vacuum=INCREMENTAL``.
+
+    No-op (devuelve ``False``) en cualquier otro modo: el modo solo se fija en una BD nueva
+    (``initialize_platform_schema``) o mediante ``VACUUM`` (comando ``compact-db``), nunca aqui.
+    Con el ``page_size`` por defecto (4096 B), 8192 paginas son ~32 MiB por pasada.
+    """
+    mode = int(connection.execute("PRAGMA auto_vacuum").fetchone()[0])
+    if mode != 2:
+        return False
+    connection.execute(f"PRAGMA incremental_vacuum({int(pages)})")
+    return True
+
+
+def passive_wal_checkpoint(
+    connection: sqlite3.Connection,
+    *,
+    db_path: str | Path,
+) -> dict[str, Any]:
+    """Ejecuta ``wal_checkpoint(PASSIVE)`` y reporta progreso sin bloquear lectores/escritores."""
+    started = time.perf_counter()
+    busy, log_frames, checkpointed_frames = connection.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+    wal_path = Path(f"{Path(db_path)}-wal")
+    return {
+        "mode": "PASSIVE",
+        "busy": int(busy),
+        "logFrames": max(0, int(log_frames)),
+        "checkpointedFrames": max(0, int(checkpointed_frames)),
+        "walBytes": wal_path.stat().st_size if wal_path.exists() else 0,
+        "durationMs": max(0, int((time.perf_counter() - started) * 1000)),
+    }

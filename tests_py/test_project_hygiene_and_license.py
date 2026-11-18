@@ -106,7 +106,11 @@ def test_open_source_governance_files_require_owner_review() -> None:
     assert "pull requests" in contributing.lower()
     assert "owner review" in contributing.lower()
     assert "report security issues privately" in security.lower()
-    assert codeowners.strip() == "* @Roddmason"
+    owner_rules = [
+        line for line in codeowners.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert owner_rules == []
+    assert "Maintainer review remains required by CONTRIBUTING.md." in codeowners
     assert "testing" in pull_request_template.lower()
     assert "no secrets" in pull_request_template.lower()
     assert "labels:" in bug_report
@@ -155,7 +159,16 @@ def test_quality_and_security_scripts_are_declared() -> None:
     assert "ruff check" in scripts["lint:py"]
     assert "python -X utf8 -m piplicenses" in scripts["security:licenses:py"]
     assert "licenses list" in scripts["security:licenses:js"]
-    assert "gitleaks detect" in scripts["security:secrets"]
+    secrets_command = scripts["security:secrets"].split()
+    assert secrets_command[:3] == ["gitleaks", "dir", "."]
+    assert secrets_command[secrets_command.index("--config") + 1] == ".gitleaks.toml"
+    assert {
+        "--redact=100",
+        "--ignore-gitleaks-allow",
+        "--max-archive-depth=3",
+        "--max-decode-depth=5",
+        "--timeout=1800",
+    } <= set(secrets_command)
     assert "semgrep scan" in scripts["security:sast"]
     assert "check-credentials.py" in scripts["security:credentials:preflight"]
 
@@ -163,22 +176,49 @@ def test_quality_and_security_scripts_are_declared() -> None:
 def test_quality_scripts_include_web_typecheck() -> None:
     package = json.loads(read("package.json"))
     scripts = package["scripts"]
-    quality_local = read("scripts/quality-local.ps1")
+    from local_control_center.quality.plans import build_plan
+
+    steps = build_plan(ROOT, "pr")
 
     assert "typecheck:web" in scripts
     assert "typecheck:web" in scripts["test:all"]
-    assert "typecheck:web" in quality_local
-    assert "security:secrets" in quality_local
-    assert "security:sast" in quality_local
+    assert {"typecheck", "secrets", "semgrep"} <= {step.name for step in steps}
 
 
 def test_quality_local_runs_direct_commands_for_long_gates() -> None:
-    quality_local = read("scripts/quality-local.ps1")
+    import sys
 
-    assert "Resolve-LocalPython" in quality_local
-    assert 'Command @($PythonCommand, "-m", "pytest", "tests_py", "-q")' in quality_local
-    assert 'Command @("uv", "run", "--extra", "dev", "ruff", "check", ".")' in quality_local
-    assert 'Command @("uv", "run", "--extra", "dev", "semgrep", "scan"' in quality_local
+    quality_local = read("scripts/quality-local.ps1")
+    from local_control_center.quality.plans import build_plan
+
+    steps = build_plan(ROOT, "pr")
+    assert '"-m", "local_control_center.quality"' in quality_local
+    assert next(step for step in steps if step.name == "python").argv[1:4] == ("-m", "pytest", "tests_py")
+    assert next(step for step in steps if step.name == "ruff").argv == (
+        "uv",
+        "run",
+        "--no-sync",
+        "--extra",
+        "dev",
+        "ruff",
+        "check",
+        ".",
+    )
+    scanner_prefix = (
+        "uv",
+        "run",
+        "--no-sync",
+        "--extra",
+        "dev",
+        "semgrep",
+        *(("--legacy",) if sys.platform == "win32" else ()),
+        "scan",
+    )
+    scanner = next(step for step in steps if step.name == "semgrep")
+    assert scanner.argv[: len(scanner_prefix)] == scanner_prefix
+    assert "--error" in scanner.argv
+    assert scanner.argv[scanner.argv.index("--jobs") + 1] == "1"
+    assert "run_supervised_capture" in read("local_control_center/quality/__main__.py")
     assert "& corepack pnpm@10.24.0 run $Script" not in quality_local
 
 

@@ -1,10 +1,10 @@
 /**
  * Panel de solo lectura que lista las reglas de presupuesto del Model Gateway.
  * Cada fila resume el alcance (tipo:id), los topes de costo/tokens, el periodo y la acción al excederse.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ModelGatewayBudgetRule } from '../../api/types';
-import { DataTable, EmptyState } from '../../components/primitives';
+import { DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { boolLabel, money, text } from './utils';

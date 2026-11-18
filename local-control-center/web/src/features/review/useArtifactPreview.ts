@@ -2,9 +2,9 @@
  * Hook backing the reviewer's artifact preview/download UI: token-protected reads
  * of any linked artifact through the evidence endpoint, with generation guards so
  * stale responses cannot clobber newer state. State container, not a renderer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ArtifactPayload } from '../../api/client';
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../api/client';
 import type { Artifact } from '../../api/types';
@@ -90,7 +90,7 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 		}
 	};
 
-	const clear = () => {
+	const clear = useCallback(() => {
 		requestRef.current += 1;
 		downloadRef.current += 1;
 		setArtifact(null);
@@ -98,7 +98,7 @@ export function useArtifactPreview(token: string): ArtifactPreview {
 		setLoadingId('');
 		setDownloadingId('');
 		setError('');
-	};
+	}, []);
 
 	return { artifact, payload, loadingId, downloadingId, error, openPreview, download, clear };
 }

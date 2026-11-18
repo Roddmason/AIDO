@@ -2,13 +2,13 @@
  * Lee los campos de presentación de un artefacto desde su `metadata` heterogéneo.
  * Normaliza nombre, MIME y tamaño a valores seguros para la UI, con fallbacks
  * cuando el metadata viene ausente, malformado o sin el campo esperado.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ArtifactPayload } from '../api/client';
 import type { Artifact, Dictionary } from '../api/types';
 
 /** Devuelve el `metadata` como diccionario, o `{}` si no es un objeto válido. */
-export function artifactMetadata(artifact: Artifact): Dictionary {
+function artifactMetadata(artifact: Artifact): Dictionary {
 	return (
 		artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}
 	) as Dictionary;

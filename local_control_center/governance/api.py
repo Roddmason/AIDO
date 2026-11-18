@@ -5,7 +5,7 @@ contexto y decisión; riesgo high/critical exige mitigación) y delega la persis
 en `GovernanceRepository`. Cada escritura emite auditoría y/o evento de dominio vía
 `EventBus`. Las mutaciones quedan tras `require_write` (control de escritura del caller).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

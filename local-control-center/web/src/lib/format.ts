@@ -2,7 +2,7 @@
  * Helpers de presentación que mapean datos crudos a texto/semántica para la UI.
  * Cubre el truncado de IDs largos, el enmascarado defensivo de secretos en texto
  * libre, y la traducción de estados de dominio al tono visual de la paleta.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { maskSecrets } from './redaction';
 
@@ -39,6 +39,13 @@ export function formatDurationMs(ms?: number | null): string {
 	if (minutes < 60) return `${minutes}m ${seconds}s`;
 	const hours = Math.floor(minutes / 60);
 	return `${hours}h ${minutes % 60}m`;
+}
+
+/** Renders an ISO timestamp in the user's locale, falling back to the raw value or the empty label. */
+export function formatTime(value: string | null | undefined, emptyLabel = 'not recorded'): string {
+	if (!value) return emptyLabel;
+	const parsed = Date.parse(value);
+	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
 }
 
 /**
@@ -116,4 +123,18 @@ export function toneForStatus(status?: string): 'ok' | 'warn' | 'danger' | 'info
 	)
 		return 'danger';
 	return 'info';
+}
+
+const THREAD_TONE_OVERRIDES: Record<string, ReturnType<typeof toneForStatus>> = {
+	resolved: 'ok',
+	waiting_decision: 'pending',
+	open: 'info',
+};
+
+/**
+ * Tono del chip de estado de un thread: aplica los overrides de ciclo de vida (resolved/open/
+ * waiting_decision) sobre `toneForStatus`, para que header e inspector coloreen igual el mismo estado.
+ */
+export function threadStatusTone(status: string): ReturnType<typeof toneForStatus> {
+	return THREAD_TONE_OVERRIDES[status] ?? toneForStatus(status);
 }

@@ -4,19 +4,54 @@ Serializa con claves ordenadas y sin escapar Unicode para que el mismo objeto
 produzca siempre el mismo texto, condición necesaria para hashes reproducibles
 y para comparar payloads. La carga es tolerante a fallos: nunca propaga errores de parseo.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
+
+
+def publish_json_exclusive(path: Path, value: Any) -> None:
+    """Publish complete UTF-8 bytes without replacing an existing receipt, even concurrently."""
+    content = json.dumps(value, indent=2, ensure_ascii=False).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".writing", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink()
 
 
 def json_dumps(value: Any) -> str:
     """Serializa a JSON determinista (claves ordenadas, sin escapar Unicode); ``None`` se vuelve ``{}``."""
     return json.dumps(value if value is not None else {}, ensure_ascii=False, sort_keys=True)
+
+
+def prompt_json_dumps(value: Any) -> str:
+    """Serializa JSON compacto para bloques de prompt: mismo determinismo, sin espacios de relleno.
+
+    Solo para texto que viaja a un modelo (ahorra ~8% del bloque). Las columnas de BD, hashes y
+    claves de dedup siguen usando ``json_dumps``: cambiar su formato rompería la deduplicación
+    contra filas ya persistidas.
+    """
+    return json.dumps(
+        value if value is not None else {},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def json_loads(value: str | None, fallback: Any = None) -> Any:
@@ -33,3 +68,9 @@ def stable_hash(value: Any) -> str:
     """Calcula un SHA-256 reproducible del valor; los no-str se serializan a JSON ordenado primero."""
     payload = value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """Calcula el SHA-256 hexadecimal de un archivo leyéndolo por streaming, sin cargarlo entero en RAM."""
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()

@@ -1,11 +1,11 @@
 """Records per-call token usage and cost in the usage ledger with redaction.
 
-Persists one `usage_ledger` row per model/runtime call and, when a cost is known, a
-paired `cost_usage` row, sanitizing raw usage payloads before storage. Also derives a
-trustworthy `usageSource`/`tokenStatus`/`costStatus` so downstream summaries can tell
-provider-reported usage from estimates.
+Persists one `usage_ledger` row per model/runtime call and, when a cost is known and the
+caller does not record it itself, a paired `cost_usage` row, sanitizing raw usage payloads
+before storage. Also derives a trustworthy `usageSource`/`tokenStatus`/`costStatus` so
+downstream summaries can tell provider-reported usage from estimates.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -57,15 +57,13 @@ def row_to_usage(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _usage_source_from_raw(raw_usage: dict[str, Any] | None, actual_cost_usd: float | None) -> str:
+def _usage_source_from_raw(raw_usage: dict[str, Any] | None, _actual_cost_usd: float | None) -> str:
     raw_source = str((raw_usage or {}).get("usage_source") or "").strip().lower()
     if raw_source in {"actual", "estimated", "unavailable", "unknown"}:
         return raw_source
     if raw_source in {"not_available", "none"}:
         return "unavailable"
     if raw_source in {"provider", "provider_reported", "cli_output"}:
-        return "actual"
-    if actual_cost_usd is not None:
         return "actual"
     return "estimated"
 
@@ -82,6 +80,7 @@ class UsageLedger:
         provider_id: str,
         model: str,
         runtime_type: str,
+        project_id: str | None = None,
         agent_id: str | None = None,
         role: str | None = None,
         workflow_run_id: str | None = None,
@@ -90,28 +89,52 @@ class UsageLedger:
         task_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
-        input_tokens: int = 0,
-        cached_input_tokens: int = 0,
-        output_tokens: int = 0,
-        reasoning_tokens: int = 0,
-        tool_tokens: int = 0,
+        input_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        tool_tokens: int | None = None,
+        total_tokens: int | None = None,
         estimated_cost_usd: float | None = None,
         actual_cost_usd: float | None = None,
         currency: str = "USD",
         latency_ms: int | None = None,
         raw_usage: dict[str, Any] | None = None,
         usage_source: str | None = None,
+        record_cost_usage: bool = True,
     ) -> dict[str, Any]:
         """Insert a ledger row (and a cost_usage row when cost is known) and return it.
+
+        ``project_id`` attributes that cost_usage row to the caller's project; the ledger row
+        has no project column, and callers without a project leave the cost row's project NULL.
+        ``record_cost_usage=False`` skips that row for a caller whose own cost_usage row already
+        carries the call's cost (the model gateway's ``model_call`` row): the Control Center sums
+        every cost_usage row, so a second one would count the call twice.
 
         Raw usage is redacted before storage. The two inserts are emitted on the caller's
         connection without an explicit commit, so they are atomic only within the caller's
         transaction.
         """
-        total_tokens = input_tokens + cached_input_tokens + output_tokens + reasoning_tokens + tool_tokens
         ledger_id = f"usage-{uuid.uuid4()}"
         sanitized_usage = redact_secrets(raw_usage or {"usage_source": "estimated"})
         resolved_usage_source = usage_source or _usage_source_from_raw(sanitized_usage, actual_cost_usd)
+        if resolved_usage_source == "actual":
+            stored_tokens = (
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                tool_tokens,
+            )
+            if total_tokens is not None:
+                stored_total_tokens = int(total_tokens)
+            elif input_tokens is not None or output_tokens is not None:
+                stored_total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+            else:
+                stored_total_tokens = sum(int(value or 0) for value in stored_tokens)
+        else:
+            stored_tokens = (None, None, None, None, None)
+            stored_total_tokens = None
         self.connection.execute(
             """
             INSERT INTO usage_ledger
@@ -134,12 +157,8 @@ class UsageLedger:
                 task_id,
                 request_id,
                 session_id,
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                reasoning_tokens,
-                tool_tokens,
-                total_tokens,
+                *stored_tokens,
+                stored_total_tokens,
                 estimated_cost_usd,
                 actual_cost_usd,
                 currency,
@@ -149,14 +168,15 @@ class UsageLedger:
                 utc_now(),
             ),
         )
-        if estimated_cost_usd is not None or actual_cost_usd is not None:
+        if record_cost_usage and (estimated_cost_usd is not None or actual_cost_usd is not None):
             self.connection.execute(
                 """
                 INSERT INTO cost_usage (id, project_id, scope, amount_usd, metadata, created_at)
-                VALUES (?, NULL, 'model_gateway', ?, ?, ?)
+                VALUES (?, ?, 'model_gateway', ?, ?, ?)
                 """,
                 (
                     f"cost-{uuid.uuid4()}",
+                    project_id,
                     float(actual_cost_usd if actual_cost_usd is not None else estimated_cost_usd or 0),
                     json_dumps({"usageLedgerId": ledger_id, "providerId": provider_id, "model": model}),
                     utc_now(),
@@ -170,34 +190,84 @@ class UsageLedger:
         rows = self.connection.execute("SELECT * FROM usage_ledger ORDER BY created_at DESC").fetchall()
         return [row_to_usage(row) for row in rows]
 
+    def list_usage_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
+        """Return ledger entries whose ``task_id`` starts with any prefix, newest first.
+
+        Scopes a thread's usage by its product-loop ``task_id`` prefixes (the ledger has no
+        ``thread_id`` column). Prefixes are internally derived loop ids that never contain LIKE
+        wildcards. Returns an empty list when no prefixes are given, so an unrun thread yields no
+        fabricated rows.
+        """
+        prefixes = [prefix for prefix in task_prefixes if prefix]
+        if not prefixes:
+            return []
+        clause = " OR ".join("task_id LIKE ?" for _ in prefixes)
+        params = [f"{prefix}%" for prefix in prefixes]
+        rows = self.connection.execute(
+            f"SELECT * FROM usage_ledger WHERE {clause} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
+        return [row_to_usage(row) for row in rows]
+
     def summary(self) -> dict[str, Any]:
         """Aggregate total tokens and estimated/actual cost overall and per provider."""
         row = self.connection.execute(
             """
-            SELECT COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                   COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost,
-                   COALESCE(SUM(actual_cost_usd), 0) AS actual_cost
+            SELECT SUM(total_tokens) AS total_tokens,
+                   SUM(estimated_cost_usd) AS estimated_cost,
+                   SUM(actual_cost_usd) AS actual_cost,
+                   COUNT(*) AS total_rows,
+                   SUM(CASE WHEN usage_source = 'actual' THEN 0 ELSE 1 END) AS unknown_token_rows,
+                   COUNT(estimated_cost_usd) AS estimated_cost_rows,
+                   COUNT(actual_cost_usd) AS actual_cost_rows
             FROM usage_ledger
             """
         ).fetchone()
         by_provider = self.connection.execute(
             """
-            SELECT provider_id, COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                   COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost
+            SELECT provider_id, SUM(total_tokens) AS total_tokens,
+                   SUM(estimated_cost_usd) AS estimated_cost,
+                   COUNT(*) AS total_rows,
+                   SUM(CASE WHEN usage_source = 'actual' THEN 0 ELSE 1 END) AS unknown_token_rows,
+                   COUNT(estimated_cost_usd) AS estimated_cost_rows
             FROM usage_ledger
             GROUP BY provider_id
             ORDER BY provider_id ASC
             """
         ).fetchall()
+        actual_cost_usd = (
+            float(row["actual_cost"] or 0)
+            if int(row["actual_cost_rows"] or 0) == int(row["total_rows"] or 0)
+            else None
+        )
+        total_rows = int(row["total_rows"] or 0)
+        estimated_cost_usd = (
+            0.0
+            if total_rows == 0
+            else float(row["estimated_cost"] or 0)
+            if int(row["estimated_cost_rows"] or 0) == total_rows
+            else None
+        )
+        total_tokens = (
+            0
+            if total_rows == 0
+            else None
+            if int(row["unknown_token_rows"] or 0) > 0
+            else int(row["total_tokens"] or 0)
+        )
         return {
-            "totalTokens": int(row["total_tokens"] or 0),
-            "estimatedCostUsd": float(row["estimated_cost"] or 0),
-            "actualCostUsd": float(row["actual_cost"] or 0),
+            "totalTokens": total_tokens,
+            "estimatedCostUsd": estimated_cost_usd,
+            "actualCostUsd": actual_cost_usd,
             "byProvider": [
                 {
                     "providerId": item["provider_id"],
-                    "totalTokens": int(item["total_tokens"] or 0),
-                    "estimatedCostUsd": float(item["estimated_cost"] or 0),
+                    "totalTokens": None
+                    if int(item["unknown_token_rows"] or 0) > 0
+                    else int(item["total_tokens"] or 0),
+                    "estimatedCostUsd": float(item["estimated_cost"] or 0)
+                    if int(item["estimated_cost_rows"] or 0) == int(item["total_rows"] or 0)
+                    else None,
                 }
                 for item in by_provider
             ],

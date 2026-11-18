@@ -11,7 +11,7 @@ necesita agrupar una escritura con su auditoría/evento debe abrir él mismo una
 ``immediate_transaction``. Las lecturas de ``get_*`` tras la escritura ven el dato
 ya confirmado por estar en la misma conexión.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -6,10 +6,9 @@
  * absent project, an empty board, a load error and a still-loading fetch each render their own state
  * rather than a fabricated roster. Mounted inside the workbench "AI team" drawer and fetches only
  * while `open`, so it adds no cost when the drawer is closed.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
-import { Badge, EmptyState } from '../../components/primitives';
-import { ErrorState, Skeleton } from '../../components/ui';
+import { StatusChip as Badge, EmptyState, ErrorState, Skeleton } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { TeamActivityCard } from './TeamActivityCard';
 import { useTeamActivity } from './useTeamActivity';
@@ -18,9 +17,11 @@ import { useTeamActivity } from './useTeamActivity';
 export function TeamActivityPanel({
 	projectId,
 	open,
+	token,
 }: {
 	projectId: string | undefined;
 	open: boolean;
+	token?: string;
 }) {
 	const { t } = useI18n();
 	const activity = useTeamActivity(projectId, open);
@@ -92,7 +93,7 @@ export function TeamActivityPanel({
 			</header>
 			<div className="team-activity-list">
 				{entries.map((entry) => (
-					<TeamActivityCard entry={entry} key={entry.id} />
+					<TeamActivityCard entry={entry} key={entry.id} token={token} />
 				))}
 			</div>
 			{data?.truncated ? (

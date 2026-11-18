@@ -2,10 +2,10 @@
  * Simulador de ruteo del Model Gateway: arma los parámetros de una tarea hipotética y muestra qué ruta elegiría.
  * Sub-dominio de previsualización (dry-run, sin ejecutar): renderiza la ruta seleccionada, los resultados de
  * presupuesto/cuota y los candidatos con su desglose de score. El estado del formulario es controlado por el padre.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ModelGatewayRoutePreviewResponse } from '../../api/client';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { EXECUTABLE_AGENT_ROLES, money } from './utils';
@@ -89,15 +89,19 @@ export function RoutePreviewPanel({
 							onChange={(event) => onChange('mode', event.target.value)}
 						>
 							{[
-								'free_first',
-								'cost_controlled',
-								'balanced_best_value',
-								'max_performance',
-								'manual_by_profile',
-								'local_private',
+								{
+									value: 'free_tier',
+									label: t('app.modelGateway.routeMode.freeTier', 'Free tier only'),
+								},
+								{ value: 'free_first', label: 'free_first' },
+								{ value: 'cost_controlled', label: 'cost_controlled' },
+								{ value: 'balanced_best_value', label: 'balanced_best_value' },
+								{ value: 'max_performance', label: 'max_performance' },
+								{ value: 'manual_by_profile', label: 'manual_by_profile' },
+								{ value: 'local_private', label: 'local_private' },
 							].map((mode) => (
-								<option key={mode} value={mode}>
-									{mode}
+								<option key={mode.value} value={mode.value}>
+									{mode.label}
 								</option>
 							))}
 						</select>

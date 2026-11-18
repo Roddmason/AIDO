@@ -2,9 +2,9 @@
  * Renders a workflow run's merged timeline (steps + workflow events + audit events) as an ordered
  * list. The items are derived upstream by `buildWorkflowTimeline`; this is purely presentational.
  * Named distinctly from the workbench `WorkflowTimeline` (a run-stage rail) to avoid confusion.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
-import { Badge, EmptyState, StatusDot } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState, StatusDot } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { WorkflowTimelineItem } from './workflowLinks';
 

@@ -13,7 +13,7 @@ canónica de capacidades por provider y se alinea con las restricciones de runti
 (p. ej. ``code_edit`` solo en runtimes CLI); el ``model_router`` (DB-backed) sigue siendo el árbitro final
 del modelo concreto, su salud y el presupuesto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -89,7 +89,6 @@ PROVIDER_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 MODEL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind != "tools")
-TOOL_PROVIDERS = tuple(name for name, kind in PROVIDER_KINDS.items() if kind == "tools")
 
 PROVIDER_RANK = (
     "claude_code_cli",

@@ -10,7 +10,7 @@ estos métodos NO abren transacciones propias; cada ``execute`` se confirma de i
 del manager (escribir en el backend + registrar metadato + auditar) abarca varias sentencias en varias
 capas: si se requiere atomicidad entre ellas, el caller debe envolverlas en ``immediate_transaction``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

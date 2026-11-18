@@ -4,7 +4,11 @@
  * Chip uses full border-color (no side-stripe). Chip semantics follow the plan:
  * project scope: Inherited·General / Overridden·Project;
  * general scope: Default / Custom.
- * @author Rodrigo Mason
+ *
+ * Control per descriptor type: enum → select, number → numeric input, boolean → switch
+ * (immediate save in general scope), string_list → textarea (one item per line, shown as
+ * chips when read-only), string → text input.
+ * @author AIDO contributors
  */
 
 import { useCallback, useEffect, useId, useState } from 'react';
@@ -21,6 +25,8 @@ export interface SettingRowProps {
 	onRevert: () => Promise<void>;
 	/** For enum settings whose options come from a live source (e.g. sandbox profiles). */
 	enumOptions?: Array<{ value: string; label: string }>;
+	/** Optional help text rendered under the label. */
+	help?: string;
 }
 
 type ScopeCtx = 'general' | 'project';
@@ -29,7 +35,29 @@ function resolveScope(setting: ResolvedSetting): ScopeCtx {
 	return setting.editableScopes.includes('project') ? 'project' : 'general';
 }
 
-function ChipLabel({
+function isStringList(setting: ResolvedSetting): boolean {
+	return setting.type === 'string_list';
+}
+
+function listValue(value: JsonValue | undefined): string[] {
+	return Array.isArray(value) ? value.map((item) => String(item)) : [];
+}
+
+/** Serializes the current value into the local editing buffer (lists become one-per-line). */
+function toLocalValue(setting: ResolvedSetting): string {
+	if (isStringList(setting)) return listValue(setting.value).join('\n');
+	return String(setting.value ?? '');
+}
+
+/** Parses the textarea buffer into a clean string list (split on newlines/commas). */
+function parseListValue(raw: string): string[] {
+	return raw
+		.split(/[\n,]/)
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0);
+}
+
+export function ChipLabel({
 	setting,
 	scope,
 	t,
@@ -46,6 +74,17 @@ function ChipLabel({
 					{' · '}
 					<span className="setting-chip-source">
 						{t('app.settings.chip.source.general', 'General')}
+					</span>
+				</span>
+			);
+		}
+		if (setting.assignedBy === 'auto') {
+			return (
+				<span className="setting-chip" data-origin="auto">
+					{t('app.settings.chip.autoAssigned', 'Auto-assigned')}
+					{' · '}
+					<span className="setting-chip-source">
+						{t('app.settings.chip.source.detected', 'Detected from the project')}
 					</span>
 				</span>
 			);
@@ -80,7 +119,44 @@ function canRevert(setting: ResolvedSetting, scope: ScopeCtx): boolean {
 	return setting.origin === 'general';
 }
 
-export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRowProps) {
+/** Read-only rendering of the current value: On/Off for booleans, chips for lists, text otherwise. */
+function ValueDisplay({
+	setting,
+	t,
+}: {
+	setting: ResolvedSetting;
+	t: (key: string, fallback: string) => string;
+}) {
+	if (setting.type === 'boolean') {
+		return (
+			<span className="setting-value-display" data-boolean={setting.value ? 'on' : 'off'}>
+				{setting.value ? t('app.settings.boolean.on', 'On') : t('app.settings.boolean.off', 'Off')}
+			</span>
+		);
+	}
+	if (isStringList(setting)) {
+		const items = listValue(setting.value);
+		if (items.length === 0) {
+			return (
+				<span className="setting-value-display muted">
+					{t('app.settings.list.empty', 'None configured')}
+				</span>
+			);
+		}
+		return (
+			<span className="setting-list-chips">
+				{items.map((item) => (
+					<span key={item} className="setting-list-chip mono">
+						{item}
+					</span>
+				))}
+			</span>
+		);
+	}
+	return <span className="setting-value-display">{String(setting.value ?? '')}</span>;
+}
+
+export function SettingRow({ setting, onSet, onRevert, enumOptions, help }: SettingRowProps) {
 	const { t } = useI18n();
 	const controlId = useId();
 	const scope = resolveScope(setting);
@@ -88,13 +164,18 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 
 	const [revealControl, setRevealControl] = useState(false);
 	const [pending, setPending] = useState(false);
-	const [localValue, setLocalValue] = useState<string>(String(setting.value ?? ''));
+	const [localValue, setLocalValue] = useState<string>(() => toLocalValue(setting));
+	const [localChecked, setLocalChecked] = useState<boolean>(Boolean(setting.value));
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when this row's identity (key + scope) or its persisted value changes, not on every list refetch — useSettings.refresh() refetches the whole list after any sibling save and would otherwise hand this row a new `setting` object with the same values, wiping an in-progress edit.
 	useEffect(() => {
-		setLocalValue(String(setting.value ?? ''));
-	}, [setting.value]);
+		setLocalValue(toLocalValue(setting));
+		setLocalChecked(Boolean(setting.value));
+	}, [setting.key, scope, toLocalValue(setting)]);
 
 	const isNumberEmpty = setting.type === 'number' && localValue.trim() === '';
+	const isNumberInvalid =
+		setting.type === 'number' && localValue.trim() !== '' && !Number.isFinite(Number(localValue));
 
 	const handleSet = useCallback(async () => {
 		if (setting.type === 'number' && localValue.trim() === '') {
@@ -107,11 +188,14 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 			}
 			return;
 		}
+		if (setting.type === 'number' && !Number.isFinite(Number(localValue))) return;
 		let coerced: JsonValue = localValue;
 		if (setting.type === 'number') {
 			const n = Number(localValue);
 			if (Number.isFinite(n)) coerced = n;
 		}
+		if (setting.type === 'boolean') coerced = localChecked;
+		if (isStringList(setting)) coerced = parseListValue(localValue);
 		setPending(true);
 		try {
 			await onSet(coerced);
@@ -119,7 +203,7 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 		} finally {
 			setPending(false);
 		}
-	}, [localValue, setting.type, onSet, onRevert]);
+	}, [localValue, localChecked, setting, onSet, onRevert]);
 
 	const handleRevert = useCallback(async () => {
 		setPending(true);
@@ -131,7 +215,22 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 		}
 	}, [onRevert]);
 
+	/** General-scope booleans commit on toggle: a switch with a separate Save is legacy noise. */
+	const handleImmediateToggle = useCallback(
+		async (checked: boolean) => {
+			setLocalChecked(checked);
+			setPending(true);
+			try {
+				await onSet(checked);
+			} finally {
+				setPending(false);
+			}
+		},
+		[onSet],
+	);
+
 	const showControl = scope === 'general' || revealControl;
+	const booleanImmediate = setting.type === 'boolean' && scope === 'general';
 
 	return (
 		<div className="setting-row">
@@ -141,13 +240,37 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 				</label>
 				<ChipLabel setting={setting} scope={scope} t={t} />
 			</div>
+			{help ? <p className="setting-row-help">{help}</p> : null}
 
 			{showControl ? (
-				<div className="setting-control">
-					{/* B-1: use <select> when enumOptions provided (covers type="string" sandbox picker)
-					    OR when the setting declares enum members itself. When enumOptions is passed,
-					    the caller is responsible for including the "None" entry (value="") if needed. */}
-					{(enumOptions && enumOptions.length > 0) || setting.type === 'enum' ? (
+				<div
+					className="setting-control"
+					data-type={setting.type}
+					data-editing={scope === 'project' ? 'true' : undefined}
+				>
+					{setting.type === 'boolean' ? (
+						<label className="setting-switch" data-disabled={pending ? 'true' : undefined}>
+							<input
+								id={controlId}
+								type="checkbox"
+								checked={booleanImmediate ? Boolean(setting.value) : localChecked}
+								disabled={pending}
+								onChange={(e) =>
+									booleanImmediate
+										? handleImmediateToggle(e.target.checked)
+										: setLocalChecked(e.target.checked)
+								}
+							/>
+							<span className="setting-switch-track" aria-hidden="true">
+								<span className="setting-switch-thumb" />
+							</span>
+							<span className="setting-switch-state" aria-hidden="true">
+								{(booleanImmediate ? Boolean(setting.value) : localChecked)
+									? t('app.settings.boolean.on', 'On')
+									: t('app.settings.boolean.off', 'Off')}
+							</span>
+						</label>
+					) : (enumOptions && enumOptions.length > 0) || setting.type === 'enum' ? (
 						<select
 							id={controlId}
 							className="select"
@@ -163,6 +286,16 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 								),
 							)}
 						</select>
+					) : isStringList(setting) ? (
+						<textarea
+							id={controlId}
+							className="input setting-list-editor"
+							rows={Math.min(6, Math.max(2, parseListValue(localValue).length + 1))}
+							value={localValue}
+							disabled={pending}
+							placeholder={t('app.settings.list.placeholder', 'One entry per line')}
+							onChange={(e) => setLocalValue(e.target.value)}
+						/>
 					) : setting.type === 'number' ? (
 						<input
 							id={controlId}
@@ -170,6 +303,8 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 							className="input"
 							value={localValue}
 							disabled={pending}
+							aria-invalid={isNumberInvalid || undefined}
+							aria-describedby={isNumberInvalid ? `${controlId}-error` : undefined}
 							onChange={(e) => setLocalValue(e.target.value)}
 						/>
 					) : (
@@ -182,17 +317,18 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 							onChange={(e) => setLocalValue(e.target.value)}
 						/>
 					)}
-					<button
-						type="button"
-						className="button primary setting-action"
-						disabled={pending}
-						onClick={handleSet}
-					>
-						{/* I-2: empty number field reverts to default/inherited rather than saving 0. */}
-						{isNumberEmpty
-							? t('app.settings.action.revertToDefault', 'Revert to Default')
-							: t('app.settings.action.save', 'Save')}
-					</button>
+					{!booleanImmediate && (
+						<button
+							type="button"
+							className="button primary setting-action"
+							disabled={pending || isNumberInvalid}
+							onClick={handleSet}
+						>
+							{isNumberEmpty
+								? t('app.settings.action.revertToDefault', 'Revert to Default')
+								: t('app.settings.action.save', 'Save')}
+						</button>
+					)}
 					{scope === 'project' && (
 						<button
 							type="button"
@@ -206,9 +342,14 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 				</div>
 			) : (
 				<div className="setting-control setting-control--readonly">
-					<span className="setting-value-display">{String(setting.value ?? '')}</span>
+					<ValueDisplay setting={setting} t={t} />
 				</div>
 			)}
+			{isNumberInvalid && showControl ? (
+				<p className="setting-row-error" id={`${controlId}-error`} role="alert">
+					{t('app.settings.error.invalidNumber', 'Enter a valid number.')}
+				</p>
+			) : null}
 
 			<div className="setting-row-actions">
 				{scope === 'project' && !revealControl && (
@@ -216,8 +357,10 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 						type="button"
 						className="button setting-action"
 						disabled={pending}
+						aria-expanded={revealControl}
 						onClick={() => {
-							setLocalValue(String(setting.value ?? ''));
+							setLocalValue(toLocalValue(setting));
+							setLocalChecked(Boolean(setting.value));
 							setRevealControl(true);
 						}}
 					>
@@ -237,6 +380,9 @@ export function SettingRow({ setting, onSet, onRevert, enumOptions }: SettingRow
 					</button>
 				)}
 			</div>
+			<span className="sr-only" role="status">
+				{pending ? t('app.settings.status.saving', 'Saving...') : ''}
+			</span>
 		</div>
 	);
 }

@@ -6,7 +6,7 @@ respuesta agregada de estado. Los campos usan alias camelCase (``Field(alias=...
 que el JSON enviado al frontend respete su contrato mientras los atributos Python siguen
 en snake_case.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

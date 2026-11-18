@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "visual-check",
+  "status": "NOT_RUN",
+  "visualReview": "NOT_RUN",
+  "sanitized": true,
+  "previousReceiptInvalidated": true,
+  "reason": "Privacy sanitization invalidated the legacy receipt. No new visual or containment validation is asserted.",
+  "artifact": {
+    "path": "docs/diagrams/aido-post-smoke/process-scopes-v4.html",
+    "sha256": "9f0ab3b333dba26ce52a333f71ebc67eadbd567f752a97e325ff9507f03957b7",
+    "bytes": 707011
+  },
+  "validations": {
+    "visual": "NOT_RUN",
+    "containment": "NOT_RUN",
+    "readability": "NOT_RUN"
+  },
+  "historicalCaptures": [
+    "docs/diagrams/aido-post-smoke/process-scopes-v4.visual-check.1440x900.dark.png",
+    "docs/diagrams/aido-post-smoke/process-scopes-v4.visual-check.1440x900.light.png",
+    "docs/diagrams/aido-post-smoke/process-scopes-v4.visual-check.2048x1320.dark.png",
+    "docs/diagrams/aido-post-smoke/process-scopes-v4.visual-check.2048x1320.light.png"
+  ]
+}

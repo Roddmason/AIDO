@@ -5,7 +5,7 @@
  * the in-flight HTTP requests — the generated client threads the signal into fetch). Shared
  * resources (models, providers) are fetched on cache-miss so a cold deep-link to any tab
  * populates its dependencies, and skipped when already loaded so revisiting a tab never refetches.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import {
 	type Dispatch,
@@ -156,10 +156,10 @@ type ResourceKey =
 const OVERVIEW_RESOURCES: ResourceKey[] = ['overview', 'runtimeConfig'];
 const TAB_RESOURCES: Record<ModelGatewayTab, ResourceKey[]> = {
 	providers: ['providers', 'runtimeProviders', 'runtimeConfig'],
-	catalog: ['models'],
-	routing: ['routingProfiles', 'models'],
+	catalog: ['models', 'providers'],
+	routing: ['routingProfiles', 'models', 'providers'],
 	policies: ['rolePolicies', 'models'],
-	budgets: ['budgetRules', 'providerLimits'],
+	budgets: ['budgetRules', 'providerLimits', 'providers'],
 	usage: ['usageLedger', 'usageSummary'],
 	benchmarks: ['benchmarks', 'benchmarkOutcomes', 'providers', 'models'],
 	decisions: ['routingDecisions'],

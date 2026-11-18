@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 
@@ -18,9 +19,11 @@ from local_control_center.agents.runtime_registry import (
     RuntimeCommandUnavailableError,
     build_issue_to_patch_argv,
 )
-from local_control_center.agents.runtime_status import RuntimeStatusService
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import utc_now
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService as RuntimeStatusService
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "local-control-center" / "scripts" / "release_validate_optional_cli_runtime.py"
@@ -219,7 +222,7 @@ def test_optional_cli_configuration_exposes_command_and_explicit_argv_without_se
 
 
 def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         rows = connection.execute(
             """
@@ -233,6 +236,26 @@ def test_seed_does_not_enable_openhands_or_swe_agent_issue_to_patch_capabilities
     assert rows == []
 
 
+def test_seed_openhands_and_swe_agent_accounts_are_disabled_by_default(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        rows = connection.execute(
+            """
+            SELECT runtime_id, enabled
+            FROM runtime_accounts
+            WHERE runtime_id IN ('openhands', 'swe_agent')
+            ORDER BY runtime_id
+            """
+        ).fetchall()
+
+    assert len(rows) == 2, "Expected one seeded native account per gated runtime"
+    for row in rows:
+        assert row["enabled"] == 0, (
+            f"runtime_accounts.enabled must be 0 for gated runtime '{row['runtime_id']}' at seed: "
+            "explicit operator action is required to enable autonomous code-editing runtimes"
+        )
+
+
 def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -240,11 +263,41 @@ def test_openhands_and_swe_agent_are_not_executable_without_developer_agent_capa
     monkeypatch.setenv("AIDO_OPENHANDS_COMMAND", sys.executable)
     monkeypatch.setenv("AIDO_SWE_AGENT_COMMAND", sys.executable)
     monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE provider_accounts SET enabled = 1 WHERE provider_id IN ('openhands', 'swe_agent')"
         )
+        # Bring both runtimes fully through the lifecycle (installation enabled + native account
+        # explicitly enabled + validated) so the ONLY remaining gate is the missing code_edit/
+        # developer_agent capability that this contract verifies. The native accounts are seeded
+        # disabled (defense-in-depth), so the test enables them explicitly to simulate the operator
+        # grant and reach the capability gate rather than the earlier installation/account gates.
+        repo = RuntimeConfigRepository(connection)
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+        for runtime_id in ("openhands", "swe_agent"):
+            repo.upsert_installation(
+                {
+                    "runtimeId": runtime_id,
+                    "kind": "cli",
+                    "executablePath": sys.executable,
+                    "enabled": True,
+                    "configurationSource": "manual",
+                }
+            )
+            account = next(item for item in repo.list_runtime_accounts(runtime_id) if item["isDefault"])
+            repo.update_runtime_account(
+                account["id"],
+                {"enabled": True, "healthStatus": "healthy", "lastValidationAt": utc_now()},
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_capabilities
+                    (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                VALUES (?, ?, 'chat', 1, ?, '2026-06-27T12:00:00Z', '2026-06-27T12:00:00Z')
+                """,
+                (f"{runtime_id}:chat:test", runtime_id, json.dumps({"source": "test"})),
+            )
         statuses = {
             provider["id"]: provider
             for provider in RuntimeStatusService(connection).list_provider_statuses()

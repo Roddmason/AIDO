@@ -6,10 +6,17 @@ frontend bundles, caches, and dependency folders are not source of truth.
 
 ## Active Slices
 
-- `control_plane`: operational overview read model.
-- `projects`: project records and discovery reports.
-- `jobs_approvals`: jobs, runs, leases, action requests, and approvals.
-- `workflows`: workflow definitions, runs, steps, edges, and events.
+The backend package is `local_control_center/` (snake_case import path); the
+sibling `local-control-center/` folder holds the frontend, scripts, and build
+artifacts. Domain packages under `local_control_center/`:
+
+- `control_plane`: runtime bootstrap plus the operational overview read model.
+- `projects`: project catalog, templates, discovery reports, provider/team read
+  models, and project-scoped assessments, findings, and functionality views.
+- `jobs_approvals`: jobs, runs, leases, action requests, approvals, and the
+  concurrent worker that executes queued jobs.
+- `workflows`: workflow definitions, runs, steps, edges, events, and the
+  issue-to-patch / issue-to-pr productive workflows.
 - `security_policy`: command classification, deterministic policy decisions,
   permission records, sandbox posture, and secret boundaries.
 - `workspaces_projects`: task-scoped workspace allocation, Git worktree support,
@@ -22,10 +29,83 @@ frontend bundles, caches, and dependency folders are not source of truth.
 - `evidence`: evidence packages, test results, QA verdict gates, artifacts.
 - `governance`: architecture decisions, risk register, and actionable next
   steps.
-- `sessions_chats`: v1 session and chat read models.
-- `pipelines`: v1 pipeline read models.
-- `integrations`: IDE connection contracts and integration adapter surfaces.
+- `backlog`: project-scoped epics, user stories, and executable story specs
+  traceable from user value to agent work.
+- `product_discovery`: problem-to-brief discovery entities, versioned and
+  project-scoped.
+- `product_loop`: durable state machine coordinating idea -> discovery ->
+  backlog -> delivery, with a persisted transition log.
+- `threads`: persisted per-project conversation threads (real execution
+  surface), including similarity recall, notes, and cancellation.
+- `team_scheduler`: composes the minimal agent team for a task and resolves
+  per-role execution.
+- `team_activity`: read-only aggregation of live agent work for the shell UI.
+- `remediations`: remediation actions for blocked or configuration-required
+  product flows.
+- `self_improvement`: proposals, lessons, performance evidence, and promotion
+  gates.
+- `research`: source-trust policy for web-research-backed technical
+  conclusions.
+- `credentials`: secret metadata, backend references, fingerprints, and audit;
+  secret values are never persisted or returned.
+- `runtime_integrations`: persisted runtime/CLI installation and account
+  configuration, with environment variables only as override.
+- `git_workspace`: per-project local Git status, branches, diff, checkout, and
+  gitleaks scans routed through the tool broker.
+- `workers`: API-controlled local worker runtime for queued jobs
+  (`/api/v1/workers/*`).
+- `nvidia_nim`: NVIDIA NIM local-runtime discovery and compatibility preflight.
+- `ollama`: administration of local or remote Ollama endpoints (health checks,
+  model sync).
+- `local_runtimes`: local model endpoints under one router
+  (`/api/v1/local-endpoints`, `/api/v1/local-runtimes/discover`): endpoint
+  views with locality and live load state, per-model settings, per-model
+  validation, audited WSL/Docker declaration, tombstone delete and loopback
+  discovery of llama.cpp, LM Studio, vLLM and generic OpenAI-compatible
+  servers. It never starts, stops, loads or unloads server processes.
+- `plugins`: fail-closed plugin manifests, validation, and install lifecycle.
+- `settings`: two-tier persistent preference store (descriptor registry,
+  generic SQLite store, pure resolver).
+- `i18n`: runtime-editable bilingual UI catalog persisted and served by API.
+- `sessions_chats`: legacy session and chat read models, served under
+  `/api/v1/legacy/*`.
+- `pipelines`: legacy pipeline read models, served under
+  `/api/v1/legacy/pipelines`.
+- `integrations`: IDE connection contracts, MCP server registry, and the n8n
+  adapter surface.
 - `prompts`: prompt templates and append-only prompt version records.
+
+`shared/` is not a domain slice: it owns cross-slice helpers (DB connection,
+migrations, event bus, telemetry, redaction, settings, serialization, time).
+
+## Entrypoints And Startup
+
+- `python -m local_control_center` runs `__main__.py`, which delegates to
+  `cli.main`.
+- `local_control_center/cli.py` parses the CLI flags (`--dashboard-host`,
+  `--dashboard-port` with default 4310, `--dashboard-only`, `--no-dashboard`,
+  `--worker`, `--no-worker`, `--worker-interval-ms`, `--worker-count`,
+  `--workspace`, `--db-path`, `--static-dir`), applies the Windows selector
+  event loop policy, initializes `ControlCenterRuntime`, and starts uvicorn
+  or the separate worker loop. It refuses to host productive worker execution inside the API.
+- `pnpm run start` runs
+  `local-control-center/scripts/start_control_center.py` through `uv`. The
+  script builds the dashboard bundle into `local-control-center/dist/web` when
+  it is missing through the process supervisor, then starts separate API and worker children.
+  The API listens on `127.0.0.1:4310`; the worker starts paused by default and P0 permits one job.
+
+The canonical SQLite database lives at
+`~/.claude/local-control-center/platform.sqlite`, resolved by
+`default_db_path()` in `local_control_center/shared/settings.py`; `--db-path`
+overrides it per process.
+
+`local_control_center/worker.py` is a stable import facade that re-exports
+`ConcurrentWorker` and `execute_job` from `jobs_approvals.worker`. The
+`workers/` slice adds `LocalWorkerRuntime`, hosted in its own OS process. SQLite leadership,
+fencing and host admission guard claims; `/api/v1/workers/*` provides status, pause, resume,
+run-once, drain and emergency-stop controls. See [P0 architecture](operational-hardening/p0-architecture.md)
+and [runbook](operational-hardening/p0-runbook.md) for asynchronous 202 contracts, connection ownership,
+native process containment, schema 59–67 and the required patched SQLite runtime.
 
 ## Runtime Boundary
 
@@ -109,11 +189,104 @@ available at `GET /api/v1/telemetry/status`.
 collector smoke path. It skips cleanly unless `AIDO_OTEL_SMOKE=1` is set and
 does not make Docker a startup requirement.
 
+## Disk Retention And Vacuum
+
+Three tables grow unbounded from normal operation and are trimmed at the
+source, retained, and reclaimed from disk:
+
+- `provider_health_checks` (write: `agents/provider_accounts.py`
+  `ProviderAccountStore.record_health_check`, shared by the Ollama endpoint
+  router, the model gateway health-check route, provider catalog sync
+  failures, and the runtime preflight model-execution probe): the full model
+  list is never persisted. Only `modelCount` and the first 20 model ids are
+  stored; the live model list is always recomputed from the provider, never
+  read back from this table. Retention
+  (`agents/provider_health_retention.py`) drops rows older than 7 days while
+  always keeping the most recent row per `provider_id` (the only reader,
+  `ollama/api.py` `_latest_latency_for_provider`, always asks for that row).
+- `remediation_actions` (write: `remediations/repository.py`
+  `RemediationActionsRepository.create_action`): `payload.details` is
+  compacted before every insert/update through
+  `remediations/compaction.py`. `teamSchedule.roles` (the full per-role
+  execution profile: tools, quality gates, output JSON schema) is reduced to
+  one summary per role (`role`, `runtime`/model, `status`, `reason`, each
+  capped at 500 chars); no known reader walks the full role profile.
+  `resourceBlockers` keeps its nested shape (the resource-manager
+  reclassification in `remediations/payloads.py`
+  `decision_engine_failure`/`resource_selection_constraint_failure` reads
+  `decision.policyResult.decisionEngine` structurally and only checks for the
+  *presence* of a given `reason` inside `decision.rejected`/`.candidates`)
+  but is capped at 20 entries with every string truncated to 500 chars.
+  Measured: a single blocker can carry 3,454 rejected candidates (~547 KiB)
+  behind a handful of distinct `reason` values, so `rejected`/`candidates`
+  longer than 20 are sampled to keep one representative per distinct
+  `reason` (plus `<key>Total`/`<key>ByReason`) instead of a blind head-cut,
+  so a reader that only asks "does this reason exist" sees the same answer
+  before and after compaction. `remediations/retention.py` backfills rows
+  written before this change (`backfill_oversized_remediation_payloads`):
+  each pass reads and compacts outside any transaction and writes one
+  autocommit `UPDATE` per row (compacting a huge blocker costs ~300ms of
+  CPU, so batching writes inside a transaction would hold the write lock
+  while the API's own `busy_timeout` is running), bounded to 25 rows or 10
+  seconds per hourly pass, whichever comes first; idempotent (a row already
+  under the byte limit stops qualifying). Terminal actions
+  (`resolved`/`dismissed`/`failed`) older than 30 days are pruned;
+  `pending` rows are never pruned.
+- `operational_executions` (the durable queue/history behind
+  `executions/repository.py`): `executions/retention.py` prunes terminal
+  rows (`cancelled`/`completed`/`failed`/`blocked`/`interrupted`). Health
+  checks (`models.provider_health_check`, `models.health_cli_runtime`) use a
+  7-day window; every other operation uses 30 days. The most recent
+  completed `git.refresh` per project is always kept (the Git workspace
+  cache in `git_workspace/api.py` reads exactly that row).
+
+All three retention modules batch deletes/updates at 5,000 rows per
+transaction with a bounded number of batches per call, the same shape as
+`host_resources/retention.py` `drain_resource_history`: each batch is a
+short-lived operation so a large backlog never holds the write lock while
+the API and worker keep writing. They run once per hour from
+`workers/runtime.py` `LocalWorkerRuntime._prune_telemetry_if_due`, alongside
+the existing `prune_high_volume_events`/`drain_resource_history` calls. A
+failure in any retention step is captured and recorded through
+`shared.diagnostics.diagnostic_event` (level `WARNING`) instead of silently
+swallowed; it never interrupts the worker's job batch.
+
+SQLite's `auto_vacuum` mode can only move away from `NONE` before the first
+real write to the database file, or with `VACUUM`
+(https://www.sqlite.org/pragma.html#pragma_auto_vacuum). A brand-new
+database (file missing or 0 bytes) is opened in `auto_vacuum=INCREMENTAL` by
+`shared/db.py` `open_sqlite_connection`, and that PRAGMA must run before
+`journal_mode=WAL` is set: switching to WAL already performs the first real
+write (the page-1 header), so setting `auto_vacuum` afterwards is silently
+ignored even though no table exists yet. After every hourly retention pass,
+`shared/db.py` `incremental_vacuum_if_enabled` runs `PRAGMA
+incremental_vacuum(8192)` (~32 MiB per pass with the default 4 KiB page
+size) only when the database is already in incremental mode; it is a no-op
+otherwise.
+
+Converting an existing database (mode `NONE`, e.g. the platform database
+created before this change) to incremental mode is a one-time maintenance
+operation, not something the running worker should do implicitly:
+
+```powershell
+uv run python -m local_control_center.maintenance compact-db --db <path-to-platform.sqlite>
+```
+
+It refuses to run while the local worker looks alive (a
+`worker_leader_leases.heartbeat_at` younger than 60 seconds — that table,
+managed by `workers/leadership.py` `WorkerLeadershipRepository`, is the real
+leadership heartbeat; `jobs_approvals` has no worker heartbeat of its own)
+and otherwise runs `PRAGMA auto_vacuum=INCREMENTAL; VACUUM;`, reporting the
+file size before and after.
+
 ## API Composition
 
-`local_control_center.api.create_app()` is the only FastAPI composition path.
-Routers are mounted from vertical slices. Removed compatibility routes are not
-mounted.
+`local_control_center.app.create_app()` is the canonical FastAPI composition
+entrypoint. `local_control_center/api.py` is the assembly site it re-exports:
+that module mounts one router per vertical slice. Architecture tests pin the
+facade (`tests_py/test_vertical_slices_architecture.py`); the CLI and tests
+must import `create_app` from `local_control_center.app`, not from
+`local_control_center.api`. Removed compatibility routes are not mounted.
 
 Mutating endpoints require the loopback token from
 `GET /api/v1/security/handshake`. Tool calls and shell execution must pass:
@@ -294,7 +467,7 @@ path traversal through malicious artifact rows.
 
 | Capability | Real state | Endpoint/UI | Tests | Limitations |
 | --- | --- | --- | --- | --- |
-| FastAPI composition | Implemented through `local_control_center.api.create_app()` and mounted vertical-slice routers. | v1 API surface, dashboard startup. | Broad `tests_py` coverage plus OpenAPI client generation tests. | Removed compatibility routes are not mounted; callers must use v1 routes. |
+| FastAPI composition | Implemented in `local_control_center/api.py` and exposed through the canonical `local_control_center.app.create_app()` facade with mounted vertical-slice routers. | v1 API surface, dashboard startup. | Broad `tests_py` coverage plus OpenAPI client generation tests. | Removed compatibility routes are not mounted; callers must use v1 routes. |
 | Runtime provider status | Implemented from provider configuration, health records, local CLI detection, and safety gates. | `GET /api/v1/runtime/providers`, Runtime & Model Gateway UI. | `tests_py/test_aido_real_runtime_slice.py`, `tests_py/test_internal_mock_product_boundary.py`. | `configured`, `available`, and `executable` are separate states; enabled plus real health is required. |
 | Provider configuration read model | Implemented as env-only inspection with secret fingerprints. | `GET /api/v1/runtime/provider-configuration`. | Runtime provider configuration tests. | It does not mutate provider accounts or persist credentials. |
 | `issue_to_patch` execution | Implemented fail-closed through Git worktree allocation, `DeveloperAgentRunner`, QAAgent, evidence, approval request creation, and reviewed-patch transition. | `POST /api/v1/workflows/issue-to-patch`, `POST /api/v1/workflows/issue-to-patch/{runId}/approve`, workflow detail endpoint. | `tests_py/test_aido_real_runtime_slice.py`, workflow/evidence tests. | Productive execution requires Git worktree evidence and DeveloperAgent runtime readiness. Missing runtime, diff, QA, evidence, approved review, or non-blocking security evidence blocks completion/approval. |
@@ -311,24 +484,17 @@ Schema creation and migration seeds are centralized in
 `local_control_center/shared/migrations.py`; slice repositories own operational
 reads/writes after tables exist.
 
-Current migration versions:
+Current migration structure:
 
-- v1: baseline platform schema.
-- v2: workflows, policy decisions, evidence, agents, model policies.
-- v3: workspaces, skills, artifacts, test results, QA verdicts, model providers.
-- v4: workflow traceability columns for allocated workspaces.
-- v5: architecture decisions, risk register, and next steps.
-- v6: workflow traceability columns for jobs and agent runs.
-- v7: integrations, MCP server registry, and MCP tool-call records.
-- v8: permission grants for one-use approval-to-execution correlation.
-- v9: sandbox profiles for Docker image catalogs, network modes, and resource
-  limits.
-- v10: revocation metadata for permission grants and sandbox profiles.
-- v11: policy revision records for audited sandbox profile changes.
-- v12: provider accounts, model/runtime catalog, routing profiles, usage
-  ledger, budget rules, runtime capabilities, and provider health records.
-- v13: model benchmark outcomes linked to evidence and workflow context.
-- v14: pricing snapshots for local catalog updates.
-- v15: runtime-editable i18n catalog tables.
+- `initialize_platform_schema` applies `init_base_schema` (baseline platform
+  schema) followed by `init_phase2_schema` through `init_phase56_schema` in
+  order, recording each phase in `schema_migrations`.
+- Every phase is idempotent (`CREATE TABLE IF NOT EXISTS`, conditional
+  `ALTER TABLE`, `INSERT OR IGNORE`); re-running the full set on an already
+  migrated database produces no changes.
+- Each `init_phaseN_schema` docstring documents the feature boundary that
+  phase introduced. `local_control_center/shared/migrations.py` is the
+  authoritative per-phase changelog; this document does not duplicate the
+  phase list.
 - Sandbox profile updates are routed through a token-protected, reason-required
   API endpoint; direct SQLite edits are no longer the operational path.

@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
+from local_control_center.agents.developer_agent_contract import developer_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import ScriptedChatReply, reasoning_llm_server, sqlite_text_dump
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -20,17 +28,25 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_git_project(
@@ -53,7 +69,7 @@ def create_git_project(
         ],
         cwd=project_path,
     )
-    assert commit.returncode == 0
+    assert commit.returncode == 0, commit.stderr
     return store.create_project(name=name, path=project_path, template_id="other")
 
 
@@ -139,6 +155,10 @@ class ControlledOllamaHandler(BaseHTTPRequestHandler):
 
 
 class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
+    output_path = "openai-agent-output.txt"
+    output_content = "real openai-compatible developer agent change\n"
+    summary = "changed by controlled openai-compatible runtime"
+
     def do_GET(self) -> None:
         if self.path != "/models":
             self.send_response(404)
@@ -159,11 +179,11 @@ class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
             return
         self.rfile.read(int(self.headers.get("Content-Length") or "0"))
         agent_payload = {
-            "summary": "changed by controlled openai-compatible runtime",
+            "summary": self.summary,
             "files": [
                 {
-                    "path": "openai-agent-output.txt",
-                    "content": "real openai-compatible developer agent change\n",
+                    "path": self.output_path,
+                    "content": self.output_content,
                 }
             ],
             "tests": [],
@@ -184,6 +204,12 @@ class ControlledOpenAICompatibleHandler(BaseHTTPRequestHandler):
         return
 
 
+class ControlledNvidiaNimHandler(ControlledOpenAICompatibleHandler):
+    output_path = "nvidia-agent-output.txt"
+    output_content = "real nvidia nim developer agent change\n"
+    summary = "changed by controlled nvidia nim runtime"
+
+
 def start_controlled_ollama_server() -> tuple[ThreadingHTTPServer, str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledOllamaHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -200,7 +226,16 @@ def start_controlled_openai_server() -> tuple[ThreadingHTTPServer, str]:
     return server, f"http://{host}:{port}"
 
 
+def start_controlled_nvidia_server() -> tuple[ThreadingHTTPServer, str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ControlledNvidiaNimHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, f"http://{host}:{port}"
+
+
 def test_developer_agent_status_reports_contract_and_no_executable_runtime(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -225,7 +260,58 @@ def test_developer_agent_status_reports_contract_and_no_executable_runtime(
     assert "internal_mock" not in str(body)
 
 
+def test_developer_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+    ]
+
+    readiness = developer_agent_readiness(statuses, preferred_runtime="nvidia_nim")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "nvidia_nim"
+    assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
+
+
+def test_developer_agent_readiness_accepts_a_named_ollama_endpoint() -> None:
+    statuses = [
+        {
+            "id": "edge-ollama",
+            "providerFamily": "ollama",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+            "models": ["edge-model"],
+        }
+    ]
+
+    readiness = developer_agent_readiness(statuses, preferred_runtime="edge-ollama")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "edge-ollama"
+
+
 def test_developer_agent_requires_workspace_before_execution(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -247,8 +333,71 @@ def test_developer_agent_requires_workspace_before_execution(
     assert "workspace" in str(response.json()["detail"]).lower()
 
 
+def test_developer_agent_accepts_a_named_gateway_account_as_runtime(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    ProviderAccountStore(store.connection).upsert_provider_account(
+        {
+            "providerId": "omniroute",
+            "displayName": "OmniRoute",
+            "providerType": "gateway",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "http://localhost:20128/v1",
+            "enabled": True,
+        }
+    )
+    project = store.create_project(name="Named Gateway", path=tmp_path / "named-gateway", template_id="other")
+
+    response = client.post(
+        "/api/v1/agents/developer/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": "workspace-does-not-exist",
+            "taskId": "developer-agent-named-gateway",
+            "instruction": "Create a file.",
+            "preferredRuntime": "omniroute",
+        },
+    )
+
+    # El runtime pasa la validación (la cuenta es de una familia de modelo permitida) y la petición
+    # avanza hasta resolver el workspace, en vez de morir con "runtime is not allowed".
+    assert response.status_code == 404
+    assert "runtime is not allowed" not in str(response.json()["detail"])
+
+
+def test_developer_agent_rejects_a_provider_account_that_does_not_exist(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = store.create_project(name="Unknown Runtime", path=tmp_path / "unknown", template_id="other")
+
+    response = client.post(
+        "/api/v1/agents/developer/runs",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "workspaceId": "workspace-does-not-exist",
+            "taskId": "developer-agent-unknown-runtime",
+            "instruction": "Create a file.",
+            "preferredRuntime": "not_a_provider",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "runtime is not allowed" in str(response.json()["detail"])
+    assert client.get("/api/v1/executions").json()["executions"] == []
+
+
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -310,6 +459,7 @@ def test_developer_agent_real_cli_runtime_changes_only_workspace_and_creates_evi
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_real_cli_runtime_with_failing_qa_finishes_qa_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -352,6 +502,7 @@ def test_developer_agent_real_cli_runtime_with_failing_qa_finishes_qa_failed(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_ollama_runtime_applies_structured_patch_in_workspace(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -401,6 +552,7 @@ def test_developer_agent_ollama_runtime_applies_structured_patch_in_workspace(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_workspace(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -411,6 +563,10 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
         monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
+        RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+        )
         store.connection.execute(
             "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
         )
@@ -458,6 +614,68 @@ def test_developer_agent_openai_compatible_runtime_applies_structured_patch_in_w
         server.server_close()
 
 
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_nvidia_nim_runtime_applies_structured_patch_in_workspace(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, base_url = start_controlled_nvidia_server()
+    try:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_NVIDIA_BASE_URL", base_url)
+        monkeypatch.setenv("AIDO_NVIDIA_API_KEY", "unit-test-nvidia-key")
+        monkeypatch.setenv("AIDO_NVIDIA_MODEL", "controlled-model")
+        runtime_settings = RuntimeConfigRepository(store.connection)
+        runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+        runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'nvidia_nim'"
+        )
+        store.connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'nvidia_nim'")
+        health = client.post("/api/v1/model-gateway/providers/nvidia_nim/health-check", headers=headers)
+        assert health.status_code == 200
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Developer NVIDIA Runtime")
+        workspace = store.workspaces.allocate_workspace(
+            project_id=project["id"],
+            task_id="developer-agent-nvidia-nim",
+            agent_id="developer_agent",
+            reason="developer agent nvidia-nim test workspace",
+            isolation_type="git_worktree",
+        )
+
+        response = client.post(
+            "/api/v1/agents/developer/runs",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "workspaceId": workspace["id"],
+                "taskId": "developer-agent-nvidia-nim",
+                "instruction": "Create nvidia-agent-output.txt.",
+                "preferredRuntime": "nvidia_nim",
+                "model": "controlled-model",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": False,
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["status"] == "completed"
+        assert body["runtimeResult"]["modelCall"]["status"] == "completed"
+        assert body["runtimeResult"]["patchApply"]["status"] == "completed"
+        assert body["runtimeResult"]["outputArtifactId"].startswith("artifact-")
+        assert "nvidia-agent-output.txt" in body["diffSummary"]["changedFiles"]
+        assert body["evidencePackage"]["qaVerdict"] == "passed"
+        assert Path(workspace["path"], "nvidia-agent-output.txt").exists()
+        assert not Path(project["path"], "nvidia-agent-output.txt").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_developer_agent_ui_and_openapi_expose_executable_status() -> None:
     root = Path(__file__).resolve().parents[1]
     page = (
@@ -472,3 +690,131 @@ def test_developer_agent_ui_and_openapi_expose_executable_status() -> None:
     assert "getDeveloperAgentStatus" in client
     assert "/api/v1/agents/developer/status" in openapi
     assert "DeveloperAgentStatusResponse" in openapi
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_forwards_story_specs_to_qa_agent(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.developer_agent import DeveloperAgentRunner
+    from local_control_center.agents.qa_agent import QAAgentRunner
+
+    store, _client, _headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Developer Story Specs")
+    workspace = store.workspaces.allocate_workspace(
+        project_id=project["id"],
+        task_id="developer-story-specs",
+        agent_id="developer_agent",
+        reason="developer story specs workspace",
+        isolation_type="git_worktree",
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_developer_runtime_status(),
+    )
+    captured: dict[str, Any] = {}
+
+    class SpyQAAgentRunner(QAAgentRunner):
+        def run_for_context(self, **kwargs):
+            captured.update(kwargs)
+            return super().run_for_context(**kwargs)
+
+    monkeypatch.setattr("local_control_center.agents.developer_agent.QAAgentRunner", SpyQAAgentRunner)
+    spec = "## Epic: Onboarding\n### HU-1: registro\n- Criterio: se crea la cuenta."
+
+    result = DeveloperAgentRunner(store.connection, root=tmp_path).run(
+        {
+            "projectId": project["id"],
+            "workspaceId": workspace["id"],
+            "taskId": "developer-story-specs",
+            "instruction": "Create developer-agent-output.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": False,
+            "storySpecs": spec,
+        }
+    )
+
+    assert result["status"] == "completed"
+    assert captured["story_specs"] == spec
+    qa_runs = [
+        run
+        for run in store.agents.list_agent_runs()
+        if isinstance(run.get("input"), dict) and run["input"].get("storySpecs")
+    ]
+    assert qa_runs
+    assert qa_runs[0]["input"]["storySpecs"] == spec
+    assert qa_runs[0]["output"]["storySpecsArtifactId"].startswith("artifact-")
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_developer_agent_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    file_content = "Greeting prompt: welcome aboard\n"
+    patch = {
+        "summary": "reasoned change",
+        "files": [{"path": "reasoned.txt", "content": file_content}],
+        "tests": [],
+        "risks": [],
+    }
+    reply = ScriptedChatReply(
+        content=f"<think>{THINK_MARKER} weighing options</think>\n{json.dumps(patch)}",
+        reasoning_content=f"{THINK_MARKER} hidden chain",
+    )
+    with reasoning_llm_server([reply], model_id="controlled-model") as server:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", server.base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
+        RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+        )
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
+        )
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Developer Transient Channel")
+        workspace = store.workspaces.allocate_workspace(
+            project_id=project["id"],
+            task_id="developer-agent-transient",
+            agent_id="developer_agent",
+            reason="developer agent transient channel test workspace",
+            isolation_type="git_worktree",
+        )
+        response = client.post(
+            "/api/v1/agents/developer/runs",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "workspaceId": workspace["id"],
+                "taskId": "developer-agent-transient",
+                "instruction": "Create reasoned.txt.",
+                "preferredRuntime": "openai_compatible",
+                "model": "controlled-model",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": False,
+            },
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert Path(workspace["path"], "reasoned.txt").read_text(encoding="utf-8") == file_content
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text
+    assert THINK_MARKER not in json.dumps(body)

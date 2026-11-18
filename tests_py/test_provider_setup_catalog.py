@@ -1,0 +1,599 @@
+"""Valida el catálogo de setup de proveedores: seeds nuevos, adaptador Azure y test-prompt.
+
+Cubre el slice que convierte "Providers & CLI" en un setup moderno: (1) los proveedores nuevos
+(DeepSeek, Groq, Mistral, Kimi, Gemini, Azure OpenAI, Ollama remoto) quedan sembrados con su base URL
+verificada; (2) Azure autentica con la cabecera ``api-key`` (no ``Authorization: Bearer``); (3) el
+factory despacha los ids nuevos al adaptador correcto; y (4) el endpoint ``test-prompt`` falla cerrado
+(CLI, deshabilitado, desconocido) y nunca expone el secreto en su respuesta.
+
+@author AIDO contributors
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+from contextlib import closing
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+import pytest
+
+from local_control_center.agents.model_gateway import provider_instance
+from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.providers.azure_openai import AzureOpenAIProvider
+from local_control_center.agents.providers.base import ModelInfo, ModelRequest
+from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
+from local_control_center.app import create_app
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
+from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+CATALOG_BASE_URLS = {
+    "deepseek": "https://api.deepseek.com",
+    "groq": "https://api.groq.com/openai/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+}
+
+
+class RecordingHandler(BaseHTTPRequestHandler):
+    """Servidor HTTP de prueba que graba método, ruta y cabeceras de auth de cada petición."""
+
+    seen: list[dict[str, object]] = []
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+    def _record(self, method: str) -> None:
+        type(self).seen.append(
+            {
+                "method": method,
+                "path": self.path,
+                "authorization": self.headers.get("Authorization"),
+                "apiKey": self.headers.get("api-key"),
+            }
+        )
+
+    def _send_json(self, payload: dict[str, object]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        self._record("GET")
+        if self.path.endswith("/models"):
+            self._send_json({"data": [{"id": "remote-model"}]})
+            return
+        self.send_error(404)
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length") or "0")
+        self.rfile.read(length)
+        self._record("POST")
+        self._send_json(
+            {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+            }
+        )
+
+
+def run_recording_server() -> tuple[str, type[RecordingHandler], HTTPServer]:
+    """Levanta un servidor de prueba en un puerto libre y devuelve (base_url, handler, server)."""
+    handler = type("RecordingCatalogHandler", (RecordingHandler,), {"seen": []})
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_port}", handler, server
+
+
+def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Construye un TestClient sobre un control plane recién inicializado en tmp_path."""
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store.init()
+    app = create_app(runtime=store, static_dir=None)
+    return TestClient(app)
+
+
+def auth_headers(client: TestClient) -> dict[str, str]:
+    """Obtiene el token de escritura local vía handshake y arma las cabeceras autorizadas."""
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+def enable_remote_provider(
+    client: TestClient, headers: dict[str, str], provider_id: str, *, base_url: str, credential_ref: str
+) -> None:
+    """Habilita un proveedor remoto apuntando su base URL al servidor de prueba y permite la política."""
+    response = client.patch(
+        f"/api/v1/model-gateway/providers/{provider_id}",
+        json={"enabled": True, "baseUrl": base_url, "credentialRef": credential_ref},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+
+
+def catalog_by_id(client: TestClient) -> dict[str, dict[str, object]]:
+    response = client.get("/api/v1/providers/catalog")
+    assert response.status_code == 200
+    return {item["id"]: item for item in response.json()["providers"]}
+
+
+def test_backend_provider_catalog_declares_required_fields_without_manual_base_url_for_known_presets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    catalog = catalog_by_id(client)
+
+    assert set(catalog) >= {
+        "openai_api",
+        "anthropic_api",
+        "openrouter",
+        "nvidia_nim",
+        "deepseek",
+        "kimi",
+        "mistral",
+        "groq",
+        "gemini",
+        "azure_openai",
+        "ollama",
+        "ollama_remote",
+        "openai_compatible",
+    }
+    assert "baseUrl" not in catalog["deepseek"]["requiredFields"]
+    assert "baseUrl" not in catalog["kimi"]["requiredFields"]
+    assert "baseUrl" in catalog["ollama_remote"]["requiredFields"]
+    assert catalog["ollama_remote"]["providerFamily"] == "ollama"
+    assert "baseUrl" in catalog["openai_compatible"]["requiredFields"]
+    assert catalog["deepseek"]["defaultBaseUrl"] == "https://api.deepseek.com"
+    assert catalog["kimi"]["defaultBaseUrl"] == "https://api.moonshot.ai/v1"
+    assert "deepseek-v4-pro" in catalog["deepseek"]["knownModels"]
+    assert "kimi-k2.7-code-highspeed" in catalog["kimi"]["knownModels"]
+    assert "gemini-3.5-flash" in catalog["gemini"]["knownModels"]
+
+
+def test_from_catalog_creates_deepseek_and_kimi_without_manual_base_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_CATALOG_DEEPSEEK_KEY", "test-catalog-deepseek-token-123456")
+    monkeypatch.setenv("AIDO_CATALOG_KIMI_KEY", "test-catalog-kimi-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    deepseek = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "deepseek",
+            "credentialRef": "env:AIDO_CATALOG_DEEPSEEK_KEY",
+            "enabled": True,
+        },
+    )
+    kimi = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "kimi",
+            "credentialRef": "env:AIDO_CATALOG_KIMI_KEY",
+            "enabled": True,
+        },
+    )
+
+    assert deepseek.status_code == 201
+    assert kimi.status_code == 201
+    assert deepseek.json()["provider"]["baseUrl"] == "https://api.deepseek.com"
+    assert kimi.json()["provider"]["baseUrl"] == "https://api.moonshot.ai/v1"
+    assert deepseek.json()["provider"]["credentialRef"] == "env:AIDO_CATALOG_DEEPSEEK_KEY"
+    assert "test-catalog-deepseek-token" not in deepseek.text
+    assert "test-catalog-kimi-token" not in kimi.text
+
+
+def test_from_catalog_omniroute_seeds_build_and_review_runtime_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La cuenta OmniRoute creada desde el wizard debe quedar elegible para roles de build y review.
+
+    Las filas de runtime_capabilities por provider_id ocultan por completo las de la familia, así
+    que sin la siembra la cuenta queda solo con el ``chat`` de openai_compatible y el gate de
+    capabilities la descarta para code/review (mismo criterio que scripts/setup_omniroute.py).
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    response = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={"providerId": "omniroute", "baseUrl": "http://localhost:20128/v1", "enabled": True},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["provider"]["baseUrl"] == "http://localhost:20128/v1"
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        rows = connection.execute(
+            "SELECT capability, enabled FROM runtime_capabilities WHERE runtime = 'omniroute'"
+        ).fetchall()
+    assert {(str(row["capability"]), int(row["enabled"])) for row in rows} == {
+        ("chat", 1),
+        ("code_edit", 1),
+        ("code_review", 1),
+    }
+
+
+def test_from_catalog_requires_base_url_for_remote_ollama_and_custom_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    remote_ollama = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={"providerId": "ollama_remote", "enabled": True},
+    )
+    remote_ollama_with_url = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "ollama_remote",
+            "baseUrl": "http://127.0.0.1:11434",
+            "enabled": True,
+        },
+    )
+    custom = client.post(
+        "/api/v1/provider-accounts/from-catalog",
+        headers=headers,
+        json={
+            "providerId": "openai_compatible",
+            "credentialRef": "env:AIDO_CUSTOM_PROVIDER_KEY",
+            "enabled": True,
+        },
+    )
+
+    assert remote_ollama.status_code == 422
+    assert remote_ollama_with_url.status_code == 201
+    assert custom.status_code == 422
+    assert "baseUrl" in remote_ollama.json()["detail"]
+    assert not remote_ollama_with_url.json()["provider"]["credentialRef"]
+    assert "baseUrl" in custom.json()["detail"]
+
+
+def test_provider_account_sync_models_uses_catalog_account_and_keeps_credential_secret_hidden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_CUSTOM_SYNC_KEY", "test-catalog-sync-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    base_url, _handler, server = run_recording_server()
+    try:
+        with (
+            closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+            connection,
+        ):
+            RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={
+                "providerId": "openai_compatible",
+                "baseUrl": base_url,
+                "credentialRef": "env:AIDO_CUSTOM_SYNC_KEY",
+                "enabled": True,
+            },
+        )
+        synced = client.post(
+            "/api/v1/provider-accounts/openai_compatible/sync-models",
+            headers=headers,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert created.status_code == 201
+    assert "test-catalog-sync-token" not in created.text
+    assert synced.status_code == 200
+    assert "test-catalog-sync-token" not in synced.text
+    assert [item["model"] for item in synced.json()["models"]] == ["remote-model"]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/api/v1/provider-accounts/openai_compatible/sync-models",
+        "/api/v1/model-gateway/providers/openai_compatible/discover-models",
+    ],
+    ids=["sync", "discover"],
+)
+@pytest.mark.parametrize("apply_pricing_snapshot", [False, True], ids=["direct", "pricing-snapshot"])
+def test_model_discovery_preserves_operator_selection_and_refreshes_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str, apply_pricing_snapshot: bool
+) -> None:
+    monkeypatch.setenv("AIDO_SELECTION_SYNC_KEY", "test-selection-sync-token-123456")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_remote_provider(
+        client,
+        headers,
+        "openai_compatible",
+        base_url="https://provider.example.invalid/v1",
+        credential_ref="env:AIDO_SELECTION_SYNC_KEY",
+    )
+    discovered = [ModelInfo(providerId="openai_compatible", model="chosen/model", displayName="Original")]
+    monkeypatch.setattr(OpenAICompatibleProvider, "list_models", lambda _self: discovered)
+
+    initial = client.post(endpoint, headers=headers)
+    assert initial.status_code == 200
+    model_id = initial.json()["models"][0]["id"]
+    disabled = client.patch(
+        f"/api/v1/model-gateway/models/{model_id}", json={"enabled": False}, headers=headers
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["model"]["source"] == "operator_override"
+
+    if apply_pricing_snapshot:
+        snapshot = client.post(
+            "/api/v1/model-gateway/pricing-snapshots",
+            json={
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "inputPricePerMtok": 3.0,
+                "outputPricePerMtok": 4.0,
+                "applyToCatalog": True,
+            },
+            headers=headers,
+        )
+        assert snapshot.status_code == 201
+        catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+        priced = next(item for item in catalog if item["id"] == model_id)
+        assert priced["inputPricePerMtok"] == 3.0
+        assert priced["outputPricePerMtok"] == 4.0
+        assert priced["enabled"] is False
+        assert priced["source"] == "operator_override"
+
+    discovered[:] = [
+        ModelInfo(
+            providerId="openai_compatible",
+            model="chosen/model",
+            displayName="Updated",
+            contextWindow=32768,
+            supportsTools=True,
+        ),
+        ModelInfo(providerId="openai_compatible", model="new/model", displayName="New"),
+    ]
+    for _ in range(2):
+        refreshed = client.post(endpoint, headers=headers)
+        assert refreshed.status_code == 200
+        models = {item["model"]: item for item in refreshed.json()["models"]}
+        assert models["chosen/model"]["enabled"] is False
+        assert models["chosen/model"]["source"] == "operator_override"
+        assert models["chosen/model"]["displayName"] == "Updated"
+        assert models["chosen/model"]["contextWindow"] == 32768
+        assert models["chosen/model"]["supportsTools"] is True
+        assert models["new/model"]["enabled"] is True
+
+    enabled = client.patch(
+        f"/api/v1/model-gateway/models/{model_id}", json={"enabled": True}, headers=headers
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["model"]["enabled"] is True
+    refreshed = client.post(endpoint, headers=headers)
+    assert refreshed.status_code == 200
+    models = {item["model"]: item for item in refreshed.json()["models"]}
+    assert models["chosen/model"]["enabled"] is True
+    assert models["chosen/model"]["source"] == "operator_override"
+    catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+    persisted = next(item for item in catalog if item["id"] == model_id)
+    assert persisted["enabled"] is True
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_discovery_upsert_refreshes_pricing_without_overwriting_operator_enabled(
+    tmp_path: Path, enabled: bool
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        store = ProviderAccountStore(connection)
+        initial = store.upsert_model(
+            {
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "inputPricePerMtok": 1.0,
+                "outputPricePerMtok": 2.0,
+            }
+        )
+        store.patch_model(initial["id"], {"enabled": enabled})
+
+        refreshed = store.upsert_model(
+            {
+                "providerId": "openai_compatible",
+                "model": "chosen/model",
+                "enabled": not enabled,
+                "source": "provider",
+                "inputPricePerMtok": 3.0,
+                "outputPricePerMtok": 4.0,
+            },
+            preserve_operator_enabled=True,
+        )
+
+        assert refreshed["enabled"] is enabled
+        assert refreshed["source"] == "operator_override"
+        assert refreshed["inputPricePerMtok"] == 3.0
+        assert refreshed["outputPricePerMtok"] == 4.0
+
+
+def test_omniroute_sync_applies_catalog_exclusion_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El sync de OmniRoute omite los prefijos excluidos y apaga el residuo habilitado.
+
+    La exclusión es regla del proyecto (scripts/omniroute_models.json): esos prefijos reexponen
+    servicios comerciales fuera de su cliente oficial y auto/* no deja trazabilidad de la fuente,
+    así que el sync no debe reactivarlos aunque el gateway los anuncie.
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    class OmniRouteAnnouncingHandler(RecordingHandler):
+        """Anuncia modelos permitidos y excluidos como lo haría un OmniRoute real."""
+
+        seen: list[dict[str, object]] = []
+
+        def do_GET(self) -> None:
+            self._record("GET")
+            if self.path.endswith("/models"):
+                self._send_json(
+                    {
+                        "data": [
+                            {"id": "oc/deepseek-v4-flash-free"},
+                            {"id": "aug/claude-sonnet-4.6"},
+                            {"id": "auto/free"},
+                            {"id": "tllm/kimi-k2"},
+                        ]
+                    }
+                )
+                return
+            self.send_error(404)
+
+    server = HTTPServer(("127.0.0.1", 0), OmniRouteAnnouncingHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        with (
+            closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+            connection,
+        ):
+            RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+            # Residuo de un sync anterior sin la regla: debe quedar apagado tras resincronizar.
+            ProviderAccountStore(connection).upsert_model(
+                {"providerId": "omniroute", "model": "aug/gpt-5.5", "enabled": True}
+            )
+        created = client.post(
+            "/api/v1/provider-accounts/from-catalog",
+            headers=headers,
+            json={"providerId": "omniroute", "baseUrl": base_url, "enabled": True},
+        )
+        synced = client.post("/api/v1/provider-accounts/omniroute/sync-models", headers=headers)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert created.status_code == 201
+    assert synced.status_code == 200
+    assert [item["model"] for item in synced.json()["models"]] == ["oc/deepseek-v4-flash-free"]
+    catalog = client.get("/api/v1/model-gateway/models").json()["models"]
+    omniroute_rows = {row["model"]: row["enabled"] for row in catalog if row["providerId"] == "omniroute"}
+    assert omniroute_rows == {"oc/deepseek-v4-flash-free": True, "aug/gpt-5.5": False}
+
+
+def test_setup_catalog_seeds_new_providers_with_verified_base_urls(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        rows = {
+            row["provider_id"]: row
+            for row in connection.execute(
+                "SELECT provider_id, base_url, api_format, provider_type FROM provider_accounts"
+            ).fetchall()
+        }
+    for provider_id, base_url in CATALOG_BASE_URLS.items():
+        assert rows[provider_id]["base_url"] == base_url
+        assert rows[provider_id]["api_format"] == "openai_compatible"
+        assert rows[provider_id]["provider_type"] == "api"
+    assert rows["azure_openai"]["api_format"] == "azure_openai"
+    assert (rows["azure_openai"]["base_url"] or "") == ""
+    assert rows["ollama_remote"]["api_format"] == "ollama"
+    assert rows["ollama_remote"]["provider_type"] == "local"
+    assert (rows["ollama_remote"]["base_url"] or "") == ""
+
+
+def test_azure_adapter_authenticates_with_api_key_header_not_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIDO_AZURE_TEST_KEY", "unit-test-azure-key")
+    base_url, handler, server = run_recording_server()
+    try:
+        provider = AzureOpenAIProvider(base_url=base_url, credential_ref="env:AIDO_AZURE_TEST_KEY")
+        health = provider.health_check()
+        response = provider.chat_completion(
+            ModelRequest(model="my-deployment", messages=[{"role": "user", "content": "hi"}])
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert health.status == "available"
+    assert response.content == "ok"
+    assert handler.seen
+    assert all(item["apiKey"] == "unit-test-azure-key" for item in handler.seen)
+    assert all(item["authorization"] is None for item in handler.seen)
+    assert "unit-test-azure-key" not in health.message
+
+
+def test_provider_instance_dispatch_for_new_catalog_ids(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        azure = provider_instance("azure_openai", connection=connection)
+        deepseek = provider_instance("deepseek", connection=connection)
+    assert isinstance(azure, AzureOpenAIProvider)
+    assert isinstance(deepseek, OpenAICompatibleProvider)
+    assert deepseek.base_url == "https://api.deepseek.com"
+
+
+def test_test_prompt_returns_ok_and_never_exposes_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIDO_DEEPSEEK_TEST_KEY", "unit-test-deepseek-key")
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    base_url, _handler, server = run_recording_server()
+    try:
+        enable_remote_provider(
+            client, headers, "deepseek", base_url=base_url, credential_ref="env:AIDO_DEEPSEEK_TEST_KEY"
+        )
+        response = client.post(
+            "/api/v1/model-gateway/providers/deepseek/test-prompt",
+            json={"model": "deepseek-chat"},
+            headers=headers,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 200
+    result = response.json()["test"]
+    assert result["ok"] is True
+    assert result["model"] == "deepseek-chat"
+    assert result["sample"] == "ok"
+    assert "unit-test-deepseek-key" not in response.text
+
+
+def test_test_prompt_fails_closed_for_cli_disabled_and_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    unknown = client.post(
+        "/api/v1/model-gateway/providers/does_not_exist/test-prompt", json={}, headers=headers
+    )
+    cli = client.post("/api/v1/model-gateway/providers/codex_cli/test-prompt", json={}, headers=headers)
+    disabled = client.post(
+        "/api/v1/model-gateway/providers/deepseek/test-prompt", json={"model": "x"}, headers=headers
+    )
+    assert unknown.status_code == 404
+    assert cli.status_code == 400
+    assert disabled.status_code == 403

@@ -5,7 +5,7 @@ Defines ``ResolvedSetting`` (a single resolved key with value, origin, inheritan
 (the write body for PUT). All models use the ``_Aliased`` base to support both Python
 snake_case field access and camelCase wire serialization, mirroring the team_activity slice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -30,10 +30,16 @@ class ResolvedSetting(_Aliased):
     project_section: str | None = Field(default=None, alias="projectSection")
     type: str
     enum: list[str] | None = None
+    minimum: float | None = None
+    maximum: float | None = None
     value: Any
     origin: Literal["default", "general", "project"]
     inherited: bool
     source: Literal["default", "general", "project"]
+    assigned_by: Literal["operator", "auto"] = Field(default="operator", alias="assignedBy")
+    """Quien asigno el valor efectivo. Eje distinto de ``origin``, que dice de que ambito salio: un valor
+    puede venir del proyecto y haberlo puesto la deteccion, o la persona.
+    """
     editable_scopes: list[str] = Field(alias="editableScopes")
 
 

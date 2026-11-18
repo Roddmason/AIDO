@@ -1,0 +1,646 @@
+"""Contratos del slice threads: literales acotados y esquemas Pydantic de request/response.
+
+Definen la forma HTTP estable de los hilos reales (header, mensajes, artifacts, eventos y
+decisiones). Los literales acotados mantienen el contrato tipado de extremo a extremo y evitan el
+"Literal drift" que degrada el cliente generado a ``string`` o produce 500 al serializar. Solo modelan
+datos: la lógica vive en el repositorio y el coordinator.
+
+@author AIDO contributors
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+from local_control_center.product_loop.models import ThreadEta
+from local_control_center.runtime_team.contracts import RoleRuntimesRecord
+from local_control_center.shared.schemas import AuditEventRecord
+
+THREAD_OWNER_TYPES = ("workspace", "loop", "story", "agent_task", "review")
+ThreadOwnerType = Literal["workspace", "loop", "story", "agent_task", "review"]
+
+THREAD_STATUSES = (
+    "open",
+    "queued",
+    "running",
+    "waiting_decision",
+    "awaiting_approval",
+    "blocked",
+    "resolved",
+    "archived",
+    "deleted",
+)
+ThreadStatus = Literal[
+    "open",
+    "queued",
+    "running",
+    "waiting_decision",
+    "awaiting_approval",
+    "blocked",
+    "resolved",
+    "archived",
+    "deleted",
+]
+
+THREAD_MESSAGE_KINDS = (
+    "user",
+    "aido_lead",
+    "agent_summary",
+    "decision_request",
+    "artifact",
+    "error",
+    "system_event",
+    "operator_note",
+)
+ThreadMessageKind = Literal[
+    "user",
+    "aido_lead",
+    "agent_summary",
+    "decision_request",
+    "artifact",
+    "error",
+    "system_event",
+    "operator_note",
+]
+
+THREAD_DECISION_STATUSES = ("pending", "resolved", "dismissed")
+ThreadDecisionStatus = Literal["pending", "resolved", "dismissed"]
+
+ThreadSimilarityAction = Literal[
+    "continue_existing",
+    "improve_existing",
+    "performance_pass",
+    "create_new_anyway",
+]
+
+
+class ThreadRecord(BaseModel):
+    """Header de un hilo con ownership polimórfico, tal como se expone al cliente."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    owner_type: ThreadOwnerType = Field(alias="ownerType")
+    owner_id: str = Field(alias="ownerId")
+    title: str
+    status: ThreadStatus
+    summary: str
+    metadata: dict[str, Any]
+    archived_at: str | None = Field(default=None, alias="archivedAt")
+    archived_by: str | None = Field(default=None, alias="archivedBy")
+    deleted_at: str | None = Field(default=None, alias="deletedAt")
+    deleted_by: str | None = Field(default=None, alias="deletedBy")
+    lifecycle_reason: str | None = Field(default=None, alias="lifecycleReason")
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadMessageRecord(BaseModel):
+    """Un mensaje del timeline del hilo (append-only, ordenado por ``sequence``)."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    sequence: int
+    kind: ThreadMessageKind
+    author: str
+    content: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadArtifactRecord(BaseModel):
+    """Artifact surgido en el hilo (enlace, no copia)."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    message_id: str | None = Field(default=None, alias="messageId")
+    artifact_id: str = Field(alias="artifactId")
+    kind: str
+    title: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadAgentEventRecord(BaseModel):
+    """Evento de ejecución del coordinator/agentes (bitácora append-only del hilo)."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    sequence: int
+    type: str
+    agent_role: str | None = Field(default=None, alias="agentRole")
+    payload: dict[str, Any]
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadDecisionRecord(BaseModel):
+    """Solicitud de decisión que el coordinator levanta al bloquear y su resolución."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    message_id: str | None = Field(default=None, alias="messageId")
+    title: str
+    status: ThreadDecisionStatus
+    prompt: str
+    options: list[str]
+    resolution: str | None = None
+    decided_by: str | None = Field(default=None, alias="decidedBy")
+    decided_at: str | None = Field(default=None, alias="decidedAt")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadListResponse(BaseModel):
+    """Listado de hilos de un proyecto (headers, sin timeline)."""
+
+    threads: list[ThreadRecord]
+
+
+class ThreadDetailResponse(BaseModel):
+    """Un hilo con su timeline completo: mensajes, artifacts, decisiones y eventos."""
+
+    thread: ThreadRecord
+    messages: list[ThreadMessageRecord]
+    artifacts: list[ThreadArtifactRecord]
+    decisions: list[ThreadDecisionRecord]
+    events: list[ThreadAgentEventRecord]
+    eta: ThreadEta | None = None
+
+
+class ThreadEventsResponse(BaseModel):
+    """Ventana incremental de eventos del hilo para polling tipo consola."""
+
+    events: list[ThreadAgentEventRecord]
+    last_seq: int = Field(alias="lastSeq")
+    thread_status: ThreadStatus = Field(alias="threadStatus")
+    running: bool
+    eta: ThreadEta | None = None
+
+
+class ThreadCreateRequest(BaseModel):
+    """Cuerpo para crear un hilo enlazado a una entidad dueña del proyecto."""
+
+    project_id: str = Field(alias="projectId")
+    owner_type: ThreadOwnerType = Field(alias="ownerType")
+    owner_id: str = Field(alias="ownerId")
+    title: str
+
+
+class ThreadUpdateRequest(BaseModel):
+    """Cuerpo para mutar el header editable de un hilo."""
+
+    title: str | None = None
+
+
+class ThreadRunConfigurationRequest(BaseModel):
+    """Equipo de runtimes del hilo; ``allowedRuntimes`` vacío vuelve al ruteo automático."""
+
+    allowed_runtimes: list[str] = Field(default_factory=list, alias="allowedRuntimes")
+    role_runtimes: RoleRuntimesRecord = Field(default_factory=RoleRuntimesRecord, alias="roleRuntimes")
+
+
+class ThreadRuntimeTeamRecord(BaseModel):
+    """Equipo guardado: runtimes permitidos y runtime asignado por rol."""
+
+    allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
+    role_runtimes: RoleRuntimesRecord = Field(alias="roleRuntimes")
+
+
+class ThreadRunConfigurationResponse(BaseModel):
+    """Resultado del PATCH: el equipo vigente del hilo, o ``None`` si quedó en ruteo automático."""
+
+    thread_id: str = Field(alias="threadId")
+    runtime_team: ThreadRuntimeTeamRecord | None = Field(default=None, alias="runtimeTeam")
+
+
+class ThreadArchiveRequest(BaseModel):
+    """Cuerpo para archivar o reabrir un hilo con motivo auditable."""
+
+    reason: str
+    actor: str = "operator"
+
+
+class ThreadDeleteRequest(BaseModel):
+    """Cuerpo para borrar logicamente un hilo sin eliminar mensajes ni artifacts."""
+
+    reason: str
+    actor: str = "operator"
+
+
+class ThreadArchiveResponse(BaseModel):
+    """Resultado de archivar o reabrir un hilo junto con su evento de auditoria."""
+
+    thread: ThreadRecord
+    audit_event: AuditEventRecord = Field(alias="auditEvent")
+
+
+class ThreadDeleteResponse(BaseModel):
+    """Resultado de borrar logicamente un hilo junto con su evento de auditoria."""
+
+    thread: ThreadRecord
+    audit_event: AuditEventRecord = Field(alias="auditEvent")
+
+
+class ThreadSimilarityArtifactRef(BaseModel):
+    """Referencia mínima a artifact usada por el índice de similitud."""
+
+    artifact_id: str = Field(alias="artifactId")
+    kind: str
+    title: str
+
+
+class ThreadSimilarityCandidateRecord(BaseModel):
+    """Candidato similar devuelto por el índice lexical."""
+
+    thread_id: str = Field(alias="threadId")
+    project_id: str = Field(alias="projectId")
+    title: str
+    summary: str
+    status: ThreadStatus
+    score: float
+    reason: str
+    keywords: list[str]
+    artifact_refs: list[ThreadSimilarityArtifactRef] = Field(alias="artifactRefs")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadSimilarityResponse(BaseModel):
+    """Respuesta de búsqueda de threads similares."""
+
+    candidates: list[ThreadSimilarityCandidateRecord]
+
+
+class ThreadSimilarityMarkRequest(BaseModel):
+    """Cuerpo para marcar la decisión operacional tomada sobre un candidato similar."""
+
+    action: ThreadSimilarityAction
+    score: float = 0.0
+    reason: str = ""
+
+
+class ThreadSimilarityEventRecord(BaseModel):
+    """Evento persistido de decisión de similitud entre dos threads."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    source_thread_id: str = Field(alias="sourceThreadId")
+    candidate_thread_id: str = Field(alias="candidateThreadId")
+    score: float
+    reason: str
+    action: ThreadSimilarityAction
+    functionality_id: str = Field(default="", alias="functionalityId")
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadSimilarityMarkResponse(BaseModel):
+    """Respuesta de marcar un candidato similar."""
+
+    event: ThreadSimilarityEventRecord
+
+
+class ProjectFunctionalityRecord(BaseModel):
+    """Funcionalidad existente registrada desde threads resueltos o decisiones de similitud."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    summary: str
+    normalized_name: str = Field(alias="normalizedName")
+    fingerprint: str
+    source_thread_id: str = Field(alias="sourceThreadId")
+    status: ThreadStatus
+    file_paths: list[str] = Field(alias="filePaths")
+    performance_notes: list[dict[str, Any]] = Field(alias="performanceNotes")
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+    score: float | None = None
+    reason: str | None = None
+
+
+class ProjectFunctionalityResponse(BaseModel):
+    """Listado project-scoped de funcionalidad existente."""
+
+    functionality: list[ProjectFunctionalityRecord]
+
+
+class ThreadMemoryReindexResponse(BaseModel):
+    """Resultado de reindexar memoria de thread y, si aplica, funcionalidad existente."""
+
+    index: dict[str, Any]
+    functionality: ProjectFunctionalityRecord | None = None
+
+
+class ThreadMessageRequest(BaseModel):
+    """Cuerpo para publicar un mensaje de usuario que dispara la ejecución del coordinator."""
+
+    content: str
+    author: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ThreadNoteRequest(BaseModel):
+    """Cuerpo para adjuntar una nota del operador a un hilo con ejecución en curso.
+
+    A diferencia de ``ThreadMessageRequest``, una nota nunca dispara el coordinator ni encola un job:
+    solo deja constancia auditable en el timeline para evitar iniciar loops concurrentes por accidente.
+    """
+
+    content: str
+    author: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ThreadNoteResponse(BaseModel):
+    """Resultado de adjuntar una nota del operador: el hilo (sin cambio de estado) y la nota creada."""
+
+    thread: ThreadRecord
+    message: ThreadMessageRecord
+
+
+class ThreadCancelRequest(BaseModel):
+    """Cuerpo para cancelar la ejecución en curso de un hilo con un motivo auditable."""
+
+    reason: str | None = None
+    actor: str | None = None
+
+
+class ThreadCancelResponse(BaseModel):
+    """Resultado de cancelar la ejecución: el hilo reabierto y los jobs efectivamente cancelados."""
+
+    thread: ThreadRecord
+    cancelled_job_ids: list[str] = Field(alias="cancelledJobIds")
+
+
+class ThreadRunSummary(BaseModel):
+    """Resumen del run asincrónico levantado por el mensaje, si corresponde."""
+
+    status: Literal["queued", "running", "blocked", "awaiting_approval", "completed", "failed"]
+    job_id: str | None = Field(default=None, alias="jobId")
+    loop_id: str | None = Field(default=None, alias="loopId")
+    reason: str | None = None
+
+
+class ThreadMessageResultResponse(BaseModel):
+    """Resultado de ejecutar el coordinator sobre un mensaje: responde u (bloquea con decisión)."""
+
+    thread: ThreadRecord
+    blocked: bool
+    run: ThreadRunSummary
+    messages: list[ThreadMessageRecord]
+    decision: ThreadDecisionRecord | None = None
+    artifacts: list[ThreadArtifactRecord]
+    events: list[ThreadAgentEventRecord]
+
+
+MAX_DECISION_FREE_TEXT_CHARS = 4000
+"""Tope del texto libre de una respuesta: el PO lo relee entero en su próximo turno."""
+
+MAX_DECISION_SELECTED_OPTIONS = 20
+"""Tope de opciones elegidas en una respuesta; ninguna pregunta real ofrece tantas."""
+
+
+class ThreadDecisionResolveRequest(BaseModel):
+    """Cuerpo para resolver una solicitud de decisión pendiente del hilo.
+
+    Acepta un ``resolution`` de texto ya armado (compatibilidad con clientes existentes), o bien
+    ``selectedOptions``/``freeText`` para que el endpoint arme el resumen: al menos uno de los tres
+    debe traer contenido.
+    """
+
+    resolution: str | None = Field(default=None, max_length=MAX_DECISION_FREE_TEXT_CHARS)
+    selected_options: list[str] = Field(
+        default_factory=list, alias="selectedOptions", max_length=MAX_DECISION_SELECTED_OPTIONS
+    )
+    free_text: str | None = Field(default=None, alias="freeText", max_length=MAX_DECISION_FREE_TEXT_CHARS)
+    decided_by: str | None = Field(default=None, alias="decidedBy")
+
+
+class ThreadDecisionResolveResponse(BaseModel):
+    """Resultado de resolver una decisión y el estado vigente del hilo."""
+
+    thread: ThreadRecord
+    decision: ThreadDecisionRecord
+
+
+class ThreadDecisionBatchAnswer(BaseModel):
+    """Una respuesta dentro de un lote: misma forma que ``ThreadDecisionResolveRequest`` por decisión."""
+
+    decision_id: str = Field(alias="decisionId")
+    selected_options: list[str] = Field(
+        default_factory=list, alias="selectedOptions", max_length=MAX_DECISION_SELECTED_OPTIONS
+    )
+    free_text: str | None = Field(default=None, alias="freeText", max_length=MAX_DECISION_FREE_TEXT_CHARS)
+
+
+class ThreadDecisionBatchResolveRequest(BaseModel):
+    """Cuerpo para resolver varias decisiones pendientes juntas, en un solo mensaje de chat."""
+
+    answers: list[ThreadDecisionBatchAnswer]
+    decided_by: str | None = Field(default=None, alias="decidedBy")
+
+
+class ThreadDecisionBatchResolveResponse(BaseModel):
+    """Resultado de resolver un lote: el hilo vigente y cada decisión resuelta."""
+
+    thread: ThreadRecord
+    decisions: list[ThreadDecisionRecord]
+
+
+class ThreadMemoryDecisionRecord(BaseModel):
+    """Decisión ya resuelta en un hilo similar, recordada por el recall de memoria."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    title: str
+    prompt: str
+    resolution: str
+    decided_at: str | None = Field(default=None, alias="decidedAt")
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryEvidenceRecord(BaseModel):
+    """Artifact de un hilo similar expuesto como evidencia relacionada."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    artifact_id: str = Field(alias="artifactId")
+    kind: str
+    title: str
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryLessonRecord(BaseModel):
+    """Lección vigente del proyecto (``memory_items`` kind='lesson') con su relevancia lexical."""
+
+    id: str
+    content: str
+    source_ref: str = Field(alias="sourceRef")
+    matched_keywords: list[str] = Field(alias="matchedKeywords")
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryPerformanceRecord(BaseModel):
+    """Pasada de performance ya pedida sobre trabajo similar (evento o mensaje real)."""
+
+    id: str
+    thread_id: str = Field(alias="threadId")
+    thread_title: str = Field(alias="threadTitle")
+    note: str
+    source: Literal["similarity_event", "thread_message"]
+    created_at: str = Field(alias="createdAt")
+
+
+class ThreadMemoryImplementedRecord(BaseModel):
+    """Hilo similar ya resuelto: funcionalidad que el proyecto ya implementó antes."""
+
+    thread_id: str = Field(alias="threadId")
+    title: str
+    summary: str
+    score: float
+    updated_at: str = Field(alias="updatedAt")
+
+
+class ThreadMemoryRecallResponse(BaseModel):
+    """Memoria agregada de un hilo: las seis categorías del panel de recall."""
+
+    source_thread_id: str = Field(alias="sourceThreadId")
+    generated_at: str = Field(alias="generatedAt")
+    similar_threads: list[ThreadSimilarityCandidateRecord] = Field(alias="similarThreads")
+    previous_decisions: list[ThreadMemoryDecisionRecord] = Field(alias="previousDecisions")
+    related_evidence: list[ThreadMemoryEvidenceRecord] = Field(alias="relatedEvidence")
+    lessons_learned: list[ThreadMemoryLessonRecord] = Field(alias="lessonsLearned")
+    performance_issues: list[ThreadMemoryPerformanceRecord] = Field(alias="performanceIssues")
+    implemented_functionality: list[ThreadMemoryImplementedRecord] = Field(alias="implementedFunctionality")
+
+
+ThreadCostStatus = Literal["actual", "estimated", "mixed", "partial", "unknown"]
+ThreadTokenStatus = Literal["actual", "partial", "unknown", "none"]
+ThreadLatencyStatus = Literal["actual", "partial", "unknown", "none"]
+ThreadTeamMode = Literal["economy", "balanced", "critical", "maximum"]
+
+
+class ThreadBudgetUsedRecord(BaseModel):
+    """Gasto acumulado del hilo contra el cap por-run efectivo; ``None`` cuando el costo es desconocido."""
+
+    used_usd: float | None = Field(default=None, alias="usedUsd")
+    cost_status: ThreadCostStatus = Field(alias="costStatus")
+    call_count: int = Field(alias="callCount")
+    per_run_cap_usd: float | None = Field(default=None, alias="perRunCapUsd")
+    cap_scope: str | None = Field(default=None, alias="capScope")
+
+
+class ThreadCostSummaryRecord(BaseModel):
+    """Costo estimado vs actual del hilo como sumas honestas (``None`` = desconocido, nunca ``0``)."""
+
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
+
+
+class ThreadTokenSummaryRecord(BaseModel):
+    """Tokens del hilo con el desglose de llamadas con uso conocido vs desconocido."""
+
+    total_tokens: int | None = Field(alias="totalTokens")
+    known_calls: int = Field(alias="knownCalls")
+    unknown_calls: int = Field(alias="unknownCalls")
+    token_status: ThreadTokenStatus = Field(alias="tokenStatus")
+    call_count: int = Field(alias="callCount")
+
+
+class ThreadLatencySummaryRecord(BaseModel):
+    """Latencia observada del hilo; ``None`` cuando ninguna llamada registró latencia (jamás ``0``)."""
+
+    p50_ms: int | None = Field(default=None, alias="p50Ms")
+    avg_ms: int | None = Field(default=None, alias="avgMs")
+    max_ms: int | None = Field(default=None, alias="maxMs")
+    known_calls: int = Field(alias="knownCalls")
+    unknown_calls: int = Field(alias="unknownCalls")
+    latency_status: ThreadLatencyStatus = Field(alias="latencyStatus")
+    call_count: int = Field(alias="callCount")
+
+
+class ThreadPremiumApprovalRecord(BaseModel):
+    """Veredicto del gate premium: por qué la política exigió (o no) aprobación humana."""
+
+    required: bool
+    reason: str
+    threshold_usd: float | None = Field(default=None, alias="thresholdUsd")
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    cost_tier: str | None = Field(default=None, alias="costTier")
+
+
+class ThreadCostPolicyRecord(BaseModel):
+    """Política de costo vigente del proyecto y el veredicto de la última decisión de ruteo."""
+
+    mode: ThreadTeamMode
+    force_local: bool = Field(alias="forceLocal")
+    premium_approval_over_usd: float | None = Field(default=None, alias="premiumApprovalOverUsd")
+    approval_required: bool = Field(alias="approvalRequired")
+    premium_approval: ThreadPremiumApprovalRecord | None = Field(default=None, alias="premiumApproval")
+
+
+class ThreadModelChosenRecord(BaseModel):
+    """Modelo/proveedor/runtime elegido en la decisión de ruteo más reciente del hilo."""
+
+    provider: str | None = None
+    model: str | None = None
+    runtime: str | None = None
+    effort: str | None = None
+    mode: str | None = None
+
+
+class ThreadCheaperAlternativeRecord(BaseModel):
+    """Candidato con precio conocido estrictamente más barato que el elegido, con su delta de costo."""
+
+    provider: str | None = None
+    model: str | None = None
+    runtime: str | None = None
+    estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
+    delta_usd: float | None = Field(default=None, alias="deltaUsd")
+    price_known: bool = Field(default=False, alias="priceKnown")
+
+
+class ThreadQualityReworkRecord(BaseModel):
+    """Retrabajo real del hilo (rondas del FSM) y calidad del modelo elegido (benchmark), rotulada."""
+
+    rework_rounds: int | None = Field(default=None, alias="reworkRounds")
+    max_rework_rounds: int | None = Field(default=None, alias="maxReworkRounds")
+    model_success_rate: float | None = Field(default=None, alias="modelSuccessRate")
+    model_qa_pass_rate: float | None = Field(default=None, alias="modelQaPassRate")
+    model_rework_rate: float | None = Field(default=None, alias="modelReworkRate")
+    benchmark_insufficient_data: bool = Field(default=True, alias="benchmarkInsufficientData")
+    model_label: str | None = Field(default=None, alias="modelLabel")
+
+
+class ThreadCostPerformanceRecord(BaseModel):
+    """Snapshot accionable de costo/rendimiento por hilo: las señales del inspector y su política."""
+
+    thread_id: str = Field(alias="threadId")
+    loop_ids: list[str] = Field(alias="loopIds")
+    has_data: bool = Field(alias="hasData")
+    budget_used: ThreadBudgetUsedRecord = Field(alias="budgetUsed")
+    cost: ThreadCostSummaryRecord
+    tokens: ThreadTokenSummaryRecord
+    latency: ThreadLatencySummaryRecord
+    model_chosen: ThreadModelChosenRecord | None = Field(default=None, alias="modelChosen")
+    reason_selected: str | None = Field(default=None, alias="reasonSelected")
+    cheaper_alternative: ThreadCheaperAlternativeRecord | None = Field(
+        default=None, alias="cheaperAlternative"
+    )
+    quality_rework: ThreadQualityReworkRecord = Field(alias="qualityRework")
+    policy: ThreadCostPolicyRecord
+
+
+class ThreadCostPerformanceResponse(BaseModel):
+    """Respuesta con el snapshot de costo/rendimiento de un hilo."""
+
+    cost_performance: ThreadCostPerformanceRecord = Field(alias="costPerformance")

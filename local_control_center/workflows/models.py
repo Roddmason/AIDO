@@ -5,7 +5,7 @@ gate advance, issue-to-patch/PR) plus the read models that aggregate a run with 
 evidence, jobs, agent runs and permission decisions. Field aliases keep the JSON
 camelCase while the Python attributes stay snake_case; no persistence or logic lives here.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

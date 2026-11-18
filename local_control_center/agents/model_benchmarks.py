@@ -4,7 +4,7 @@ Persiste outcomes individuales y los agrega en tasas de éxito/QA/rework, costo 
 métricas de calidad sobre provenance objetivo (automated_run/release_validation); lo operator_reported
 cuenta pero no alimenta las tasas. Si no hay benchmark explícito, deriva uno de outcomes y del usage_ledger.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from local_control_center.evidence.quality import evidence_has_real_qa_pass, failed_test_results
+from local_control_center.shared.db import row_value as _row_value
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
@@ -382,10 +383,6 @@ def _bool_to_int(value: Any) -> int | None:
 
 def _value_or_default(value: Any, default: Any) -> Any:
     return default if value is None else value
-
-
-def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
-    return row[key] if key in row.keys() else default
 
 
 def _int_row_value(row: sqlite3.Row, key: str, default: Any = 0) -> int:

@@ -2,11 +2,12 @@
  * Global keyboard layer for the shell: wires Escape, the command-palette toggle
  * and the Ctrl+Alt command-action shortcuts to a single window-level listener.
  * Keeps keyboard navigation working regardless of which page is mounted.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { RefObject } from 'react';
 import { useLayoutEffect } from 'react';
+import { hasOpenModalLayer } from '../components/ui/useDialogEscape';
 import type { CommandAction } from './commandActions';
 import { matchesShortcut } from './commandActions';
 import type { AppRoute } from './routing';
@@ -40,7 +41,7 @@ export function useShellShortcuts({
 				target?.tagName === 'INPUT' ||
 				target?.tagName === 'TEXTAREA' ||
 				target?.tagName === 'SELECT';
-			if (event.key === 'Escape') {
+			if (event.key === 'Escape' && !hasOpenModalLayer()) {
 				onEscape();
 			}
 			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {

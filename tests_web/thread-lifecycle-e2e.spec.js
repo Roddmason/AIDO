@@ -1,0 +1,969 @@
+import { spawn, spawnSync } from 'node:child_process';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
+import { createServer } from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, request as playwrightRequest, test } from '@playwright/test';
+
+test.use({ trace: 'off' });
+
+/**
+ * Full-lifecycle journey against a REAL dashboard server, a REAL temporary git project and a
+ * controlled (but real) Ollama-protocol runtime. It exists to keep the GUI honest: every pipeline
+ * surface asserted here (queued banner, worker claim, diff, QA/gitleaks, approval card, archive,
+ * rename, similarity recall) must be backed by real control-plane state, never by decoration.
+ *
+ * The spec owns its own dashboard process (fresh SQLite, isolated workspace root). The controlled
+ * runtime is configured through the real Ollama settings UI so recovery must persist operator-owned
+ * state before the Product Loop is retried; the shared per-chunk Playwright server stays untouched.
+ */
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+const PROJECT_NAME = 'Lifecycle E2E Project';
+const GOAL = 'Add a generated lifecycle note file under src for the AIDO E2E flow';
+const RENAMED_TITLE = 'Lifecycle E2E renamed thread';
+const GENERATED_FILE = 'src/aido-lifecycle-note.txt';
+const GENERATED_CONTENT = 'AIDO lifecycle E2E generated this file through the controlled runtime.\n';
+
+// 10300-10799 stays clear of run-web-tests.mjs chunk servers (8600 + pid%900 + offsets < 10000),
+// so this spec's private dashboard never races the shared per-chunk one.
+const dashboardPort = 10300 + (process.pid % 500);
+const baseUrl = `http://127.0.0.1:${dashboardPort}`;
+
+let scratchDir = '';
+let projectRepoDir = '';
+let mockServer = null;
+let mockBaseUrl = '';
+let dashboardProcess = null;
+let workerProcess = null;
+const dashboardLog = [];
+const mockCalls = { productOwner: 0, developer: 0, unknown: 0 };
+const operationTimeline = [];
+
+function runGit(args, cwd) {
+	const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+	if (result.status !== 0) {
+		throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
+	}
+	return result;
+}
+
+/** Real ProductOwnerAgent contract output: backlog_ready with no blocking questions/decisions. */
+function productOwnerOutput() {
+	return {
+		status: 'backlog_ready',
+		summary: 'Backlog for the lifecycle E2E goal is ready for implementation.',
+		confidence: 'high',
+		completeness: { score: 95, missing: [], rationale: 'The goal is small and fully specified.' },
+		questions: [],
+		assumptions: [
+			{
+				statement: 'The repository accepts generated documentation files under src.',
+				confidence: 'high',
+				validation: 'Confirmed by the project layout.',
+			},
+		],
+		decisions: [],
+		productBriefPatch: {
+			title: 'Lifecycle E2E generated note',
+			summary: 'Produce a generated note file through the real Product Loop.',
+			problemStatement: 'The pipeline needs a real artifact to prove it runs end to end.',
+			goals: ['Generate the note file through the DeveloperAgent'],
+			targetUsers: ['AIDO operators'],
+			successMetrics: ['note_file_created'],
+			scope: 'One generated file under src.',
+			outOfScope: 'Any other repository change.',
+		},
+		epics: [{ title: 'Lifecycle note generation', description: 'Generate the E2E note file.' }],
+		userStories: [
+			{
+				epicTitle: 'Lifecycle note generation',
+				title: 'Generate the lifecycle note file',
+				asA: 'AIDO operator',
+				iWant: 'the Product Loop to generate the note file',
+				soThat: 'I can verify the pipeline produces real changes',
+				businessValue: 'high',
+				acceptanceCriteria: ['The generated note file appears in the workspace diff'],
+			},
+		],
+		risks: [
+			{
+				severity: 'low',
+				description: 'The generated file could collide with existing content.',
+				mitigation: 'Use a dedicated file name.',
+			},
+		],
+		recommendedNextAction: 'Implement the backlog through the DeveloperAgent runtime.',
+	};
+}
+
+/** Real DeveloperAgent contract output: strict JSON files patch applied via workspace_patch. */
+function developerOutput() {
+	return {
+		summary: 'Generated the lifecycle note file.',
+		files: [{ path: GENERATED_FILE, content: GENERATED_CONTENT }],
+		tests: [],
+		risks: [],
+	};
+}
+
+/**
+ * Controlled Ollama-protocol server: /api/tags advertises a model, /api/chat answers per agent.
+ * Agent routing keys off the literal agent names inside the system prompts built by
+ * `local_control_center/agents/product_owner_agent.py` (`_system_instruction`) and
+ * `local_control_center/agents/developer_agent.py` (`_developer_model_messages`); renaming an
+ * agent there must update this router, otherwise the mock answers 500 and the run fails loudly.
+ */
+function startMockOllamaServer() {
+	return new Promise((resolve) => {
+		const server = createServer((incoming, response) => {
+			if (incoming.method === 'GET' && incoming.url === '/api/tags') {
+				const body = JSON.stringify({ models: [{ name: 'controlled-model' }] });
+				response.writeHead(200, { 'Content-Type': 'application/json' });
+				response.end(body);
+				return;
+			}
+			if (incoming.method === 'POST' && incoming.url === '/api/chat') {
+				let raw = '';
+				incoming.on('data', (chunk) => {
+					raw += chunk;
+				});
+				incoming.on('end', () => {
+					let payload;
+					const parsed = JSON.parse(raw || '{}');
+					const system = (parsed.messages ?? [])
+						.filter((message) => message.role === 'system')
+						.map((message) => String(message.content ?? ''))
+						.join('\n');
+					if (system.includes('ProductOwnerAgent')) {
+						mockCalls.productOwner += 1;
+						payload = productOwnerOutput();
+					} else if (system.includes('DeveloperAgent')) {
+						mockCalls.developer += 1;
+						payload = developerOutput();
+					} else {
+						mockCalls.unknown += 1;
+						response.writeHead(500, { 'Content-Type': 'application/json' });
+						response.end(JSON.stringify({ error: `unknown agent prompt: ${system.slice(0, 120)}` }));
+						return;
+					}
+					const body = JSON.stringify({
+						message: { content: JSON.stringify(payload) },
+						prompt_eval_count: 1,
+						eval_count: 1,
+					});
+					response.writeHead(200, { 'Content-Type': 'application/json' });
+					response.end(body);
+				});
+				return;
+			}
+			response.writeHead(404);
+			response.end();
+		});
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			resolve({ server, url: `http://127.0.0.1:${address.port}` });
+		});
+	});
+}
+
+function dashboardCommand() {
+	const windowsPython = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
+	const posixPython = path.join(repoRoot, '.venv', 'bin', 'python');
+	const pythonPath = process.platform === 'win32' ? windowsPython : posixPython;
+	const args = [
+		'-m',
+		'tests_web.fixtures.lifecycle_runtime',
+		'--endpoint', mockBaseUrl,
+		'--fixture-db', path.join(scratchDir, 'platform.sqlite'),
+		'--mode', 'api', '--',
+		'--dashboard-only',
+		'--dashboard-host',
+		'127.0.0.1',
+		'--dashboard-port',
+		String(dashboardPort),
+		'--db-path',
+		path.join(scratchDir, 'platform.sqlite'),
+		'--workspace',
+		scratchDir,
+	];
+	// Same isolation as run-web-tests.mjs: a concurrent `vite build` empties dist/web mid-run,
+	// so serve the frozen snapshot when the runner provides one.
+	if (process.env.PLAYWRIGHT_STATIC_DIR) {
+		args.push('--static-dir', process.env.PLAYWRIGHT_STATIC_DIR);
+	}
+	if (existsSync(pythonPath)) {
+		return { command: pythonPath, args };
+	}
+	return { command: 'uv', args: ['run', 'python', ...args] };
+}
+
+function pythonCommandForScript(script) {
+	const windowsPython = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
+	const posixPython = path.join(repoRoot, '.venv', 'bin', 'python');
+	const pythonPath = process.platform === 'win32' ? windowsPython : posixPython;
+	if (existsSync(pythonPath)) {
+		return { command: pythonPath, args: ['-c', script] };
+	}
+	return { command: 'uv', args: ['run', 'python', '-c', script] };
+}
+
+/**
+ * Seeds the performance profile the AIResourceManager overlays on the synced catalog model.
+ * The model id MUST be the one `/api/tags` advertises (`controlled-model`): the manager rejects any
+ * candidate the endpoint does not currently report (`runtime_model_not_available`), so a profile for
+ * a model the mock never serves is filtered out and no resource satisfies the developer roles.
+ */
+function seedControlledAIResource() {
+	const dbPath = path.join(scratchDir, 'platform.sqlite');
+	const script = `
+from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.settings.repository import SettingsRepository
+
+with open_sqlite_connection(${JSON.stringify(dbPath)}) as connection:
+    initialize_platform_schema(connection)
+    AIResourceManager(connection).upsert_model_performance({
+        "providerId": "ollama_remote",
+        "model": "controlled-model",
+        "runtime": "local",
+        "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
+        "contextWindow": 128000,
+        "maxOutputTokens": 4096,
+        "inputPricePerMtok": 0.0,
+        "outputPricePerMtok": 0.0,
+        "observedLatencyMs": 900,
+        "observedSuccessRate": 0.86,
+        "reworkRate": 0.04,
+        "qualityScore": 0.82,
+        "locality": "local",
+        "privacyLevel": "local_private",
+        "evidence": [{"id": "seed-thread-lifecycle-e2e-resource", "kind": "test_seed"}],
+    })
+    # This spec proves the pipeline, not host capacity: with the product defaults (16/8 GiB, 65% CPU)
+    # a busy dev machine parks steps in resource_wait; the spec re-requests run-once while an operation
+    # waits for capacity, and these floors (the registry minimums) keep that wait short. Only this
+    # fixture DB changes.
+    settings = SettingsRepository(connection)
+    settings.set_value("resources.hardFreeMemoryGiB", "general", None, 1)
+    settings.set_value("resources.minFreeMemoryGiB", "general", None, 1)
+    settings.set_value("resources.maxCpuPercent", "general", None, 95)
+`;
+	const seed = pythonCommandForScript(script);
+	const result = spawnSync(seed.command, seed.args, { cwd: repoRoot, encoding: 'utf8' });
+	if (result.status !== 0) {
+		throw new Error(`seeding controlled AI resource failed: ${result.stderr || result.stdout}`);
+	}
+}
+
+async function waitForDashboardHealth() {
+	const deadline = Date.now() + 120_000;
+	let lastReason = 'not_checked';
+	while (Date.now() < deadline) {
+		if (dashboardProcess.exitCode !== null) {
+			throw new Error(
+				`lifecycle dashboard exited before healthcheck (code=${dashboardProcess.exitCode}):\n` +
+					dashboardLog.slice(-40).join(''),
+			);
+		}
+		try {
+			const response = await fetch(`${baseUrl}/healthz`);
+			if (response.ok) return;
+			lastReason = `status_${response.status}`;
+		} catch (error) {
+			lastReason = error instanceof Error ? error.message : String(error);
+		}
+		await new Promise((resolveDelay) => {
+			setTimeout(resolveDelay, 500);
+		});
+	}
+	throw new Error(`lifecycle dashboard healthcheck timed out: ${lastReason}`);
+}
+
+async function stopDashboard() {
+	const failures = [];
+	for (const child of [workerProcess, dashboardProcess]) {
+		if (!child) continue;
+		try {
+			ownedTreeCommand('stop', child);
+			if (child.exitCode === null) await new Promise((resolveExit) => child.once('exit', resolveExit));
+		} catch (error) { failures.push(error); }
+	}
+	if (failures.length) throw failures[0];
+}
+
+function ownedTreeCommand(action, child) {
+	const python = pythonCommandForScript('');
+	const args = [...python.args.slice(0, -2), '-m', 'local_control_center.quality.owned_tree', action,
+		'--pid', String(child.pid), '--parent-pid', String(process.pid)];
+	if (action === 'stop') args.push('--created-at', String(child.aidoCreatedAt));
+	const result = spawnSync(python.command, args, { cwd: repoRoot, encoding: 'utf8', timeout: 20_000 });
+	if (result.status !== 0) throw new Error(`Lifecycle owned-tree ${action} failed: ${result.stderr}`);
+	return JSON.parse(result.stdout);
+}
+
+/** Proves the operator-configured Ollama account is now executable; never mutates setup state. */
+async function expectControlledRuntimeReady() {
+	const context = await playwrightRequest.newContext();
+	try {
+		try {
+			await expect.poll(async () => {
+				const body = await (await context.get(`${baseUrl}/api/v1/agents/developer/status`)).json();
+				const readiness = body.developerAgent ?? body;
+				return readiness.executable === true && readiness.selectedRuntimeId === 'ollama_remote';
+			}, { timeout: 30_000 }).toBe(true);
+		} catch (error) {
+			const body = await (await context.get(`${baseUrl}/api/v1/runtime/providers`)).json();
+			const provider = body.providers.find((item) => item.id === 'ollama_remote') ?? {};
+			const fields = ['id', 'configured', 'authenticated', 'globallyEnabled', 'projectEnabled',
+				'healthy', 'resourceAdmissible', 'blockingReasons', 'reason', 'healthStatus', 'healthCheckedAt'];
+			throw new Error(`Controlled runtime readiness: ${JSON.stringify(Object.fromEntries(fields.map((key) => [key, provider[key]])))}`, { cause: error });
+		}
+	} finally {
+		await context.dispose();
+	}
+}
+
+async function expectControlPlaneLoaded(page) {
+	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText('Loading control plane')).toBeHidden({ timeout: 30_000 });
+}
+
+function threadRow(page, title) {
+	return page.locator('.thread-row', { hasText: title });
+}
+
+async function openThreadMenu(page, title) {
+	const row = threadRow(page, title);
+	await expect(row).toBeVisible({ timeout: 20_000 });
+	await row.locator('.thread-menu-trigger').click();
+	await expect(page.getByRole('menu')).toBeVisible();
+}
+
+test.describe('Threads lifecycle (real pipeline)', () => {
+	test.skip(
+		({ isMobile }) => isMobile,
+		'The lifecycle journey owns a dedicated dashboard server and runs once, on desktop.',
+	);
+
+	test.beforeAll(async () => {
+		scratchDir = mkdtempSync(path.join(os.tmpdir(), 'aido-lifecycle-'));
+		projectRepoDir = path.join(scratchDir, 'lifecycle-sample-project');
+		mkdirSync(path.join(projectRepoDir, 'src'), { recursive: true });
+		writeFileSync(path.join(projectRepoDir, 'src', 'app.txt'), 'initial\n', 'utf8');
+		writeFileSync(
+			path.join(projectRepoDir, 'package.json'),
+			`${JSON.stringify(
+				{
+					private: true,
+					scripts: {
+						test: 'node -e "process.exit(0)"',
+					},
+				},
+				null,
+				2,
+			)}\n`,
+			'utf8',
+		);
+		const init = spawnSync('git', ['init', '--initial-branch', 'main'], { cwd: projectRepoDir });
+		if (init.status !== 0) {
+			runGit(['init'], projectRepoDir);
+			runGit(['checkout', '-b', 'main'], projectRepoDir);
+		}
+		runGit(['config', 'user.email', 'aido-lifecycle@example.invalid'], projectRepoDir);
+		runGit(['config', 'user.name', 'AIDO Lifecycle E2E'], projectRepoDir);
+		runGit(['add', '.'], projectRepoDir);
+		runGit(['commit', '-m', 'Initial commit'], projectRepoDir);
+
+		const mock = await startMockOllamaServer();
+		mockServer = mock.server;
+		mockBaseUrl = mock.url;
+
+		const env = { ...process.env };
+		delete env.AIDO_OLLAMA_BASE_URL;
+		delete env.OLLAMA_BASE_URL;
+		delete env.OLLAMA_HOST;
+		delete env.AIDO_ENABLE_CLI_RUNTIMES;
+		const dashboard = dashboardCommand();
+		dashboardProcess = spawn(dashboard.command, dashboard.args, { cwd: repoRoot, env });
+		dashboardProcess.aidoCreatedAt = ownedTreeCommand('identify', dashboardProcess).createdAt;
+		dashboardProcess.stdout.on('data', (chunk) => dashboardLog.push(String(chunk)));
+		dashboardProcess.stderr.on('data', (chunk) => dashboardLog.push(String(chunk)));
+		try {
+			await waitForDashboardHealth();
+			seedControlledAIResource();
+			const workerArgs = [...(dashboard.command === 'uv' ? ['run', 'python'] : []), '-m', 'tests_web.fixtures.lifecycle_runtime',
+				'--endpoint', mockBaseUrl, '--fixture-db', path.join(scratchDir, 'platform.sqlite'), '--mode', 'worker', '--', '--worker', '--no-dashboard',
+				'--db-path', path.join(scratchDir, 'platform.sqlite'), '--workspace', scratchDir];
+			workerProcess = spawn(dashboard.command, workerArgs, { cwd: repoRoot, env });
+			workerProcess.aidoCreatedAt = ownedTreeCommand('identify', workerProcess).createdAt;
+			workerProcess.stdout.on('data', (chunk) => dashboardLog.push(String(chunk)));
+			workerProcess.stderr.on('data', (chunk) => dashboardLog.push(String(chunk)));
+			await expect.poll(async () => {
+				const response = await fetch(`${baseUrl}/api/v1/workers/status`);
+				return (await response.json()).connected;
+			}, { timeout: 30_000 }).toBe(true);
+		} catch (error) {
+			// afterAll never runs when beforeAll throws; stop the spawned server here so a failed
+			// boot cannot leak an orphan python process holding the port. A cleanup failure must not
+			// replace the boot error: that masked why the dashboard or worker had died.
+			try {
+				await stopDashboard();
+			} catch (cleanupError) {
+				console.log(`[lifecycle] cleanup after failed boot also failed: ${cleanupError.message}`);
+			}
+			console.log(`[lifecycle] boot failed; process log tail:\n${dashboardLog.slice(-60).join('')}`);
+			throw error;
+		}
+	});
+
+	test.afterAll(async () => {
+		await stopDashboard();
+		if (mockServer) mockServer.close();
+		if (scratchDir) {
+			const target = path.resolve(scratchDir);
+			if (path.dirname(target) !== path.resolve(os.tmpdir()) || !path.basename(target).startsWith('aido-lifecycle-')) {
+				throw new Error('Refusing cleanup outside this test-owned temporary directory');
+			}
+			try {
+				rmSync(target, { recursive: true, force: true, maxRetries: 5 });
+			} catch {
+				// Windows can keep worktree handles briefly; the OS temp dir cleans up leftovers.
+			}
+		}
+	});
+
+	test.afterEach(async ({}, testInfo) => {
+		const python = pythonCommandForScript('');
+		const snapshot = spawnSync(python.command, [
+			...python.args.slice(0, -2), '-m', 'tests_web.fixtures.lifecycle_evidence',
+			path.join(scratchDir, 'platform.sqlite'), testInfo.outputPath('lifecycle.sqlite'),
+			String(dashboardProcess.pid), String(workerProcess.pid),
+		], { cwd: repoRoot, encoding: 'utf8', timeout: 130_000 });
+		// The line reporter does not persist body attachments on PASS. Retain explicit files
+		// in this invocation's evidence directory before pytest/Playwright fixtures close.
+		for (const [name, body, contentType] of [
+			['lifecycle-state.json', snapshot.stdout || snapshot.stderr, 'application/json'],
+			['lifecycle-timeline.json', JSON.stringify(operationTimeline), 'application/json'],
+			['lifecycle-processes.log', dashboardLog.join(''), 'text/plain'],
+			['lifecycle-provider-counts.json', JSON.stringify(mockCalls), 'application/json'],
+		]) {
+			const destination = testInfo.outputPath(name);
+			writeFileSync(destination, body, { encoding: 'utf8', flag: 'wx' });
+			await testInfo.attach(name, { path: destination, contentType });
+		}
+		if (testInfo.status !== testInfo.expectedStatus) {
+			console.log(`[lifecycle] mock calls: ${JSON.stringify(mockCalls)}`);
+			console.log(`[lifecycle] dashboard log tail:\n${dashboardLog.slice(-40).join('')}`);
+			try {
+				const response = await fetch(`${baseUrl}/api/v1/executions`, { signal: AbortSignal.timeout(5000) });
+				const body = await response.json();
+				console.log(`[lifecycle] operation states: ${JSON.stringify((body.executions ?? []).map(
+					({ operation, status, workloadClass, reason }) => ({ operation, status, workloadClass, reason }),
+				))}`);
+			} catch (error) { console.log(`[lifecycle] operation diagnostics unavailable: ${error.name}`); }
+		}
+		// Last: a failed snapshot must not hide the diagnostics printed above.
+		expect(snapshot.status, snapshot.stderr).toBe(0);
+	});
+
+	test('a real Git project runs goal -> queued -> worker -> diff -> QA/gitleaks -> approval -> archive -> rename -> similarity', async ({
+		page,
+	}, testInfo) => {
+		test.setTimeout(600_000);
+		await page.setViewportSize({ width: 1280, height: 800 });
+		const handshake = await page.request.get(`${baseUrl}/api/v1/security/handshake`);
+		const { token } = await handshake.json();
+		const apiHeaders = { 'X-Local-Control-Token': token, Origin: baseUrl };
+		// The real external worker stays paused. Each accepted setup operation explicitly requests
+		// one batch; thread execution is still driven by the Run now controls asserted below.
+		const runOnceRequestedAt = new Map();
+		page.on('response', async (response) => {
+			if (response.url().includes('/api/v1/executions/') || response.url().endsWith('/workers/run-once')) {
+				const state = await response.json();
+				operationTimeline.push({ at: new Date().toISOString(), url: new URL(response.url()).pathname,
+					status: response.status(), executionId: state.executionId, operation: state.operation,
+					state: state.status, reason: state.reason, inFlightJobs: state.inFlightJobs,
+					ownerId: state.ownerId, fencingToken: state.fencingToken, heartbeatAt: state.heartbeatAt });
+				// A paused worker evaluates admission once per run-once: an operation parked in
+				// resource_wait needs another batch once the host frees capacity.
+				const lastRequest = runOnceRequestedAt.get(state.executionId) ?? 0;
+				if (state.status === 'resource_wait' && Date.now() - lastRequest > 3000) {
+					runOnceRequestedAt.set(state.executionId, Date.now());
+					await page.request
+						.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders })
+						.catch((error) => operationTimeline.push({ at: new Date().toISOString(), phase: 'run-once-retry-failed', error: String(error) }));
+				}
+			}
+			if (response.status() !== 202) return;
+			const body = await response.json();
+			if (!body.operation || !body.executionId) return;
+			operationTimeline.push({ at: new Date().toISOString(), phase: 'accepted',
+				executionId: body.executionId, operation: body.operation, requestId: response.headers()['x-correlation-id'] });
+			const control = await page.request.post(`${baseUrl}/api/v1/workers/run-once`, { headers: apiHeaders });
+			const state = await control.json();
+			operationTimeline.push({ at: new Date().toISOString(), phase: 'run-once-accepted',
+				executionId: body.executionId, status: control.status(), ownerId: state.ownerId,
+				fencingToken: state.fencingToken, heartbeatAt: state.heartbeatAt,
+				runOnceRequestedAt: state.runOnceRequestedAt, desiredState: state.desiredState });
+			expect(control.status()).toBe(202);
+		});
+		let project;
+		let threadId = '';
+		let productLoopId = '';
+
+		await test.step('1. abre un proyecto Git temporal desde el wizard de workspace', async () => {
+			await page.goto(`${baseUrl}/#threads`);
+			await expectControlPlaneLoaded(page);
+
+			await page
+				.locator('.shell-footer-item', { hasText: /Open folder|Abrir carpeta/ })
+				.first()
+				.click();
+			await expect(
+				page.getByRole('heading', { name: /New workspace|Nuevo espacio de trabajo/ }),
+			).toBeVisible();
+			await page.locator('#workspace-folder').fill(projectRepoDir);
+			await page.getByRole('button', { name: /Detect project|Detectar proyecto/ }).click();
+			await page.getByRole('button', { name: /^(Next|Siguiente)$/ }).click();
+
+			const nameInput = page.locator('#workspace-project-name');
+			await expect(nameInput).toBeVisible();
+			await nameInput.fill(PROJECT_NAME);
+			await page.getByRole('button', { name: /^(Next|Siguiente)$/ }).click();
+			await page
+				.getByRole('button', { name: /Open in workbench|Abrir en el workbench/ })
+				.click();
+			await expect(page.getByText(/Workspace ready|Workspace listo/).first()).toBeVisible({
+				timeout: 60_000,
+			});
+
+			const projectsResponse = await page.request.get(`${baseUrl}/api/v1/projects`);
+			const { projects } = await projectsResponse.json();
+			project = projects.find((item) => item.name === PROJECT_NAME);
+			expect(project, 'the wizard must create a real project for the temp git repo').toBeTruthy();
+		});
+
+		await test.step('2. crea un thread nuevo desde el workspace del proyecto', async () => {
+			await page.goto(`${baseUrl}/#threads`);
+			await expectControlPlaneLoaded(page);
+			const head = page.locator('.thread-workspace-head', { hasText: PROJECT_NAME });
+			await expect(head).toBeVisible({ timeout: 20_000 });
+			if ((await head.getAttribute('aria-expanded')) !== 'true') {
+				await head.click();
+			}
+			await page.locator('.shell-new-thread').click();
+			await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+		});
+
+		await test.step('3. escribe la meta en el intake', async () => {
+			await page.getByLabel('Message AIDO').fill(GOAL);
+		});
+
+		await test.step('4. la deteccion de similares no bloquea cuando no hay threads previos', async () => {
+			// 500ms debounce + one similarity read; with an empty project the card must never render.
+			await page.waitForTimeout(1500);
+			await expect(page.locator('.thread-similarity-card')).toHaveCount(0);
+		});
+
+		await test.step('5. el thread pasa a queued con su evento en consola', async () => {
+			await page.getByRole('button', { name: 'Create thread' }).click();
+			await expect(page.getByText(GOAL).first()).toBeVisible({ timeout: 20_000 });
+			await expect(page.getByText(/Run queued|Run encolado/).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await expect(
+				page.getByText(/waiting for a worker|esperando que un worker/).first(),
+			).toBeVisible({ timeout: 20_000 });
+
+			const listed = await page.request.get(
+				`${baseUrl}/api/v1/threads?projectId=${project.id}`,
+			);
+			const { threads } = await listed.json();
+			const created = threads.find((thread) => thread.title === GOAL.slice(0, 80));
+			expect(created, 'the queued thread must exist in the control plane').toBeTruthy();
+			expect(created.status).toBe('queued');
+			threadId = created.id;
+		});
+
+		await test.step('6. sin runtime, el worker bloquea y persiste una reparación ejecutable', async () => {
+			const runNow = page
+				.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
+				.getByRole('button', { name: /Run now|Ejecutar ahora/ });
+			await expect(runNow).toBeVisible({ timeout: 20_000 });
+			await runNow.click();
+
+			await expect
+				.poll(
+					async () => {
+						const response = await page.request.get(
+							`${baseUrl}/api/v1/threads/${threadId}/remediations`,
+						);
+						const body = await response.json();
+						return body.remediations.some(
+							(action) =>
+								action.blockerType === 'runtime_not_executable' &&
+								action.actionType === 'open_settings_section',
+						);
+					},
+					{ timeout: 120_000 },
+				)
+				.toBe(true);
+			const remediations = await (
+				await page.request.get(`${baseUrl}/api/v1/threads/${threadId}/remediations`)
+			).json();
+			const runtimeActions = remediations.remediations
+				.filter((action) => action.blockerType === 'runtime_not_executable')
+				.map((action) => action.actionType);
+			expect(runtimeActions).toEqual(
+				expect.arrayContaining(['open_settings_section', 'validate_runtime', 'run_worker_once']),
+			);
+			expect(runtimeActions).not.toContain('retry_loop');
+			expect(mockCalls.productOwner).toBe(0);
+			expect(mockCalls.developer).toBe(0);
+			const detail = await (
+				await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`)
+			).json();
+			expect(detail.thread.status).toBe('queued');
+		});
+
+		await test.step('7. el CTA configura y valida Ollama desde la UI real', async () => {
+			const repairCard = page.locator('.thread-execution-pane .thread-remediation-card', {
+				hasText: /No executable runtime|Sin runtime ejecutable/,
+			});
+			await expect(repairCard).toBeVisible({ timeout: 30_000 });
+			await repairCard
+				.getByRole('button', { name: /Configure runtime|Configurar runtime/ })
+				.click();
+
+			const settings = page.getByRole('dialog', { name: 'Settings' });
+			await expect(settings).toBeVisible({ timeout: 20_000 });
+			await settings
+				.getByRole('button', { name: /Add endpoint|Agregar endpoint/, exact: true })
+				.click();
+			const endpointDialog = page.getByRole('dialog', {
+				name: /Add Ollama endpoint|Agregar endpoint de Ollama/,
+			});
+			await expect(endpointDialog).toBeVisible();
+			await endpointDialog.getByLabel(/Endpoint id|Id del endpoint/).fill('ollama_remote');
+			await endpointDialog
+				.getByLabel(/Display name|Nombre para mostrar/)
+				.fill('Lifecycle controlled Ollama');
+			await endpointDialog.getByLabel(/Base URL|URL base/).fill(mockBaseUrl);
+			await endpointDialog
+				.getByRole('button', { name: /Add endpoint|Agregar endpoint/, exact: true })
+				.click();
+			await expect(endpointDialog).toBeHidden({ timeout: 30_000 });
+
+			// The provider card of the runtime panel also shows the endpoint name; only the endpoint
+			// card carries the endpoint actions.
+			const endpointCard = settings.locator('.card', {
+				hasText: 'Lifecycle controlled Ollama',
+				has: page.locator('.endpoint-card-action'),
+			});
+			await expect(endpointCard).toBeVisible({ timeout: 30_000 });
+			await endpointCard.getByRole('button', { name: /Validate|Validar/, exact: true }).click();
+			await expect(page.getByText(/Endpoint responded|El endpoint respondió/)).toBeVisible({
+				timeout: 120_000,
+			});
+			const syncModels = endpointCard.getByRole('button', {
+				name: /Sync models|Sincronizar modelos/,
+			});
+			await expect(syncModels).toBeEnabled({ timeout: 120_000 });
+			await syncModels.click();
+			await expect
+				.poll(
+					async () => {
+						const response = await page.request.get(`${baseUrl}/api/v1/ollama/endpoints`);
+						const body = await response.json();
+						const endpoint = body.endpoints.find((item) => item.id === 'ollama_remote');
+						return endpoint ?? null;
+					},
+					{ timeout: 120_000 },
+				)
+				.toEqual(
+					expect.objectContaining({
+						baseUrl: mockBaseUrl,
+						models: expect.arrayContaining(['controlled-model']),
+					}),
+				);
+			// An operator declares that a model can edit code through the same endpoint the local-runtime
+			// wizard and the Ollama endpoint card use (PATCH /local-endpoints/{id}/models); setup goes through
+			// the API to keep this step short, and ollama-endpoints.spec.js covers the card control. Also,
+			// runtime_team/roles.py:70 only makes a model runtime eligible for the developer role with it.
+			const declareCodeCapability = await page.request.patch(
+				`${baseUrl}/api/v1/local-endpoints/ollama_remote/models`,
+				{ headers: apiHeaders, data: { model: 'controlled-model', codeEdit: true, codeReview: true } },
+			);
+			expect(declareCodeCapability.ok(), await declareCodeCapability.text()).toBe(true);
+			const providerCard = settings
+				.locator('article.card', { hasText: 'Lifecycle controlled Ollama' })
+				.filter({
+					has: page.getByRole('button', {
+						name: /Configuration details|Detalles de configuración/,
+					}),
+				});
+			await expect(providerCard.getByText(mockBaseUrl, { exact: true })).toBeVisible({
+				timeout: 30_000,
+			});
+			await settings.getByRole('button', { name: /Close Settings|Cerrar ajustes/ }).click();
+			await expectControlledRuntimeReady();
+		});
+
+		await test.step('8. valida la reparación, reintenta el mismo hilo y llega a aprobación', async () => {
+			const repairCard = page.locator('.thread-execution-pane .thread-remediation-card', {
+				hasText: /No executable runtime|Sin runtime ejecutable/,
+			});
+			await repairCard
+				.getByRole('button', { name: /Revalidate runtime|Revalidar runtime/ })
+				.click();
+			await expect(
+				page.getByLabel('Notifications').getByText(/Repair action ran|Acción de reparación ejecutada/),
+			).toBeVisible({ timeout: 30_000 });
+
+			const runQueuedWork = async () => {
+				const runNow = page
+					.getByRole('region', { name: /Waiting for (worker|machine capacity)|Esperando (worker|capacidad del equipo)/ })
+					.getByRole('button', { name: /Run now|Ejecutar ahora/ });
+				await expect(runNow).toBeVisible({ timeout: 30_000 });
+				await runNow.click();
+				const deadline = Date.now() + 240_000;
+				let detail = null;
+				let status = 'queued';
+				while (Date.now() < deadline) {
+					const response = await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`);
+					detail = await response.json();
+					status = detail.thread.status;
+					if (!['queued', 'running'].includes(status)) break;
+					await page.waitForTimeout(2000);
+				}
+				return { detail, status };
+			};
+			let { detail, status } = await runQueuedWork();
+			let blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
+			// The message was sealed while no runtime was healthy, so its global-team snapshot gives the
+			// ProductOwner no candidates; Revalidate + Run now replay that snapshot by design (dedd8908).
+			// "Retry loop" is the recovery that re-seals the team with the now-validated endpoint.
+			if (status === 'blocked' && /could not select an approved AI resource/.test(blocked?.payload?.reason ?? '')) {
+				await page
+					.locator('.thread-execution-pane .thread-remediation-card')
+					.getByRole('button', { name: /Retry loop|Reintentar loop/ })
+					.first()
+					.click();
+				({ detail, status } = await runQueuedWork());
+				blocked = (detail?.events ?? []).filter((event) => event.type === 'blocked').pop();
+			}
+			expect(
+				status,
+				`recovered Product Loop must reach approval; blocked payload: ${JSON.stringify(blocked?.payload ?? {})}`,
+			).toBe('awaiting_approval');
+		});
+
+		await test.step('9. el panel de ejecucion muestra worker_claimed', async () => {
+			const log = page.locator('.thread-execution-log');
+			await expect(
+				log.locator('.thread-console-row[data-type="worker_claimed"]').first(),
+			).toBeVisible({ timeout: 120_000 });
+			await expect(page.getByText(/Worker assigned|Worker asignado/).first()).toBeVisible();
+		});
+
+		await test.step('10. el runtime controlado produjo un diff real en el worktree', async () => {
+			expect(mockCalls.productOwner, 'ProductOwnerAgent must hit the controlled runtime').toBeGreaterThan(0);
+			expect(mockCalls.developer, 'DeveloperAgent must hit the controlled runtime').toBeGreaterThan(0);
+			expect(mockCalls.unknown).toBe(0);
+
+			const loopResponse = await page.request.get(
+				`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
+			);
+			const loopBody = await loopResponse.json();
+			const loops = loopBody.loops ?? loopBody.productLoops ?? [];
+			const loop =
+				loops.find((item) => item.state === 'awaiting_approval') ?? loops[loops.length - 1];
+			expect(loop, 'an awaiting_approval product loop must exist').toBeTruthy();
+			productLoopId = loop.id;
+			const durable = loop.context?.durableRun ?? {};
+			expect(durable.review?.state).toBe('captured');
+			expect(durable.review?.changedFiles).toEqual([GENERATED_FILE]);
+			expect(String(durable.review?.patch ?? '')).toContain('controlled runtime');
+			const generatedOnDisk = path.join(durable.workspacePath ?? '', GENERATED_FILE);
+			expect(
+				existsSync(generatedOnDisk),
+				`the generated file must exist on disk at ${generatedOnDisk}`,
+			).toBe(true);
+			const executingStep = page.locator('.thread-pipeline-step', { hasText: /Executing/ });
+			await expect(executingStep).toHaveAttribute('data-state', 'done');
+		});
+
+		await test.step('11. QA y gitleaks aparecen en el pipeline y la consola', async () => {
+			const qaStep = page.locator('.thread-pipeline-step', { hasText: /QA checks/ });
+			const securityStep = page.locator('.thread-pipeline-step', { hasText: /Security scan/ });
+			await expect(qaStep).toHaveAttribute('data-state', 'done', { timeout: 30_000 });
+			await expect(securityStep).toHaveAttribute('data-state', 'done');
+			const log = page.locator('.thread-execution-log');
+			await expect(log.locator('.thread-console-row[data-type="qa_running"]').first()).toBeVisible();
+			await expect(
+				log.locator('.thread-console-row[data-type="security_running"]').first(),
+			).toBeVisible();
+
+			const loopResponse = await page.request.get(
+				`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
+			);
+			const loopBody = await loopResponse.json();
+			const loops = loopBody.loops ?? loopBody.productLoops ?? [];
+			const loop = loops.find((item) => item.state === 'awaiting_approval');
+			const gitleaks = loop?.context?.durableRun?.gitleaks ?? {};
+			expect(gitleaks.status, 'gitleaks must really run against the workspace').toBe('completed');
+			// A defaulted/stubbed result would not carry the scanner report: demand the real shape.
+			expect(Array.isArray(gitleaks.gitleaks?.report), 'gitleaks report must be present').toBe(true);
+			expect(gitleaks.gitleaks?.findingCount ?? 0).toBe(0);
+			expect(Boolean(gitleaks.deliveryBlocked)).toBe(false);
+		});
+
+		await test.step('12. aprueba la entrega desde Review Board con razon humana', async () => {
+			await expect(
+				page.locator('.thread-conversation-head .badge', { hasText: /awaiting approval/ }),
+			).toBeVisible({ timeout: 30_000 });
+			const approvalCard = page.locator('.thread-blocker-card', {
+				hasText: /Approval required|Aprobación requerida/,
+			});
+			await expect(approvalCard).toBeVisible({ timeout: 30_000 });
+
+			// Visual evidence artifact: the execution panel with pipeline, console and approval card.
+			await testInfo.attach('execution-panel-awaiting-approval', {
+				body: await page.screenshot({ fullPage: false }),
+				contentType: 'image/png',
+			});
+			await approvalCard
+				.getByRole('button', { name: /Open approvals|Abrir aprobaciones/ })
+				.click();
+			// "Open approvals" routes to the review board, where the pending delivery shows up
+			// as a real review card fed by the action request the pipeline created.
+			const board = page.locator('.review-board');
+			await expect(board).toBeVisible({ timeout: 20_000 });
+			await expect(
+				board.getByRole('button', {
+					name: /Review: product_loop\.approve_delivery .* Lifecycle E2E Project/,
+				}),
+			).toBeVisible({ timeout: 20_000 });
+			const reviewButton = board.getByRole('button', {
+				name: /Review: product_loop\.approve_delivery .* Lifecycle E2E Project/,
+			});
+			await reviewButton.click();
+
+			const review = page.getByRole('dialog', { name: 'Action request review' });
+			await expect(review).toBeVisible({ timeout: 20_000 });
+			await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+			await review
+				.getByLabel('Human decision reason')
+				.fill('Reviewed Product Loop diff, QA, and gitleaks evidence from the lifecycle run.');
+			await expect(review.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+			await review.getByRole('button', { name: 'Approve', exact: true }).click();
+			await expect(review).toBeHidden({ timeout: 20_000 });
+
+			const deadline = Date.now() + 60_000;
+			let deliveredLoop = null;
+			while (Date.now() < deadline) {
+				const response = await page.request.get(
+					`${baseUrl}/api/v1/projects/${project.id}/product-loop?includeContext=true`,
+				);
+				const body = await response.json();
+				const loops = body.loops ?? body.productLoops ?? [];
+				deliveredLoop = loops.find((item) => item.id === productLoopId) ?? null;
+				const approval = deliveredLoop?.context?.durableRun?.approval ?? {};
+				if (
+					deliveredLoop?.state === 'delivered' &&
+					approval.status === 'approved' &&
+					approval.decision === 'accept'
+				) {
+					break;
+				}
+				await page.waitForTimeout(1000);
+			}
+			const approval = deliveredLoop?.context?.durableRun?.approval ?? {};
+			expect(deliveredLoop?.state).toBe('delivered');
+			expect(approval.status).toBe('approved');
+			expect(approval.decision).toBe('accept');
+
+			await page.goto(`${baseUrl}/#threads`);
+			await expectControlPlaneLoaded(page);
+			const head = page.locator('.thread-workspace-head', { hasText: PROJECT_NAME });
+			await expect(head).toBeVisible({ timeout: 20_000 });
+			if ((await head.getAttribute('aria-expanded')) !== 'true') {
+				await head.click();
+			}
+		});
+
+		await test.step('13. archiva el thread desde el menu contextual', async () => {
+			await openThreadMenu(page, GOAL.slice(0, 80));
+			await page.getByRole('menuitem', { name: /Archive|Archivar/ }).click();
+			await expect(page.getByText(/Thread archived|Hilo archivado/).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await expect(threadRow(page, GOAL.slice(0, 80))).toBeHidden({ timeout: 20_000 });
+		});
+
+		await test.step('14. el toggle de archivados vuelve a mostrar el thread', async () => {
+			await page.getByRole('button', { name: /Show archived|Mostrar archivados/ }).click();
+			await expect(page.locator('.thread-archived-head').first()).toBeVisible({
+				timeout: 20_000,
+			});
+			const archivedRow = threadRow(page, GOAL.slice(0, 80));
+			await expect(archivedRow).toBeVisible({ timeout: 20_000 });
+			await expect(archivedRow).toHaveClass(/is-archived/);
+		});
+
+		await test.step('15. desarchiva y renombra el thread', async () => {
+			await openThreadMenu(page, GOAL.slice(0, 80));
+			await page.getByRole('menuitem', { name: /Unarchive|Desarchivar/ }).click();
+			await expect(page.getByText(/Thread restored|Hilo restaurado/).first()).toBeVisible({
+				timeout: 20_000,
+			});
+
+			// Wait for the refreshed sidebar to move the row back to the active section before
+			// touching its menu: the archived flavor of the menu has no Rename item.
+			const activeRow = page.locator('.thread-row:not(.is-archived)', {
+				hasText: GOAL.slice(0, 80),
+			});
+			await expect(activeRow).toBeVisible({ timeout: 20_000 });
+			await page.getByRole('button', { name: /Hide archived|Ocultar archivados/ }).click();
+
+			await activeRow.locator('.thread-menu-trigger').click();
+			await expect(page.getByRole('menu')).toBeVisible();
+			await page.getByRole('menuitem', { name: /Rename|Renombrar/ }).click();
+			const editor = page.getByLabel(/New thread title|Nuevo título del hilo/);
+			await expect(editor).toBeVisible();
+			await editor.fill(RENAMED_TITLE);
+			await editor.press('Enter');
+			await expect(threadRow(page, RENAMED_TITLE)).toBeVisible({ timeout: 20_000 });
+
+			const detailResponse = await page.request.get(`${baseUrl}/api/v1/threads/${threadId}`, {
+				headers: apiHeaders,
+			});
+			const detail = await detailResponse.json();
+			expect(detail.thread.title).toBe(RENAMED_TITLE);
+		});
+
+		await test.step('16. crear un thread similar muestra la sugerencia con el trabajo previo', async () => {
+			await page.locator('.shell-new-thread').click();
+			await expect(page.getByRole('heading', { name: /What will we work on/ })).toBeVisible();
+			await page.getByLabel('Message AIDO').fill(GOAL);
+
+			const card = page.locator('.thread-similarity-card');
+			await expect(card).toBeVisible({ timeout: 15_000 });
+			await expect(card).toContainText('This was already worked on in');
+			await expect(card).toContainText(RENAMED_TITLE);
+			await expect(card.getByRole('button', { name: 'Continue existing thread' })).toBeVisible();
+			await expect(card.getByRole('button', { name: 'Create new thread anyway' })).toBeVisible();
+		});
+	});
+});

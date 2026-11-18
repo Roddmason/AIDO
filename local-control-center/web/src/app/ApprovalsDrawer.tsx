@@ -1,15 +1,15 @@
 /**
  * Slide-over that surfaces pending action requests awaiting a human approval.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview } from '../api/types';
-import { Badge, DataTable, Drawer, EmptyState } from '../components/primitives';
+import { StatusChip as Badge, DataTable, Drawer, EmptyState } from '../components/ui';
 import { shortId, toneForStatus } from '../lib/format';
 
 /**
  * Slide-over listing the pending action requests awaiting a human decision.
  * Opened from the Edit menu ("Approvals") or Ctrl+Alt+A, and dismissed with
- * Escape (handled by the shell shortcut layer).
+ * Escape (owned by the Drawer primitive's shared LIFO layer).
  */
 export function ApprovalsDrawer({
 	open,

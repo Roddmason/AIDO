@@ -3,7 +3,7 @@
  * executable/total count and a one-line-per-provider status list, with refresh-health
  * and a deep link into the full runtime setup. Shares all derivation with the panel via
  * `runtimeSetup` so both surfaces stay consistent.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { ArrowRight, RefreshCw } from 'lucide-react';
@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 
 import { healthCheckModelGatewayProvider } from '../../api/client';
 import type { RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
-import { StatusDot } from '../../components/primitives';
+import { StatusDot, useToast } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
 	apiProviderIdsNeedingProbe,
@@ -24,7 +24,7 @@ type RuntimeSetupInspectorCardProps = {
 	runtimeProviders: RuntimeProviders | null;
 	runtimeProviderConfiguration: RuntimeProviderConfiguration[] | null;
 	token: string;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 	onOpenRuntimeSetup: () => void;
 };
 
@@ -40,6 +40,7 @@ export function RuntimeSetupInspectorCard({
 	onOpenRuntimeSetup,
 }: RuntimeSetupInspectorCardProps) {
 	const { t } = useI18n();
+	const { notify } = useToast();
 	const [refreshing, setRefreshing] = useState(false);
 
 	const providers = useMemo(
@@ -64,6 +65,7 @@ export function RuntimeSetupInspectorCard({
 				await Promise.allSettled(probeIds.map((id) => healthCheckModelGatewayProvider(token, id)));
 			}
 			await onRefresh();
+			notify({ title: t('app.runtime.refreshDone', 'Runtime health refreshed'), tone: 'info' });
 		} finally {
 			setRefreshing(false);
 		}
@@ -107,7 +109,11 @@ export function RuntimeSetupInspectorCard({
 				<RefreshCw aria-hidden="true" size={15} />
 				{t('app.runtime.refresh', 'Refresh health')}
 			</button>
-			<button className="button" type="button" onClick={onOpenRuntimeSetup}>
+			<button
+				className={executableCount === 0 ? 'button primary' : 'button'}
+				type="button"
+				onClick={onOpenRuntimeSetup}
+			>
 				<ArrowRight aria-hidden="true" size={15} />
 				{t('app.runtime.inspector.open', 'Open runtime setup')}
 			</button>

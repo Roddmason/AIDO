@@ -5,7 +5,7 @@
  *
  * Note: the trigger's own hover/focus handlers are overridden, so wrap simple triggers
  * (a Button/IconButton/link) rather than elements that need their own pointer handlers.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactElement } from 'react';

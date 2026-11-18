@@ -2,7 +2,7 @@
  * Derives the shell's aggregate status from raw control-plane data: runtime
  * readiness, pending approvals, QA verdicts and summed cost. The single place
  * that computes these figures so the StatusBar (and tests) share one definition.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { sumRecordedCostUsd } from '../lib/format';
@@ -15,6 +15,8 @@ const BLOCKING_QA_VERDICTS = ['failed', 'blocked', 'security_blocked', 'devops_b
 export type ShellStatus = {
 	connected: boolean;
 	executableRuntimes: number;
+	/** Providers a thread's AI team can use: same rule as `activeProviders` of `GET /runtime/team`. */
+	activeProviders: number;
 	pendingApprovals: number;
 	qaPassed: number;
 	qaTotal: number;
@@ -37,6 +39,7 @@ export function deriveShellStatus(
 		connected,
 		executableRuntimes:
 			runtimeProviders?.providers.filter((provider) => provider.executable).length ?? 0,
+		activeProviders: runtimeProviders?.providers.filter(isActiveTeamProvider).length ?? 0,
 		pendingApprovals: overview.actionRequests.filter((item) => item.status === 'pending').length,
 		qaPassed: evidence.filter((item) => String(item.qaVerdict ?? '') === 'passed').length,
 		qaTotal: evidence.length,
@@ -46,4 +49,24 @@ export function deriveShellStatus(
 		recordedCost: sumRecordedCostUsd(overview.costUsage),
 		projectName: selectedProject?.name ?? null,
 	};
+}
+
+/** Provider kinds that can serve an AI team role (`runtime_team/facts.py:TEAM_RUNTIME_KINDS`). */
+const TEAM_RUNTIME_KINDS = new Set(['cli', 'api', 'gateway', 'local']);
+
+/**
+ * Active for the AI team: the operator switch is on, the runtime policy allows it and it is a kind a
+ * role can use (the manual operator never counts). Mirrors `load_runtime_facts` + the policy veto, so
+ * the status bar and `GET /api/v1/runtime/team` report the same number.
+ */
+function isActiveTeamProvider(provider: {
+	enabled?: boolean;
+	policyAllowed?: boolean;
+	kind: string;
+}): boolean {
+	return (
+		Boolean(provider.enabled) &&
+		provider.policyAllowed !== false &&
+		TEAM_RUNTIME_KINDS.has(provider.kind)
+	);
 }

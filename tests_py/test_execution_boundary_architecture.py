@@ -9,7 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT = ROOT / "local_control_center"
 
 APPROVED_SUBPROCESS_FILES = {
+    # Lectura de cuota de Codex por su app-server oficial (autorizada por el operador): argv fijo
+    # `[codex, "app-server"]`, shell=False, sin argumentos del llamador, plazo total de 10 s con kill del
+    # árbol de procesos, stdout acotado, stderr descartado y veto dentro de transacciones SQLite
+    # (assert_external_boundary); invariantes fijadas por test_codex_app_server_usage.py.
+    "local_control_center/agents/codex_app_server.py",
     "local_control_center/integrations/mcp_gateway.py",
+    # Read-only NIM host probe boundary: exact-argv allowlist, shell=False, bounded
+    # timeout/output, no caller-controlled arguments; invariants pinned by
+    # test_nvidia_nim_local_preflight.py.
+    "local_control_center/nvidia_nim/system_probe.py",
     "local_control_center/security_policy/git_command_runner.py",
     "local_control_center/security_policy/sandbox.py",
 }
@@ -17,7 +26,11 @@ APPROVED_SUBPROCESS_FILES = {
 APPROVED_SANDBOX_EXECUTION_FILES = {
     "local_control_center/agents/cli_runtimes/base.py",
     "local_control_center/agents/openhands_adapter.py",
-    "local_control_center/agents/runtime_adapters.py",
+    "local_control_center/agents/runtime_adapters/subprocess_adapter.py",
+    # Sonda de preflight de CLIs: todo camino al sandbox pasa antes por evaluate_action, y su smoke
+    # `codex_compatibility_smoke` es una operacion que el ToolBroker rechaza por diseno (reservada al
+    # servicio de aprobacion explicita), igual que en cli_runtimes/base.py.
+    "local_control_center/agents/runtime_preflight_cli.py",
     "local_control_center/agents/swe_agent_adapter.py",
     "local_control_center/agents/tool_broker.py",
     "local_control_center/integrations/mcp_gateway.py",
@@ -195,6 +208,82 @@ def test_security_agent_scanner_policy_allows_only_local_scanner_executables() -
     assert "security_agent_scanner_executable_denied" in denied["categories"]
 
 
+def test_git_workspace_policy_allows_intent_to_add_and_stage_changes() -> None:
+    base_payload = {
+        "tool": "shell",
+        "command": "git add --intent-to-add -- .",
+        "commandArgv": ["git", "add", "--intent-to-add", "--", "."],
+        "operation": "git_workspace_command",
+        "permissionProfile": "dev_safe",
+        "agentId": "git_workspace_agent",
+        "workspaceId": "workspace-test",
+        "workspacePath": "H:\\workspace",
+        "path": "H:\\workspace",
+        "agentRunId": "agent-run-test",
+        "networkRequired": False,
+        "secretsRequired": False,
+    }
+    allowed_intent = evaluate_action({**base_payload, "gitOperation": "diff_capture_intent_to_add"})
+    allowed_stage = evaluate_action(
+        {
+            **base_payload,
+            "command": "git add -A",
+            "commandArgv": ["git", "add", "-A"],
+            "gitOperation": "stage_changes",
+        }
+    )
+    crossed_context = evaluate_action({**base_payload, "gitOperation": "stage_changes"})
+    missing_context = evaluate_action(base_payload)
+
+    assert allowed_intent["decision"] == "allow"
+    assert "git_intent_to_add" in allowed_intent["categories"]
+    assert allowed_stage["decision"] == "allow"
+    assert "git_add" in allowed_stage["categories"]
+    assert crossed_context["decision"] == "deny"
+    assert "git_workspace_add_shape_denied" in crossed_context["categories"]
+    assert missing_context["decision"] == "deny"
+    assert "git_workspace_add_shape_denied" in missing_context["categories"]
+
+
+def test_git_workspace_policy_allows_only_contextual_patch_apply() -> None:
+    base_payload = {
+        "tool": "shell",
+        "command": "git apply --check H:\\artifact.patch",
+        "commandArgv": ["git", "apply", "--check", "H:\\artifact.patch"],
+        "operation": "git_workspace_command",
+        "permissionProfile": "dev_safe",
+        "agentId": "git_workspace_agent",
+        "workspaceId": "workspace-test",
+        "workspacePath": "H:\\workspace",
+        "path": "H:\\workspace",
+        "agentRunId": "agent-run-test",
+        "networkRequired": False,
+        "secretsRequired": False,
+    }
+    allowed_check = evaluate_action({**base_payload, "gitOperation": "apply_check"})
+    allowed_apply = evaluate_action(
+        {
+            **base_payload,
+            "command": "git apply H:\\artifact.patch",
+            "commandArgv": ["git", "apply", "H:\\artifact.patch"],
+            "gitOperation": "apply_patch",
+        }
+    )
+    missing_context = evaluate_action(base_payload)
+    wrong_agent = evaluate_action(
+        {**base_payload, "gitOperation": "apply_check", "agentId": "developer_agent"}
+    )
+
+    assert allowed_check["decision"] == "allow"
+    assert "git_apply_check" in allowed_check["categories"]
+    assert allowed_apply["decision"] == "allow"
+    assert "git_apply_patch" in allowed_apply["categories"]
+    assert missing_context["decision"] == "deny"
+    assert "git_workspace_apply_denied" in missing_context["categories"]
+    assert wrong_agent["decision"] == "deny"
+    assert "git_workspace_agent_denied" in wrong_agent["categories"]
+
+
 def test_developer_agent_runtime_policy_operation_is_agent_scoped() -> None:
     decision = evaluate_action(
         {
@@ -368,6 +457,8 @@ def test_architect_agent_model_call_policy_allows_only_scoped_model_runtime() ->
             "workspacePath": "H:\\workspace",
             "path": "H:\\workspace",
             "runtimeId": "openai_compatible",
+            "providerId": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "agentRunId": "agent-run-test",
         }
     )
@@ -420,6 +511,8 @@ def test_security_agent_model_call_policy_allows_only_scoped_model_runtime() -> 
             "workspacePath": "H:\\workspace",
             "path": "H:\\workspace",
             "runtimeId": "openai_compatible",
+            "providerId": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "agentRunId": "agent-run-test",
         }
     )
@@ -442,6 +535,124 @@ def test_security_agent_model_call_policy_allows_only_scoped_model_runtime() -> 
     assert denied["decision"] == "deny"
 
 
+def test_model_agent_policies_allow_configured_remote_runtime_adapters() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        for runtime_id in ("openrouter", "nvidia_nim", "anthropic_api"):
+            decision = evaluate_action(
+                {
+                    "tool": runtime_id,
+                    "operation": operation,
+                    "permissionProfile": permission_profile,
+                    "agentId": agent_id,
+                    "workspaceId": "workspace-test",
+                    "workspacePath": "H:\\workspace",
+                    "path": "H:\\workspace",
+                    "runtimeId": runtime_id,
+                    "providerId": runtime_id,
+                    "providerFamily": runtime_id,
+                    "agentRunId": "agent-run-test",
+                    "networkRequired": True,
+                }
+            )
+            assert decision["decision"] == "allow", (operation, runtime_id, decision)
+
+
+def test_model_agent_policies_bind_named_endpoint_identity_to_explicit_provider_family() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        common = {
+            "tool": "nvidia_nim",
+            "operation": operation,
+            "permissionProfile": permission_profile,
+            "agentId": agent_id,
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "nvidia-team-a",
+            "providerId": "nvidia-team-a",
+            "agentRunId": "agent-run-test",
+            "networkRequired": True,
+        }
+
+        allowed = evaluate_action({**common, "providerFamily": "nvidia_nim"})
+        missing_provider = evaluate_action(
+            {key: value for key, value in common.items() if key != "providerId"}
+            | {"providerFamily": "nvidia_nim"}
+        )
+        missing_family = evaluate_action({**common, "providerFamily": None})
+        mismatched_family = evaluate_action({**common, "providerFamily": "openrouter"})
+
+        assert allowed["decision"] == "allow", (operation, allowed)
+        assert missing_provider["decision"] == "deny", (operation, missing_provider)
+        assert missing_family["decision"] == "deny", (operation, missing_family)
+        assert mismatched_family["decision"] == "deny", (operation, mismatched_family)
+
+
+def test_model_agent_policies_reject_canonical_id_without_explicit_family_binding() -> None:
+    cases = [
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+        ("architect_agent_model_call", "architect_agent", "plan"),
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("security_agent_model_call", "security_agent", "qa"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        decision = evaluate_action(
+            {
+                "tool": "nvidia_nim",
+                "operation": operation,
+                "permissionProfile": permission_profile,
+                "agentId": agent_id,
+                "workspaceId": "workspace-test",
+                "workspacePath": "H:\\workspace",
+                "path": "H:\\workspace",
+                "runtimeId": "nvidia_nim",
+                "providerId": "nvidia_nim",
+                "agentRunId": "agent-run-test",
+            }
+        )
+
+        assert decision["decision"] == "deny", (operation, decision)
+
+
+def test_product_owner_and_developer_policies_accept_only_verified_named_ollama_binding() -> None:
+    cases = [
+        ("product_owner_model_call", "product_owner_agent", "plan"),
+        ("developer_agent_model_call", "developer_agent", "dev_safe"),
+    ]
+    for operation, agent_id, permission_profile in cases:
+        common = {
+            "tool": "ollama",
+            "operation": operation,
+            "permissionProfile": permission_profile,
+            "agentId": agent_id,
+            "workspaceId": "workspace-test",
+            "workspacePath": "H:\\workspace",
+            "path": "H:\\workspace",
+            "runtimeId": "team_ollama",
+            "agentRunId": "agent-run-test",
+            "providerFamily": "ollama",
+        }
+
+        allowed = evaluate_action({**common, "providerId": "team_ollama"})
+        mismatched = evaluate_action({**common, "providerId": "another_provider"})
+        unverified = evaluate_action({**common, "providerId": "team_ollama", "providerFamily": None})
+
+        assert allowed["decision"] == "allow"
+        assert mismatched["decision"] == "deny"
+        assert unverified["decision"] == "deny"
+
+
 def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     source = (PRODUCT_ROOT / "agents" / "qa_agent.py").read_text(encoding="utf-8")
 
@@ -451,6 +662,13 @@ def test_qa_agent_runner_uses_broker_not_direct_subprocess() -> None:
     assert "os.system" not in source
     assert "RestrictedSubprocessSandbox" not in source
     assert ".chat_completion(" not in source
+
+
+def test_cli_session_stream_does_not_bypass_broker_for_git_state() -> None:
+    source = (PRODUCT_ROOT / "agents" / "cli_session_stream.py").read_text(encoding="utf-8")
+
+    assert "run_brokered_git" in source
+    assert "run_git(" not in source
 
 
 def test_architect_agent_runner_uses_broker_not_direct_model_execution() -> None:

@@ -22,12 +22,14 @@
       "aido_overview",
       "aido_list_projects",
       "aido_list_templates",
-      "aido_create_project"
+      "aido_create_project",
+      "aido_list_threads",
+      "aido_create_thread",
+      "aido_send_message",
+      "aido_thread_status",
+      "aido_execution_status",
+      "aido_worker_status",
+      "aido_worker_resume"
     ]
-  },
-  "toolMetadata": {
-    "aido_create_project": {
-      "optional": true
-    }
   }
 }

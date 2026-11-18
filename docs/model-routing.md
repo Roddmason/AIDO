@@ -12,7 +12,9 @@ The default mode is `balanced_best_value`. Seeds live in SQLite and an editable 
 
 Pricing catalog records expose `source` and staleness (`fresh`, `stale` or
 `unknown`). Unknown prices are not treated as zero unless the model is explicitly
-marked `freeTier=true`.
+marked `freeTier=true`. Self-hosted local inference (loopback, `declared_local`
+or a literal private IP under a local catalog entry) is synced as
+`freeTier=true`; see `docs/runtime-providers.md#local-runtimes`.
 
 Role policies include `allowUnknownCost` and
 `requireApprovalForUnknownCost`. Defaults are conservative for remote
@@ -39,6 +41,83 @@ decisions can be traced back to the price input used at the time.
 
 Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI preference for developer code edits, technical lead xhigh escalation, approval thresholds, budget deny/approval behavior, quota cooldown diagnostics, pricing staleness, benchmark confidence thresholds, fail-closed real execution and workflow-step routing decision linkage.
 
+## Role pins: which roles have one and why the rest do not
+
+A role policy has three preference lists (`preferred`, `fallback`, `escalation`), each a list of
+`{provider, model}` pairs. `AIResourceManager` ranks candidates by tier: an exact `{provider, model}`
+match wins (tier 0), a provider-level wildcard (`""`, `"*"`, `"auto"`, `"auto_best_available"` — the
+shared set in `agents/model_wildcards.py`) comes next (tier 1), and everything else ties at tier 2,
+where the score decides.
+
+The migrations seed model pins for a subset of roles (`product_owner`, `technical_lead`,
+`backend_engineer`, `frontend_engineer`, `release_manager`, plus legacy ids such as `developer` and
+`qa`). The remaining roles of `ALL_ROLES` — `aido_lead`, `project_manager`, `scrum_master`,
+`architect`, `mobile_engineer`, `database_engineer`, `data_engineer`, `qa_engineer`,
+`security_engineer`, `pentester`, `devops_engineer`, `researcher` — are seeded by
+`bootstrap_role_model_policies_if_needed` **with an empty `preferred` on purpose**. This is a product
+decision, not an oversight:
+
+- At bootstrap time nothing is known about which models each configured endpoint actually exposes.
+  Seeding invented pairs would produce candidates that do not exist, and a pin to a missing model is
+  worse than no pin: it degrades to tier 2 anyway, but silently and with a misleading policy.
+- Without a pin the router still applies every hard filter (transport, cost ceiling, privacy, quota,
+  context window) and then picks the best-scoring candidate available today. A hand-written pin ages
+  badly: it survives provider catalog changes and keeps routing a role to a model that is no longer
+  the best — or no longer offered.
+- What the seeded policy *does* fix is the part that must never be implicit: the cost ceiling, the
+  token ceiling and the approval threshold per role. Before this seed, a role without a policy fell
+  back silently to `developer`'s limits.
+
+To pin a model for a role, use **Model Gateway → Policies** (or `PATCH
+/api/v1/model-gateway/role-policies/{id}`) and add the `{provider, model}` pair to `preferred`. Use
+the provider-level wildcard `{"provider": "...", "model": "*"}` when the intent is "any model from
+this provider", which is what the provider wizard and `scripts/setup_omniroute.py` write for
+auto-routed gateways.
+
+## Global AI team: which provider serves each role, for every thread
+
+`team.role.<role>` (`string_list`, general scope with a project override) lists the providers a role
+may use, in order: the first is the assigned one, the rest are fallbacks. Roles: `product_owner`,
+`developer` (required), `architect`, `security` (optional), `technical_lead`, `researcher` (empty ⇒
+they inherit the Product Owner's order). An empty list means "automatic": `auto_assign_roles`
+(`runtime_team/roles.py`) over the enabled, policy-allowed providers, ranked CLI first, then the
+operator `runtimeOrder`, then id, with the remaining eligible providers as fallbacks. Ids that are not
+active or not eligible for the role are reported (`invalid`) and ignored. `GET
+/api/v1/runtime/team?projectId=` returns the effective team (`runtime_team/global_team.py`).
+
+At send time, a thread without its own team seals the resolved team as `globalRuntimeTeam` in the
+run metadata (`runtime_team/configuration.py:seal_thread_runtime_team`); a client-sent value is
+always discarded. `role_allowlist` then returns the role's order. `AIResourceRequest.provider_order`
+carries the same order and ranks before `preferred_resources`, so the role policy pins only pick the
+model inside the provider the operator put first. `_run_with_failover` walks the fallbacks when the
+assigned provider fails. A role is never widened to the whole catalog while a global snapshot exists:
+if none of its providers can serve, the role blocks with the existing assignment blocker.
+
+When Jev selects the runtime (`decision_engine.mode = runtime_selection`) the routing preferences do
+not apply. An automatic order (every eligible active provider) is then tried one provider at a time
+(`_jev_provider_walk`, probes without recording), so Jev never breaks a tie between providers nobody
+chose. An order the operator wrote keeps the whole allowlist and may reach
+`confidence_below_threshold` by design. A thread's own team (`runtimeTeam`, the composer chip) keeps
+priority and its single-provider allowlist. Runs sealed before the global team (no snapshot) keep the
+legacy inheritance of the Product Owner's provider.
+
+Sealing reads only persisted runtime state (`RuntimeStatusService(offline=True)`): the send runs inside
+a SQLite transaction where network probes are forbidden. A send and the operator's retry recompute the
+snapshot; internal reseals (runtime risk review, research continuation) pass
+`refresh_global_team=False` and keep the run's snapshot, so the signed risk-review metadata never
+changes between review and continuation. An empty order fails closed (`role_allowlist` returns `[]`,
+never `None`); only an optional role in automatic mode borrows `allowedRuntimes`. A role left without
+candidates blocks with `resource_manager_unconfigured`, whose remediation opens the *team* section first
+("Open team") when the run carried a global snapshot.
+
+Roles assigned to a local runtime also seal `roleModels` in the snapshot (enabled model validated in
+the last 30 minutes with the role's capabilities); `role_model_pins` pins it only on the role's
+assigned provider. When selection lands on a provider other than the role's assigned one (inactive,
+not validated or without candidates), the thread records `runtime_failover` with
+`failureClass: "assigned_unavailable"`. `GET /api/v1/threads/{id}/runtime-team` returns the team sealed
+in the thread's latest run (`source`: `thread`, `global` or `none`); the inspector shows it next to the
+current team when they differ.
+
 ## Risks
 
 - The score is an initial heuristic. It records `scoreBreakdown`; benchmarks can
@@ -60,4 +139,4 @@ Tests cover NVIDIA-first free routing, `local_private` remote blocking, CLI pref
 
 ## Example
 
-`local_private` rejects `provider_type=api` and `provider_type=gateway` unless explicitly overridden outside the default router path.
+`local_private` rejects `provider_type=api` and `provider_type=gateway`, and `provider_type=local` accounts whose endpoint locality is `remote` (neither loopback nor `declared_local`), unless explicitly overridden outside the default router path.

@@ -5,7 +5,7 @@ que orquestan el ciclo de vida de un job (queued -> running -> completed/failed)
 action requests que exigen aprobación humana antes de ejecutar acciones sensibles.
 No re-exporta símbolos: cada consumidor importa desde el submódulo concreto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__ = []

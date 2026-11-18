@@ -4,16 +4,21 @@
  *
  * Those controls used to live in the cluttered top header; they were relocated here so the shell body
  * and header stay clean (Codex-style). Health numbers come pre-derived from {@link deriveShellStatus};
- * theme and density are owned by their hooks.
- * @author Rodrigo Mason
+ * theme and density are owned by their hooks. Git workspace controls (branch, gitleaks, refresh) live
+ * in the composer ({@link GitBranchBar}), next to the task prompt — not in this footer.
+ * @author AIDO contributors
  */
 import { Moon, Rows3, Sun } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { ExecutionResponse } from '../api/generated/openapi';
+
 import type { Overview, Project, RuntimeProviders } from '../api/types';
-import { StatusDot } from '../components/primitives';
-import { Button, IconButton, Tooltip } from '../components/ui';
+import { Button, IconButton, StatusDot, Tooltip } from '../components/ui';
 import { useDensity } from '../hooks/useDensity';
 import { useTheme } from '../hooks/useTheme';
+import { deriveRuntimeAlerts } from './runtimeHealth';
 import { deriveShellStatus } from './shellStatus';
+import { WorkerStatusItem } from './WorkerStatusItem';
 
 type LanguageOption = { code: string; name: string; nativeName: string; enabled: boolean };
 
@@ -29,6 +34,8 @@ export function StatusBar({
 	language,
 	languages,
 	onChangeLanguage,
+	onOpenRuntimeHealth,
+	token,
 	t,
 }: {
 	overview: Overview;
@@ -38,52 +45,126 @@ export function StatusBar({
 	language: string;
 	languages: LanguageOption[];
 	onChangeLanguage: (code: string) => void;
+	onOpenRuntimeHealth: () => void;
+	/** Local write token, for the worker Resume action. */
+	token: string;
 	t: (key: string, fallback?: string) => string;
 }) {
+	const [execution, setExecution] = useState<ExecutionResponse | null>(null);
+	useEffect(() => {
+		const observe = (event: Event) =>
+			setExecution((event as CustomEvent<ExecutionResponse>).detail);
+		window.addEventListener('aido:execution', observe);
+		return () => window.removeEventListener('aido:execution', observe);
+	}, []);
 	const status = deriveShellStatus(overview, runtimeProviders, connected, selectedProject);
+	const runtimeAlerts = deriveRuntimeAlerts(runtimeProviders);
 	const projectName = status.projectName ?? t('app.global.noProject', 'no project');
+	const apiLabel = status.connected
+		? t('app.statusBar.apiConnected', 'API connected')
+		: t('app.statusBar.polling', 'polling');
 	const { theme, toggleTheme } = useTheme();
 	const { density, toggleDensity } = useDensity();
 	const languageOptions = languages.length
 		? languages
 		: [
-				{ code: 'es', name: 'Spanish', nativeName: 'Espanol', enabled: true },
+				{ code: 'es', name: 'Spanish', nativeName: 'Español', enabled: true },
 				{ code: 'en', name: 'English', nativeName: 'English', enabled: true },
 			];
 
 	return (
-		<footer className="status-bar" aria-label={t('app.global.globalStatus', 'Global status')}>
-			<span className="status-bar-item">
+		<footer
+			className="status-bar"
+			role="contentinfo"
+			aria-label={t('app.global.globalStatus', 'Global status')}
+		>
+			<span className="status-bar-item" title={apiLabel}>
 				<StatusDot tone={status.connected ? 'ok' : 'warn'} />
-				{status.connected
-					? t('app.statusBar.apiConnected', 'API connected')
-					: t('app.statusBar.polling', 'polling')}
+				<span aria-hidden="true">{status.connected ? 'API' : apiLabel}</span>
+				<span className="sr-only">{apiLabel}</span>
 			</span>
 			<span className="status-bar-item" title={String(selectedProject?.path ?? '')}>
-				<span className="status-bar-label">{t('app.statusBar.project', 'Project')}</span>
-				<strong>{projectName}</strong>
+				<span className="sr-only">{t('app.statusBar.project', 'Project')}</span>
+				<strong className="status-bar-project">{projectName}</strong>
+			</span>
+			<a
+				className="status-bar-item status-bar-item--minor status-bar-item--wide settings-console-link"
+				href="#settings"
+				title={execution ? `${execution.executionId} · ${execution.reason}` : undefined}
+			>
+				{t('app.operations.title', 'Operations')}
+				{execution ? ` · ${execution.status}` : ''}
+			</a>
+			<WorkerStatusItem token={token} t={t} />
+			<span
+				className="status-bar-item"
+				title={`${status.executableRuntimes} ${t('app.statusBar.executableRuntimes', 'executable runtimes')}`}
+			>
+				<StatusDot tone={status.executableRuntimes && !runtimeAlerts.length ? 'ok' : 'warn'} />
+				{!runtimeAlerts.length && status.executableRuntimes === 0 ? (
+					<a
+						className="settings-console-link"
+						href="#settings-runtime"
+						title={t('app.statusBar.configureRuntimes', 'Set up runtimes')}
+					>
+						<span className="tnum">{status.executableRuntimes}</span>{' '}
+						<span aria-hidden="true">{t('app.statusBar.runtimes', 'runtimes')}</span>
+						<span className="sr-only">
+							{t('app.statusBar.executableRuntimes', 'executable runtimes')}:{' '}
+							{t('app.statusBar.configureRuntimes', 'Set up runtimes')}
+						</span>
+					</a>
+				) : (
+					<>
+						<span className="tnum">{status.executableRuntimes}</span>{' '}
+						<span aria-hidden="true">{t('app.statusBar.runtimes', 'runtimes')}</span>
+						<span className="sr-only">
+							{t('app.statusBar.executableRuntimes', 'executable runtimes')}
+						</span>
+					</>
+				)}
+				{runtimeAlerts.length ? (
+					<Button className="settings-console-link" onClick={onOpenRuntimeHealth}>
+						{`${runtimeAlerts.length} `}
+						{t('app.runtime.health.needAttention', 'need attention')}
+					</Button>
+				) : null}
 			</span>
 			<span className="status-bar-item">
-				<StatusDot tone={status.executableRuntimes ? 'ok' : 'warn'} />
-				{status.executableRuntimes} {t('app.statusBar.executableRuntimes', 'executable runtimes')}
+				<StatusDot tone={status.activeProviders ? 'ok' : 'warn'} />
+				<span className="tnum">{status.activeProviders}</span>{' '}
+				{t('app.statusBar.activeProviders', 'active providers')}
 			</span>
 			<span className="status-bar-item">
 				<StatusDot tone={status.pendingApprovals ? 'warn' : 'ok'} />
-				{status.pendingApprovals} {t('app.statusBar.approvals', 'approvals')}
-			</span>
-			<span className="status-bar-item">
-				<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
-				QA {status.qaPassed}/{status.qaTotal}
-			</span>
-			<span className="status-bar-item">
-				<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
-				<strong>
-					{status.recordedCost === null
-						? t('app.statusBar.unavailable', 'unavailable')
-						: `$${status.recordedCost.toFixed(2)}`}
-				</strong>
+				<span className="tnum">{status.pendingApprovals}</span>{' '}
+				{t('app.statusBar.approvals', 'approvals')}
 			</span>
 			<div className="status-bar-controls">
+				<span className="status-bar-item status-bar-item--minor">
+					<StatusDot tone={status.qaBlocking ? 'danger' : 'ok'} />
+					QA{' '}
+					<span className="tnum">
+						{status.qaPassed}/{status.qaTotal}
+					</span>
+				</span>
+				<span
+					className="status-bar-item status-bar-item--minor"
+					title={
+						status.recordedCost === null ? t('app.statusBar.unavailable', 'unavailable') : undefined
+					}
+				>
+					<span className="status-bar-label">{t('app.statusBar.cost', 'Cost')}</span>
+					{status.recordedCost === null ? (
+						<>
+							<strong aria-hidden="true">—</strong>
+							<span className="sr-only">{t('app.statusBar.unavailable', 'unavailable')}</span>
+						</>
+					) : (
+						<strong>{`$${status.recordedCost.toFixed(2)}`}</strong>
+					)}
+				</span>
+				{/* biome-ignore lint/a11y/useSemanticElements: swapping to <fieldset> regresses layout — fieldset's UA margin-inline:2px and min-inline-size:min-content are not reset by .language-switch (a class shared only by this element) and inline-flex relies on content sizing; role="group"+aria-label keeps the labeled grouping semantics intact */}
 				<div
 					className="language-switch"
 					role="group"

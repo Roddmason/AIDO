@@ -2,26 +2,58 @@
 
 Expone los endpoints REST que administran el catálogo de proveedores, modelos, precios, perfiles/políticas
 de ruteo, límites, presupuestos, ledger de uso, benchmarks y runtimes CLI, además de previsualizar y
-ejecutar rutas. La ejecución falla cerrada: exige aprobación, flags de habilitación y credenciales válidas.
+ejecutar rutas. La ejecución falla cerrada: exige aprobación, policy SQLite y credenciales válidas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
-import os
+import logging
 import re
+import time
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from starlette.concurrency import run_in_threadpool
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.runtime_integrations.config import resolve_executable
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.catalog_validation import (
+    CatalogValidationBlocked,
+    CatalogValidationLimits,
+    CatalogValidationService,
+)
+from local_control_center.runtime_team.contracts import (
+    CatalogValidationRequest,
+    CatalogValidationResponse,
+    ModelValidationStatusResponse,
+    RuntimeValidationRequest,
+    RuntimeValidationResponse,
+)
+from local_control_center.runtime_team.probe import RuntimeValidationService
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.time import utc_now
 
+from .ai_execution import AIExecutionProjectNotFoundError, AIExecutionService
+from .ai_execution_models import AIExecutionPlan, AIExecutionResponse
+from .codex_compatibility import CodexCompatibilityResponse, CodexCompatibilityService
+from .codex_smoke import CodexSmokeRequest, run_codex_smoke
 from .credentials import CredentialResolver
 from .model_benchmarks import ModelBenchmarkStore
-from .model_gateway import ModelGateway, provider_instance, real_provider_calls_enabled
+from .model_execution_health import (
+    model_validation_rejection,
+    provider_configuration_fingerprint,
+    record_model_execution,
+)
+from .model_gateway import ModelGateway, _provider_usage_reported, provider_instance
 from .model_gateway_models import (
     BudgetRulePatchRequest,
     BudgetRuleResponse,
@@ -47,10 +79,22 @@ from .model_gateway_models import (
     ProviderAccountResponse,
     ProviderAccountsListResponse,
     ProviderAccountUpsertRequest,
+    ProviderEmbeddingRequest,
+    ProviderEmbeddingResponse,
     ProviderHealthResponse,
+    ProviderImageEditingRequest,
+    ProviderImageEditingResponse,
+    ProviderImageGenerationRequest,
+    ProviderImageGenerationResponse,
     ProviderLimitPatchRequest,
     ProviderLimitResponse,
     ProviderLimitsListResponse,
+    ProviderLimitStatusResponse,
+    ProviderLimitUpsertRequest,
+    ProviderModelsBulkPatchRequest,
+    ProviderModelsBulkPatchResponse,
+    ProviderRerankRequest,
+    ProviderRerankResponse,
     RolePoliciesListResponse,
     RolePolicyPatchRequest,
     RolePolicyResponse,
@@ -65,18 +109,49 @@ from .model_gateway_models import (
     RoutingProfileUpsertRequest,
     RuntimeDetectionResponse,
     RuntimeHealthResponse,
+    TestPromptRequest,
+    TestPromptResponse,
     UsageLedgerListResponse,
     UsageSummaryResponse,
 )
 from .model_router import ModelRouter, RoutingRequest
 from .provider_accounts import ProviderAccountStore
+from .providers.capabilities import (
+    EmbeddingProvider,
+    ImageEditingProvider,
+    ImageGenerationProvider,
+    RerankProvider,
+)
+from .providers.factory import (
+    AdapterProfileRequiredError,
+    ProviderAdapterFactory,
+    ProviderAdapterResolutionError,
+    UnsupportedProviderCapabilityError,
+    provider_account_policy_kind,
+    provider_account_requires_credential,
+    provider_account_requires_explicit_model_manifest,
+)
+from .providers.http_transport import http_error_excerpt
+from .providers.image_artifacts import DurableImageArtifactStore, ImageArtifactError
+from .providers.nvidia_nim import NvidiaNimCapabilityError
 from .quota_manager import QuotaManager
 from .routing_profiles import RoutingProfileStore
 from .runtime_registry import RuntimeRegistry
+from .runtime_status import RuntimeStatusService
 from .usage_ledger import UsageLedger
 
+logger = logging.getLogger(__name__)
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+MAX_TOKENS_PER_RUN = 2_000_000
 SERVER_OWNED_PROVIDER_HEALTH_FIELDS = {"healthStatus", "lastHealthCheckAt", "lastError"}
+PRESERVABLE_PROVIDER_FIELD_ALIASES = {
+    "provider_family": "providerFamily",
+    "deployment_mode": "deploymentMode",
+    "api_family": "apiFamily",
+    "adapter_profile": "adapterProfile",
+    "terms_mode": "termsMode",
+    "pricing_mode": "pricingMode",
+}
 
 
 def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
@@ -87,21 +162,26 @@ def _payload(body: Any, *, exclude_none: bool = True) -> dict[str, Any]:
 
 def _provider_client_payload(body: Any) -> dict[str, Any]:
     payload = _payload(body)
+    explicitly_set = getattr(body, "model_fields_set", None)
+    if explicitly_set is not None:
+        for field_name, alias in PRESERVABLE_PROVIDER_FIELD_ALIASES.items():
+            if field_name not in explicitly_set:
+                payload.pop(alias, None)
     for field in SERVER_OWNED_PROVIDER_HEALTH_FIELDS:
         payload.pop(field, None)
     return payload
 
 
 def _provider_instance(provider_id: str, *, connection: Any):
-    return provider_instance(provider_id, connection=connection)
+    return ProviderAdapterFactory(connection).resolve(provider_id)
 
 
 def _requires_credential_for_real_discovery(account: dict[str, Any]) -> bool:
-    return str(account.get("providerType") or "") in {"api", "gateway"}
+    return provider_account_requires_credential(account)
 
 
 def _requires_remote_provider_call(account: dict[str, Any]) -> bool:
-    return str(account.get("providerType") or "") in {"api", "gateway"}
+    return provider_account_policy_kind(account) in {"api", "gateway"}
 
 
 def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
@@ -118,6 +198,198 @@ def _validate_real_discovery_credentials(account: dict[str, Any]) -> None:
             status_code=400,
             detail=redact_secrets(f"Credential ref {credential_ref} is {credential.status}."),
         )
+
+
+TEST_PROMPT_MESSAGE = "Reply with the single word: ok."
+TEST_PROMPT_SAMPLE_LIMIT = 280
+TEST_PROMPT_ERROR_BODY_LIMIT = 400
+"""Bytes del cuerpo de un HTTPError que acompañan la evidencia de una prueba fallida."""
+
+
+def _resolve_test_prompt_model(
+    store: ProviderAccountStore, provider_id: str, *, requested: str | None
+) -> str:
+    """Devuelve el modelo a probar: el solicitado o el primer modelo habilitado del catálogo del proveedor."""
+    if requested:
+        return requested
+    model = store.first_enabled_model(provider_id)
+    if model is not None:
+        return model
+    raise HTTPException(
+        status_code=400,
+        detail=f"Provider {provider_id} has no enabled model; sync or select a model before testing.",
+    )
+
+
+def _run_provider_test_prompt(
+    provider_id: str,
+    model: str,
+    *,
+    connection: Any,
+    provider: Any | None = None,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Ejecuta una completion corta contra el proveedor y devuelve un resultado redactado con latencia.
+
+    Cualquier fallo del proveedor se captura y se reporta como ``ok=False`` con el error saneado, para
+    que la prueba nunca filtre el secreto ni propague la excepción cruda al cliente. Una completion vale
+    si el proveedor respondió con texto o solo con razonamiento (un modelo de razonamiento que gastó la
+    respuesta pensando igual hizo la ida y vuelta), siempre que la respuesta sea del proveedor y modelo
+    pedidos (el adapter OpenAI-compatible informa el modelo pedido aunque el gateway nombre el upstream
+    resuelto). ``httpStatus`` y ``detail`` explican una falla:
+    el estado HTTP que devolvió el proveedor y, para un 200 sin completion, qué traía la respuesta.
+    ``timeout_seconds`` acota la llamada (la validación del equipo reparte un presupuesto total).
+    """
+    from .providers.base import ModelRequest
+
+    started = time.monotonic()
+    execution_started_at = datetime.now(UTC).isoformat(timespec="microseconds")
+    fingerprint = provider_configuration_fingerprint(connection, provider_id)
+    invoked = False
+    try:
+        resolved_provider = provider or provider_instance(provider_id, connection=connection)
+        invoked = True
+        response = resolved_provider.chat_completion(
+            ModelRequest.model_validate(
+                {
+                    "model": model,
+                    "messages": [{"role": "user", "content": TEST_PROMPT_MESSAGE}],
+                    "temperature": 0,
+                    **({"timeoutSeconds": timeout_seconds} if timeout_seconds else {}),
+                }
+            )
+        )
+        usage = response.usage
+        raw_usage = getattr(usage, "raw_usage", None) or {}
+        usage_reported = _provider_usage_reported(raw_usage)
+        usage_source = str(raw_usage.get("usage_source") or "provider") if usage_reported else "unknown"
+        answered = bool(str(response.content or "").strip()) or bool(
+            getattr(response, "reasoning_present", False)
+        )
+        valid_response = answered and (
+            getattr(response, "provider_id", None) == provider_id
+            and getattr(response, "model", None) == model
+        )
+        record_model_execution(
+            connection,
+            provider_id,
+            model,
+            valid_response,
+            "test_prompt",
+            configuration_fingerprint=fingerprint,
+            started_at=execution_started_at,
+        )
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": valid_response,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": str(redact_secrets(response.content or ""))[:TEST_PROMPT_SAMPLE_LIMIT],
+            "totalTokens": int(getattr(usage, "total_tokens", 0) or 0) if usage_reported else None,
+            "usageSource": usage_source,
+            "error": None if valid_response else "model_validation_invalid_response",
+            "httpStatus": None,
+            "detail": None if valid_response else _invalid_response_detail(response, provider_id, model),
+        }
+    except UnsupportedProviderCapabilityError as error:
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": None,
+            "usageSource": "unknown",
+            "error": error.public_code,
+        }
+    except NvidiaNimCapabilityError as error:
+        if invoked and (error.request_attempted or error.status_code is not None):
+            record_model_execution(
+                connection,
+                provider_id,
+                model,
+                False,
+                "test_prompt",
+                http_status=error.status_code,
+                configuration_fingerprint=fingerprint,
+                started_at=execution_started_at,
+            )
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": None,
+            "usageSource": "unknown",
+            "error": error.code,
+            "httpStatus": error.status_code,
+            "detail": f"HTTP {error.status_code}: {error.code}" if error.status_code is not None else None,
+        }
+    except Exception as error:
+        if invoked and isinstance(error, (HTTPError, URLError, TimeoutError, ConnectionError)):
+            record_model_execution(
+                connection,
+                provider_id,
+                model,
+                False,
+                "test_prompt",
+                http_status=error.code if isinstance(error, HTTPError) else None,
+                configuration_fingerprint=fingerprint,
+                started_at=execution_started_at,
+            )
+        return {
+            "providerId": provider_id,
+            "model": model,
+            "ok": False,
+            "latencyMs": int((time.monotonic() - started) * 1000),
+            "sample": "",
+            "totalTokens": None,
+            "usageSource": "unknown",
+            "error": str(redact_secrets(_provider_error_detail(error))),
+            "httpStatus": error.code if isinstance(error, HTTPError) else None,
+            "detail": None,
+        }
+
+
+def _invalid_response_detail(response: Any, provider_id: str, model: str) -> str:
+    """Explica por qué un 200 del proveedor no cuenta como completion, sin secretos.
+
+    Un gateway sin cuenta en el upstream suele responder 200 con un objeto ``error`` o ``choices`` vacío;
+    decirlo evita que el operador busque el problema en la red cuando la petición sí llegó.
+    """
+    reported = getattr(response, "provider_id", None)
+    if reported != provider_id:
+        return f"The response came from provider {reported!r}, not {provider_id!r}."
+    reported_model = getattr(response, "model", None)
+    if reported_model != model:
+        return f"The response is for model {reported_model!r}, not the requested {model!r}."
+    raw = getattr(response, "raw_response", None)
+    raw = raw if isinstance(raw, dict) else {}
+    error = raw.get("error")
+    if error:
+        message = error.get("message") if isinstance(error, dict) else error
+        return str(redact_secrets(f"HTTP 200 with an error object: {message}"))[:TEST_PROMPT_ERROR_BODY_LIMIT]
+    choices = raw.get("choices")
+    if isinstance(choices, list) and not choices:
+        return "HTTP 200 without choices: the gateway returned no completion."
+    finish = getattr(response, "finish_reason", None)
+    suffix = f" (finish_reason: {finish})" if finish else ""
+    return f"HTTP 200 with empty content and no reasoning{suffix}."
+
+
+def _provider_error_detail(error: Exception) -> str:
+    """Texto de la falla con un extracto del cuerpo de un ``HTTPError``, sin redactar.
+
+    Un gateway explica en el cuerpo por qué rechazó el modelo (p. ej. un upstream sin cuenta); sin él la
+    evidencia se reduce a ``HTTP Error 400: Bad Request`` y el operador no sabe qué corregir.
+    """
+    detail = f"{error.__class__.__name__}: {error}"
+    if isinstance(error, HTTPError):
+        body = " ".join(http_error_excerpt(error, limit=TEST_PROMPT_ERROR_BODY_LIMIT).split())
+        if body:
+            detail = f"{detail}: {body}"
+    return detail
 
 
 def _approval_request_payload(body_payload: dict[str, Any], routing_result: dict[str, Any]) -> dict[str, Any]:
@@ -164,8 +436,10 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
         raise HTTPException(status_code=422, detail="Role policy numeric fields are invalid.") from error
     if max_cost < 0:
         raise HTTPException(status_code=422, detail="maxCostPerTaskUsd must be zero or positive.")
-    if max_tokens < 0 or max_tokens > 200000:
-        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN:
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
     if approval_value is not None and approval_value < 0:
         raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
     return body
@@ -173,7 +447,9 @@ def _validate_role_policy_payload(body: dict[str, Any], *, provider_ids: set[str
 
 def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     """Construye el APIRouter del Model Gateway, cableado a la conexión y al guard de escritura."""
-    router = APIRouter(prefix="/api/v1/model-gateway", tags=["model-gateway"])
+    router = ExecutionRouter(
+        platform=platform, require_write=require_write, prefix="/api/v1/model-gateway", tags=["model-gateway"]
+    )
 
     def providers() -> ProviderAccountStore:
         return ProviderAccountStore(platform.connection)
@@ -190,8 +466,142 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
     def benchmarks() -> ModelBenchmarkStore:
         return ModelBenchmarkStore(platform.connection)
 
+    def runtimes() -> RuntimeConfigRepository:
+        return RuntimeConfigRepository(platform.connection)
+
     def audit(action: str, target: str, payload: dict[str, Any] | None = None) -> None:
         EventBus(platform.connection).record_audit(action=action, target=target, payload=payload or {})
+
+    def capability_provider(provider_id: str, *, expected_family: str) -> Any:
+        """Resolve one typed endpoint after enabled/policy/credential preconditions."""
+        try:
+            account = providers().get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if not account.get("enabled"):
+            raise HTTPException(status_code=409, detail="provider_account_disabled")
+        if (
+            str(account.get("providerFamily") or "") != "nvidia_nim"
+            or str(account.get("apiFamily") or "") != expected_family
+        ):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(status_code=409, detail="runtime_policy_denied")
+        credential_ref = str(account.get("credentialRef") or "")
+        if provider_account_requires_credential(account) and not credential_ref:
+            raise HTTPException(status_code=409, detail="credential_missing")
+        if credential_ref:
+            credential = CredentialResolver().resolve(credential_ref, fetch=False)
+            if credential.status not in {"configured", "unverified"}:
+                raise HTTPException(status_code=409, detail="credential_missing")
+        try:
+            return ProviderAdapterFactory(
+                platform.connection,
+                image_artifact_store=DurableImageArtifactStore(
+                    platform.connection,
+                    root=platform.cwd,
+                ),
+            ).resolve_for_execution(provider_id)
+        except (UnsupportedProviderCapabilityError, AdapterProfileRequiredError) as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except ProviderAdapterResolutionError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+
+    def require_capability_model(
+        provider_id: str,
+        *,
+        model: str,
+        expected_family: str,
+    ) -> dict[str, Any]:
+        """Require an enabled endpoint-scoped operator/discovery model manifest."""
+        manifest = next(
+            (item for item in providers().list_models(provider_id) if str(item.get("model") or "") == model),
+            None,
+        )
+        if manifest is None:
+            raise HTTPException(status_code=409, detail="model_manifest_required")
+        if not manifest.get("enabled"):
+            raise HTTPException(status_code=409, detail="model_disabled")
+        if str(manifest.get("apiFamily") or "") != expected_family:
+            raise HTTPException(status_code=409, detail="model_api_family_mismatch")
+        capability_field = {
+            "embeddings": "supportsEmbeddings",
+            "rerank": "supportsRerank",
+            "image_generation": "supportsImageGeneration",
+            "image_editing": "supportsImageEditing",
+        }.get(expected_family)
+        if capability_field and not manifest.get(capability_field):
+            raise HTTPException(status_code=409, detail="model_capability_mismatch")
+        return manifest
+
+    def cli_runtime_command(runtime_id: str) -> str | None:
+        try:
+            installation = runtimes().get_installation(runtime_id)
+        except KeyError:
+            installation = {"runtimeId": runtime_id, "executablePath": None}
+        return resolve_executable(installation).get("path")
+
+    def persist_cli_probe(
+        runtime_id: str, *, check_type: str, payload: dict[str, Any], executable_hint: str | None = None
+    ) -> None:
+        status = str(payload.get("status") or "unknown")
+        version = payload.get("version")
+        detected_executable = payload.get("executable") or executable_hint
+        installed = status in {"installed", "healthy"}
+        version_checked = bool(version)
+        if installed and (version_checked or check_type == "health"):
+            health_status = "healthy"
+            last_error = ""
+        elif installed:
+            health_status = "degraded"
+            last_error = "CLI was detected but the version probe did not return a usable version."
+        else:
+            health_status = "offline"
+            last_error = str(payload.get("message") or status)
+        timestamp = utc_now()
+        try:
+            current = runtimes().get_installation(runtime_id)
+        except KeyError:
+            current = {}
+        runtimes().upsert_installation(
+            {
+                "runtimeId": runtime_id,
+                "kind": "cli",
+                "executablePath": detected_executable or current.get("executablePath"),
+                "detectedVersion": version or current.get("detectedVersion"),
+                "enabled": bool(current.get("enabled", False)),
+                "healthStatus": health_status,
+                "lastValidationAt": timestamp
+                if installed and version_checked
+                else current.get("lastValidationAt"),
+                "lastHealthCheckAt": timestamp,
+                "lastError": last_error,
+                "capabilities": current.get("capabilities") or [],
+                "preferredRoles": current.get("preferredRoles") or [],
+                "configurationSource": "detected"
+                if installed
+                else current.get("configurationSource", "manual"),
+                "metadata": redact_secrets(
+                    {
+                        **(current.get("metadata") or {}),
+                        "lastProbeType": check_type,
+                        "lastProbeStatus": status,
+                    }
+                ),
+            }
+        )
+        runtimes().record_health_check(
+            runtime_id=runtime_id,
+            check_type=check_type,
+            status=health_status,
+            payload=payload,
+        )
 
     @router.get("/overview", response_model=ModelGatewayOverviewResponse)
     async def overview() -> dict[str, Any]:
@@ -239,7 +649,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         try:
             provider = providers().upsert_provider_account(_provider_client_payload(body))
         except ValueError as error:
-            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
+            raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         audit(
             "model_gateway.provider.upserted", provider["providerId"], {"providerId": provider["providerId"]}
         )
@@ -262,13 +672,53 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         try:
             provider = providers().patch_provider_account(provider_id, _provider_client_payload(body))
         except ValueError as error:
-            raise HTTPException(status_code=400, detail=f"Invalid credential_ref: {error}") from error
+            raise HTTPException(status_code=400, detail=f"Invalid provider account: {error}") from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         audit("model_gateway.provider.updated", provider_id, {"providerId": provider_id})
         return {"provider": provider}
 
+    @router.patch("/providers/{provider_id}/models", response_model=ProviderModelsBulkPatchResponse)
+    async def patch_provider_models(
+        provider_id: str, body: ProviderModelsBulkPatchRequest, request: Request
+    ) -> dict[str, Any]:
+        """Habilita o deshabilita en bloque modelos del proveedor en una sola transacción.
+
+        Un gateway anuncia más de mil modelos: la UI guarda la selección con una request por lote en
+        vez de un PATCH por fila. Todo o nada: un id ajeno al catálogo del proveedor revierte el lote
+        (404) para que la UI reintente solo lo que no quedó guardado.
+        """
+        require_write(request)
+        store = providers()
+        try:
+            account = store.get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        account_provider_id = str(account["providerId"])
+        transaction = (
+            nullcontext()
+            if platform.connection.in_transaction
+            else immediate_transaction(platform.connection)
+        )
+        try:
+            with transaction:
+                updated = store.set_models_enabled(account_provider_id, body.enabled, body.models)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="models_not_found") from error
+        audit(
+            "model_gateway.provider.models_bulk_updated",
+            account_provider_id,
+            {
+                "providerId": account_provider_id,
+                "enabled": body.enabled,
+                "updated": updated,
+                "scope": "all" if body.models is None else "listed",
+            },
+        )
+        return {"providerId": account_provider_id, "enabled": body.enabled, "updated": updated}
+
     @router.post("/providers/{provider_id}/health-check", response_model=ProviderHealthResponse)
+    @queued_operation("models.provider_health_check", workload_class="control_plane")
     async def provider_health_check(provider_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check del proveedor, registra el resultado y activa cooldown si hubo 429."""
         require_write(request)
@@ -276,21 +726,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             providers().get_provider_account(provider_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        health = ModelGateway(platform.connection).provider_health(provider_id)
-        if health.get("status") == "rate_limited" or "429" in str(
-            health.get("message") or health.get("lastError") or ""
-        ):
-            model = "auto_best_available" if provider_id == "nvidia_nim" else "*"
-            QuotaManager(platform.connection).record_rate_limit(
-                provider_id=provider_id, model=model, retry_after_seconds=300
-            )
-        providers().record_health_check(
-            provider_id=provider_id, status=health["healthStatus"], payload=health
-        )
+        health = ModelGateway(platform.connection).check_provider_health(provider_id)
         audit("model_gateway.provider.health_checked", provider_id, health)
         return {"health": health}
 
     @router.post("/providers/{provider_id}/discover-models", response_model=DiscoverModelsResponse)
+    @queued_operation("models.discover_models", workload_class="remote_llm_light")
     async def discover_models(provider_id: str, request: Request) -> dict[str, Any]:
         """Descubre y cataloga los modelos del proveedor; exige habilitación, flag de llamadas y credencial."""
         require_write(request)
@@ -303,18 +744,43 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 status_code=403,
                 detail=f"Provider {provider_id} is disabled; discovery requires explicit enablement.",
             )
-        if _requires_remote_provider_call(account) and not real_provider_calls_enabled():
-            raise HTTPException(
-                status_code=403,
-                detail="Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false.",
+        if provider_account_requires_explicit_model_manifest(account):
+            raise HTTPException(status_code=409, detail="explicit_model_manifest_required")
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
             )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "Remote provider discovery is disabled."),
+                )
+        try:
+            provider = _provider_instance(provider_id, connection=platform.connection)
+        except ProviderAdapterResolutionError as error:
+            detail = getattr(error, "public_code", error.code)
+            raise HTTPException(status_code=409, detail=detail) from error
         _validate_real_discovery_credentials(account)
-        discovered = [
-            item.model_dump(by_alias=True)
-            for item in _provider_instance(provider_id, connection=platform.connection).list_models()
-        ]
+        try:
+            discovered = [item.model_dump(by_alias=True) for item in provider.list_models()]
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        api_family = str(account.get("apiFamily") or "")
         stored = [
-            providers().upsert_model({**item, "providerId": provider_id, "enabled": True})
+            providers().upsert_model(
+                {
+                    **item,
+                    "providerId": provider_id,
+                    "apiFamily": api_family,
+                    "supportsEmbeddings": api_family == "embeddings",
+                    "supportsRerank": api_family == "rerank",
+                    "enabled": True,
+                },
+                preserve_operator_enabled=True,
+            )
             for item in discovered
         ]
         audit(
@@ -323,6 +789,335 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             {"count": len(stored), "source": "provider"},
         )
         return {"models": stored}
+
+    @router.post(
+        "/providers/{provider_id}/embeddings",
+        response_model=ProviderEmbeddingResponse,
+    )
+    @queued_operation("models.execute_provider_embedding", workload_class="remote_llm_light")
+    async def execute_provider_embedding(
+        provider_id: str,
+        body: ProviderEmbeddingRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute a typed embedding request against one endpoint-scoped provider."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="embeddings")
+        if not isinstance(provider, EmbeddingProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="embeddings",
+        )
+        try:
+            result = provider.embed(body)
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        audit(
+            "model_gateway.provider.embedding",
+            provider_id,
+            {"model": body.model, "vectorCount": len(result.data)},
+        )
+        return {"embedding": result}
+
+    @router.post(
+        "/providers/{provider_id}/rerank",
+        response_model=ProviderRerankResponse,
+    )
+    @queued_operation("models.execute_provider_rerank", workload_class="remote_llm_light")
+    async def execute_provider_rerank(
+        provider_id: str,
+        body: ProviderRerankRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute a typed rerank request against one endpoint-scoped provider."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="rerank")
+        if not isinstance(provider, RerankProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="rerank",
+        )
+        try:
+            result = provider.rerank(body)
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        audit(
+            "model_gateway.provider.rerank",
+            provider_id,
+            {"model": body.model, "rankingCount": len(result.rankings)},
+        )
+        return {"rerank": result}
+
+    @router.post(
+        "/providers/{provider_id}/images/generations",
+        response_model=ProviderImageGenerationResponse,
+    )
+    @queued_operation("models.execute_provider_image_generation", workload_class="remote_llm_light")
+    async def execute_provider_image_generation(
+        provider_id: str,
+        body: ProviderImageGenerationRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Generate one image through an explicit NVIDIA profile and persist its artifact."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="image_generation")
+        if not isinstance(provider, ImageGenerationProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="image_generation",
+        )
+        try:
+            result = provider.generate_image(body)
+        except ImageArtifactError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        artifact_ids = [artifact.artifact_id for artifact in result.artifacts]
+        audit(
+            "model_gateway.provider.image_generated",
+            provider_id,
+            {"model": body.model, "artifactIds": artifact_ids, "artifactCount": len(artifact_ids)},
+        )
+        return {"imageGeneration": result}
+
+    @router.post(
+        "/providers/{provider_id}/images/edits",
+        response_model=ProviderImageEditingResponse,
+    )
+    @queued_operation("models.execute_provider_image_editing", workload_class="remote_llm_light")
+    async def execute_provider_image_editing(
+        provider_id: str,
+        body: ProviderImageEditingRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Edit one project-owned image and persist the resulting artifact."""
+        require_write(request)
+        provider = capability_provider(provider_id, expected_family="image_editing")
+        if not isinstance(provider, ImageEditingProvider):
+            raise HTTPException(status_code=409, detail="unsupported_api_family")
+        require_capability_model(
+            provider_id,
+            model=body.model,
+            expected_family="image_editing",
+        )
+        try:
+            result = provider.edit_image(body)
+        except ImageArtifactError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        except NvidiaNimCapabilityError as error:
+            status_code = 502 if error.code.startswith("provider_") else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        artifact_ids = [artifact.artifact_id for artifact in result.artifacts]
+        audit(
+            "model_gateway.provider.image_edited",
+            provider_id,
+            {"model": body.model, "artifactIds": artifact_ids, "artifactCount": len(artifact_ids)},
+        )
+        return {"imageEditing": result}
+
+    @router.post("/ai-executions", response_model=AIExecutionResponse)
+    @queued_operation("models.execute_ai_execution", workload_class="remote_llm_light")
+    def execute_ai_execution(
+        body: AIExecutionPlan,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Execute one or more explicit chat branches under atomic quota admission."""
+        require_write(request)
+        try:
+            result = AIExecutionService(platform.connection).execute(body)
+        except AIExecutionProjectNotFoundError as error:
+            raise HTTPException(status_code=404, detail="project_not_found") from error
+        audit(
+            "model_gateway.ai_execution.completed",
+            result.execution_id,
+            {
+                "executionId": result.execution_id,
+                "strategy": result.strategy,
+                "status": result.status,
+                "successfulBranches": result.successful_branches,
+                "failedBranches": result.failed_branches,
+            },
+        )
+        return {"execution": result}
+
+    @router.post("/providers/{provider_id}/test-prompt", response_model=TestPromptResponse)
+    @queued_operation("models.test_prompt", workload_class="remote_llm_light")
+    async def test_prompt(provider_id: str, body: TestPromptRequest, request: Request) -> dict[str, Any]:
+        """Prueba el proveedor con una completion corta y controlada; falla cerrado como discover-models.
+
+        Exige habilitación, política de runtime permitida y credencial válida. Envía un prompt fijo y
+        benigno (nunca uno provisto por el cliente) y devuelve latencia, uso y una muestra redactada.
+        No aplica a runtimes CLI/manual, que se ejecutan por sesiones de runtime aprobadas por política.
+        """
+        require_write(request)
+        try:
+            account = providers().get_provider_account(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if str(account.get("providerType") or "") in {"cli", "manual"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider {provider_id} runs as a CLI/manual runtime; test-prompt targets API providers.",
+            )
+        if not account.get("enabled"):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Provider {provider_id} is disabled; test-prompt requires explicit enablement.",
+            )
+        if _requires_remote_provider_call(account):
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=str(account.get("providerFamily") or ""),
+                kind=provider_account_policy_kind(account),
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "Remote provider calls are disabled."),
+                )
+        try:
+            provider = provider_instance(provider_id, connection=platform.connection)
+        except ProviderAdapterResolutionError as error:
+            model = str(body.model or "")
+            detail = getattr(error, "public_code", error.code)
+            result = {
+                "providerId": provider_id,
+                "model": model,
+                "ok": False,
+                "latencyMs": 0,
+                "sample": "",
+                "totalTokens": None,
+                "usageSource": "unknown",
+                "error": detail,
+            }
+            audit(
+                "model_gateway.provider.test_prompt",
+                provider_id,
+                {"model": model, "ok": False},
+            )
+            return {"test": result}
+        _validate_real_discovery_credentials(account)
+        model = _resolve_test_prompt_model(providers(), provider_id, requested=body.model)
+        result = _run_provider_test_prompt(
+            provider_id,
+            model,
+            connection=platform.connection,
+            provider=provider,
+        )
+        audit("model_gateway.provider.test_prompt", provider_id, {"model": model, "ok": result["ok"]})
+        return {"test": result}
+
+    @router.post("/providers/{provider_id}/validate-runtime", response_model=RuntimeValidationResponse)
+    @queued_operation("models.validate_runtime", workload_class="remote_llm_light")
+    async def validate_runtime(
+        provider_id: str, body: RuntimeValidationRequest, request: Request
+    ) -> dict[str, Any]:
+        """Prueba real de ida y vuelta de un runtime para el equipo del hilo (una operación por runtime).
+
+        La clase de carga se reclasifica por runtime (CLI → agent_cli, local o loopback → local_model_call).
+        Un CLI consume cuota de suscripción; el pedido del operador es la aprobación y queda auditado.
+        Un runtime validado reanuda los loops bloqueados en runtime_team cuyo "Re-probar" esperaba esa
+        prueba; si la reanudación falla, se registra y la validación ya persistida se devuelve igual.
+        """
+        require_write(request)
+        try:
+            result = RuntimeValidationService(platform.connection).validate(
+                provider_id, project_id=body.project_id, model=body.model
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if result["status"] == "validated":
+            from local_control_center.remediations.service import BlockerRemediationService
+
+            try:
+                BlockerRemediationService(
+                    platform.connection, root=getattr(platform, "cwd", None)
+                ).resume_after_runtime_validation(provider_id)
+            except Exception:
+                logger.exception(
+                    "runtime_team.resume_after_validation_failed", extra={"providerId": provider_id}
+                )
+        return {"validation": result}
+
+    @router.post("/providers/{provider_id}/validate-all-models", response_model=CatalogValidationResponse)
+    @queued_operation("models.validate_all_models", workload_class="remote_llm_light")
+    async def validate_all_models(
+        provider_id: str, body: CatalogValidationRequest, request: Request
+    ) -> dict[str, Any]:
+        """Prueba cada modelo habilitado (o los ``models`` pedidos) de un proveedor de API/gateway.
+
+        Los que responden quedan validados; los que fallan de forma definitiva se descartan
+        (``enabled=0`` con ``disabledReason='validation_failed'``, nunca se borran) si el proveedor
+        demostró funcionar; los transitorios (429, 5xx, timeout) quedan sin validar ni descartar. El
+        proveedor sigue validado con un solo modelo que pase. La red corre en hilos acotados del worker;
+        la corrida respeta la cancelación de la ejecución, el switch del proveedor y la cuota. El avance
+        se lee en ``GET .../model-validation``. Cada modelo probado consume una completion corta real.
+        """
+        require_write(request)
+        from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+        context = CURRENT_EXECUTION.get()
+        try:
+            result = CatalogValidationService(platform.connection).run(
+                provider_id,
+                run_id=context.execution_id if context is not None else None,
+                model_ids=body.models,
+                only_untested=body.only_untested,
+                limits=CatalogValidationLimits(
+                    concurrency=body.concurrency,
+                    model_timeout_seconds=body.model_timeout_seconds,
+                    budget_seconds=body.budget_seconds,
+                ),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except CatalogValidationBlocked as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=str(redact_secrets(f"{error.code}: {error.detail}")),
+            ) from error
+        run = result["run"]
+        audit(
+            "model_gateway.provider.models_validated",
+            provider_id,
+            {
+                key: run[key]
+                for key in ("runId", "status", "reason", "total", "ok", "failed", "skipped", "discarded")
+            },
+        )
+        if run["ok"]:
+            from local_control_center.remediations.service import BlockerRemediationService
+
+            try:
+                BlockerRemediationService(
+                    platform.connection, root=getattr(platform, "cwd", None)
+                ).resume_after_runtime_validation(provider_id)
+            except Exception:
+                logger.exception(
+                    "runtime_team.resume_after_validation_failed", extra={"providerId": provider_id}
+                )
+        return result
+
+    @router.get("/providers/{provider_id}/model-validation", response_model=ModelValidationStatusResponse)
+    async def model_validation_status(provider_id: str) -> dict[str, Any]:
+        """Avance de la última validación modelo por modelo y último resultado por modelo (sin red)."""
+        try:
+            return CatalogValidationService(platform.connection).status(provider_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @router.get("/models", response_model=ModelCatalogListResponse)
     async def list_models() -> dict[str, Any]:
@@ -443,6 +1238,7 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         return result
 
     @router.post("/route/execute", response_model=RouteExecuteResponse)
+    @queued_operation("models.route_execute", workload_class="remote_llm_light")
     async def route_execute(body: RoutingPreviewRequest, request: Request) -> dict[str, Any]:
         """Rutea y ejecuta la llamada de modelo; abre solicitud de aprobación o bloquea cuando corresponde.
 
@@ -451,7 +1247,12 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """
         require_write(request)
         body_payload = _payload(body)
-        result = ModelRouter(platform.connection).preview(RoutingRequest(**body_payload), record=True)
+        result = await run_in_threadpool(
+            ModelRouter(platform.connection).preview,
+            RoutingRequest(**body_payload),
+            record=True,
+            allow_decision_inference=True,
+        )
         selected = result.get("selected")
         if not selected:
             raise HTTPException(status_code=409, detail=result.get("decisionReason") or "No route selected.")
@@ -485,11 +1286,16 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
                 detail="Route execution requires approval before calling a provider or runtime.",
             )
         runtime_type = str(selected.get("runtime") or "")
-        if runtime_type == "cli" and os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
-            raise HTTPException(
-                status_code=403, detail="CLI route execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
-            )
         if runtime_type == "cli":
+            project_id = str(body_payload.get("projectId") or "model-gateway")
+            policy_decision = runtimes().runtime_policy_decision(
+                provider_id=str(selected.get("provider") or ""), kind="cli", project_id=project_id
+            )
+            if not policy_decision.get("allowed"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=str(policy_decision.get("reason") or "CLI route execution is blocked by policy."),
+                )
             raise HTTPException(
                 status_code=501,
                 detail="Real CLI execution must be launched through policy-approved agent runtime sessions.",
@@ -506,6 +1312,28 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
             budget_remaining_usd=body_payload.get("budgetRemainingUsd"),
             metadata={"routing": result},
         )
+        decision_engine = result.get("policyResult", {}).get("decisionEngine", {})
+        if decision_engine.get("mode") == "runtime_selection":
+            from .agent_resource_policy import selection_profile_changed
+
+            if selection_profile_changed(platform.connection, decision_engine, body_payload.get("projectId")):
+                raise HTTPException(status_code=409, detail="agent_profile_changed")
+            validation = decision_engine.get("selectionValidation")
+            fingerprint = provider_configuration_fingerprint(platform.connection, selected["provider"])
+            if not isinstance(validation, dict) or any(
+                validation.get(key) != value
+                for key, value in {
+                    "providerId": selected["provider"],
+                    "model": selected["model"],
+                    "configurationFingerprint": fingerprint,
+                }.items()
+            ):
+                raise HTTPException(status_code=409, detail="model_validation_configuration_changed")
+            validation_reason = model_validation_rejection(
+                platform.connection, selected["provider"], selected["model"]
+            )
+            if validation_reason:
+                raise HTTPException(status_code=409, detail=validation_reason)
         execution = gateway.execute_model_call(
             {
                 **planned_call,
@@ -571,6 +1399,50 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Lista los límites configurados por proveedor."""
         return {"providerLimits": routing().list_provider_limits()}
 
+    @router.post("/provider-limits", status_code=201, response_model=ProviderLimitResponse)
+    async def create_provider_limit(
+        body: ProviderLimitUpsertRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Crea una política endpoint/modelo sin aceptar contadores operacionales."""
+        require_write(request)
+        try:
+            provider_limit = routing().create_provider_limit(_payload(body))
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        audit(
+            "model_gateway.provider_limit.created",
+            provider_limit["providerId"],
+            {"limitId": provider_limit["id"], "model": provider_limit["model"]},
+        )
+        return {"providerLimit": provider_limit}
+
+    @router.get("/provider-limits/status", response_model=ProviderLimitStatusResponse)
+    async def provider_limit_status(
+        provider_id: str = Query(
+            alias="providerId",
+            min_length=2,
+            max_length=96,
+            pattern=CATALOG_ID_RE.pattern,
+        ),
+        model: str = Query(min_length=1, max_length=256, pattern=r"^[^\r\n]+$"),
+        request_tokens: int = Query(default=0, alias="requestTokens", ge=0),
+        estimated_cost_usd: float | None = Query(
+            default=None,
+            alias="estimatedCostUsd",
+            ge=0,
+        ),
+    ) -> dict[str, Any]:
+        """Previsualiza política y ventanas sin reservar ni avanzar contadores."""
+        return {
+            "status": QuotaManager(platform.connection).status(
+                provider_id=provider_id,
+                model=model,
+                request_tokens=request_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+            )
+        }
+
     @router.patch("/provider-limits/{limit_id}", response_model=ProviderLimitResponse)
     async def patch_provider_limit(
         limit_id: str, body: ProviderLimitPatchRequest, request: Request
@@ -578,7 +1450,8 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
         """Actualiza parcialmente los límites de un proveedor."""
         require_write(request)
         try:
-            return {"providerLimit": routing().patch_provider_limit(limit_id, _payload(body))}
+            payload = body.model_dump(by_alias=True, exclude_unset=True)
+            return {"providerLimit": routing().patch_provider_limit(limit_id, payload)}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -606,26 +1479,99 @@ def create_router(*, platform: Any, require_write: Any) -> APIRouter:
 
     @router.get("/cli-runtimes", response_model=CliRuntimesListResponse)
     async def list_cli_runtimes() -> dict[str, Any]:
-        """Lista los runtimes CLI conocidos por el registry."""
-        return {"cliRuntimes": RuntimeRegistry().list_runtimes()}
+        """Lee detecciones durables; una consulta nunca inicia el ejecutable del proveedor."""
+        return {
+            "cliRuntimes": [
+                {
+                    "id": row["runtimeId"],
+                    "runtime": row["runtimeId"],
+                    "status": row["healthStatus"],
+                    "executable": row["executablePath"],
+                    "version": row["detectedVersion"],
+                    "message": row["lastError"]
+                    or "Use explicit health check to refresh detection and authentication.",
+                }
+                for row in runtimes().list_installations()
+                if row["kind"] == "cli"
+            ]
+        }
 
     @router.post("/cli-runtimes/{runtime_id}/detect", response_model=RuntimeDetectionResponse)
+    @queued_operation("models.detect_cli_runtime", workload_class="ops_light")
     async def detect_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Detecta el ejecutable y versión de un runtime CLI."""
         require_write(request)
         try:
-            return {"detection": RuntimeRegistry().detect(runtime_id)}
+            command = cli_runtime_command(runtime_id)
+            detection = RuntimeRegistry().detect(runtime_id, executable=command)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        persist_cli_probe(runtime_id, check_type="detect", payload=detection, executable_hint=command)
+        audit("model_gateway.cli_runtime.detected", runtime_id, detection)
+        return {"detection": detection}
 
     @router.post("/cli-runtimes/{runtime_id}/health-check", response_model=RuntimeHealthResponse)
+    @queued_operation("models.health_cli_runtime", workload_class="control_plane")
     async def health_cli_runtime(runtime_id: str, request: Request) -> dict[str, Any]:
         """Ejecuta un health-check de un runtime CLI."""
         require_write(request)
+        fingerprint = provider_configuration_fingerprint(platform.connection, runtime_id)
         try:
-            return {"health": RuntimeRegistry().health_check(runtime_id)}
+            command = cli_runtime_command(runtime_id)
+            health = RuntimeRegistry().health_check(runtime_id, executable=command)
+            detection = RuntimeRegistry().detect(runtime_id, executable=command)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        transaction = (
+            nullcontext()
+            if platform.connection.in_transaction
+            else immediate_transaction(platform.connection)
+        )
+        with transaction:
+            if not fingerprint or fingerprint != provider_configuration_fingerprint(
+                platform.connection, runtime_id
+            ):
+                health = {
+                    "runtime": runtime_id,
+                    "status": "unknown",
+                    "message": "CLI configuration changed during the health check; fresh health evidence is required.",
+                }
+                audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
+                return {"health": health}
+            persist_cli_probe(
+                runtime_id,
+                check_type="health",
+                payload={**detection, **health},
+                executable_hint=command,
+            )
+        RuntimeStatusService(
+            platform.connection,
+            allow_probes=True,
+            probe_runtime_ids={runtime_id},
+            force_native_auth_refresh=True,
+        ).list_provider_statuses()
+        audit("model_gateway.cli_runtime.health_checked", runtime_id, health)
+        return {"health": health}
+
+    @router.get("/cli-runtimes/codex_cli/compatibility", response_model=CodexCompatibilityResponse)
+    async def codex_compatibility() -> dict[str, Any]:
+        return CodexCompatibilityService(platform.connection).status(
+            cli_runtime_command("codex_cli") or "codex"
+        )
+
+    @router.post("/cli-runtimes/codex_cli/capabilities/probe", response_model=CodexCompatibilityResponse)
+    @queued_operation("models.codex_capabilities", workload_class="ops_light")
+    async def codex_capabilities(request: Request) -> dict[str, Any]:
+        require_write(request)
+        return CodexCompatibilityService(platform.connection).probe(
+            cli_runtime_command("codex_cli") or "codex"
+        )
+
+    @router.post("/cli-runtimes/codex_cli/compatibility/smoke")
+    @queued_operation("models.codex_smoke", workload_class="agent_cli")
+    async def codex_smoke(body: CodexSmokeRequest, request: Request) -> dict[str, Any]:
+        require_write(request)
+        return run_codex_smoke(platform.connection, body)
 
     @router.get("/cli-sessions", response_model=CliSessionsListResponse)
     async def list_cli_sessions() -> dict[str, Any]:

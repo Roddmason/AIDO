@@ -2,18 +2,21 @@
 
 Definen el contrato HTTP de solo lectura (forma de salida) del endpoint que agrega, por proyecto, el
 loop durable y su bitácora, las preguntas de clarificación, el brief vivo, los supuestos, las
-decisiones y el backlog (épicas, historias, tareas e iteraciones). Solo modelan datos: no contienen
+decisiones y el backlog (épicas, historias y tareas). Solo modelan datos: no contienen
 lógica de negocio ni acceso a la base; traducen ``snake_case`` de Python a ``camelCase`` del frontend
 vía alias de campo, reflejando exactamente las claves de los mapeadores ``row_to_*`` de cada slice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .fsm import PRODUCT_LOOP_STATES
 
 FEEDBACK_ACTION_VALUES = (
     "accept",
@@ -24,6 +27,7 @@ FEEDBACK_ACTION_VALUES = (
     "reopen_story",
     "pause_loop",
     "cancel_loop",
+    "continue",
 )
 FeedbackAction = Literal[
     "accept",
@@ -34,6 +38,7 @@ FeedbackAction = Literal[
     "reopen_story",
     "pause_loop",
     "cancel_loop",
+    "continue",
 ]
 
 FEEDBACK_CLASSIFICATION_VALUES = (
@@ -53,7 +58,12 @@ FeedbackClassification = Literal[
 
 
 class ProductLoopRecord(BaseModel):
-    """Estado durable de un product loop tal como se expone al cliente."""
+    """Estado durable de un product loop tal como se expone al cliente.
+
+    ``context`` es opcional: el listado agregado del proyecto lo omite por defecto (puede pesar
+    cientos de MB acumulados); pedirlo explícitamente con ``?includeContext=true`` en
+    ``GET /projects/{id}/product-loop`` restaura el comportamiento completo.
+    """
 
     id: str
     project_id: str = Field(alias="projectId")
@@ -62,7 +72,7 @@ class ProductLoopRecord(BaseModel):
     state: str
     previous_state: str | None = Field(default=None, alias="previousState")
     status: str
-    context: dict[str, Any]
+    context: dict[str, Any] | None = None
     version: int
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -220,6 +230,33 @@ class UserStoryRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
+class AcceptanceCriterionRecord(BaseModel):
+    """Criterio de aceptación story-scoped que hace verificable una historia."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    story_id: str = Field(alias="storyId")
+    sequence: int
+    criterion: str
+    status: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class StoryDependencyRecord(BaseModel):
+    """Dependencia explícita entre historias de usuario."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    story_id: str = Field(alias="storyId")
+    depends_on_story_id: str = Field(alias="dependsOnStoryId")
+    type: str
+    reason: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
+
+
 class AgentTaskRecord(BaseModel):
     """Tarea técnica de un agente derivada de una historia."""
 
@@ -237,6 +274,19 @@ class AgentTaskRecord(BaseModel):
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+
+
+class TaskDependencyRecord(BaseModel):
+    """Dependencia explícita entre tareas técnicas de agentes."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    task_id: str = Field(alias="taskId")
+    depends_on_task_id: str = Field(alias="dependsOnTaskId")
+    type: str
+    reason: str
+    metadata: dict[str, Any]
+    created_at: str = Field(alias="createdAt")
 
 
 class AgentAssignmentRecord(BaseModel):
@@ -313,27 +363,6 @@ class AssignmentConflictRecord(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
-class IterationRecord(BaseModel):
-    """Iteración planificada: estrategia de workspace, gates de calidad/seguridad y costo estimado."""
-
-    id: str
-    project_id: str = Field(alias="projectId")
-    brief_id: str | None = Field(default=None, alias="briefId")
-    title: str
-    goal: str | None = None
-    status: str
-    story_ids: list[Any] = Field(alias="storyIds")
-    workspace_strategy: str | None = Field(default=None, alias="workspaceStrategy")
-    quality_gates: list[Any] = Field(alias="qualityGates")
-    security_gates: list[Any] = Field(alias="securityGates")
-    estimated_cost: dict[str, Any] = Field(alias="estimatedCost")
-    runtimes: list[Any]
-    task_count: int = Field(alias="taskCount")
-    assignment_count: int = Field(alias="assignmentCount")
-    created_at: str = Field(alias="createdAt")
-    updated_at: str = Field(alias="updatedAt")
-
-
 class ProductLoopStateResponse(BaseModel):
     """Estado agregado del product loop de un proyecto, consumido por el Workbench en una sola lectura."""
 
@@ -346,12 +375,187 @@ class ProductLoopStateResponse(BaseModel):
     decisions: list[ProductDecisionRecord]
     epics: list[EpicRecord]
     stories: list[UserStoryRecord]
+    acceptance_criteria: list[AcceptanceCriterionRecord] = Field(alias="acceptanceCriteria")
+    story_dependencies: list[StoryDependencyRecord] = Field(alias="storyDependencies")
     tasks: list[AgentTaskRecord]
+    task_dependencies: list[TaskDependencyRecord] = Field(alias="taskDependencies")
     assignments: list[AgentAssignmentRecord]
     assignment_handoffs: list[AssignmentHandoffRecord] = Field(alias="assignmentHandoffs")
     assignment_reviews: list[AssignmentReviewRecord] = Field(alias="assignmentReviews")
     assignment_conflicts: list[AssignmentConflictRecord] = Field(alias="assignmentConflicts")
-    iterations: list[IterationRecord]
+
+
+class StorySpecEpic(BaseModel):
+    """Contexto de la épica dentro del spec ejecutable de una historia."""
+
+    id: str
+    title: str
+    description: str
+
+
+class StorySpecStory(BaseModel):
+    """Núcleo de valor de la historia (asA/iWant/soThat) dentro de su spec ejecutable."""
+
+    title: str
+    as_a: str = Field(alias="asA")
+    i_want: str = Field(alias="iWant")
+    so_that: str = Field(alias="soThat")
+    business_value: str = Field(alias="businessValue")
+    status: str
+    priority: str
+
+
+class StorySpecAcceptanceCriterion(BaseModel):
+    """Criterio de aceptación ordenado que hace verificable el spec de la historia."""
+
+    id: str
+    sequence: int
+    criterion: str
+    status: str
+
+
+class StorySpecDependency(BaseModel):
+    """Arista de dependencia entre responsabilidades de rol dentro del spec."""
+
+    task_id: str = Field(alias="taskId")
+    role: str
+
+
+class StorySpecRoleResponsibility(BaseModel):
+    """Responsabilidad que un rol/agente toma de la historia: goal, reviewer, gates y dependencias."""
+
+    task_id: str = Field(alias="taskId")
+    role: str
+    title: str
+    goal: str
+    reviewer_role: str = Field(alias="reviewerRole")
+    quality_gates: list[dict[str, Any]] = Field(alias="qualityGates")
+    depends_on: list[StorySpecDependency] = Field(alias="dependsOn")
+
+
+class StorySpecResponse(BaseModel):
+    """Spec ejecutable de una historia: épica, HU, criterios, roles y el texto listo para prompt."""
+
+    story_id: str = Field(alias="storyId")
+    epic: StorySpecEpic
+    story: StorySpecStory
+    acceptance_criteria: list[StorySpecAcceptanceCriterion] = Field(alias="acceptanceCriteria")
+    role_responsibilities: list[StorySpecRoleResponsibility] = Field(alias="roleResponsibilities")
+    prompt_text: str = Field(alias="promptText")
+
+
+ThreadBoardColumnId = Literal["todo", "in_progress", "qa", "done"]
+ThreadBoardStage = Literal["planning", "executing", "security", "approval", "delivered", "blocked"]
+
+
+class ThreadBoardTask(BaseModel):
+    """Tarea de agente dentro de una tarjeta del tablero (rol y estado persistido)."""
+
+    id: str
+    title: str
+    role: str
+    status: str
+
+
+class ThreadBoardCriterion(BaseModel):
+    """Criterio de aceptación de una tarjeta: texto, estado persistido y si cuenta como cumplido.
+
+    ``met`` es verdadero si el estado persistido lo marca cumplido o si la historia quedó ``done``
+    (el loop solo cierra una historia tras su gate QA).
+    """
+
+    id: str | None = None
+    text: str
+    status: str
+    met: bool
+
+
+class ThreadBoardAssignee(BaseModel):
+    """Quién trabaja la historia: rol del loop, runtime y modelo del cursor, y si está corriendo."""
+
+    role: str | None = None
+    runtime: str | None = None
+    model: str | None = None
+    active: bool = False
+    planned_roles: list[str] = Field(default_factory=list, alias="plannedRoles")
+
+
+class ThreadBoardCard(BaseModel):
+    """Tarjeta del tablero: una historia con su estado, marca de bloqueo, runtime y tareas.
+
+    ``progressPercent`` es la media del peso de etapa de sus tareas (ver ``backlog.board``).
+    """
+
+    story_id: str = Field(alias="storyId")
+    index: int
+    synthetic: bool
+    title: str
+    as_a: str = Field(alias="asA")
+    i_want: str = Field(alias="iWant")
+    so_that: str = Field(alias="soThat")
+    priority: str
+    status: str
+    column: ThreadBoardColumnId
+    blocked: bool
+    blocked_reason: str | None = Field(default=None, alias="blockedReason")
+    outcome: str | None = None
+    runtime: str | None = None
+    acceptance_criteria: list[str] = Field(alias="acceptanceCriteria")
+    tasks: list[ThreadBoardTask]
+    description: str = ""
+    criteria: list[ThreadBoardCriterion] = Field(default_factory=list)
+    progress_percent: int = Field(default=0, alias="progressPercent")
+    assignee: ThreadBoardAssignee | None = None
+    qa_verdict: str | None = Field(default=None, alias="qaVerdict")
+    commit: str | None = None
+    runs: int = 0
+
+
+class ThreadBoardColumn(BaseModel):
+    """Columna del tablero (Por hacer, En curso, QA, Listo) con sus tarjetas en orden de ejecución."""
+
+    id: ThreadBoardColumnId
+    cards: list[ThreadBoardCard]
+
+
+class ThreadBoardProgress(BaseModel):
+    """Progreso del loop del hilo: historias terminadas sobre el total y avance medio 0-100."""
+
+    done: int
+    total: int
+    percent: int = 0
+
+
+class ThreadBoardResponse(BaseModel):
+    """Tablero por historia del hilo: loop resuelto, etapa, cuatro columnas y progreso."""
+
+    loop_id: str | None = Field(default=None, alias="loopId")
+    loop_state: str | None = Field(default=None, alias="loopState")
+    stage: ThreadBoardStage
+    columns: list[ThreadBoardColumn]
+    progress: ThreadBoardProgress
+
+
+ThreadEtaStatus = Literal["estimating", "waiting_operator", "insufficient_history"]
+
+
+class ThreadEta(BaseModel):
+    """Estimación de tiempo restante del hilo (``product_loop.eta.estimate_thread_eta``).
+
+    ``estimating`` trae ambos campos de segundos; ``waiting_operator`` (el loop espera una decisión,
+    incluida la aprobación del brief) e ``insufficient_history`` (menos de 3 muestras para algún estado
+    del camino restante) los dejan en ``None`` a propósito: nunca un número inventado.
+    """
+
+    status: ThreadEtaStatus
+    remaining_seconds: int | None = Field(default=None, alias="remainingSeconds")
+    remaining_p90_seconds: int | None = Field(default=None, alias="remainingP90Seconds")
+    current_state: str = Field(alias="currentState")
+    sample_count: int = Field(alias="sampleCount")
+    includes_operator_approval: bool = Field(alias="includesOperatorApproval")
+
+
+MAX_TIMEOUT_SECONDS = 10 * 365 * 24 * 3600
 
 
 class ProductLoopStartRequest(BaseModel):
@@ -366,6 +570,34 @@ class ProductLoopStartRequest(BaseModel):
     max_rework_rounds: int | None = Field(default=None, alias="maxReworkRounds")
     deadline: str | None = None
 
+    @field_validator("timeouts")
+    @classmethod
+    def _validate_timeouts(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Exige estados conocidos y segundos finitos, positivos y acotados (el coordinador los suma a ``now``)."""
+        for state, seconds in (value or {}).items():
+            if state not in PRODUCT_LOOP_STATES:
+                raise ValueError(f"Unknown product loop state in timeouts: {state}")
+            is_number = isinstance(seconds, (int, float)) and not isinstance(seconds, bool)
+            if not is_number or not 0 < seconds <= MAX_TIMEOUT_SECONDS:
+                raise ValueError(
+                    f"Timeout for {state} must be a finite number of seconds in (0, {MAX_TIMEOUT_SECONDS}]."
+                )
+        return value
+
+    @field_validator("deadline")
+    @classmethod
+    def _normalize_deadline(cls, value: str | None) -> str | None:
+        """Normaliza el deadline al formato UTC canónico de ``utc_now()``: el loop lo compara como texto."""
+        if value is None or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        except (ValueError, OverflowError) as error:
+            raise ValueError("Deadline must be an ISO-8601 timestamp.") from error
+
 
 class ProductLoopTransitionRequest(BaseModel):
     """Cuerpo para avanzar un loop a un estado destino permitido por la FSM."""
@@ -375,6 +607,20 @@ class ProductLoopTransitionRequest(BaseModel):
     trigger: str | None = None
     correlation_id: str | None = Field(default=None, alias="correlationId")
     expected_version: int | None = Field(default=None, alias="expectedVersion")
+
+
+class ProductLoopAidoDecideRequest(BaseModel):
+    """Comando para aceptar automáticamente opciones recomendadas por AIDO en preguntas abiertas."""
+
+    reason: str | None = None
+    actor: str | None = None
+
+
+class ProductLoopApprovalRequest(BaseModel):
+    """Comando de aprobación explícita de brief o backlog dentro del product loop."""
+
+    reason: str | None = None
+    actor: str | None = None
 
 
 class ProductLoopFeedbackRequest(BaseModel):

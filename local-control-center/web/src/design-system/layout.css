@@ -42,6 +42,13 @@
 	overflow: auto;
 }
 
+/* Threads route owns its own internal scroll region (see `.thread-live-scroll`); the frame
+   itself must not add a second one, in the stacked layout either. */
+.app-shell-ide--stacked > .workbench .content-frame.content-frame--full-bleed,
+.app-shell-ide--stacked > .main-area .content-frame.content-frame--full-bleed {
+	overflow: hidden;
+}
+
 /* The sidebar must not consume the whole column on small screens; cap it and let it
    scroll its own list so the content area always has room. */
 .app-shell-ide--stacked > .shell-sidebar {
@@ -51,6 +58,7 @@
 
 /* Desktop-style application menu bar: a thin top strip above the IDE body that
    hosts the File/Edit/View/Help menus. Sits in normal flow as the shell's first row. */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .menu-bar` scoped override is more specific by design and wins regardless of source order */
 .menu-bar {
 	display: flex;
 	align-items: stretch;
@@ -63,6 +71,32 @@
 	font-family: var(--font-ui);
 	font-size: var(--font-size-sm);
 	z-index: var(--z-sticky);
+}
+
+/* Wrapper del menubar ARIA (solo menu items): display contents mantiene a los items
+   como hijos flex directos de .menu-bar, con el mismo gap y layout que antes. */
+.menu-bar-menus {
+	display: contents;
+}
+
+/* Salto directo al contenido para teclado/lector de pantalla: invisible hasta focus. */
+.skip-link {
+	position: absolute;
+	left: var(--space-2);
+	top: var(--space-2);
+	z-index: var(--z-toast);
+	padding: var(--space-1) var(--space-3);
+	background: var(--color-surface-panel-raised);
+	color: var(--color-text-primary);
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-sm);
+	transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+	transform: translateY(0);
 }
 
 .menu-bar-brand {
@@ -161,6 +195,7 @@
 }
 
 /* Thread/loop ShellSidebar: the Codex-style left navigator (Threads/Loops tabs + search). */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .shell-sidebar` scoped override is more specific by design and wins regardless of source order */
 .shell-sidebar {
 	display: flex;
 	flex-direction: column;
@@ -183,9 +218,9 @@
 	justify-content: center;
 	gap: var(--space-2);
 	height: var(--control-height-sm);
-	border: 1px solid var(--color-accent-muted);
-	background: transparent;
-	color: var(--color-accent-strong);
+	border: 1px solid var(--color-accent);
+	background: var(--color-accent);
+	color: var(--color-text-inverse);
 	font: inherit;
 	font-weight: var(--weight-semibold);
 	border-radius: var(--radius-md);
@@ -193,8 +228,8 @@
 }
 
 .shell-new-thread:hover {
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-accent);
+	background: var(--color-accent-strong);
+	border-color: var(--color-accent-strong);
 }
 
 .shell-new-thread:focus-visible {
@@ -243,14 +278,6 @@
 .shell-footer-item:focus-visible {
 	outline: none;
 	box-shadow: var(--shadow-focus);
-}
-
-.inspector-plan {
-	margin-top: var(--space-4);
-}
-
-.inspector-plan .surface-title {
-	margin-bottom: var(--space-2);
 }
 
 .inspector-list {
@@ -323,8 +350,7 @@
 }
 
 .thread-workspace-head,
-.thread-row,
-.thread-add-workspace {
+.thread-row {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -337,6 +363,7 @@
 	text-align: left;
 	border-radius: var(--radius-sm);
 	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .thread-workspace-head {
@@ -345,14 +372,12 @@
 }
 
 .thread-workspace-head:hover,
-.thread-row:hover,
-.thread-add-workspace:hover {
+.thread-row:hover {
 	background: var(--color-surface-card-hover);
 }
 
 .thread-workspace-head:focus-visible,
-.thread-row:focus-visible,
-.thread-add-workspace:focus-visible {
+.thread-row:focus-visible {
 	outline: none;
 	box-shadow: var(--shadow-focus);
 }
@@ -391,8 +416,9 @@
 	padding-left: var(--space-4);
 }
 
+/* Wrapper row: the select button inside carries the padding; the menu trigger sits at the right. */
 .thread-row {
-	padding-block: var(--space-1);
+	padding: 0 var(--space-1) 0 0;
 }
 
 .thread-row[aria-current="true"] {
@@ -401,8 +427,35 @@
 	box-shadow: inset 0 0 0 1px var(--color-border-selected);
 }
 
+/* The "New thread" affordance stays a plain button (no menu), so it keeps its own padding. */
 .thread-row.is-new {
+	padding: var(--space-1) var(--space-2);
 	color: var(--color-text-secondary);
+}
+
+.thread-row-select {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-row-select:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-row.is-archived .thread-row-name {
+	color: var(--color-text-muted);
 }
 
 .thread-dot {
@@ -439,66 +492,307 @@
 	font-size: var(--font-size-sm);
 }
 
-.thread-add-workspace {
-	margin-top: var(--space-2);
-	color: var(--color-accent);
+/* Per-row actions trigger: faint at rest so the menu stays discoverable without a hover hunt;
+   full opacity on hover/focus, on touch, and on the active row. */
+.thread-row .thread-menu-trigger {
+	flex: 0 0 auto;
+	width: 1.6rem;
+	height: 1.6rem;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	border-radius: var(--radius-sm);
+	opacity: 0.35;
 }
 
-.loop-list {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	margin: 0;
-	padding: var(--space-1);
-	list-style: none;
+.thread-row:hover .thread-menu-trigger,
+.thread-row:focus-within .thread-menu-trigger,
+.thread-row[aria-current="true"] .thread-menu-trigger,
+.thread-row .thread-menu-trigger[aria-expanded="true"] {
+	opacity: 1;
 }
 
-.loop-row {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	padding: var(--space-3);
-	background: var(--color-surface-card);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-lg);
-	color: var(--color-text-secondary);
+.thread-row .thread-menu-trigger:hover {
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
 }
 
-.loop-row-head {
+@media (hover: none) {
+	.thread-row .thread-menu-trigger {
+		width: 2.25rem;
+		height: 2.25rem;
+		opacity: 1;
+	}
+}
+
+/* Workspace head row: disclosure toggle + project "⋯" menu, same affordance as the thread rows. */
+.thread-workspace-row {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
+	gap: var(--space-1);
+	border-radius: var(--radius-sm);
 }
 
-.loop-row-title {
-	overflow: hidden;
+.thread-workspace-row .thread-workspace-head {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.thread-workspace-row .thread-menu-trigger {
+	flex: 0 0 auto;
+	width: 1.6rem;
+	height: 1.6rem;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	border-radius: var(--radius-sm);
+	opacity: 0.35;
+}
+
+.thread-workspace-row:hover .thread-menu-trigger,
+.thread-workspace-row:focus-within .thread-menu-trigger,
+.thread-workspace-row .thread-menu-trigger[aria-expanded="true"] {
+	opacity: 1;
+}
+
+.thread-workspace-row .thread-menu-trigger:hover {
+	background: var(--color-surface-inset);
 	color: var(--color-text-primary);
-	font-weight: var(--weight-semibold);
+}
+
+@media (hover: none) {
+	.thread-workspace-row .thread-menu-trigger {
+		width: 2.25rem;
+		height: 2.25rem;
+		opacity: 1;
+	}
+}
+
+/* Contextual menu popover (portalled; positioned via inline top/left). */
+.thread-menu {
+	position: fixed;
+	z-index: var(--z-command);
+	display: flex;
+	flex-direction: column;
+	min-width: 13.5rem;
+	max-width: 18rem;
+	padding: var(--space-1);
+	background: var(--color-surface-panel-raised);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-lg);
+}
+
+.thread-menu:focus {
+	outline: none;
+}
+
+.thread-menu-item {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	width: 100%;
+	padding: var(--space-2);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.thread-menu-item svg {
+	flex: 0 0 auto;
+	margin-top: 2px;
+}
+
+.thread-menu-item:hover,
+.thread-menu-item:focus-visible {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+	outline: none;
+}
+
+.thread-menu-item:focus-visible {
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-menu-item-body {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.thread-menu-item-label {
+	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.loop-row-phase {
+.thread-menu-item[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+.thread-menu-item[aria-disabled="true"] {
+	cursor: not-allowed;
+}
+
+.thread-menu-item[aria-disabled="true"] .thread-menu-item-label {
+	opacity: 0.5;
+}
+
+.thread-menu-note {
+	font-size: var(--font-size-2xs);
 	color: var(--color-text-muted);
+	white-space: normal;
+}
+
+.thread-menu-separator {
+	height: 1px;
+	margin: var(--space-1) var(--space-2);
+	border: 0;
+	background: var(--color-border-subtle);
+}
+
+/* Inline rename editor: replaces the row label in place. */
+.thread-rename-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 2px 0;
+	padding: 2px var(--space-2);
+	font: inherit;
 	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-selected);
+	border-radius: var(--radius-sm);
+	outline: none;
 }
 
-.loop-phase-bar {
+/* Archived threads: section label inside each workspace plus the sidebar-level toggle. */
+.thread-archived-head {
 	display: flex;
-	gap: 3px;
-	margin-top: var(--space-1);
+	align-items: center;
+	gap: var(--space-2);
+	margin: var(--space-2) 0 0;
+	padding: var(--space-1) var(--space-2);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-text-muted);
 }
 
-.loop-phase-seg {
-	flex: 1 1 0;
-	height: var(--space-1);
-	border-radius: var(--radius-pill);
-	background: var(--color-border-default);
+.thread-archived-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	width: 100%;
+	margin-top: var(--space-3);
+	padding: var(--space-2);
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	text-align: left;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
 }
 
-.loop-phase-seg.is-filled {
-	background: var(--color-accent);
+.thread-archived-toggle:hover {
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-secondary);
+}
+
+.thread-archived-toggle:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-archived-toggle[aria-pressed="true"] {
+	color: var(--color-text-secondary);
+}
+
+/* Confirm-delete dialog body. */
+.thread-delete-dialog {
+	width: min(28rem, 92vw);
+}
+
+.thread-delete-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-delete-body p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-delete-body .thread-delete-name {
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-delete-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-3);
+	margin-top: var(--space-2);
+}
+
+/* Thread artifacts dialog. */
+.thread-artifacts-dialog {
+	width: min(34rem, 92vw);
+}
+
+.thread-artifacts-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-artifacts-thread {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.thread-artifacts-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-artifacts-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+}
+
+.thread-artifacts-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-text-primary);
+}
+
+.thread-artifacts-time {
+	flex: 0 0 auto;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-family: var(--font-data);
 }
 
 /* Desktop body row: the fixed activity rail plus the resizable pane group fill the
@@ -548,12 +842,6 @@
 /* In the resizable layout the group sizes each pane, so the rail and pane content
    fill their box instead of being sticky/full-viewport (the stacked layout keeps
    the original flow). */
-.ide-body > .activity-bar {
-	position: static;
-	height: 100%;
-}
-
-.ide-pane > .explorer-panel,
 .ide-pane > .inspector-panel,
 .ide-pane > .workbench,
 .ide-pane > .main-area,
@@ -563,35 +851,53 @@
 	min-height: 0;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 .ide-pane .content-frame {
 	min-height: 0;
 	overflow: auto;
 }
 
-/* Resize handles: a thin visible line; the group's resizeTargetMinimumSize widens
-   the actual drag/touch hit zone beyond this so it is hard to miss. */
+/* Resize handles: a 1px hairline at rest, 3px accent on hover / keyboard focus / drag. The
+   group's resizeTargetMinimumSize widens the actual drag/touch hit zone beyond this so it is hard
+   to miss; box-shadow draws the thicker line without shifting layout. Double-click restores the
+   adjacent panel's default size (native react-resizable-panels behavior). */
 .ide-separator {
-	width: 3px;
+	position: relative;
+	flex: 0 0 1px;
+	width: 1px;
 	background: var(--color-border-subtle);
-	transition: background var(--duration-fast) var(--ease-standard);
+	cursor: col-resize;
+	transition: box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .ide-separator--horizontal {
 	width: auto;
-	height: 3px;
+	flex-basis: 1px;
+	height: 1px;
+	cursor: row-resize;
 }
 
 .ide-separator:hover,
+.ide-separator[data-separator="hover"],
+.ide-separator[data-separator="active"],
 .ide-separator:focus-visible {
 	background: var(--color-accent);
+	box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .ide-separator:focus-visible {
-	outline: none;
-	box-shadow: var(--shadow-focus);
+	outline: 2px solid var(--color-focus);
+	outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ide-separator {
+		transition: none;
+	}
 }
 
 /* Collapsible bottom dock (logs / terminal). */
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .bottom-panel` scoped override is more specific by design and wins regardless of source order */
 .bottom-panel {
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -623,207 +929,26 @@
 	padding: var(--space-4);
 }
 
-.activity-bar {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-sticky);
-	height: 100vh;
-	height: 100dvh;
-	display: grid;
-	grid-template-rows: auto 1fr auto;
-	gap: var(--space-3);
-	padding: var(--space-2) var(--space-1);
-	justify-items: center;
-	background: var(--color-surface-shell);
-	border-right: 1px solid var(--color-border-subtle);
-}
-
-.activity-bar-item {
-	width: var(--control-height);
-	height: var(--control-height);
-	display: inline-grid;
-	place-items: center;
-	border: 1px solid transparent;
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--color-text-muted);
-}
-
-.activity-bar-item:hover,
-.activity-bar-item[aria-current="page"],
-.activity-bar-item[aria-pressed="true"] {
-	background: var(--color-surface-panel);
-	border-color: var(--color-border-default);
-	color: var(--color-text-primary);
-}
-
-.explorer-panel {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-raised);
-	height: 100vh;
-	height: 100dvh;
-	min-width: 0;
-	display: grid;
-	grid-template-rows: auto minmax(0, 1fr) auto;
-	gap: var(--space-4);
-	padding: var(--space-4);
-	background: var(--color-surface-rail);
-	border-right: 1px solid var(--color-border-subtle);
-	color: var(--color-text-primary);
-	overflow: auto;
-}
-
-.brand-orb {
-	width: 2.5rem;
-	height: 2.5rem;
-	flex: 0 0 auto;
-	display: grid;
-	place-items: center;
-	border: 1px solid var(--color-border-default);
-	border-radius: var(--radius-lg);
-	background: var(--color-surface-panel);
-	box-shadow: var(--shadow-xs);
-}
-
-.brand-orb span {
-	width: 1rem;
-	height: 1rem;
-	display: block;
-	border-radius: var(--radius-xs);
-	background: var(--color-accent);
-}
-
-.nav-list {
-	min-height: 0;
-	overflow: auto;
-	display: grid;
-	gap: var(--space-4);
-	align-content: start;
-	padding-right: var(--space-1);
-}
-
-.nav-section {
-	display: grid;
-	gap: var(--space-2);
-}
-
-.nav-sublist {
-	display: grid;
-	gap: var(--space-1);
-}
-
-.nav-section-label {
-	padding: 0 var(--space-2);
-	color: var(--color-text-muted);
-	font-size: var(--font-size-xs);
-	font-weight: var(--weight-semibold);
-}
-
-.nav-item,
-.nav-group-trigger {
-	width: 100%;
-	min-height: 2.75rem;
-	display: grid;
-	grid-template-columns: 1.1rem minmax(0, 1fr);
-	align-items: center;
-	gap: var(--space-3);
-	padding: var(--space-2) var(--space-3);
-	border: 1px solid transparent;
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--color-text-secondary);
-	text-align: left;
-}
-
-.nav-group-trigger {
-	background: var(--color-surface-panel);
-	border-color: var(--color-border-subtle);
-	color: var(--color-text-primary);
-	font-weight: var(--weight-semibold);
-}
-
-.nav-item span {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.nav-item-meta {
-	grid-column: 2;
-	margin-top: -0.35rem;
-	color: var(--color-text-muted);
-	font-size: var(--font-size-xs);
-	font-weight: var(--weight-medium);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.nav-item svg,
-.nav-group-trigger svg {
-	width: 1rem;
-	height: 1rem;
-	flex: 0 0 auto;
-}
-
-.nav-item:hover,
-.nav-item[aria-current="page"],
-.nav-group-trigger:hover {
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-border-default);
-	color: var(--color-text-primary);
-}
-
-.nav-item[aria-current="page"] {
-	box-shadow: inset 3px 0 0 var(--color-accent);
-}
-
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .main-area` scoped override is more specific by design and wins regardless of source order */
 .main-area,
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .workbench` scoped override is more specific by design and wins regardless of source order */
 .workbench {
 	position: relative;
 	z-index: var(--z-raised);
 	min-width: 0;
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	min-height: 100dvh;
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
 	background: var(--color-surface-workbench);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench` scoped override is more specific by design and wins regardless of source order */
 .workbench {
 	grid-template-rows: auto minmax(0, 1fr);
 }
 
-.topbar {
-	position: sticky;
-	top: 0;
-	z-index: var(--z-sticky);
-	display: grid;
-	gap: var(--space-3);
-	padding: var(--space-4) var(--space-6);
-	background: color-mix(in oklch, var(--color-surface-workbench) 94%, transparent);
-	backdrop-filter: blur(14px);
-	border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.topbar-primary {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-4);
-}
-
-.topbar-title {
-	margin: 0;
-	font-family: var(--font-display);
-	font-size: var(--font-size-xl);
-	line-height: var(--line-tight);
-	letter-spacing: 0;
-}
-
-.topbar-actions,
 .status-strip {
 	display: flex;
 	flex-wrap: wrap;
@@ -849,12 +974,13 @@
 }
 
 .language-switch .button[aria-pressed="true"] {
-	background: var(--color-text-primary);
-	color: var(--color-text-inverse);
-	border-color: var(--color-text-primary);
+	background: var(--color-surface-panel-raised);
+	color: var(--color-text-primary);
+	border-color: var(--color-accent);
 }
 
 .status-strip,
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .status-bar` scoped override is more specific by design and wins regardless of source order */
 .status-bar {
 	min-height: var(--size-status-bar);
 	padding: var(--space-2) var(--space-6);
@@ -869,7 +995,12 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-4);
+	/* With the worker item the bar holds nine slots plus the display controls and must still fit one
+	 * line at 1280px: a step tighter gap and gutter, small controls (language, theme, density, the
+	 * Resume / "need attention" buttons) and compact labels in StatusBar. */
+	--control-height: var(--control-height-sm);
+	gap: var(--space-3);
+	padding-inline: var(--space-4);
 	border-top: 1px solid var(--color-border-subtle);
 	border-bottom: 0;
 }
@@ -882,11 +1013,372 @@
 	margin-left: auto;
 }
 
+/* Git workspace controls relocated from the footer into the composer (see GitBranchBar).
+ *
+ * Three clusters separated by 1px dividers + inset padding:
+ *   (a) composer-git-cluster--workspace  — branch select + create form
+ *   (b) composer-git-cluster--status     — git connection + clean/dirty + gitleaks (read-only)
+ *   (c) composer-git-cluster--actions    — scan + refresh icon buttons (pushed right)
+ *
+ * Within-cluster gap: --space-2 (0.5rem).
+ * Between-cluster gap: --space-4 inset on the leading edge of each non-first cluster.
+ */
+.composer-git-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0;
+	padding-top: var(--space-2);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Each cluster is a flex row with tight internal spacing. It must be allowed to shrink below its
+   min-content (`min-width: 0`) and to reflow its chips onto a second row (`flex-wrap`); otherwise the
+   widest chip becomes a hard floor that drags the whole bar past the edge of its column. */
+.composer-git-cluster {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Divider between clusters: 1px rule on the leading edge + inset padding (no margin). */
+.composer-git-cluster + .composer-git-cluster {
+	padding-left: var(--space-4);
+	border-left: 1px solid var(--color-border-subtle);
+}
+
+/* Actions cluster is always pushed to the far right via auto-margin;
+ * the leading divider is inherited from the adjacent-sibling rule above. */
+.composer-git-cluster--actions {
+	margin-left: auto;
+}
+
+/* Icon buttons inside the bar use the small control height. */
+.composer-git-bar .icon-button {
+	min-width: var(--control-height-sm);
+	min-height: var(--control-height-sm);
+}
+
+/* Read-only status items (dot + label); gap increased to clear the StatusDot halo.
+   The chip stays on one line, but `min-width: 0` lets it be squeezed: what gives way is the label
+   inside it, never the dot, icon or short hash (see below). */
+.composer-git-item {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+/* The icon has no min-content of its own, so a squeezed chip deforms it (measured: 14px down to 9px in
+   the narrowest pane) rather than truncating the label beside it. The dot and the short hash resist on
+   their own — a fixed size and nowrap text respectively — so they need no pin. */
+.composer-git-item > svg {
+	flex-shrink: 0;
+}
+
+/* The only part of a chip allowed to give way. `overflow: hidden` is what lets it shrink at all: it
+   zeroes the flex item's automatic minimum size. The untruncated text stays in the chip's `title`, so
+   the ellipsis hides nothing. The last-commit subject and the dirty breakdown are the two strings long
+   enough to set the whole bar's width, and both live here. */
+.composer-git-item-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Non-OK state: color the label to be scannable without relying on the dot alone.
+ * Uses data-tone to mirror the existing badge/dot pattern. */
+.composer-git-item[data-tone="warn"] {
+	color: var(--color-status-warning);
+}
+
+.composer-git-item[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+/* Branch select: primary control, full control height. */
+.status-branch-select {
+	height: var(--control-height-sm);
+	width: clamp(8rem, 14vw, 13rem);
+	padding-inline: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	cursor: pointer;
+	transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.status-branch-select:hover:not(:disabled) {
+	border-color: var(--color-border-default);
+}
+
+.status-branch-select:focus-visible {
+	outline: none;
+	border-color: var(--color-border-selected);
+	box-shadow: var(--shadow-focus);
+}
+
+.status-branch-select:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* Branch create form: input + "+" button inline. */
+.status-branch-create {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.status-branch-create input {
+	height: var(--control-height-sm);
+	width: clamp(7rem, 12vw, 11rem);
+	padding-inline: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.status-branch-create input::placeholder {
+	color: var(--color-text-disabled);
+}
+
+.status-branch-create input:hover:not(:disabled) {
+	border-color: var(--color-border-default);
+}
+
+.status-branch-create input:focus-visible {
+	outline: none;
+	border-color: var(--color-border-selected);
+	box-shadow: var(--shadow-focus);
+}
+
+.status-branch-create input:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* State note: the state-driven CTA/summary in the workspace cluster (blocked, detached, no commits,
+   git missing, only-protected hint). Tone rides on full text color, never a side-stripe. */
+.composer-git-note {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.composer-git-note[data-tone="warn"] {
+	color: var(--color-status-warning);
+}
+
+.composer-git-note--hint {
+	color: var(--color-text-muted);
+	white-space: normal;
+}
+
+/* gitleaks-missing chip is itself the button that opens setup: strip native button chrome so it
+   reads as a status item, keep a visible focus ring for keyboard users. */
+.composer-git-item--action {
+	border: 0;
+	background: none;
+	padding: 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.composer-git-item--action:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
+}
+
+/* Icon + suggested-action dot overlay (Remotes button when no remote is configured yet). */
+.composer-git-icon-badge {
+	position: relative;
+	display: inline-flex;
+}
+
+.composer-git-icon-badge .status-dot {
+	position: absolute;
+	top: -2px;
+	right: -2px;
+}
+
+/* Dialog bodies for the diff/patch, remotes and gitleaks-setup flows. */
+.composer-git-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: min(32rem, 80vw);
+	margin-top: var(--space-4);
+}
+
+.composer-git-dialog-detail {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.composer-git-dialog-detail[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+.composer-git-dialog-actions,
+.composer-git-dialog-toolbar {
+	display: flex;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.composer-git-dialog-actions {
+	justify-content: flex-end;
+}
+
+/* Diff viewer scrolls inside its own box so the dialog never grows past the viewport. */
+.composer-git-diff {
+	max-height: min(50vh, 26rem);
+	overflow: auto;
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+}
+
+.composer-git-diff-body {
+	margin: 0;
+	padding: var(--space-3);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	line-height: 1.5;
+	white-space: pre;
+	color: var(--color-text-primary);
+}
+
+/* Dirty-tree breakdown: staged / changed / untracked lists above the diff. Scrolls on its own so a large
+   rename batch cannot push the diff viewer out of the dialog. */
+.composer-git-files {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	max-height: min(30vh, 16rem);
+	overflow: auto;
+}
+
+.composer-git-file-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.composer-git-file-heading {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: var(--font-size-xs);
+	font-weight: 600;
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.composer-git-file-count {
+	padding: 0 var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+	font-weight: 500;
+	letter-spacing: normal;
+}
+
+.composer-git-file-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.composer-git-remote-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.composer-git-remote-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.composer-git-remote-name {
+	font-weight: 600;
+	font-size: var(--font-size-sm);
+}
+
+.composer-git-remote-url {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.composer-git-remote-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	padding-top: var(--space-3);
+}
+
+.status-bar .icon-button {
+	min-width: var(--control-height-sm);
+	min-height: var(--control-height-sm);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 .content-frame {
 	width: 100%;
 	display: grid;
+	/* minmax(0, 1fr) instead of the implicit `auto` column: grid items floor auto tracks at
+	   their min-content width, so one unbreakable chip deep in a route (e.g. the git bar's
+	   last-commit label) widened the whole route past the viewport on 375px instead of
+	   triggering the label's own ellipsis. A zero-floored track always equals the frame. */
+	grid-template-columns: minmax(0, 1fr);
 	gap: var(--space-6);
 	padding: var(--space-6);
+}
+
+/* Threads route: the chat/execution surface owns its own internal scroll and fixed composer
+   dock (see `.thread-live-layout`), so the frame must span full width (no padding) and never
+   scroll itself (single scroll region, no double scrollbar). */
+/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
+.content-frame.content-frame--full-bleed {
+	grid-template-rows: minmax(0, 1fr);
+	gap: 0;
+	padding: 0;
+	overflow: hidden;
 }
 
 .drawer-layer {
@@ -910,6 +1402,7 @@
 	z-index: 1;
 	width: min(35rem, 100vw);
 	height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: 100vh fallback then 100dvh progressive enhancement for browsers without dvh support */
 	height: 100dvh;
 	overflow: auto;
 	padding: var(--space-5);
@@ -1037,13 +1530,16 @@
 
 /* Card-first gallery: real CSS grid (correct reading + tab order),
    replacing the previous CSS multi-column masonry. */
+/* `min(18rem, 100%)`: a container narrower than 18rem (the Settings dialog on a phone) used to keep
+ * the 18rem column and push every card past its right edge, clipping badges and meters. */
 .masonry-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
 	gap: var(--space-4);
 	align-items: start;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: base component rule; the earlier `.app-shell-ide--stacked > .inspector-panel` scoped override is more specific by design and wins regardless of source order */
 .inspector-panel {
 	min-width: 0;
 	display: grid;
@@ -1055,9 +1551,30 @@
 	overflow: auto;
 }
 
+/* The workbench grid sits inside a user-resizable IDE pane, so the width it has to spend is the
+   PANE's, never the viewport's — a viewport media query here reflows at sizes the grid never sees.
+   This wrapper exists only to be that query container: it replaces the route's root fragment, so it
+   also has to take over the grid + gap `.content-frame` used to give the page header and the layout as
+   two separate rows. Every overlay in the subtree is portalled (Dialog, Drawer, toasts) or anchored to
+   its own trigger (Tooltip), so the layout containment `container-type` implies has nothing to
+   re-anchor. */
+.workbench-canvas {
+	container-type: inline-size;
+	container-name: workbench;
+	display: grid;
+	gap: var(--space-6);
+}
+
+/* Every track declares the width it needs. Without a real minimum on the middle track, the rail
+   (18rem) and the aside (21rem) take theirs first and the composer keeps whatever is left — which is
+   how the git bar ended up overflowing its column and sliding underneath the aside. */
 .workbench-layout {
 	display: grid;
-	grid-template-columns: minmax(15rem, 18rem) minmax(0, 1.12fr) minmax(21rem, 0.74fr);
+	/* --workbench-columns carries the user's persisted column order (WorkbenchPage); default order otherwise. */
+	grid-template-columns: var(
+			--workbench-columns,
+			minmax(15rem, 18rem) minmax(28rem, 1.12fr) minmax(21rem, 0.74fr)
+		);
 	gap: var(--space-4);
 	align-items: start;
 }
@@ -1076,6 +1593,47 @@
 	top: 8.5rem;
 	max-height: calc(100dvh - 9.5rem);
 	overflow: auto;
+}
+
+/* 15rem + 28rem + 21rem of tracks plus two 1rem gaps. Below 66rem the three columns cannot all hold
+   their declared minimum, so the aside stops competing for width and takes its own full-width row
+   under the composer. */
+@container workbench (max-width: 66rem) {
+	.workbench-layout {
+		grid-template-columns: minmax(14rem, 17rem) minmax(20rem, 1fr);
+		/* Rail and composer keep their tracks whatever the user's DOM order; dense back-fills row one. */
+		grid-auto-flow: row dense;
+	}
+
+	.workbench-session-rail {
+		grid-column: 1;
+	}
+
+	.workbench-primary {
+		grid-column: 2;
+	}
+
+	.workbench-side {
+		grid-column: 1 / -1;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.workbench-side .surface {
+		align-content: start;
+	}
+}
+
+/* 14rem + 20rem plus one gap: below 35rem the session rail no longer fits beside the composer either. */
+@container workbench (max-width: 35rem) {
+	.workbench-layout,
+	.workbench-side {
+		grid-template-columns: 1fr;
+	}
+
+	.workbench-session-rail,
+	.workbench-primary {
+		grid-column: auto;
+	}
 }
 
 .workspace-context,
@@ -1129,13 +1687,6 @@
 	font-weight: var(--weight-medium);
 }
 
-.chat-composer-actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-}
-
 .session-list {
 	display: grid;
 	gap: var(--space-2);
@@ -1176,8 +1727,1345 @@
 	overflow-wrap: anywhere;
 }
 
-.chat-textarea {
-	min-height: 8.5rem;
+/* ---- Real thread conversation (threads route center) ---- */
+.thread-conversation-head {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-6);
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-panel);
+}
+
+.thread-conversation-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	color: var(--color-text-muted);
+}
+
+.thread-conversation-title h2 {
+	margin: 0;
+	font-size: var(--font-size-md);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.thread-live-layout {
+	gap: 0;
+}
+
+.thread-live-layout .thread-conversation-head {
+	flex: 0 0 auto;
+}
+
+/* Two work regions under the header: the transcript pane (chat + composer) and the execution
+   panel, side by side on wide screens. Each pane owns its own vertical scroll — separate surfaces,
+   not the double scrollbar in one column that the transcript pane still forbids. */
+.thread-live-body {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.thread-transcript-pane {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* The transcript scroll region: messages, pending decision and artifacts scroll together here so
+   the pane never shows two scrollbars. The composer (`.thread-composer-dock`) sits under it, fixed
+   at the bottom of `.thread-transcript-pane`. */
+.thread-live-scroll {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	display: grid;
+	align-content: start;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-6);
+}
+
+.thread-chat-transcript {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-chat-empty {
+	margin: 0;
+	color: var(--color-text-muted);
+}
+
+.thread-chat-row,
+.thread-console-row {
+	display: grid;
+	grid-template-columns: minmax(3rem, auto) minmax(5rem, 9rem) minmax(0, 1fr);
+	gap: var(--space-3);
+	align-items: start;
+	padding: var(--space-2) 0;
+	border-bottom: 1px solid color-mix(in oklch, var(--color-border-subtle) 72%, transparent);
+}
+
+/* The console is an operations ledger: the wall clock leads every row. */
+.thread-console-row {
+	grid-template-columns: minmax(3.6rem, auto) minmax(2.6rem, auto) minmax(5rem, 9rem) minmax(0, 1fr);
+}
+
+.thread-console-time {
+	font-size: var(--font-size-2xs);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Make risk visible: full-row tint keyed off the event type the DOM already carries. */
+.thread-console-row[data-type="error"],
+.thread-console-row[data-type="worker_failed"],
+.thread-console-row[data-type="blocked"] {
+	background: color-mix(in oklch, var(--color-status-danger) 7%, transparent);
+}
+
+.thread-console-row[data-type="awaiting_approval"],
+.thread-console-row[data-type="approval_required"],
+.thread-console-row[data-type="decision_required"] {
+	background: color-mix(in oklab, var(--color-status-warning) 7%, transparent);
+}
+
+.thread-row-content,
+.thread-console-body p {
+	margin: 0;
+	color: var(--color-text-secondary);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.thread-decision-console {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-2) 0 var(--space-3);
+	border-top: 1px solid
+		color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border-bottom: 1px solid
+		color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+}
+
+/* The only surface that answers a pending thread decision (execution panel and inspector alike):
+   stacks one card per decision plus the single "Send answers" button below them. */
+.thread-decision-answers {
+	display: grid;
+	gap: var(--space-3);
+}
+
+/* The execution panel: its own scrollable surface next to the transcript. Mono by default (it is
+   a console); the human-facing blocks inside (banner, blockers, stepper) opt back into sans. */
+.thread-execution-pane {
+	flex: 0 0 clamp(18rem, 30vw, 24rem);
+	min-height: 0;
+	overflow-y: auto;
+	/* Never a sideways scroller: wide payloads scroll inside their own <pre>, and the ledger rows
+	   below always use the compact layout because this pane caps at 24rem on any viewport. */
+	overflow-x: hidden;
+	display: grid;
+	align-content: start;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-4);
+	border-left: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-inset);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+}
+
+/* A viewport media query can never see this pane's real width (~20rem even on wide desktops), so
+   the console ledger always stacks its body under the clock/seq/actor line inside the pane. */
+.thread-execution-pane .thread-console-row {
+	grid-template-columns: minmax(3.6rem, auto) minmax(2.6rem, auto) minmax(0, 1fr);
+}
+
+.thread-execution-pane .thread-console-body {
+	grid-column: 1 / -1;
+}
+
+.thread-execution-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	flex-wrap: wrap;
+	min-height: 2.5rem;
+	font-family: var(--font-sans);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-queued-banner {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+.thread-queued-banner p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-queued-hint {
+	font-size: var(--font-size-sm);
+	color: var(--color-text-muted);
+}
+
+.thread-blocker-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-blocker-card {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 40%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+.thread-blocker-card p {
+	margin: 0;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-blocker-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-status-danger);
+}
+
+.thread-blocker-hint {
+	font-size: var(--font-size-sm);
+	color: var(--color-text-muted);
+}
+
+.thread-remediation-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+/* Tone is carried by the full border colour, never a side stripe (visual guardrail). The card is its
+   own query container: it renders both in the wide execution pane and in the narrow inspector. */
+.thread-remediation-card {
+	container-type: inline-size;
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+	padding: var(--space-3);
+	font-family: var(--font-sans);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel);
+}
+
+/* Stage / cause / impact: the three facts that turn a blocker into something a human can act on. */
+.thread-remediation-facts {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	width: 100%;
+}
+
+.thread-remediation-facts > div {
+	display: grid;
+	grid-template-columns: minmax(5rem, max-content) 1fr;
+	gap: var(--space-2);
+	align-items: baseline;
+}
+
+.thread-remediation-facts dt {
+	font-size: var(--font-size-2xs);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.thread-remediation-facts dd {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+/* Below this width the label column starves the sentence, so stack the label over its value. */
+@container (max-width: 26rem) {
+	.thread-remediation-facts > div {
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
+}
+
+.thread-remediation-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-status-danger);
+}
+
+.thread-remediation-explanation {
+	margin: 0;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-remediation-detail {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-remediation-detail p {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-remediation-detail pre {
+	margin: 0;
+	max-height: 12rem;
+	overflow: auto;
+	padding: var(--space-2);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	background: var(--color-surface-panel-raised);
+	border-radius: var(--radius-sm);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The recommended repair gets its own row so it is never lost among the alternatives. */
+.thread-remediation-primary,
+.thread-remediation-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	width: 100%;
+}
+
+.thread-remediation-confirm {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-remediation-confirm p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-remediation-confirm-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+.thread-remediation-answer {
+	display: grid;
+	grid-template-columns: minmax(14rem, 1fr) auto;
+	align-items: end;
+	gap: var(--space-2);
+	min-width: min(100%, 28rem);
+}
+
+.thread-remediation-answer .field {
+	min-width: 0;
+}
+
+/* The side-by-side track above (a 14rem field next to its button) is wider than the whole card in the
+   inspector pane, and it dragged the card into a horizontal scroll that hid the blocker's own text.
+   Stack the field over its button there so every word stays readable without scrolling sideways.
+   Declared after the base rule: both selectors weigh the same, so source order decides. */
+@container (max-width: 26rem) {
+	.thread-remediation-answer {
+		grid-template-columns: minmax(0, 1fr);
+		min-width: 0;
+	}
+
+	.thread-remediation-answer .button {
+		justify-self: start;
+	}
+}
+
+@media (max-width: 640px) {
+	.thread-remediation-answer {
+		grid-template-columns: 1fr;
+		width: 100%;
+	}
+}
+
+/* Dismiss is the lowest-emphasis control on the card: push it to the trailing edge. */
+.thread-remediation-dismiss {
+	margin-inline-start: auto;
+}
+
+.thread-pipeline {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+	font-family: var(--font-sans);
+}
+
+.thread-pipeline-step {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) 0;
+	color: var(--color-text-muted);
+}
+
+.thread-pipeline-dot {
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--color-border-strong);
+}
+
+.thread-pipeline-state {
+	font-size: var(--font-size-xs);
+	text-transform: lowercase;
+}
+
+.thread-pipeline-step[data-state="active"] {
+	color: var(--color-text-primary);
+}
+
+.thread-pipeline-step[data-state="active"] .thread-pipeline-dot {
+	background: var(--color-status-info);
+}
+
+.thread-pipeline-step[data-state="done"] {
+	color: var(--color-text-secondary);
+}
+
+.thread-pipeline-step[data-state="done"] .thread-pipeline-dot {
+	background: var(--color-status-success);
+}
+
+.thread-pipeline-step[data-state="blocked"] {
+	color: var(--color-status-danger);
+}
+
+.thread-pipeline-step[data-state="blocked"] .thread-pipeline-dot {
+	background: var(--color-status-danger);
+}
+
+.thread-pipeline-step[data-state="stopped"] {
+	color: var(--color-text-secondary);
+}
+
+.thread-pipeline-step[data-state="stopped"] .thread-pipeline-dot {
+	background: var(--color-status-warning);
+}
+
+.thread-execution-log {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-console-payload summary {
+	cursor: pointer;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+}
+
+.thread-console-payload pre {
+	margin: var(--space-1) 0 0;
+	padding: var(--space-2);
+	max-height: 16rem;
+	overflow: auto;
+	font-size: var(--font-size-xs);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-canvas);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.thread-console-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.thread-console-status {
+	padding: var(--space-2) 0;
+	color: var(--color-text-muted);
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.thread-console-status[data-tone="pending"] {
+	color: var(--color-status-warning);
+}
+
+.thread-console-status[data-tone="danger"] {
+	color: var(--color-status-danger);
+}
+
+.thread-console-seq,
+.thread-console-actor {
+	color: var(--color-text-muted);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
+.thread-console-body {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.thread-console-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+}
+
+.thread-console-chip {
+	/* Cap against the container too: a fixed 18rem cap alone overflows the narrow execution pane. */
+	max-width: min(18rem, 100%);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-text-muted);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	padding: 0 var(--space-1);
+}
+
+.thread-conversation-stage {
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	perspective: 1200px;
+}
+
+.thread-conversation-phase {
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Narrow screens: the execution panel becomes a bounded console drawer under the composer (the
+   IDE bottom-console pattern) instead of a side column. */
+@media (max-width: 960px) {
+	.thread-live-body {
+		flex-direction: column;
+	}
+
+	/* The stacked shell scrolls the document instead of giving this column a real height, so the
+	   transcript pane must size to its content — `flex: 1` here collapses it to 0px and the console
+	   drawer paints over the composer, swallowing its clicks. */
+	.thread-transcript-pane {
+		flex: 0 0 auto;
+	}
+
+	.thread-execution-pane {
+		flex: 0 0 auto;
+		max-height: 40dvh;
+		border-left: none;
+		border-top: 1px solid var(--color-border-subtle);
+	}
+}
+
+@media (max-width: 720px) {
+	.thread-live-layout .thread-conversation-head,
+	.thread-live-scroll,
+	.thread-composer-dock,
+	.thread-execution-pane {
+		padding-left: var(--space-3);
+		padding-right: var(--space-3);
+	}
+
+	.thread-chat-row,
+	.thread-console-row {
+		grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
+		gap: var(--space-2);
+	}
+
+	.thread-console-row {
+		grid-template-columns: minmax(3.6rem, auto) minmax(2.75rem, auto) minmax(0, 1fr);
+	}
+
+	.thread-row-content,
+	/* biome-ignore lint/style/noDescendingSpecificity: intentional override ordering; the later lower-specificity rule is deliberate and verified not to regress. */
+	.thread-console-body {
+		grid-column: 1 / -1;
+	}
+}
+
+/* Tone is carried by the full border colour, never a side stripe. */
+.thread-chat-row[data-kind="aido_lead"] {
+	border-color: color-mix(in oklch, var(--color-status-success) 36%, var(--color-border-subtle));
+}
+
+.thread-chat-row[data-kind="decision_request"] {
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.thread-chat-row[data-kind="error"] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+}
+
+.thread-chat-row[data-kind="system_event"] {
+	background: var(--color-surface-inset);
+}
+
+.thread-decision-head {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+}
+
+.thread-decision-console p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-decision-options {
+	display: grid;
+	gap: var(--space-2);
+	/* Resets the native <fieldset> chrome (border/margin/padding) used for the checkbox group so it
+	   matches the plain <div role="radiogroup"> layout used for the single-choice one. */
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+
+.thread-research-card {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-3) 0;
+	border-top: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--color-border-subtle));
+	border-bottom: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--color-border-subtle));
+	background: transparent;
+}
+
+.thread-research-head,
+.thread-research-title,
+.thread-research-source-meta,
+.thread-research-discrepancies li {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-research-head {
+	justify-content: space-between;
+}
+
+.thread-research-recommendation {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.thread-research-recommendation span {
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+}
+
+.thread-research-recommendation strong,
+.thread-research-source a {
+	color: var(--color-text-primary);
+}
+
+.thread-research-recommendation p,
+.thread-research-empty {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-research-state {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border: 1px solid color-mix(in oklch, var(--color-status-danger) 42%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-status-danger) 8%, var(--color-surface-card));
+}
+
+.thread-research-state[data-status="research_running"] {
+	border-color: color-mix(in oklch, var(--color-accent) 40%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-card));
+}
+
+.thread-research-state[data-status="research_required"] {
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
+	background: color-mix(in oklab, var(--color-status-warning) 8%, var(--color-surface-card));
+}
+
+.thread-research-state-head {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+}
+
+.thread-research-state strong {
+	color: var(--color-text-primary);
+}
+
+.thread-research-state p {
+	margin: 0;
+	color: var(--color-text-secondary);
+}
+
+.thread-research-disclosure {
+	border-top: 1px solid var(--color-border-subtle);
+	padding-top: var(--space-2);
+}
+
+.thread-research-disclosure summary {
+	min-height: 2.75rem;
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+.thread-research-source-list,
+.thread-research-discrepancies {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+}
+
+.thread-research-source {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-2) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: transparent;
+}
+
+.thread-research-source-meta {
+	flex-wrap: wrap;
+	color: var(--color-text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+}
+
+.thread-research-source-meta span {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	overflow-wrap: anywhere;
+}
+
+.thread-research-discrepancies {
+	list-style: none;
+}
+
+.thread-research-discrepancies li {
+	justify-content: space-between;
+	padding: var(--space-2) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: transparent;
+}
+
+/* New-thread intake: a single centered Codex-style composer (no manual title field). */
+.thread-intake {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-5);
+	padding: var(--space-6);
+	overflow-y: auto;
+}
+
+/* Vertical centering happens via the heading's/form's auto block margins below instead of
+   justify-content: a center-justified scroll container pushes half of any overflow past its
+   start edge, where no scroll position can reach it — on 375px the git bar's post-fetch
+   growth clipped the send button under the stacked shell's sidebar, which then swallowed
+   its clicks. Auto margins collapse to zero on overflow, so the form top-aligns and stays
+   scrollable instead. */
+.thread-intake-heading {
+	margin: auto 0 0;
+	max-width: 40rem;
+	text-align: center;
+	font-family: var(--font-display);
+	font-size: var(--font-size-xl);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+/* Span the full intake width (only the .thread-intake padding sets the side margin, so it hugs the
+ * edges), with a high cap so it never becomes an unreadable full-bleed line on ultra-wide screens. */
+.thread-intake-form {
+	width: 100%;
+	max-width: 110rem;
+	margin-bottom: auto;
+}
+
+/* ---- Similar-work suggestion (debounced lookup under the new-thread composer) ---- */
+
+.thread-similarity-slot {
+	width: 100%;
+}
+
+.thread-similarity-card {
+	display: grid;
+	gap: var(--space-2);
+	margin-top: var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid color-mix(in oklch, var(--color-status-info) 40%, var(--color-border-subtle));
+	border-radius: var(--radius-lg);
+	background: color-mix(in oklch, var(--color-status-info) 6%, var(--color-surface-card));
+}
+
+.thread-similarity-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+}
+
+.thread-similarity-head h3 {
+	margin: 0;
+	font-size: inherit;
+	font-weight: 600;
+}
+
+.thread-similarity-candidate {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+}
+
+.thread-similarity-candidate span {
+	color: var(--color-text-secondary);
+}
+
+/* A real fieldset (semantic group for the four dedup decisions): reset the UA chrome. */
+.thread-similarity-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-inline-size: auto;
+}
+
+.thread-similarity-error {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	color: var(--color-status-danger);
+}
+
+/* ---- Codex-style composer box (shared by the new-thread intake and the active conversation) ---- */
+
+/* Active-thread placement: pinned at the bottom of the chat layout, never scrolls. */
+.thread-composer-dock {
+	flex: 0 0 auto;
+	padding: var(--space-3) var(--space-6) var(--space-4);
+	background: var(--color-surface-panel);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* The box: one rounded surface holding the prompt, the controls row and the workspace context row. */
+.thread-composer-box {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	background: var(--color-surface-card);
+}
+
+.thread-composer-box:focus-within {
+	border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-border-subtle));
+	box-shadow: var(--shadow-focus);
+}
+
+/* The inner TextArea blends into the box: no chrome, label hidden (placeholder carries intent). */
+.thread-composer-box .field {
+	margin: 0;
+}
+
+.thread-composer-box .field-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+.thread-composer-box .textarea {
+	border: none;
+	background: transparent;
+	padding: 0;
+	resize: none;
+	min-height: 2.5rem;
+}
+
+.thread-composer-box .textarea:focus,
+.thread-composer-box .textarea:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+/* Action-approval (autonomy) control: icon + compact select on the left of the controls row. */
+.composer-perms {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+}
+
+/* Highest autonomy tints only the icon (a graphic) with a warning tone, the way Codex flags "Full
+ * access"; the select text keeps --color-text-primary so the readable label stays high-contrast. */
+.composer-perms[data-level="autonomous"] svg {
+	color: var(--color-status-warning);
+}
+
+/* When execution is blocked (zero executable runtimes) the autonomy risk is moot — nothing runs — so
+ * the shield drops its warn tint and the runtime "Set up runtimes" CTA stays the composer's only warn. */
+.composer-perms[data-level="autonomous"][data-execution-blocked] svg {
+	color: var(--color-text-muted);
+}
+
+.composer-perms-select {
+	min-width: 9rem;
+}
+
+/* Environment indicator: AIDO executes on this machine; there is no remote runtime to choose, so it
+ * is a static fact, not a dropdown. Shares the context-row top border to read as one toolbar line. */
+.composer-env {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	white-space: nowrap;
+	padding-top: var(--space-2);
+	padding-right: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	color: var(--color-text-muted);
+}
+
+/* Runtime readiness chip: same context-row fact styling as .composer-env but interactive — it
+ * deep-links into Settings → Runtime. With zero executable runtimes it becomes the setup CTA
+ * (warn tone), so the composer never states "0 runtimes" without offering the next step. */
+.composer-runtimes {
+	position: relative;
+	border: 0;
+	border-top: 1px solid var(--color-border-subtle);
+	border-radius: 0;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+	transition: color var(--duration-fast) var(--ease-standard);
+}
+
+/* Invisible hit-area extension: the visible chip stays on the shared toolbar border line while the
+ * pointer target reaches ≥24px tall (WCAG 2.5.8) without shifting the row layout. */
+.composer-runtimes::after {
+	content: "";
+	position: absolute;
+	inset: calc(-1 * var(--space-1)) 0;
+}
+
+/* The underline lives on the label span (not the flex button — decorations don't propagate
+ * across flex items), giving the chip a persistent link affordance next to the static "Local"
+ * fact that shares its base styling. */
+.composer-runtimes-label {
+	text-decoration: underline;
+	text-decoration-color: var(--color-border-strong);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color var(--duration-fast) var(--ease-standard);
+}
+
+.composer-runtimes:hover {
+	color: var(--color-text-secondary);
+}
+
+.composer-runtimes:hover .composer-runtimes-label {
+	text-decoration-color: currentcolor;
+}
+
+.composer-runtimes:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
+}
+
+/* Warn text mixes toward primary text (same recipe as the badge/icon-button warn tones) so the
+ * label keeps ≥4.5:1 contrast on light surfaces where the raw warning token falls short. */
+.composer-runtimes[data-tone="warn"] {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+.runtime-team-chip:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
+/* ---- Thread AI team drawer: runtimes list, role grid and actions ---- */
+.runtime-team-panel {
+	display: grid;
+	gap: var(--space-4);
+}
+
+.runtime-team-list {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.runtime-team-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto auto auto;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+}
+
+.runtime-team-reason {
+	grid-column: 1 / -1;
+}
+
+/* Cause of a failed test: one line per model tried; provider text wraps and expands in place. */
+.runtime-team-reason-text {
+	margin: 0;
+}
+
+.runtime-team-attempts {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 0;
+	padding-left: var(--space-4);
+}
+
+.runtime-team-attempt {
+	display: grid;
+	gap: 2px;
+}
+
+.runtime-team-attempt-model,
+.runtime-team-evidence {
+	overflow-wrap: anywhere;
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+}
+
+.runtime-team-attempt-model {
+	color: var(--color-text-primary);
+}
+
+.runtime-team-evidence summary {
+	cursor: pointer;
+}
+
+.runtime-team-evidence-full {
+	margin: var(--space-1) 0 0;
+	white-space: pre-wrap;
+}
+
+.runtime-team-why {
+	display: block;
+}
+
+.runtime-team-model-picker {
+	grid-column: 1 / -1;
+	display: grid;
+	gap: var(--space-2);
+}
+
+.runtime-team-model-picker .runtime-team-model-list {
+	width: 100%;
+	height: auto;
+}
+
+.runtime-team-model-actions {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.runtime-team-latency {
+	color: var(--color-text-muted);
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+}
+
+.runtime-team-roles {
+	display: grid;
+	gap: var(--space-3);
+	margin: 0;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+}
+
+.runtime-team-fixed {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--color-text-muted);
+}
+
+.runtime-team-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+.runtime-team-error {
+	margin: 0;
+	color: color-mix(in oklch, var(--color-status-danger) 78%, var(--color-text-primary));
+}
+
+/* The drawer is fixed to the viewport (portal), so a viewport query is correct here. */
+@media (max-width: 480px) {
+	.runtime-team-row {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+}
+
+/* ---- Control-plane boot screen: animated signal mark + honest indeterminate loading bar ---- */
+.boot-screen {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--space-8) var(--space-6);
+}
+
+.boot-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-4);
+	width: 100%;
+	max-width: 28rem;
+	text-align: center;
+	animation: boot-card-in var(--duration-slow) var(--ease-emphasized);
+}
+
+@keyframes boot-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(0.5rem);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Signal mark: a steady core with two expanding ripple rings (a system coming online / polling). */
+.boot-mark {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: 3.5rem;
+	height: 3.5rem;
+}
+
+.boot-mark-core {
+	width: 0.8rem;
+	height: 0.8rem;
+	border-radius: var(--radius-pill);
+	background: var(--color-accent);
+	box-shadow: 0 0 0 0.35rem color-mix(in oklch, var(--color-accent) 16%, transparent);
+}
+
+.boot-mark-ring {
+	position: absolute;
+	inset: 0;
+	border-radius: var(--radius-pill);
+	border: 1px solid color-mix(in oklch, var(--color-accent) 45%, transparent);
+	transform: scale(0.35);
+	opacity: 0;
+	animation: boot-ripple 2.4s var(--ease-standard) infinite;
+}
+
+.boot-mark-ring:nth-of-type(2) {
+	animation-delay: 1.2s;
+}
+
+@keyframes boot-ripple {
+	0% {
+		transform: scale(0.35);
+		opacity: 0.7;
+	}
+	100% {
+		transform: scale(1);
+		opacity: 0;
+	}
+}
+
+.boot-title {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--font-size-lg);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+.boot-subtitle {
+	margin: 0;
+	max-width: 24rem;
+	font-size: var(--font-size-sm);
+	line-height: var(--line-snug);
+	color: var(--color-text-muted);
+}
+
+/* Honest indeterminate loading bar: an accent segment sweeps across the track (the backend's
+ * readiness ETA is unknown, so a timer-driven determinate fill would be a lie). */
+.boot-progress {
+	position: relative;
+	width: 100%;
+	height: 0.25rem;
+	margin-top: var(--space-1);
+	border-radius: var(--radius-pill);
+	background: var(--color-surface-inset);
+	overflow: hidden;
+}
+
+.boot-progress::after {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	inline-size: 38%;
+	border-radius: inherit;
+	background: var(--color-accent);
+	transform: translateX(-110%);
+	animation: boot-sweep 1.5s var(--ease-standard) infinite;
+}
+
+.boot-progress[data-state="error"]::after {
+	background: var(--color-status-warning);
+}
+
+@keyframes boot-sweep {
+	0% {
+		transform: translateX(-110%);
+	}
+	100% {
+		transform: translateX(370%);
+	}
+}
+
+/* Static legend of the components the control plane brings online. The dots are NOT progress
+ * indicators (no per-component readiness is tracked) — motion lives only in the mark and the bar. */
+.boot-steps {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.boot-step {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+}
+
+.boot-step-dot {
+	flex: 0 0 auto;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: var(--radius-pill);
+	background: var(--color-accent);
+}
+
+.boot-step[data-state="error"] .boot-step-dot {
+	background: var(--color-status-warning);
+}
+
+.boot-status {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-muted);
+	word-break: break-word;
+}
+
+.boot-status[data-state="error"] {
+	color: var(--color-status-warning);
+}
+
+/* Reduced motion: no ripple/sweep/pulse; show a static, visible indicator instead of an empty track. */
+@media (prefers-reduced-motion: reduce) {
+	.boot-card {
+		animation: none;
+	}
+
+	.boot-mark-ring {
+		animation: none;
+		opacity: 0.4;
+		transform: scale(1);
+	}
+
+	.boot-progress::after {
+		animation: none;
+		transform: translateX(0);
+		inline-size: 100%;
+		opacity: 0.6;
+	}
+}
+
+.thread-skeleton-row {
+	height: 3.5rem;
 }
 
 /* ---- Shell chat mode: full-height chat-first layout (hideExplorer=true) ---- */
@@ -1253,7 +3141,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
-	font-family: var(--font-data);
+	font-family: var(--font-ui);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
 	padding: var(--space-1) var(--space-2);
@@ -1272,46 +3160,269 @@
 	margin-left: auto;
 }
 
-/* Read-only context row: project · branch · runtime in muted data font. */
+/* Note mode (thread queued/running): a full-width info strip explaining why the composer changed,
+ * so a running thread never surprises the operator with a note-instead-of-run. Full 1px border in
+ * an info tone — no side stripe — to stay within the visual guardrails. */
+.thread-note-mode-hint {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid color-mix(in oklch, var(--color-status-info) 35%, var(--color-border-subtle));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-status-info) 8%, var(--color-surface-card));
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	line-height: 1.5;
+}
+
+.thread-note-mode-hint svg {
+	flex: 0 0 auto;
+	margin-top: 0.1rem;
+	color: var(--color-status-info);
+}
+
+.thread-note-mode-hint strong {
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+}
+
+/* Escape hatch to the new-objective modal: a quiet, link-like control on the left of the note-mode
+ * options row. Deliberately understated so "Add note" stays the one obvious primary action. */
+.composer-new-objective {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--color-text-muted);
+	font: inherit;
+	font-size: var(--font-size-xs);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+	transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.composer-new-objective:hover:not(:disabled) {
+	color: var(--color-text-primary);
+	background: var(--color-surface-inset);
+}
+
+.composer-new-objective:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.composer-new-objective:disabled {
+	opacity: 0.5;
+	text-decoration: none;
+	cursor: not-allowed;
+}
+
+.composer-new-objective svg {
+	color: var(--color-accent);
+}
+
+/* Stop + Add note cluster, pushed to the end of the note-mode options row. */
+.thread-note-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-inline-start: auto;
+}
+
+/* New-objective decision modal: a preview of the typed objective plus three stacked choices. */
+.thread-objective-dialog {
+	inline-size: min(30rem, 92vw);
+}
+
+.thread-objective-body {
+	margin: 0 0 var(--space-3);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	line-height: 1.5;
+}
+
+.thread-objective-preview {
+	margin: 0 0 var(--space-3);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.thread-objective-preview figcaption {
+	margin-bottom: var(--space-1);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.thread-objective-preview blockquote {
+	margin: 0;
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.thread-objective-options {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-objective-option {
+	display: grid;
+	gap: 2px;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+	color: var(--color-text-primary);
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+	transition:
+		border-color var(--duration-fast) var(--ease-standard),
+		background var(--duration-fast) var(--ease-standard);
+}
+
+.thread-objective-option:hover:not(:disabled) {
+	border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent) 6%, var(--color-surface-card));
+}
+
+.thread-objective-option:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-objective-option:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.thread-objective-option[data-danger] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 40%, var(--color-border-subtle));
+}
+
+.thread-objective-option[data-danger]:hover:not(:disabled) {
+	border-color: color-mix(in oklch, var(--color-status-danger) 60%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-status-danger) 8%, var(--color-surface-card));
+}
+
+.thread-objective-option[data-busy] {
+	border-color: color-mix(in oklch, var(--color-accent) 60%, var(--color-border-subtle));
+}
+
+.thread-objective-option-label {
+	font-weight: var(--weight-semibold);
+}
+
+.thread-objective-option[data-danger] .thread-objective-option-label {
+	color: var(--color-status-danger);
+}
+
+.thread-objective-option-hint {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	line-height: 1.4;
+}
+
+.thread-objective-error {
+	margin: var(--space-3) 0 0;
+	color: var(--color-status-danger);
+	font-size: var(--font-size-xs);
+}
+
+.thread-objective-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--space-3);
+}
+
+/* Workspace toolbar row: project label + git bar that stretches to fill remaining width.
+ * The git bar owns the top border + padding-top separator from the submit row above.
+ * Allows wrap so the bar itself can reflow its clusters on narrow panes (≤720px). */
 .shell-chat-context {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-3);
-	font-family: var(--font-data);
+	gap: 0;
+	min-width: 0;
+	font-family: var(--font-ui);
 	font-size: var(--font-size-xs);
 	color: var(--color-text-muted);
-	padding-top: var(--space-1);
 }
 
-.shell-chat-context-sep {
-	color: var(--color-border-default);
-	user-select: none;
+/* Prose chrome stays in the UI face; monospace is reserved for branch names and counters. */
+.shell-chat-context .status-branch-select,
+.shell-chat-context .tnum {
+	font-family: var(--font-data);
 }
 
-/* Secondary loop actions: a subdued row of ghost buttons for advanced loop commands. */
-.shell-chat-secondary {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-	padding-top: var(--space-1);
-	border-top: 1px solid var(--color-border-subtle);
-}
-
-.shell-chat-secondary .button {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-	color: var(--color-text-muted);
-	border-color: transparent;
-	background: transparent;
-}
-
-.shell-chat-secondary .button:hover {
+/* Project name: semibold secondary text, left-anchored workspace identity.
+ * Shares the top border + padding with the git bar to form one unified toolbar line. */
+.shell-chat-context-project {
+	flex: 0 0 auto;
+	font-weight: var(--weight-semibold);
 	color: var(--color-text-secondary);
-	background: var(--color-surface-card-hover);
-	border-color: var(--color-border-subtle);
+	white-space: nowrap;
+	padding-top: var(--space-2);
+	border-top: 1px solid var(--color-border-subtle);
+	padding-right: var(--space-3);
+}
+
+/* The git bar grows to fill remaining width so margin-left: auto on the actions
+ * cluster can push it to the far right of the full toolbar width. */
+.shell-chat-context > .composer-git-bar {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* Narrow pane / 720px breakpoint: allow clusters to stack into rows.
+ * The git bar switches to full-width so each cluster takes its own row.
+ * The actions cluster drops the auto-margin (it's at the start of a new row)
+ * and sits flush left, mirroring the other clusters. The create-branch input
+ * uses a narrower clamp so it fits on 375px without overflow. */
+@media (max-width: 720px) {
+	.shell-chat-context {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	/* In the stacked (column) variant, `stretch` sizes each row to the flex LINE's cross
+	   size — which the widest chip's min-content poisons past the viewport — instead of the
+	   container's width. Clamping rows to the container restores the squeeze that lets
+	   .composer-git-item-label ellipsize (the row layout gets this for free). */
+	.shell-chat-context > * {
+		max-width: 100%;
+	}
+
+	.shell-chat-context-project {
+		padding-bottom: var(--space-1);
+	}
+
+	.shell-chat-context > .composer-git-bar {
+		flex-wrap: wrap;
+		row-gap: var(--space-2);
+	}
+
+	.composer-git-cluster--actions {
+		margin-left: 0;
+	}
+
+	.status-branch-select {
+		width: clamp(6rem, 40vw, 13rem);
+	}
+
+	.status-branch-create input {
+		width: clamp(5rem, 34vw, 11rem);
+	}
 }
 
 /* Inspector blocker cards (the only consumer now the delivery timeline uses WorkflowTimeline). */
@@ -1346,66 +3457,6 @@
 	font-family: var(--font-display);
 	font-size: var(--font-size-2xl);
 	line-height: var(--line-tight);
-}
-
-.team-grid {
-	display: grid;
-	gap: var(--space-2);
-}
-
-.team-card {
-	display: grid;
-	gap: var(--space-2);
-	padding: var(--space-3);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
-	background: var(--color-surface-card);
-}
-
-.team-card-header {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
-	gap: var(--space-2);
-	align-items: start;
-}
-
-.team-card-header > div {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-1);
-}
-
-.team-card-header strong {
-	overflow-wrap: anywhere;
-}
-
-.team-card-header span:not(.team-icon):not(.badge),
-.team-card p,
-.team-card-meta {
-	color: var(--color-text-muted);
-}
-
-.team-icon {
-	width: 1.85rem;
-	height: 1.85rem;
-	display: inline-grid;
-	place-items: center;
-	border: 1px solid
-		color-mix(in oklch, var(--color-accent-secondary) 38%, var(--color-border-default));
-	border-radius: var(--radius-md);
-	color: var(--color-accent-secondary);
-	background: color-mix(in oklch, var(--color-accent-secondary) 10%, var(--color-surface-card));
-}
-
-.team-card p {
-	margin: 0;
-	line-height: var(--line-snug);
-}
-
-.team-card-meta {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
 }
 
 /* ---- Team Activity board (drawer): live per-agent work ---- */
@@ -1530,6 +3581,47 @@
 	gap: var(--space-1);
 }
 
+.activity-artifacts,
+.activity-files {
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+	display: grid;
+	gap: var(--space-1);
+}
+
+.activity-artifact {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+}
+
+.activity-file {
+	padding: var(--space-1) var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	overflow-wrap: anywhere;
+}
+
+.cli-session-activity {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.cli-session-log {
+	max-height: 14rem;
+	overflow: auto;
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
 .activity-event {
 	display: flex;
 	align-items: center;
@@ -1572,116 +3664,6 @@
 	min-width: 0;
 }
 
-/* ---- IDE shell pieces (ActivityBar / Explorer / Inspector / StatusBar) ---- */
-.activity-bar-nav {
-	display: grid;
-	gap: var(--space-2);
-	justify-items: center;
-	align-content: start;
-}
-
-.explorer-header {
-	min-width: 0;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-}
-
-.explorer-title {
-	color: var(--color-text-secondary);
-	font-size: var(--font-size-sm);
-	font-weight: var(--weight-semibold);
-}
-
-.explorer-action {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-}
-
-.explorer-panel .nav-list {
-	gap: var(--space-1);
-}
-
-.explorer-section {
-	display: grid;
-	gap: var(--space-1);
-	margin-top: var(--space-2);
-}
-
-/* IDE project region: pinned identity + actions above the scrolling nav list. */
-.explorer-top {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-3);
-}
-
-.explorer-project {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-3);
-}
-
-.explorer-actions {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: var(--space-2);
-}
-
-.explorer-actions .button {
-	min-width: 0;
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-sm);
-}
-
-/* Collapsible section header: caret · title · count. */
-.nav-group-trigger {
-	grid-template-columns: 1.1rem minmax(0, 1fr) auto;
-}
-
-.nav-group-caret {
-	transition: transform var(--duration-fast) var(--ease-standard);
-}
-
-.nav-group-trigger[aria-expanded="true"] .nav-group-caret {
-	transform: rotate(90deg);
-}
-
-.nav-group-count {
-	min-height: 1.5rem;
-	padding-inline: var(--space-2);
-	font-size: var(--font-size-xs);
-}
-
-/* Two classes so it beats the single-class responsive `.nav-sublist` rules. */
-.nav-sublist.nav-sublist--collapsed {
-	display: none;
-}
-
-/* EmptyState composed with a call-to-action button beneath it. */
-.empty-state-action {
-	display: grid;
-	gap: var(--space-2);
-	justify-items: start;
-}
-
-.topbar-heading {
-	min-width: 0;
-	display: grid;
-	gap: var(--space-1);
-}
-
-.brand-wordmark {
-	margin: 0;
-	font-family: var(--font-display);
-	font-size: var(--font-size-sm);
-	font-weight: var(--weight-semibold);
-	color: var(--color-text-muted);
-	letter-spacing: 0.01em;
-}
-
 .inspector-header {
 	display: flex;
 	align-items: center;
@@ -1717,71 +3699,73 @@
 	align-items: center;
 	gap: var(--space-2);
 	white-space: nowrap;
+	color: var(--color-text-muted);
+}
+
+/* Normal state is quiet: values stay muted; only warn / danger tones (dots, alert links) carry color. */
+.status-bar-item strong:not(.status-bar-project),
+.status-bar-item .tnum {
+	color: var(--color-text-muted);
+	font-weight: var(--weight-regular);
+}
+
+/* "Resume" and similar inline actions read as links, not bordered buttons. */
+.status-bar-item .settings-console-link.button {
+	min-height: 0;
+	padding: 0 var(--space-1);
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-accent-strong);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.status-bar-item .settings-console-link.button:hover:not(:disabled) {
+	background: var(--color-surface-card-hover);
 }
 
 .status-bar-label {
 	color: var(--color-text-muted);
 }
 
-@media (max-width: 1180px) {
-	.workbench-layout {
-		grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+/* A long project name truncates (full path in the item's tooltip) instead of pushing items down. */
+.status-bar-project {
+	display: inline-block;
+	color: var(--color-text-secondary);
+	font-weight: var(--weight-semibold);
+	max-width: 14rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: bottom;
+}
+
+/* The Operations link (also in Settings > Advanced) is the first slot to go when the bar is short
+ * of room: below 1440px it would push the display controls onto a second line. */
+@media (max-width: 1439px) {
+	.status-bar .status-bar-item--wide {
+		display: none;
+	}
+}
+
+/* Phones: the bar keeps what needs action (API, project, worker, runtimes, providers, approvals)
+ * and drops the Operations link, QA ratio and cost, which live in Settings and the run views; it
+ * wrapped to five lines of status before. */
+@media (max-width: 720px) {
+	.status-bar .status-bar-item--minor {
+		display: none;
 	}
 
-	.workbench-side {
-		grid-column: 1 / -1;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.workbench-side .surface {
-		align-content: start;
+	.app-shell-ide .status-bar {
+		gap: var(--space-2) var(--space-3);
+		padding-inline: var(--space-3);
 	}
 }
 
 @media (max-width: 980px) {
-	.activity-bar,
-	.explorer-panel {
-		position: relative;
-		height: auto;
-		grid-template-rows: auto auto auto;
-		padding: var(--space-4);
-	}
-
-	.activity-bar {
-		display: flex;
-		align-items: center;
-		overflow-x: auto;
-	}
-
-	.nav-section,
-	.nav-sublist {
-		display: flex;
-		gap: var(--space-1);
-	}
-
-	.nav-sublist {
-		overflow-x: auto;
-		padding-left: 0;
-		border-left: 0;
-	}
-
-	.nav-section-label {
-		display: none;
-	}
-
-	.nav-item,
-	.nav-group-trigger {
-		white-space: nowrap;
-	}
-
-	.nav-item-meta {
-		display: none;
-	}
-
+	/* `.workbench-layout` / `.workbench-side` are absent here on purpose: they collapse from their own
+	   `@container workbench` query, which already fires at every viewport this block covers. */
 	.grid.two,
-	.grid.three,
-	.workbench-layout,
-	.workbench-side {
+	.grid.three {
 		grid-template-columns: 1fr;
 	}
 
@@ -1791,6 +3775,7 @@
 		overflow: visible;
 	}
 
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .inspector-panel` scoped override is more specific by design and wins regardless of source order */
 	.inspector-panel {
 		border-left: 0;
 		border-top: 1px solid var(--color-border-subtle);
@@ -1802,45 +3787,10 @@
 }
 
 @media (max-width: 560px) {
-	.explorer-panel {
-		padding-inline: var(--space-3);
-	}
-
-	.nav-list {
-		gap: var(--space-3);
-	}
-
-	.nav-section,
-	.nav-sublist {
-		display: grid;
-	}
-
-	.nav-sublist {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		overflow: visible;
-	}
-
-	.nav-item,
-	.nav-group-trigger {
-		min-height: 3rem;
-		white-space: normal;
-	}
-
-	.nav-item span {
-		overflow: visible;
-		text-overflow: clip;
-		white-space: normal;
-		overflow-wrap: anywhere;
-	}
-
-	.topbar-primary {
-		align-items: flex-start;
-		flex-direction: column;
-	}
-
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .workbench .content-frame` scoped override is more specific by design and wins regardless of source order */
 	.content-frame,
-	.topbar,
 	.status-strip,
+	/* biome-ignore lint/style/noDescendingSpecificity: the earlier `.app-shell-ide--stacked > .status-bar` scoped override is more specific by design and wins regardless of source order */
 	.status-bar {
 		padding-inline: var(--space-3);
 	}
@@ -1849,12 +3799,10 @@
 		font-size: var(--font-size-2xl);
 	}
 
-	.signal-grid,
-	.team-card-header {
+	.signal-grid {
 		grid-template-columns: 1fr;
 	}
 
-	.chat-composer-actions .button,
 	.workspace-context .button {
 		width: 100%;
 	}
@@ -1863,9 +3811,11 @@
 /* ---- Settings modal: two-pane layout, section nav, setting rows, chips ---- */
 
 /* Wide two-pane modal: overrides the base .modal-panel width for the settings surface. */
+/* Fixed height (not max-height) so switching sections never resizes the dialog under the pointer. */
 .settings-modal.modal-panel {
-	width: min(64rem, 92vw);
-	max-height: 90dvh;
+	width: min(84rem, 96vw);
+	height: min(58rem, 92dvh);
+	max-height: 92dvh;
 	padding: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -1882,9 +3832,15 @@
 /* Body of the settings modal: nav column + content column side by side. */
 .settings-modal-body {
 	display: grid;
-	grid-template-columns: 14rem minmax(0, 1fr);
+	grid-template-columns: 15rem minmax(0, 1fr);
 	min-height: 0;
 	overflow: hidden;
+}
+
+/* Group wrapper is layout-neutral: its label and list stay direct children of the nav flex
+ * (column on desktop, one horizontal strip on phones). */
+.settings-nav-group {
+	display: contents;
 }
 
 /* Left section navigator. */
@@ -1945,12 +3901,24 @@
 	text-transform: uppercase;
 }
 
+/* Nav item list: semantic <ul> per group, reset to the plain button column. */
+.settings-nav-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 2px;
+}
+
+/* Border is always present (transparent at rest) so the active state never
+ * reflows siblings; selection reads as tint + weight, not color alone. */
 .settings-nav-item {
 	display: flex;
 	align-items: center;
+	gap: var(--space-2);
 	width: 100%;
 	padding: var(--space-2) var(--space-3);
-	border: 0;
+	border: 1px solid transparent;
 	background: transparent;
 	color: var(--color-text-secondary);
 	font: inherit;
@@ -1958,6 +3926,12 @@
 	text-align: left;
 	border-radius: var(--radius-sm);
 	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.settings-nav-item svg {
+	flex: 0 0 auto;
+	color: var(--color-text-muted);
 }
 
 .settings-nav-item:hover {
@@ -1970,28 +3944,47 @@
 	box-shadow: var(--shadow-focus);
 }
 
-.settings-nav-item[aria-current="page"] {
-	background: var(--color-surface-card-hover);
+.settings-nav-item[aria-current="true"] {
+	background: color-mix(in oklch, var(--color-accent) 10%, var(--color-surface-panel));
+	border-color: color-mix(in oklch, var(--color-accent) 32%, var(--color-border-subtle));
 	color: var(--color-text-primary);
 	font-weight: var(--weight-semibold);
-	border: 1px solid var(--color-border-default);
 }
 
-/* Right content area. */
+.settings-nav-item[aria-current="true"] svg {
+	color: var(--color-accent-strong);
+}
+
+/* Right content area: recessed canvas so framed lists and cards carry the
+ * single elevation step (inset canvas -> framed surface -> control). */
 .settings-content {
 	min-height: 0;
 	overflow-y: auto;
-	padding: var(--space-5);
+	padding: var(--space-5) var(--space-6);
 	display: grid;
 	gap: var(--space-4);
 	align-content: start;
+	background: var(--color-surface-inset);
+	scrollbar-gutter: stable;
+}
+
+/* Ruled section header: separates "where am I" from the section's controls. */
+.settings-content-head {
+	padding-bottom: var(--space-3);
+	border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .settings-content-title {
 	margin: 0;
 	font-family: var(--font-display);
-	font-size: var(--font-size-xl);
+	font-size: var(--font-size-lg);
 	line-height: var(--line-tight);
+}
+
+.settings-content-title:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
 }
 
 /* M-4: "No sections match" message in the settings nav search. */
@@ -2000,44 +3993,333 @@
 	font-size: var(--font-size-sm);
 }
 
-/* M-2: Loading skeleton rows inside the settings content pane. */
+/* M-2: Loading skeleton rows sized to the real list rows so the loaded
+ * layout does not jump when data arrives. */
 .settings-skeleton {
-	height: 3rem;
+	height: var(--control-height);
 	border-radius: var(--radius-sm);
 }
 
-/* Section placeholder for not-yet-configured sections. */
-.section-placeholder {
+/* One-line intro under a section title: states what the section governs. */
+.settings-section-intro {
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+	max-width: 65ch;
+}
+
+/* Titled sub-group inside a section body (startup worker, platform defaults…). */
+.settings-group {
 	display: grid;
 	gap: var(--space-3);
-	padding: var(--space-4);
-	border: 1px dashed var(--color-border-default);
-	border-radius: var(--radius-md);
-	color: var(--color-text-muted);
 }
 
-.section-placeholder-title {
+/* Eyebrow aligned with the nav/context/dev group labels: one label voice. */
+.settings-group-title {
 	margin: 0;
-	font-size: var(--font-size-base);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
 	font-weight: var(--weight-semibold);
-	color: var(--color-text-secondary);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
 }
 
-/* Individual setting row: label + chip + control + actions. */
-.setting-row {
+/* Framed list surface: the ONE box wired rows and preference rows live in,
+ * replacing the legacy card-per-row treatment. */
+.settings-list {
 	display: grid;
-	gap: var(--space-2);
-	padding: var(--space-3);
+	padding: var(--space-1) var(--space-4);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-md);
 	background: var(--color-surface-card);
 }
 
-.setting-row-meta {
+/* Immediate-effect preference row: copy on the left, segmented control on the
+ * right. Divided row inside .settings-list, not a standalone card. */
+.settings-preference-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-4);
+	flex-wrap: wrap;
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-preference-row:last-child {
+	border-bottom: 0;
+}
+
+.settings-preference-copy {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+	max-width: 46ch;
+}
+
+.settings-preference-row .segmented-option {
+	min-height: var(--control-height-sm);
+}
+
+/* Team roster cards (Default Team and project Team sections). */
+.settings-team-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+	gap: var(--space-3);
+}
+
+.settings-team-card {
+	display: grid;
+	gap: var(--space-2);
+	align-content: start;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+}
+
+.settings-team-card-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.settings-team-card-id {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.settings-team-card-meta {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	font-size: var(--font-size-sm);
+}
+
+.settings-team-card-meta > div {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.settings-team-card-meta dt {
+	color: var(--color-text-muted);
+}
+
+.settings-team-card-meta dd {
+	margin: 0;
+	color: var(--color-text-secondary);
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+/* Runtime blocked reason: full border tone, never a side stripe. */
+.settings-team-card-blocked {
+	margin: 0;
+	padding: var(--space-2);
+	border: 1px solid color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+	border-radius: var(--radius-sm);
+	background: color-mix(in oklab, var(--color-status-warning) 7%, var(--color-surface-inset));
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+}
+
+/* Selectable level cards (Autonomy): selection reads as border + tint + check flag. */
+.settings-choice-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: var(--space-3);
+}
+
+.settings-choice-card {
+	display: grid;
+	gap: var(--space-2);
+	align-content: start;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	min-height: 44px;
+}
+
+.settings-choice-card:hover {
+	background: var(--color-surface-card-hover);
+}
+
+.settings-choice-card:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.settings-choice-card[data-selected="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-border-default));
+	background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-card));
+}
+
+.settings-choice-card:disabled {
+	cursor: default;
+	opacity: 0.65;
+}
+
+.settings-choice-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.settings-choice-title {
+	font-weight: var(--weight-semibold);
+}
+
+.settings-choice-flag {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-accent-strong);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.settings-choice-desc {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+/* Plugin rows: identity + trust/status tags on the left, version on the right.
+ * Divided rows inside .settings-list, not standalone cards. */
+.settings-plugin-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-4);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-plugin-row:last-child {
+	border-bottom: 0;
+}
+
+.settings-plugin-main {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.settings-plugin-tags {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* Project context bar above project-scope sections: which project is being
+ * edited. Raised above the inset canvas so scope stays the visual anchor. */
+.settings-context-bar {
 	display: flex;
 	align-items: center;
 	gap: var(--space-3);
 	flex-wrap: wrap;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-panel-raised);
+}
+
+.settings-context-label {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.settings-context-select {
+	flex: 0 1 16rem;
+	min-width: 0;
+}
+
+.settings-context-new {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+/* Grouped developer console links inside the Advanced section. */
+.settings-dev-groups {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: var(--space-3);
+}
+
+.settings-dev-group {
+	display: grid;
+	gap: var(--space-2);
+	align-content: start;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-card);
+}
+
+.settings-dev-group .settings-deeplinks {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-1);
+}
+
+.settings-dev-group-label {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+/* Individual setting row: divided list row inside .settings-list — metadata on
+ * the left, control right-aligned into a scannable value column, actions under. */
+.setting-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-areas:
+		"meta control"
+		"help control"
+		"actions control";
+	align-items: center;
+	column-gap: var(--space-5);
+	row-gap: var(--space-1);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.setting-row:last-child {
+	border-bottom: 0;
+}
+
+.setting-row-meta {
+	grid-area: meta;
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	flex-wrap: wrap;
+}
+
+.setting-row-help {
+	grid-area: help;
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+	max-width: 52ch;
 }
 
 .setting-row-label {
@@ -2045,22 +4327,28 @@
 	color: var(--color-text-primary);
 }
 
-/* Chip: full border-color (no left/right side-stripe). */
+/* Chip: full border-color (no left/right side-stripe). Baseline states
+ * (Default / Inherited) stay quiet; only real overrides earn the tinted pill. */
 .setting-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
 	padding: 0.125rem var(--space-2);
 	border-radius: var(--radius-pill);
-	font-size: var(--font-size-xs);
+	font-size: var(--font-size-2xs);
 	font-weight: var(--weight-medium);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
 	border: 1px solid var(--color-border-subtle);
 	background: var(--color-surface-inset);
 	color: var(--color-text-muted);
 }
 
-.setting-chip[data-origin="inherited"] {
-	border-color: var(--color-border-default);
+.setting-chip[data-origin="inherited"],
+.setting-chip[data-origin="default"] {
+	border-color: transparent;
+	background: transparent;
+	padding-inline: 0;
 	color: var(--color-text-muted);
 }
 
@@ -2070,9 +4358,12 @@
 	color: var(--color-text-secondary);
 }
 
-.setting-chip[data-origin="default"] {
-	border-color: var(--color-border-subtle);
-	color: var(--color-text-muted);
+/* Lo asignó la detección, no la persona. Se distingue del override manual con el acento
+   secundario completo, no con una franja lateral. */
+.setting-chip[data-origin="auto"] {
+	border-color: color-mix(in oklch, var(--color-accent-secondary) 45%, var(--color-border-subtle));
+	background: color-mix(in oklch, var(--color-accent-secondary) 6%, var(--color-surface-inset));
+	color: var(--color-text-secondary);
 }
 
 .setting-chip[data-origin="custom"] {
@@ -2082,14 +4373,46 @@
 }
 
 .setting-chip-source {
-	opacity: 0.75;
+	color: var(--color-text-secondary);
+}
+
+/* Source chip stacked under a preference's copy: the pill hugs its text instead
+ * of stretching across the grid column. */
+.settings-preference-copy .setting-chip {
+	justify-self: start;
 }
 
 .setting-control {
+	grid-area: control;
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 	gap: var(--space-2);
 	flex-wrap: wrap;
+}
+
+/* Project-scope editing reveals the control in place: span the full row so
+ * inputs and Save/Cancel are not squeezed into the value column. */
+.setting-control[data-editing="true"] {
+	grid-column: 1 / -1;
+	justify-content: flex-start;
+	padding-top: var(--space-2);
+}
+
+/* Fields in the value column size to their content instead of the shared `width: 100%`: a full
+ * width number field pushed its Save button onto a second line and made a two-row slab of every
+ * numeric setting. Numbers get a short fixed field; text and selects a bounded flexible one, so the
+ * field and its Save share one line and the value column stays aligned. */
+.setting-control > input.input,
+.setting-control > .select {
+	width: auto;
+	flex: 1 1 12rem;
+	min-width: 0;
+	max-width: 20rem;
+}
+
+.setting-control[data-type="number"] > input.input {
+	flex: 0 0 8rem;
 }
 
 .setting-control--readonly {
@@ -2101,7 +4424,46 @@
 	font-size: var(--font-size-sm);
 }
 
+/* String-list value display: each entry as a small mono token chip. */
+.setting-list-chips {
+	display: inline-flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-1);
+}
+
+.setting-list-chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.125rem var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-inset);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+/* Inline validation message for numeric settings: text + role=alert, never a
+ * stripe. The error track only exists while the message renders (:has), so
+ * valid rows never pay an empty-track gap; the message lands between the
+ * control and the actions, adjacent to the field it describes. */
+.setting-row:has(> .setting-row-error) {
+	grid-template-areas:
+		"meta control"
+		"help control"
+		"error error"
+		"actions actions";
+}
+
+.setting-row-error {
+	grid-area: error;
+	margin: 0;
+	color: var(--color-status-danger);
+	font-size: var(--font-size-xs);
+}
+
 .setting-row-actions {
+	grid-area: actions;
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -2114,20 +4476,25 @@
 	font-size: var(--font-size-sm);
 }
 
-.setting-action-revert {
-	min-height: var(--control-height-sm);
-	padding-inline: var(--space-3);
-	font-size: var(--font-size-sm);
-	border: 1px solid var(--color-border-subtle);
-	border-radius: var(--radius-md);
+/* Quiet text action under the label (not a slab on its own row): reverting is secondary to
+ * reading and editing the value. Height stays >= 24px (WCAG 2.5.8). */
+.setting-row-actions > .button.setting-action-revert {
+	min-height: 1.75rem;
+	padding-inline: var(--space-2);
+	margin-inline-start: calc(var(--space-2) * -1);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: var(--color-text-muted);
+	color: var(--color-accent-strong);
 	cursor: pointer;
 }
 
-.setting-action-revert:hover {
+.setting-row-actions > .button.setting-action-revert:hover {
+	border-color: transparent;
 	background: var(--color-surface-card-hover);
-	color: var(--color-text-secondary);
+	color: var(--color-text-primary);
 }
 
 .setting-action-revert:focus-visible {
@@ -2135,18 +4502,64 @@
 	box-shadow: var(--shadow-focus);
 }
 
-/* Settings modal collapses to stacked layout on mobile. */
+/* Settings modal collapses to stacked layout on mobile; setting rows drop the
+ * two-column value alignment and stack meta -> control -> actions. */
 @media (max-width: 640px) {
 	.settings-modal-body {
 		grid-template-columns: 1fr;
 		grid-template-rows: auto minmax(0, 1fr);
 	}
 
+	/* Phones: the section nav collapses into one compact horizontal strip (search, then every
+	 * section as a chip, group labels inline) instead of a 12rem block. That block sat as a fixed
+	 * band over the top of the scrolling content and left less than half the dialog for it; the strip
+	 * is ~5.5rem and scrolls sideways. Items stay real buttons in DOM order, so Tab walks them and the
+	 * active one is scrolled into view by SettingsModalBody on every section change. */
 	.settings-nav {
+		flex-direction: row;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		overflow-x: auto;
+		overflow-y: hidden;
 		border-right: 0;
 		border-bottom: 1px solid var(--color-border-subtle);
-		max-height: 12rem;
-		overflow-y: auto;
+		scroll-padding-inline: var(--space-3);
+		scrollbar-width: thin;
+	}
+
+	.settings-nav-search {
+		flex: 0 0 9rem;
+		margin-bottom: 0;
+	}
+
+	.settings-nav-group-label {
+		flex: 0 0 auto;
+		margin: 0;
+		padding: 0 var(--space-1);
+	}
+
+	.setting-row {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"meta"
+			"help"
+			"control"
+			"actions";
+	}
+
+	.setting-row:has(> .setting-row-error) {
+		grid-template-areas:
+			"meta"
+			"help"
+			"control"
+			"error"
+			"actions";
+	}
+
+	.setting-row .setting-control,
+	.setting-row .setting-list-chips {
+		justify-content: flex-start;
 	}
 }
 
@@ -2155,14 +4568,16 @@
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: var(--space-4);
-	align-items: start;
+	align-items: stretch;
+	min-height: 24rem;
 }
 
 .review-column {
 	min-width: 0;
+	min-height: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
-	gap: var(--space-3);
+	gap: var(--space-2);
 }
 
 .review-column-header {
@@ -2172,32 +4587,39 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
+	padding: var(--space-2);
 	background: var(--color-surface-inset);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-md);
 	color: var(--color-text-secondary);
 }
 
+/* The focal lane is marked by an accent outline on its whole header (not a side stripe and not a
+ * tinted fill), with the title in primary text. */
 .review-column[data-focal="true"] .review-column-header {
-	background: color-mix(in oklch, var(--color-accent) 10%, var(--color-surface-inset));
-	border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-border-subtle));
+	border-color: color-mix(in oklch, var(--color-accent) 55%, var(--color-border-subtle));
 	color: var(--color-text-primary);
 }
 
 .review-column-title {
-	font-size: var(--font-size-sm);
+	margin: 0;
+	font-size: var(--font-size-xs);
 	font-weight: var(--weight-semibold);
-	color: var(--color-text-primary);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--color-text-secondary);
 }
 
 .review-column-count {
 	margin-left: auto;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
 }
 
+/* The lane fills the stretched column and scrolls by itself only when the board is height-bound;
+   otherwise the page scrolls, so the two never nest. */
 .review-column-scroll {
 	min-height: 0;
-	max-height: calc(100dvh - 16rem);
 	overflow: auto;
 	display: grid;
 	gap: var(--space-3);
@@ -2216,12 +4638,698 @@
 		grid-template-columns: 1fr;
 	}
 
+	.review-board {
+		min-height: 0;
+	}
+
 	.review-column-header {
 		position: static;
 	}
 
 	.review-column-scroll {
-		max-height: none;
 		overflow: visible;
 	}
+}
+
+/* ---- Thread story board: per-story lanes moved by the product loop ---- */
+.thread-board {
+	container: thread-board / inline-size;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--space-3) var(--space-4);
+	background: var(--color-surface-workbench);
+}
+
+.thread-board-stage {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.thread-board-error {
+	color: var(--color-status-danger);
+	overflow-wrap: anywhere;
+}
+
+.thread-board-columns {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: var(--space-3);
+	min-height: 0;
+}
+
+.thread-board-column {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	gap: var(--space-2);
+	min-width: 0;
+	min-height: 0;
+}
+
+.thread-board-column-header {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	color: var(--color-text-secondary);
+}
+
+.thread-board-column-title {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+.thread-board-column-count {
+	margin-left: auto;
+}
+
+.thread-board-column-scroll {
+	display: grid;
+	align-content: start;
+	gap: var(--space-2);
+	min-height: 0;
+	overflow-y: auto;
+}
+
+/* The card is the positioning box of its title button's stretched hit area (see
+   .thread-board-card-open::after), so a click anywhere on the card opens the story drawer. */
+.thread-board-card {
+	position: relative;
+	display: grid;
+	gap: var(--space-2);
+	min-width: 0;
+	padding: var(--space-3);
+	background: var(--color-surface-panel);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+}
+
+.thread-board-card[data-blocked="true"] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 55%, var(--color-border-subtle));
+}
+
+.thread-board-card-head {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.thread-board-card-index,
+.thread-board-task-role {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-board-card-title {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-board-card-story,
+.thread-board-card-blocked {
+	margin: 0;
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.thread-board-card-blocked {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1);
+	color: var(--color-status-danger);
+}
+
+.thread-board-criteria {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+.thread-board-criteria ul {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 0;
+	padding-left: var(--space-4);
+}
+
+.thread-board-tasks {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* The task row wraps: when the column cannot hold the title next to its role and status chip, the
+   title takes its own line instead of shrinking to nothing behind the nowrap metadata. */
+.thread-board-task {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	min-width: 0;
+	font-size: var(--font-size-xs);
+}
+
+.thread-board-task-title {
+	flex: 1 1 10rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.thread-board-heading {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--font-size-md);
+	line-height: var(--line-tight);
+	color: var(--color-text-primary);
+}
+
+/* Overall backlog progress sits at the end of the header row and grows into the free space. */
+.thread-board-overall {
+	flex: 1 1 10rem;
+	max-width: 18rem;
+	margin-left: auto;
+}
+
+/* Shared progress bar: a thin inset track, the accent fill and the numeric value beside it. */
+.thread-progress {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.thread-progress-track {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 3rem;
+	height: 0.375rem;
+	overflow: hidden;
+	background: var(--color-surface-inset);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+}
+
+.thread-progress-fill {
+	display: block;
+	height: 100%;
+	background: var(--color-accent);
+	border-radius: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.thread-progress-fill {
+		transition: inline-size var(--duration-slow) var(--ease-emphasized);
+	}
+}
+
+.thread-progress-value {
+	flex: none;
+	min-width: 2.5rem;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	text-align: right;
+}
+
+/* The story currently worked by the loop gets an accent edge so "who is on what" reads at a glance. */
+.thread-board-card[data-active="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 55%, var(--color-border-subtle));
+}
+
+/* Title button: reads as the card heading, not as a control; its ::after covers the whole card. */
+.thread-board-card-open {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.thread-board-card-open::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: var(--radius-md);
+}
+
+.thread-board-card-open:hover {
+	text-decoration: underline;
+}
+
+.thread-board-card-open:focus-visible {
+	outline: none;
+}
+
+.thread-board-card-open:focus-visible::after {
+	box-shadow: var(--shadow-focus);
+}
+
+.thread-board-card-assignee {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+}
+
+.thread-board-card-assignee-text {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.thread-board-card-live {
+	margin-right: var(--space-1);
+	color: var(--color-text-primary);
+	font-weight: var(--weight-semibold);
+}
+
+.thread-board-card-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.thread-board-card-badges:empty {
+	display: none;
+}
+
+/* Four lanes need ~14rem each to show a card's task rows; below that the board goes to two lanes
+   (a 1440 px desktop with the chat column leaves the board ~50rem wide). */
+@container thread-board (max-width: 60rem) {
+	.thread-board-columns {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@container thread-board (max-width: 24rem) {
+	.thread-board-columns {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* ---- Thread development mode: story board in the main area, chat as a side column ---- */
+.thread-live-layout {
+	container: thread-live / inline-size;
+}
+
+.thread-conversation-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.thread-live-body[data-mode="board"] {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) clamp(20rem, 36cqw, 30rem);
+	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-areas:
+		"strip chat"
+		"board chat";
+}
+
+.thread-live-body[data-mode="board"] > .thread-transcript-pane {
+	grid-area: chat;
+	min-height: 0;
+	border-left: 1px solid var(--color-border-subtle);
+}
+
+.thread-live-body[data-mode="board"] > .thread-execution-pane {
+	grid-area: strip;
+	max-height: 12rem;
+	border-left: none;
+	border-top: none;
+	border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.thread-live-body[data-mode="board"] > .thread-board {
+	grid-area: board;
+	min-height: 0;
+}
+
+/* Folded chat: the side column shrinks to its dock button; the transcript and composer stay mounted
+   (a typed draft survives) but are not rendered until the operator unfolds it. */
+.thread-live-body[data-mode="board"][data-chat="collapsed"] {
+	grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.thread-live-body[data-mode="board"] {
+		transition: grid-template-columns var(--duration-slow) var(--ease-emphasized);
+	}
+}
+
+.thread-transcript-pane[data-collapsed="true"] > .thread-live-scroll,
+.thread-transcript-pane[data-collapsed="true"] > .thread-composer-dock {
+	display: none;
+}
+
+.thread-chat-dock-toggle {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 2.5rem;
+	padding: var(--space-2) var(--space-3);
+	border: 0;
+	border-bottom: 1px solid var(--color-border-subtle);
+	background: var(--color-surface-inset);
+	color: var(--color-text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	cursor: pointer;
+}
+
+.thread-chat-dock-toggle:hover {
+	color: var(--color-text-primary);
+}
+
+.thread-chat-dock-toggle:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* The label takes the free width so the unread count and chevron sit at the far edge. */
+.thread-chat-dock-label {
+	flex: 1 1 auto;
+	text-align: left;
+}
+
+/* Folded on a wide center: a vertical rail with the label running top to bottom. */
+.thread-transcript-pane[data-collapsed="true"] > .thread-chat-dock-toggle {
+	flex-direction: column;
+	height: 100%;
+	padding: var(--space-3) var(--space-2);
+	border-bottom: 0;
+}
+
+.thread-transcript-pane[data-collapsed="true"] .thread-chat-dock-label {
+	flex: none;
+	writing-mode: vertical-rl;
+}
+
+.thread-chat-unread {
+	display: inline-grid;
+	place-items: center;
+	min-width: 1.25rem;
+	height: 1.25rem;
+	padding: 0 var(--space-1);
+	border-radius: var(--radius-pill);
+	background: var(--color-accent-strong);
+	color: var(--color-text-inverse);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+}
+
+/* The chat column is narrow: tighter side padding keeps the composer's controls and context row on
+   fewer lines, so the dock does not eat the transcript. */
+.thread-live-body[data-mode="board"] .thread-live-scroll,
+.thread-live-body[data-mode="board"] .thread-composer-dock {
+	padding-inline: var(--space-3);
+}
+
+.thread-execution-pane[data-presentation="strip"] .thread-pipeline {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
+}
+
+.thread-execution-pane[data-presentation="strip"] .thread-pipeline-step {
+	grid-template-columns: auto auto auto;
+}
+
+/* Narrow center (or a phone): board above, chat below with its own height; the body scrolls so the
+   composer (.thread-composer-dock) is always reachable and never painted over. The chat-mode
+   contract (.thread-live-scroll as the only scroll region) is untouched. Rows are max-content, not
+   auto: the stacked shell gives the body only a sliver of height and auto rows shrink to the items'
+   min-height (0), collapsing the board so its columns paint over the composer. */
+@container thread-live (max-width: 56rem) {
+	.thread-live-body[data-mode="board"] {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: max-content max-content max-content;
+		grid-template-areas:
+			"strip"
+			"board"
+			"chat";
+		min-height: 0;
+		overflow-y: auto;
+	}
+
+	.thread-live-body[data-mode="board"] > .thread-transcript-pane {
+		min-height: 24rem;
+		border-left: none;
+		border-top: 1px solid var(--color-border-subtle);
+	}
+
+	.thread-live-body[data-mode="board"] .thread-board-column-scroll {
+		max-height: 50dvh;
+	}
+
+	/* Stacked (phone): a folded chat is a full-width tab bar under the board, not a vertical rail. */
+	.thread-live-body[data-mode="board"][data-chat="collapsed"] {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.thread-live-body[data-mode="board"] > .thread-transcript-pane[data-collapsed="true"] {
+		min-height: 0;
+	}
+
+	.thread-transcript-pane[data-collapsed="true"] > .thread-chat-dock-toggle {
+		flex-direction: row;
+		height: auto;
+		padding: var(--space-2) var(--space-3);
+	}
+
+	.thread-transcript-pane[data-collapsed="true"] .thread-chat-dock-label {
+		flex: 1 1 auto;
+		writing-mode: horizontal-tb;
+	}
+}
+
+/* Chat rows reserve up to 9rem for the author chip; in a narrow transcript that starves the message
+   to a few characters per line (seen at 32px wide with the inspector open at 1440x900). The board
+   chat column is always narrow (<= 30rem) and chat mode narrows with the pane, not the viewport, so
+   both stack the message under its author line, like the phone layout does. */
+.thread-live-body[data-mode="board"] .thread-chat-row {
+	grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
+	gap: var(--space-2);
+}
+
+.thread-live-body[data-mode="board"] .thread-row-content {
+	grid-column: 1 / -1;
+}
+
+@container thread-live (max-width: 56rem) {
+	.thread-live-body[data-mode="chat"] .thread-chat-row {
+		grid-template-columns: minmax(2.75rem, auto) minmax(0, 1fr);
+		gap: var(--space-2);
+	}
+
+	.thread-live-body[data-mode="chat"] .thread-row-content {
+		grid-column: 1 / -1;
+	}
+}
+
+/* ---- Story drawer: one user story's detail, criteria, activity and review ---- */
+.thread-story-body {
+	display: grid;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.thread-story-head {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.thread-story-title {
+	margin: 0;
+	font-size: var(--font-size-md);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-story-priority {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-story-section {
+	display: grid;
+	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.thread-story-section-title {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.thread-story-text,
+.thread-story-muted,
+.thread-story-assignee,
+.thread-story-blocked,
+.thread-story-error {
+	margin: 0;
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-text,
+.thread-story-assignee {
+	color: var(--color-text-primary);
+}
+
+.thread-story-muted {
+	color: var(--color-text-secondary);
+}
+
+.thread-story-blocked,
+.thread-story-error {
+	color: var(--color-status-danger);
+}
+
+.thread-story-assignee {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.thread-story-criteria {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Icon column + text: a met criterion takes the success color on its check only; the text stays
+   primary so contrast does not depend on the status hue. */
+.thread-story-criterion {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: start;
+	gap: var(--space-2);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.thread-story-criterion-text {
+	color: var(--color-text-primary);
+	overflow-wrap: anywhere;
+}
+
+.thread-story-criterion[data-met="true"] {
+	color: var(--color-status-success);
+}
+
+.thread-story-facts {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	font-size: var(--font-size-sm);
+}
+
+.thread-story-fact-label {
+	color: var(--color-text-secondary);
+}
+
+.thread-story-fact-value {
+	margin: 0;
+	color: var(--color-text-primary);
+}
+
+.thread-story-commit {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.thread-story-timeline {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.thread-story-event {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-primary);
+}
+
+.thread-story-event-role,
+.thread-story-event-time {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.thread-story-event-time {
+	margin-left: auto;
+}
+
+.thread-story-review {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.thread-story-review-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* Workbench column-order disclosure (WorkbenchColumnControls): collapsed by default, sits above the grid. */
+.workbench-column-order {
+	justify-self: end;
+}
+
+.workbench-column-order > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.workbench-column-order > summary::-webkit-details-marker {
+	display: none;
+}
+
+.workbench-column-order[open] > .inline {
+	margin-block-start: var(--space-2);
 }

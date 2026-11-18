@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from local_control_center.app import create_app
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.projects.discovery import discover_project_path
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def test_project_discovery_reads_manifest_name_and_detects_runtimes(tmp_path: Path) -> None:

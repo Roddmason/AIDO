@@ -1,0 +1,802 @@
+/**
+ * Ollama endpoints section of Providers & CLI: one card per configured endpoint — local or remote —
+ * stating its base URL, health, last measured latency, synced models and whether it is enabled, plus
+ * the actions that keep it honest: add an endpoint, switch it on or off, validate it against
+ * `/api/tags`, sync its model catalog, make it the preferred candidate of a role and delete it. Every
+ * action writes through the real control plane and re-reads it; a failed probe surfaces the backend's
+ * reason instead of a green tick, and a delete still in use lists what must be reassigned first.
+ * @author AIDO contributors
+ */
+
+import { Boxes, Plus, RefreshCw, Server, ShieldCheck, Trash2, Wand2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import {
+	createOllamaEndpoint,
+	deleteOllamaEndpoint,
+	getLocalEndpoints,
+	getModelGatewayRolePolicies,
+	getOllamaEndpoints,
+	healthCheckOllamaEndpoint,
+	type LocalModelView,
+	patchLocalEndpointModel,
+	patchModelGatewayRolePolicy,
+	patchOllamaEndpoint,
+	syncOllamaEndpointModels,
+} from '../../api/client';
+import type { ModelGatewayRolePolicy, OllamaEndpoint } from '../../api/types';
+import {
+	StatusChip as Badge,
+	Button,
+	Checkbox,
+	IconButton,
+	Dialog as Modal,
+	SelectField,
+	TextField,
+	Tooltip,
+	useToast,
+} from '../../components/ui';
+import { useI18n } from '../../i18n/I18nProvider';
+import { redactVisibleSecret } from '../../lib/format';
+import { invalidateRuntimeTeamCache } from '../runtime-team/useRuntimeTeam';
+import { DeleteEndpointDialog } from './EndpointDeleteDialog';
+import {
+	deriveEndpointCard,
+	type EndpointCardModel,
+	isAbsoluteHttpUrl,
+	isValidEndpointId,
+	normalizeBaseUrl,
+	preferredWithEndpointFirst,
+} from './ollamaEndpoints';
+import { ProviderSwitch } from './ProviderSwitch';
+import { healthStatusLabel } from './providerCardModel';
+import { describeReason } from './reasonCopy';
+
+/** Model chips shown inline before the card falls back to a count-only summary. */
+const MODEL_CHIP_LIMIT = 6;
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** The two operator-declared capabilities that make a model eligible for developer / security. */
+type CodeCapability = 'codeEdit' | 'codeReview';
+
+type EndpointsPanelProps = {
+	token: string;
+	onRefresh?: () => Promise<unknown> | undefined;
+	/** Provider ids a running call holds; their switch shows "In use" and stays on. */
+	inUseProviderIds?: ReadonlySet<string>;
+};
+
+export function OllamaEndpointsPanel({ token, onRefresh, inUseProviderIds }: EndpointsPanelProps) {
+	const { t } = useI18n();
+	const { notify } = useToast();
+	const [endpoints, setEndpoints] = useState<OllamaEndpoint[]>([]);
+	const [rolePolicies, setRolePolicies] = useState<ModelGatewayRolePolicy[]>([]);
+	const [modelStates, setModelStates] = useState<Record<string, LocalModelView[]>>({});
+	const [busyAction, setBusyAction] = useState<string | null>(null);
+	const [endpointLoadError, setEndpointLoadError] = useState<string | null>(null);
+	const [endpointsLoaded, setEndpointsLoaded] = useState(false);
+	const [endpointsLoading, setEndpointsLoading] = useState(false);
+	const [addOpen, setAddOpen] = useState(false);
+	const [roleTarget, setRoleTarget] = useState<EndpointCardModel | null>(null);
+	const [deleteTarget, setDeleteTarget] = useState<EndpointCardModel | null>(null);
+
+	const load = useCallback(async () => {
+		setEndpointsLoading(true);
+		const [endpointsPayload, rolePayload, localPayload] = await Promise.allSettled([
+			getOllamaEndpoints(),
+			getModelGatewayRolePolicies(),
+			getLocalEndpoints(),
+		]);
+		if (endpointsPayload.status === 'fulfilled') {
+			setEndpoints(endpointsPayload.value.endpoints);
+			setEndpointLoadError(null);
+		} else {
+			setEndpointLoadError(errorMessage(endpointsPayload.reason));
+		}
+		setEndpointsLoaded(true);
+		setEndpointsLoading(false);
+		if (rolePayload.status === 'fulfilled') setRolePolicies(rolePayload.value.rolePolicies);
+		setModelStates(
+			localPayload.status === 'fulfilled'
+				? Object.fromEntries(
+						localPayload.value.endpoints.map((endpoint) => [endpoint.id, endpoint.models ?? []]),
+					)
+				: {},
+		);
+	}, []);
+
+	useEffect(() => {
+		void load();
+	}, [load]);
+
+	const cards = useMemo(
+		() => endpoints.map((endpoint) => deriveEndpointCard(endpoint, rolePolicies)),
+		[endpoints, rolePolicies],
+	);
+
+	const requireToken = (): boolean => {
+		if (token) return true;
+		notify({
+			title: t(
+				'app.ollama.tokenRequired',
+				'A local write token is required to change Ollama endpoints.',
+			),
+			tone: 'warn',
+		});
+		return false;
+	};
+
+	const runEndpointTask = async (endpointId: string, task: 'validate' | 'sync') => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:${task}`);
+		try {
+			if (task === 'validate') {
+				const response = await healthCheckOllamaEndpoint(token, endpointId);
+				const health = response.health;
+				const healthy = health.healthStatus === 'healthy';
+				notify({
+					title: healthy
+						? t('app.ollama.action.validateOk', 'Endpoint responded')
+						: t('app.ollama.action.validateFailed', 'Endpoint did not respond'),
+					body: healthy
+						? `${health.latencyMs} ms`
+						: redactVisibleSecret(
+								health.lastError || health.message,
+								t('app.ollama.card.noReason', 'No reason reported.'),
+							),
+					tone: healthy ? 'ok' : 'danger',
+				});
+			} else {
+				const response = await syncOllamaEndpointModels(token, endpointId);
+				notify({
+					title: t('app.ollama.action.modelsSynced', 'Models synced'),
+					body: String(response.models.length),
+					tone: 'ok',
+				});
+			}
+			await Promise.all([load(), onRefresh?.()]);
+		} catch (error) {
+			notify({
+				title: t('app.ollama.action.failed', 'Endpoint action failed'),
+				body: redactVisibleSecret(errorMessage(error), 'ollama endpoint action failed'),
+				tone: 'danger',
+			});
+			await load();
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	/** Operator switch: an endpoint switched off is used by no thread, agent or failover. */
+	const toggleEndpoint = async (endpointId: string, enabled: boolean) => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:toggle`);
+		try {
+			await patchOllamaEndpoint(token, endpointId, enabled);
+			invalidateRuntimeTeamCache();
+			notify({
+				title: enabled
+					? t('app.providers.action.enabled', 'Provider enabled for threads')
+					: t('app.providers.action.disabled', 'Provider disabled for threads'),
+				tone: 'ok',
+			});
+			await Promise.all([load(), onRefresh?.()]);
+		} catch (error) {
+			notify({
+				title: t('app.providers.action.toggleFailed', 'Could not update the provider'),
+				body: redactVisibleSecret(errorMessage(error), 'ollama endpoint update failed'),
+				tone: 'danger',
+			});
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	/** Declares or withdraws `code_edit` / `code_review` for one model; the backend owns the state. */
+	const setModelCapability = async (
+		endpointId: string,
+		model: string,
+		capability: CodeCapability,
+		value: boolean,
+	) => {
+		if (busyAction || !requireToken()) return;
+		setBusyAction(`${endpointId}:model:${model}`);
+		try {
+			await patchLocalEndpointModel(token, endpointId, { model, [capability]: value });
+			invalidateRuntimeTeamCache();
+			notify({
+				title: t('app.ollama.action.capabilitySaved', 'Model capability saved'),
+				body: model,
+				tone: 'ok',
+			});
+			await Promise.all([load(), onRefresh?.()]);
+		} catch (error) {
+			notify({
+				title: t('app.ollama.action.capabilityFailed', 'Could not save the model capability'),
+				body: redactVisibleSecret(errorMessage(error), 'model capability update failed'),
+				tone: 'danger',
+			});
+			await load();
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	const setPreferredForRole = async (endpointId: string, role: string, model: string) => {
+		if (busyAction || !requireToken()) return;
+		const policy = rolePolicies.find((item) => item.role === role);
+		if (!policy) return;
+		setBusyAction(`${endpointId}:role`);
+		try {
+			await patchModelGatewayRolePolicy(token, policy.id, {
+				preferred: preferredWithEndpointFirst(policy, endpointId, model),
+			});
+			notify({
+				title: t('app.ollama.action.preferredSet', 'Role now prefers this endpoint'),
+				body: `${role} · ${model}`,
+				tone: 'ok',
+			});
+			setRoleTarget(null);
+			await load();
+		} catch (error) {
+			notify({
+				title: t('app.ollama.action.preferredFailed', 'Could not update the role policy'),
+				body: redactVisibleSecret(errorMessage(error), 'role policy update failed'),
+				tone: 'danger',
+			});
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	return (
+		<section className="stack providers-cli-section">
+			<div className="surface-toolbar">
+				<div className="inline">
+					<Boxes aria-hidden="true" size={16} />
+					<strong>{t('app.ollama.title', 'Ollama endpoints')}</strong>
+					<span className="muted">
+						<span className="tnum">{cards.length}</span> {t('app.ollama.configured', 'configured')}
+					</span>
+				</div>
+				<Button variant="primary" icon={<Plus size={15} />} onClick={() => setAddOpen(true)}>
+					{t('app.ollama.addEndpoint', 'Add endpoint')}
+				</Button>
+			</div>
+			<p className="muted">
+				{t(
+					'app.ollama.summary',
+					'Run several Ollama servers side by side — the local daemon plus any remote host — and route each role to the one you trust.',
+				)}
+			</p>
+
+			{endpointLoadError ? (
+				<section className="empty-state" role="alert">
+					<strong>{t('app.ollama.loadFailed', 'Could not load Ollama endpoints')}</strong>
+					<span className="field-help">
+						{redactVisibleSecret(
+							endpointLoadError,
+							t(
+								'app.ollama.loadFailedBody',
+								'AIDO could not read the configured endpoints. Retry before adding another one.',
+							),
+						)}
+					</span>
+					<Button
+						variant="primary"
+						loading={endpointsLoading}
+						icon={<RefreshCw aria-hidden="true" size={14} />}
+						onClick={() => void load()}
+					>
+						{t('app.global.retry', 'Retry')}
+					</Button>
+				</section>
+			) : !endpointsLoaded ? (
+				<section className="empty-state" role="status">
+					<strong>{t('app.ollama.loading', 'Loading Ollama endpoints…')}</strong>
+				</section>
+			) : cards.length === 0 ? (
+				<section className="empty-state" aria-live="polite">
+					<strong>{t('app.ollama.empty', 'No Ollama endpoint is configured yet')}</strong>
+					<span className="field-help">
+						{t(
+							'app.ollama.emptyHint',
+							'Add the local daemon or a remote server to start routing local models.',
+						)}
+					</span>
+				</section>
+			) : (
+				<div className="masonry-grid provider-grid">
+					{cards.map((card) => (
+						<EndpointCard
+							key={card.id}
+							card={card}
+							modelStates={modelStates[card.id] ?? []}
+							busyAction={busyAction}
+							inUse={inUseProviderIds?.has(card.id) ?? false}
+							onValidate={() => void runEndpointTask(card.id, 'validate')}
+							onSync={() => void runEndpointTask(card.id, 'sync')}
+							onSetCapability={(model, capability, value) =>
+								void setModelCapability(card.id, model, capability, value)
+							}
+							onSetPreferred={() => setRoleTarget(card)}
+							onToggleEnabled={(enabled) => void toggleEndpoint(card.id, enabled)}
+							onDelete={() => {
+								if (requireToken()) setDeleteTarget(card);
+							}}
+						/>
+					))}
+				</div>
+			)}
+
+			<AddEndpointDialog
+				open={addOpen}
+				token={token}
+				onClose={() => setAddOpen(false)}
+				onCreated={async () => {
+					setAddOpen(false);
+					await Promise.all([load(), onRefresh?.()]);
+				}}
+			/>
+			<DeleteEndpointDialog
+				card={deleteTarget}
+				token={token}
+				remove={deleteOllamaEndpoint}
+				title={t('app.ollama.delete.title', 'Delete Ollama endpoint')}
+				description={t(
+					'app.ollama.delete.body',
+					'Removes the endpoint and its synced models; it stays deleted after updates. Usage history, audit and evidence are kept.',
+				)}
+				onClose={() => setDeleteTarget(null)}
+				onDeleted={async () => {
+					setDeleteTarget(null);
+					invalidateRuntimeTeamCache();
+					notify({ title: t('app.ollama.action.deleted', 'Ollama endpoint deleted'), tone: 'ok' });
+					await Promise.all([load(), onRefresh?.()]);
+				}}
+			/>
+			<PreferredRoleDialog
+				card={roleTarget}
+				rolePolicies={rolePolicies}
+				busy={busyAction !== null}
+				onClose={() => setRoleTarget(null)}
+				onConfirm={(role, model) => void setPreferredForRole(roleTarget?.id ?? '', role, model)}
+			/>
+		</section>
+	);
+}
+
+function EndpointCard({
+	card,
+	modelStates,
+	busyAction,
+	inUse,
+	onValidate,
+	onSync,
+	onSetCapability,
+	onSetPreferred,
+	onToggleEnabled,
+	onDelete,
+}: {
+	card: EndpointCardModel;
+	/** Persisted per-model state from the local-endpoints view; empty when it could not be read. */
+	modelStates: readonly LocalModelView[];
+	busyAction: string | null;
+	inUse: boolean;
+	onValidate: () => void;
+	onSync: () => void;
+	onSetCapability: (model: string, capability: CodeCapability, value: boolean) => void;
+	onSetPreferred: () => void;
+	onToggleEnabled: (enabled: boolean) => void;
+	onDelete: () => void;
+}) {
+	const { t } = useI18n();
+	const KindIcon = card.kind === 'local' ? Boxes : Server;
+	const validateBusy = busyAction === `${card.id}:validate`;
+	const syncBusy = busyAction === `${card.id}:sync`;
+	const anyBusy = busyAction !== null;
+	const rawFailure = card.failureReason
+		? redactVisibleSecret(card.failureReason, t('app.ollama.card.noReason', 'No reason reported.'))
+		: '';
+
+	const renderSyncedModelChips = () => {
+		if (modelStates.length) return null;
+		if (!card.models.length) {
+			return (
+				<span className="field-help">
+					{t('app.ollama.card.noModels', 'No model synced yet — run Sync models.')}
+				</span>
+			);
+		}
+		return (
+			<div className="inline provider-chip-list">
+				{card.models.slice(0, MODEL_CHIP_LIMIT).map((model) => (
+					<Badge tone="info" className="provider-chip" key={model}>
+						{model}
+					</Badge>
+				))}
+			</div>
+		);
+	};
+
+	const renderModelRow = (model: LocalModelView) => (
+		<div className="inline local-model-row" key={model.model} data-model={model.model}>
+			<strong className="mono">{model.model}</strong>
+			<Checkbox
+				label={t('app.localRuntime.wizard.codeEdit', 'Can edit code')}
+				aria-label={`${t('app.localRuntime.wizard.codeEdit', 'Can edit code')}: ${model.model}`}
+				checked={model.codeEdit}
+				disabled={anyBusy}
+				onChange={(event) => onSetCapability(model.model, 'codeEdit', event.target.checked)}
+			/>
+			<Checkbox
+				label={t('app.localRuntime.wizard.codeReview', 'Can review code')}
+				aria-label={`${t('app.localRuntime.wizard.codeReview', 'Can review code')}: ${model.model}`}
+				checked={model.codeReview}
+				disabled={anyBusy}
+				onChange={(event) => onSetCapability(model.model, 'codeReview', event.target.checked)}
+			/>
+		</div>
+	);
+
+	return (
+		<article className="card card--static provider-card" data-tone={card.healthTone}>
+			<div className="card-header">
+				<div className="inline">
+					<KindIcon aria-hidden="true" size={18} />
+					<h4 className="card-title" title={card.displayName}>
+						{card.displayName}
+					</h4>
+				</div>
+				<div className="inline">
+					<ProviderSwitch
+						providerName={card.displayName}
+						checked={card.enabled}
+						busy={anyBusy}
+						inUse={inUse}
+						onChange={onToggleEnabled}
+					/>
+				</div>
+			</div>
+
+			<div className="card-meta">
+				<Badge tone={card.healthTone}>{healthStatusLabel(card.healthStatus, t)}</Badge>
+				<Badge tone="info">
+					{card.kind === 'local'
+						? t('app.ollama.kind.local', 'local')
+						: t('app.ollama.kind.remote', 'remote')}
+				</Badge>
+				{card.credentialConfigured ? (
+					<Badge tone="ok">
+						<ShieldCheck aria-hidden="true" size={12} />
+						<span>{t('app.ollama.credential', 'bearer token')}</span>
+					</Badge>
+				) : null}
+			</div>
+
+			<dl className="provider-facts">
+				<div>
+					<dt>{t('app.ollama.card.baseUrl', 'Base URL')}</dt>
+					<dd className="mono">{card.baseUrl || t('app.ollama.card.baseUrlUnset', 'not set')}</dd>
+				</div>
+				<div>
+					<dt>{t('app.ollama.card.latency', 'Latency')}</dt>
+					<dd className="tnum">
+						{card.latencyMs === null
+							? t('app.ollama.card.latencyUnknown', 'not measured')
+							: `${card.latencyMs} ms`}
+					</dd>
+				</div>
+				<div>
+					<dt>{t('app.ollama.card.models', 'Models')}</dt>
+					<dd className="tnum">{card.models.length}</dd>
+				</div>
+			</dl>
+
+			{renderSyncedModelChips()}
+
+			{modelStates.length ? (
+				<div className="stack compact provider-model-list">
+					{modelStates.slice(0, MODEL_CHIP_LIMIT).map(renderModelRow)}
+					{modelStates.length > MODEL_CHIP_LIMIT ? (
+						<details className="provider-model-more">
+							<summary>
+								{t('app.ollama.card.moreModels', '{count} more models').replace(
+									'{count}',
+									String(modelStates.length - MODEL_CHIP_LIMIT),
+								)}
+							</summary>
+							{modelStates.slice(MODEL_CHIP_LIMIT).map(renderModelRow)}
+						</details>
+					) : null}
+				</div>
+			) : null}
+
+			{card.preferredRoles.length ? (
+				<div className="inline">
+					<span className="field-label">
+						{t('app.ollama.card.preferredFor', 'Preferred for roles')}
+					</span>
+					{card.preferredRoles.map((role) => (
+						<Badge tone="info" key={role}>
+							{role}
+						</Badge>
+					))}
+				</div>
+			) : null}
+
+			{rawFailure ? (
+				<p className="card-body card-reason" title={rawFailure}>
+					<span className="field-label">{t('app.ollama.card.lastError', 'Last error')}</span>{' '}
+					{describeReason(rawFailure, t)}
+				</p>
+			) : null}
+
+			<div className="provider-card-actions">
+				<Button
+					className="endpoint-card-action"
+					variant="primary"
+					loading={validateBusy}
+					disabled={anyBusy}
+					onClick={onValidate}
+				>
+					{t('app.ollama.card.validate', 'Validate')}
+				</Button>
+				<Button
+					className="endpoint-card-action"
+					loading={syncBusy}
+					disabled={anyBusy}
+					onClick={onSync}
+				>
+					{t('app.ollama.card.syncModels', 'Sync models')}
+				</Button>
+				<span className="provider-card-icon-actions">
+					<Tooltip label={t('app.ollama.card.setPreferred', 'Set preferred for role')}>
+						<IconButton
+							aria-label={t('app.ollama.card.setPreferred', 'Set preferred for role')}
+							disabled={anyBusy || card.models.length === 0}
+							onClick={onSetPreferred}
+						>
+							<Wand2 aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+					<Tooltip label={t('app.ollama.card.delete', 'Delete')}>
+						<IconButton
+							className="provider-card-delete-icon"
+							aria-label={t('app.ollama.card.delete', 'Delete')}
+							disabled={anyBusy}
+							onClick={onDelete}
+						>
+							<Trash2 aria-hidden="true" size={15} />
+						</IconButton>
+					</Tooltip>
+				</span>
+			</div>
+		</article>
+	);
+}
+
+/** Registers an endpoint; the backend infers local vs remote from the URL host, never the operator. */
+function AddEndpointDialog({
+	open,
+	token,
+	onClose,
+	onCreated,
+}: {
+	open: boolean;
+	token: string;
+	onClose: () => void;
+	onCreated: () => Promise<void>;
+}) {
+	const { t } = useI18n();
+	const [id, setId] = useState('');
+	const [displayName, setDisplayName] = useState('');
+	const [baseUrl, setBaseUrl] = useState('');
+	const [credentialRef, setCredentialRef] = useState('');
+	const [enabled, setEnabled] = useState(true);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState('');
+
+	useEffect(() => {
+		if (!open) return;
+		setId('');
+		setDisplayName('');
+		setBaseUrl('');
+		setCredentialRef('');
+		setEnabled(true);
+		setError('');
+	}, [open]);
+
+	if (!open) return null;
+
+	const submit = async () => {
+		if (busy) return;
+		if (!isValidEndpointId(id)) {
+			setError(
+				t(
+					'app.ollama.add.errorId',
+					'The id must be lowercase letters, digits, dot, colon, dash or underscore.',
+				),
+			);
+			return;
+		}
+		if (!isAbsoluteHttpUrl(baseUrl)) {
+			setError(
+				t('app.ollama.add.errorBaseUrl', 'Enter an absolute http(s) URL with no query string.'),
+			);
+			return;
+		}
+		setBusy(true);
+		setError('');
+		try {
+			await createOllamaEndpoint(token, {
+				id: id.trim(),
+				displayName: displayName.trim() || id.trim(),
+				baseUrl: normalizeBaseUrl(baseUrl),
+				enabled,
+				...(credentialRef.trim() ? { credentialRef: credentialRef.trim() } : {}),
+			});
+			await onCreated();
+		} catch (createError) {
+			setError(redactVisibleSecret(errorMessage(createError), 'endpoint creation failed'));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<Modal open={open} label={t('app.ollama.add.title', 'Add Ollama endpoint')} onClose={onClose}>
+			<div className="form-grid">
+				<TextField
+					label={t('app.ollama.add.id', 'Endpoint id')}
+					value={id}
+					autoComplete="off"
+					placeholder="ollama-lab"
+					onChange={(event) => setId(event.target.value)}
+					help={t(
+						'app.ollama.add.idHelp',
+						'Stable identifier used by routing and the model catalog.',
+					)}
+				/>
+				<TextField
+					label={t('app.ollama.add.displayName', 'Display name')}
+					value={displayName}
+					autoComplete="off"
+					onChange={(event) => setDisplayName(event.target.value)}
+					help={t('app.ollama.add.displayNameHelp', 'Shown on the card; defaults to the id.')}
+				/>
+				<TextField
+					label={t('app.ollama.add.baseUrl', 'Base URL')}
+					value={baseUrl}
+					autoComplete="off"
+					placeholder="http://192.168.1.20:11434"
+					onChange={(event) => setBaseUrl(event.target.value)}
+					help={t(
+						'app.ollama.add.baseUrlHelp',
+						'A loopback host registers a local endpoint; any other host registers a remote one.',
+					)}
+				/>
+				<TextField
+					label={t('app.ollama.add.credentialRef', 'Credential reference')}
+					value={credentialRef}
+					autoComplete="off"
+					placeholder="env:ollama_token"
+					onChange={(event) => setCredentialRef(event.target.value)}
+					help={t(
+						'app.ollama.add.credentialRefHelp',
+						'Optional bearer token reference for an authenticated remote server; the secret is never shown.',
+					)}
+				/>
+				<Checkbox
+					label={t('app.ollama.add.enabled', 'Enable this endpoint')}
+					checked={enabled}
+					onChange={(event) => setEnabled(event.target.checked)}
+				/>
+				{error ? (
+					<div className="form-error" role="alert">
+						{error}
+					</div>
+				) : null}
+				<div className="wizard-actions">
+					<Button onClick={onClose} disabled={busy}>
+						{t('app.ollama.add.cancel', 'Cancel')}
+					</Button>
+					<Button variant="primary" loading={busy} onClick={() => void submit()}>
+						{t('app.ollama.add.submit', 'Add endpoint')}
+					</Button>
+				</div>
+			</div>
+		</Modal>
+	);
+}
+
+/** Picks the role whose policy should prefer this endpoint, and with which of its synced models. */
+function PreferredRoleDialog({
+	card,
+	rolePolicies,
+	busy,
+	onClose,
+	onConfirm,
+}: {
+	card: EndpointCardModel | null;
+	rolePolicies: readonly ModelGatewayRolePolicy[];
+	busy: boolean;
+	onClose: () => void;
+	onConfirm: (role: string, model: string) => void;
+}) {
+	const { t } = useI18n();
+	const roles = useMemo(
+		() => rolePolicies.map((policy) => policy.role).filter(Boolean),
+		[rolePolicies],
+	);
+	const [role, setRole] = useState('');
+	const [model, setModel] = useState('');
+
+	useEffect(() => {
+		if (!card) return;
+		setRole(roles[0] ?? '');
+		setModel(card.models[0] ?? '');
+	}, [card, roles]);
+
+	if (!card) return null;
+
+	return (
+		<Modal
+			open={card !== null}
+			label={t('app.ollama.role.title', 'Set preferred for role')}
+			onClose={onClose}
+		>
+			<div className="form-grid">
+				<SelectField
+					label={t('app.ollama.role.role', 'Role')}
+					value={role}
+					onChange={(event) => setRole(event.target.value)}
+					help={t(
+						'app.ollama.role.roleHelp',
+						'The endpoint becomes the first preferred candidate of this role.',
+					)}
+				>
+					{roles.map((item) => (
+						<option key={item} value={item}>
+							{item}
+						</option>
+					))}
+				</SelectField>
+				<SelectField
+					label={t('app.ollama.role.model', 'Model')}
+					value={model}
+					onChange={(event) => setModel(event.target.value)}
+					help={t('app.ollama.role.modelHelp', 'Only models already synced from this endpoint.')}
+				>
+					{card.models.map((item) => (
+						<option key={item} value={item}>
+							{item}
+						</option>
+					))}
+				</SelectField>
+				<p className="field-help">
+					{t(
+						'app.ollama.role.policyNote',
+						'Routing still honours the role permissions: a role that blocks local or remote runtimes keeps blocking this endpoint.',
+					)}
+				</p>
+				<div className="wizard-actions">
+					<Button onClick={onClose} disabled={busy}>
+						{t('app.ollama.role.cancel', 'Cancel')}
+					</Button>
+					<Button
+						variant="primary"
+						loading={busy}
+						disabled={!role || !model}
+						onClick={() => onConfirm(role, model)}
+					>
+						{t('app.ollama.role.confirm', 'Set as preferred')}
+					</Button>
+				</div>
+			</div>
+		</Modal>
+	);
+}

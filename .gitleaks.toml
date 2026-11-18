@@ -1,22 +1,92 @@
-title = "AIDO gitleaks baseline"
+title = "AIDO secrets policy"
 
 [extend]
 useDefault = true
 
 [[allowlists]]
-description = "Documentation and sample environment files"
+description = "Installed third-party dependencies, including nested worktree vendors"
+paths = ['''(?:^|[/\\])(?:\.venv|node_modules)[/\\]''']
+
+[[allowlists]]
+description = "Exact invalid PEM used by the redaction regression test"
+targetRules = ["private-key"]
+condition = "AND"
+regexTarget = "secret"
+paths = ['''(?:^|[/\\])tests_py[/\\]test_redaction\.py$''']
+regexes = ['''^\x2d\x2d\x2d\x2d\x2dBEGIN RSA PRIVATE KEY\x2d\x2d\x2d\x2d\x2d\\n"\r?\n        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDfake000\\n"\r?\n        "abcDEF123456789secretkeymaterialthatmustnotleak==\\n"\r?\n        "\x2d\x2d\x2d\x2d\x2dEND RSA PRIVATE KEY\x2d\x2d\x2d\x2d\x2d$''']
+
+[[allowlists]]
+description = "Audited credential_refs snapshot checksums"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
 paths = [
-  '''\.env\.example$''',
-  '''docs/.*\.md$''',
-  '''^\.venv/''',
-  '''^node_modules/''',
-  '''^src/''',
-  '''^local-control-center/dist/''',
-  '''^\.claude/''',
-  '''^\.tmp/''',
-  '''^test-results/''',
-  '''__pycache__/''',
-  '''\.pyc$''',
-  # Redaction unit test: its fixtures are non-real credential look-alikes that exercise redact_secrets.
-  '''^tests_py/test_redaction\.py$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-20/jev\-remediation\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-20/jev\-selection\-copy\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-20/remediation\-display\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-20/resource\-policy\-copy\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-20/resource\-policy\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/automatic\-risk\-defaults\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/automatic\-runtime\-defaults\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/local\-gpu\-admission\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/research\-legacy\-snapshot\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/research\-resolution\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/runtime\-risk\-review\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/runtime\-risk\-transaction\-restart\.json$''',
+  '''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/timeout\-nested\-restart\.json$''',
 ]
+regexes = ['''(?i)^["']?credential_refs["']?\s*:\s*["']?(?:b8907969d135aea3b6d793ec88f6a12e19b4432cf5b29307be2807ea02d58101)["']?$''']
+
+[[allowlists]]
+description = "Exact audited source-file checksum"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/automatic\-defaults\-review\.json$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x6d\x6f\x64\x65\x6c\x5f\x67\x61\x74\x65\x77\x61\x79\x5f\x61\x70\x69\x2e\x70\x79\x22\x3a\x20\x22\x62\x37\x64\x39\x30\x32\x61\x63\x38\x66\x30\x65\x31\x64\x39\x32\x62\x63\x66\x34\x65\x61\x37\x36\x33\x37\x61\x31\x62\x34\x38\x32\x64\x61\x31\x64\x64\x61\x32\x31\x31\x63\x38\x39\x31\x64\x32\x35\x34\x34\x61\x64\x38\x36\x62\x66\x63\x30\x31\x66\x35\x31\x38\x61\x22$''']
+
+[[allowlists]]
+description = "Exact audited idempotency identifier"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/ece351502b094565a9c4a4637ff570b6/e8a5e8211e6f4751889cf1fcaf9647d6/pytest\-failure\-aa19074bb947457eb1671907114582a2\.json$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x69\x64\x65\x6d\x70\x6f\x74\x65\x6e\x63\x79\x4b\x65\x79\x27\x3a\x20\x2e\x2e\x2e\x35\x38\x2d\x62\x38\x62\x65\x2d\x34\x64\x39\x39\x2d\x61\x35\x62\x65\x2d\x33\x63\x33\x64\x39\x32\x63\x37\x30\x62\x38\x64\x27$''']
+
+[[allowlists]]
+description = "Exact audited idempotency identifier"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/ece351502b094565a9c4a4637ff570b6/e8a5e8211e6f4751889cf1fcaf9647d6/results\.xml$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x69\x64\x65\x6d\x70\x6f\x74\x65\x6e\x63\x79\x4b\x65\x79\x27\x3a\x20\x2e\x2e\x2e\x35\x38\x2d\x62\x38\x62\x65\x2d\x34\x64\x39\x39\x2d\x61\x35\x62\x65\x2d\x33\x63\x33\x64\x39\x32\x63\x37\x30\x62\x38\x64\x27$''']
+
+[[allowlists]]
+description = "Exact audited idempotency identifier"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/ece351502b094565a9c4a4637ff570b6/e8a5e8211e6f4751889cf1fcaf9647d6/results\.xml$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x69\x64\x65\x6d\x70\x6f\x74\x65\x6e\x63\x79\x4b\x65\x79\x27\x3a\x20\x2e\x2e\x2e\x35\x38\x2d\x62\x38\x62\x65\x2d\x34\x64\x39\x39\x2d\x61\x35\x62\x65\x2d\x33\x63\x33\x64\x39\x32\x63\x37\x30\x62\x38\x64\x27$''']
+
+[[allowlists]]
+description = "Exact audited idempotency identifier"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/ece351502b094565a9c4a4637ff570b6/local\-gpu\-admission\-red\.json$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x69\x64\x65\x6d\x70\x6f\x74\x65\x6e\x63\x79\x4b\x65\x79\x27\x3a\x20\x2e\x2e\x2e\x35\x38\x2d\x62\x38\x62\x65\x2d\x34\x64\x39\x39\x2d\x61\x35\x62\x65\x2d\x33\x63\x33\x64\x39\x32\x63\x37\x30\x62\x38\x64\x27$''']
+
+[[allowlists]]
+description = "Exact audited workspace-file checksum"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''(?:^|[/\\])\.tmp/aido\-runtime\-evidence/2026\-09\-21/timeout\-historical\-reconciliation\.json$''']
+# Hex escapes pin the complete field/value without adding a credential-shaped literal.
+regexes = ['''^\x4a\x77\x74\x54\x6f\x6b\x65\x6e\x55\x74\x69\x6c\x2e\x6a\x61\x76\x61\x22\x3a\x20\x22\x38\x63\x61\x34\x32\x65\x31\x30\x39\x64\x63\x65\x61\x66\x33\x32\x34\x34\x39\x38\x61\x65\x65\x35\x35\x63\x66\x31\x34\x35\x37\x66\x64\x35\x61\x38\x38\x38\x62\x65\x30\x33\x31\x65\x65\x62\x35\x64\x33\x38\x64\x36\x38\x64\x32\x35\x36\x30\x66\x65\x37\x38\x65\x33\x22$''']

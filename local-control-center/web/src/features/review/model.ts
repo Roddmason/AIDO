@@ -3,7 +3,7 @@
  * `ReviewItem`s from the raw overview, classifies them into lanes, and owns the
  * single source of truth for the patch evidence gate (refs, QA, security).
  * No React here — every export is deterministic and unit-testable.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ArtifactPayload } from '../../api/client';
 import type { ActionRequest, Artifact, Overview } from '../../api/types';
@@ -97,6 +97,8 @@ function referenceIds(action: ActionRequest): Set<string> {
 		const value = payload[key];
 		if (typeof value === 'string' && value.trim()) ids.add(value);
 	}
+	const patchArtifactId = asRecord(payload.diffSummary).patchArtifactId;
+	if (typeof patchArtifactId === 'string' && patchArtifactId.trim()) ids.add(patchArtifactId);
 	return ids;
 }
 
@@ -363,8 +365,7 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
 		const pending = runActions.find((action) => action.status === 'pending') ?? null;
 
 		const projectId = pending?.projectId || run.projectId;
-		const runLabel =
-			(workflow.title && workflow.title.trim()) || `${workflow.kind} · ${shortId(run.id)}`;
+		const runLabel = workflow.title?.trim() || `${workflow.kind} · ${shortId(run.id)}`;
 
 		items.push({
 			key: `run:${run.id}`,
@@ -472,7 +473,7 @@ export function buildReviewItems(overview: Overview): ReviewItem[] {
  * act), so it lands in Needs review with run health shown as a badge — never
  * silently parked in Blocked. This is a lifecycle map, not `toneForStatus`.
  */
-export function classifyReviewItem(item: ReviewItem): ReviewColumn {
+function classifyReviewItem(item: ReviewItem): ReviewColumn {
 	if (
 		item.decisionStatus === 'approved' ||
 		item.decisionStatus === 'denied' ||
@@ -492,15 +493,13 @@ export function classifyReviewItem(item: ReviewItem): ReviewColumn {
 		case 'approved_for_integration':
 		case 'promoted_to_branch':
 			return 'ready';
-		case 'evidence_ready':
-		case 'running':
 		default:
 			return 'needs_review';
 	}
 }
 
 /** Risk descending, then most-recent first. */
-export function sortReviewItems(items: ReviewItem[]): ReviewItem[] {
+function sortReviewItems(items: ReviewItem[]): ReviewItem[] {
 	return [...items].sort((left, right) => {
 		const risk = (RISK_RANK[right.riskLevel ?? ''] ?? 0) - (RISK_RANK[left.riskLevel ?? ''] ?? 0);
 		if (risk !== 0) return risk;

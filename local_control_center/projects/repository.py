@@ -7,7 +7,7 @@ no se agrupan escrituras atómicamente. ``create_project`` se confirma con su ú
 ``INSERT`` y es idempotente por ruta: si el proyecto ya existe no inserta y lo devuelve
 con ``_created=False``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -160,14 +160,6 @@ class ProjectsRepository:
         """Busca un proyecto por su ruta normalizada; ``None`` si no existe."""
         row = self.connection.execute("SELECT * FROM projects WHERE path = ?", (str(Path(path)),)).fetchone()
         return row_to_project(row) if row else None
-
-    def find_project(self, ref: str | Path) -> dict[str, Any] | None:
-        """Resuelve un proyecto por id y, si no hay coincidencia, por ruta; ``None`` si falla ambas."""
-        ref_text = str(ref)
-        row = self.connection.execute("SELECT * FROM projects WHERE id = ?", (ref_text,)).fetchone()
-        if row:
-            return row_to_project(row)
-        return self.get_project_by_path(ref_text)
 
     def create_project(
         self,

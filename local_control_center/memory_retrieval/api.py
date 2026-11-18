@@ -5,7 +5,7 @@ search) sobre /api/v1, cableando cada handler con repositorio, event bus e
 índice construidos por petición. Las mutaciones pasan por require_write; la
 lógica vive en commands, este módulo solo traduce HTTP a casos de uso.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15,14 +15,25 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Query, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.schemas import RetrievalStatusResponse
 
 from . import commands
+from .briefing import MemoryBriefingService
+from .conflicts import MemoryConflictDetector
 from .index import RetrievalIndex
 from .models import (
+    MemoryBriefingRequest,
+    MemoryBriefingResponse,
+    MemoryConflictDetectRequest,
+    MemoryConflictDetectResponse,
+    MemoryConflictListResponse,
     MemoryCreateRequest,
     MemoryDeleteRequest,
+    MemoryForgetRequest,
+    MemoryForgetResponse,
     MemoryListResponse,
     MemoryResponse,
     RetrievalReindexRequest,
@@ -41,7 +52,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     El índice se persiste bajo db_path.parent / "faiss-index"; las rutas de
     creación, borrado y reindex exigen require_write antes de mutar.
     """
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def memory_repository() -> MemoryRepository:
         return MemoryRepository(platform.connection)
@@ -81,6 +95,46 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         )
         return MemoryResponse(memoryItem=payload["memoryItem"])
 
+    @router.post("/api/v1/memory/forget", status_code=202, response_model=MemoryForgetResponse)
+    async def forget_expired_memory(body: MemoryForgetRequest, request: Request) -> MemoryForgetResponse:
+        require_write(request)
+        payload = commands.enqueue_memory_forget(
+            JobsRepository(platform.connection), body.model_dump(by_alias=True)
+        )
+        return MemoryForgetResponse(job=payload["job"])
+
+    @router.post("/api/v1/memory/briefing", response_model=MemoryBriefingResponse)
+    async def memory_briefing(body: MemoryBriefingRequest) -> dict[str, Any]:
+        return commands.build_memory_briefing(
+            MemoryBriefingService(memory_repository(), retrieval_index()),
+            body.model_dump(by_alias=True),
+        )
+
+    @router.post("/api/v1/memory/conflicts/detect", response_model=MemoryConflictDetectResponse)
+    async def detect_memory_conflicts(
+        body: MemoryConflictDetectRequest, request: Request
+    ) -> MemoryConflictDetectResponse:
+        require_write(request)
+        payload = commands.detect_memory_conflicts(
+            MemoryConflictDetector(memory_repository(), event_bus()),
+            body.model_dump(by_alias=True),
+        )
+        return MemoryConflictDetectResponse(
+            status=payload["status"],
+            reason=payload["reason"],
+            detector=payload["detector"],
+            threshold=payload["threshold"],
+            thresholdSource=payload["thresholdSource"],
+            comparedPairs=payload["comparedPairs"],
+            conflicts=payload["conflicts"],
+        )
+
+    @router.get("/api/v1/memory/conflicts", response_model=MemoryConflictListResponse)
+    async def list_memory_conflicts(
+        project_id: str | None = Query(default=None, alias="projectId"),
+    ) -> dict[str, Any]:
+        return commands.list_memory_conflicts(memory_repository(), project_id=project_id)
+
     @router.get("/api/v1/retrieval/status", response_model=RetrievalStatusResponse)
     async def retrieval_status(
         project_id: str | None = Query(default=None, alias="projectId"),
@@ -88,6 +142,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.retrieval_status(retrieval_index(), project_id=project_id)
 
     @router.post("/api/v1/retrieval/reindex", status_code=202, response_model=RetrievalReindexResponse)
+    @queued_operation("retrieval.retrieval_reindex", workload_class="qa_light")
     async def retrieval_reindex(request: Request, body: RetrievalReindexRequest) -> RetrievalReindexResponse:
         require_write(request)
         payload = commands.retrieval_reindex(retrieval_index(), body.model_dump(by_alias=True))

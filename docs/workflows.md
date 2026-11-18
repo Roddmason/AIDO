@@ -1,5 +1,11 @@
 # Workflows
 
+P0 productive workflow requests now return HTTP 202 with a durable execution ID. Clients observe
+`/api/v1/executions/{id}` and ordered events for the terminal domain result; acceptance is not
+completion. Cancellation is explicit and audited. The domain frontend adapter handles observation
+without disguising the OpenAPI acceptance type. Iteration `quality:fast`/`quality:story` checks do not
+replace the full `quality:pr` delivery gate. See [P0 runbook](operational-hardening/p0-runbook.md).
+
 Workflows are first-class control-plane entities, not informal chat threads.
 
 ## Current Foundation

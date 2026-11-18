@@ -3,14 +3,14 @@
  *
  * Groups actions by intent (navigate/actions/runtime) and exposes them as an ARIA
  * combobox+listbox. Open/close and Escape are owned by the App shortcut layer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { m } from 'motion/react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { EmptyState } from '../components/primitives';
+import { EmptyState } from '../components/ui';
 import { useI18n } from '../i18n/I18nProvider';
 import { cardTransition, dialogTransition, listStagger } from '../motion/variants';
 import type { CommandAction, CommandGroupId } from './commandActions';
@@ -32,6 +32,11 @@ function matches(action: CommandAction, query: string): boolean {
 	return haystack.includes(query);
 }
 
+function runAction(action: CommandAction): void {
+	if (action.disabled) return;
+	action.run();
+}
+
 /**
  * IDE-style quick-action center. Opens centered near the top of the viewport,
  * filters by text, navigates with the keyboard (↑/↓/↵) skipping disabled
@@ -49,12 +54,23 @@ export function CommandPalette({
 	onClose: () => void;
 	actions: CommandAction[];
 }) {
+	if (!open) return null;
+	return <CommandPaletteContent onClose={onClose} actions={actions} />;
+}
+
+/** Mounted only while the palette is open so query/highlight state resets by unmounting. */
+function CommandPaletteContent({
+	onClose,
+	actions,
+}: {
+	onClose: () => void;
+	actions: CommandAction[];
+}) {
 	const { t } = useI18n();
 	const [query, setQuery] = useState('');
 	const [activeIndex, setActiveIndex] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
-	const previouslyFocused = useRef<HTMLElement | null>(null);
 
 	const results = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -75,32 +91,23 @@ export function CommandPalette({
 		[results, t],
 	);
 
-	useEffect(() => {
-		setActiveIndex(0);
-	}, [query, open]);
-
-	useEffect(() => {
-		if (!open) setQuery('');
-	}, [open]);
-
 	useLayoutEffect(() => {
-		if (!open) return undefined;
-		previouslyFocused.current = (document.activeElement as HTMLElement | null) ?? null;
+		const previouslyFocused = (document.activeElement as HTMLElement | null) ?? null;
 		inputRef.current?.focus();
 		return () => {
-			const previous = previouslyFocused.current;
-			if (previous && previous.isConnected) previous.focus();
+			if (previouslyFocused?.isConnected) previouslyFocused.focus();
 		};
-	}, [open]);
+	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: activeIndex/results.length are intentional triggers — re-scroll the active option into view when the selection moves or the result set changes.
 	useEffect(() => {
-		if (!open) return;
 		listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
-	}, [activeIndex, open, results.length]);
+	}, [activeIndex, results.length]);
 
-	const runAction = (action: CommandAction) => {
-		if (action.disabled) return;
-		action.run();
+	const onQueryChange = (value: string) => {
+		if (value === query) return;
+		setQuery(value);
+		setActiveIndex(0);
 	};
 
 	const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -141,8 +148,6 @@ export function CommandPalette({
 
 	const resultCount = enabledResults.length;
 
-	if (!open) return null;
-
 	return (
 		<div className="modal-layer command-palette-layer" role="presentation">
 			<m.button
@@ -177,7 +182,7 @@ export function CommandPalette({
 					aria-label={t('app.commandPalette.filter', 'Filter commands')}
 					placeholder={t('app.commandPalette.placeholder', 'Type a command or search…')}
 					value={query}
-					onChange={(event) => setQuery(event.target.value)}
+					onChange={(event) => onQueryChange(event.target.value)}
 					onKeyDown={onInputKeyDown}
 				/>
 
@@ -201,6 +206,7 @@ export function CommandPalette({
 						/>
 					) : (
 						groups.map((entry) => (
+							// biome-ignore lint/a11y/useSemanticElements: role="group" is the WAI-ARIA listbox-grouping pattern; <fieldset> carries form-control semantics and UA chrome that breaks the grid layout.
 							<div
 								key={entry.group}
 								className="command-palette-group"

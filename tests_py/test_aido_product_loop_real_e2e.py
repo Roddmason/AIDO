@@ -1,0 +1,408 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from contextlib import ExitStack, closing
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.app import create_app
+from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.git_workspace.service import GitWorkspaceService
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.probes import HostResourceProbe
+from local_control_center.product_loop.coordinator import ProductLoopCoordinator
+from local_control_center.security_policy.git_command_runner import git_available, run_git
+from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.runtime_status_helpers import ProbedRuntimeStatusService
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
+
+
+pytestmark = pytest.mark.skipif(not git_available(), reason="git CLI is required for real AIDO E2E")
+
+
+def _auth_headers(client: TestClient) -> dict[str, str]:
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
+
+
+@pytest.fixture(autouse=True)
+def _controlled_ollama_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Daemon Ollama controlado que anuncia el modelo sembrado por `_seed_ai_resource`.
+
+    Desde el endurecimiento de la selección (d7f0fbc8) un candidato solo es elegible si su
+    provider está ejecutable de verdad; sin este mock el test dependía de un daemon vivo en
+    la máquina y el ProductOwner rechazaba el recurso sembrado con runtime_not_executable.
+    """
+    monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
+    monkeypatch.setattr(
+        "local_control_center.agents.ai_resource_manager.RuntimeStatusService", ProbedRuntimeStatusService
+    )
+    monkeypatch.setattr(
+        "local_control_center.agents.runtime_status.cached_ollama_status",
+        lambda *, base_url=None, credential_ref=None: {
+            "provider": "ollama",
+            "available": True,
+            "models": ["qwen2.5-coder"],
+            "reason": "Controlled Ollama daemon.",
+        },
+    )
+
+
+def _init_git_project(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    init = run_git(["init", "--initial-branch", "main"], cwd=path)
+    if init.returncode != 0:
+        assert run_git(["init"], cwd=path).returncode == 0
+        assert run_git(["checkout", "-b", "main"], cwd=path).returncode == 0
+    assert run_git(["config", "user.email", "aido-e2e@example.invalid"], cwd=path).returncode == 0
+    assert run_git(["config", "user.name", "AIDO E2E"], cwd=path).returncode == 0
+    (path / "src").mkdir()
+    (path / "src" / "app.txt").write_text("initial\n", encoding="utf-8")
+    assert run_git(["add", "."], cwd=path).returncode == 0
+    assert run_git(["commit", "-m", "Initial commit"], cwd=path).returncode == 0
+
+
+def _write_fake_gitleaks_clean(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    implementation = bin_dir / "gitleaks_impl.py"
+    implementation.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "report = Path(sys.argv[sys.argv.index('--report-path') + 1])\n"
+        "report.write_text('[]', encoding='utf-8')\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        command = bin_dir / "gitleaks.cmd"
+        command.write_text(f'@echo off\r\n"{sys.executable}" "{implementation}" %*\r\n', encoding="utf-8")
+    else:
+        command = bin_dir / "gitleaks"
+        command.write_text(
+            f"#!{sys.executable}\n{implementation.read_text(encoding='utf-8')}", encoding="utf-8"
+        )
+        command.chmod(0o755)
+
+
+def _seed_ai_resource(connection) -> None:
+    # La cuenta ollama se siembra deshabilitada; sin habilitarla el status nunca es executable
+    # y el gate de selección (correcto) descarta el recurso aunque el daemon controlado responda.
+    connection.execute("UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'ollama'")
+    connection.commit()
+    AIResourceManager(connection).upsert_model_performance(
+        {
+            "providerId": "ollama",
+            "model": "qwen2.5-coder",
+            "runtime": "local",
+            "capabilities": ["chat", "code", "review", "tools", "reasoning", "json"],
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096,
+            "inputPricePerMtok": 0.0,
+            "outputPricePerMtok": 0.0,
+            "observedLatencyMs": 900,
+            "observedSuccessRate": 0.86,
+            "reworkRate": 0.04,
+            "qualityScore": 0.82,
+            "locality": "local",
+            "privacyLevel": "local_private",
+            "evidence": [{"id": "seed-e2e-product-loop-resource", "kind": "test_seed"}],
+        }
+    )
+
+
+class _FilesystemRuntime:
+    def __init__(self, connection, *, secret: str) -> None:
+        self.connection = connection
+        self.secret = secret
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        return {
+            "executable": True,
+            "selectedRuntimeId": preferred_runtime or "controlled_filesystem_runtime",
+            "reason": "Controlled filesystem runtime is executable.",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        workspace = self.connection.execute(
+            "SELECT * FROM workspaces WHERE id = ?", (payload["workspaceId"],)
+        ).fetchone()
+        assert workspace is not None
+        workspace_path = Path(workspace["path"])
+        generated = workspace_path / "src" / "generated.txt"
+        generated.write_text("generated by controlled runtime\n", encoding="utf-8")
+
+        qa_results = []
+        for command in payload.get("qaCommands") or []:
+            completed = subprocess.run(
+                [str(item) for item in command],
+                cwd=workspace_path,
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            qa_results.append(
+                {
+                    "command": subprocess.list2cmdline([str(item) for item in command]),
+                    "status": "passed" if completed.returncode == 0 else "failed",
+                    "durationMs": 1,
+                    "metadata": {
+                        "returnCode": completed.returncode,
+                        "stdout": completed.stdout,
+                        "stderr": completed.stderr,
+                        "secretEcho": self.secret,
+                    },
+                }
+            )
+
+        evidence = EvidenceRepository(self.connection).create_evidence_package(
+            project_id=payload["projectId"],
+            workflow_run_id=None,
+            agent_id="controlled_filesystem_runtime",
+            workspace_id=payload["workspaceId"],
+            runtime_id="controlled_filesystem_runtime",
+            task_id=payload["taskId"],
+            test_plan="Controlled runtime modifies a real worktree and runs QA.",
+            acceptance_checklist=["Runtime changed disk.", "QA command executed."],
+            test_results=qa_results,
+            logs=[{"runtimeLog": f"completed with {self.secret}"}],
+            diff_summary={},
+            runtime_health={
+                "id": "controlled_filesystem_runtime",
+                "status": "completed",
+                "secret": self.secret,
+            },
+            evidence_source="evidence_collected",
+            qa_verdict="passed",
+        )
+        return {
+            "status": "completed",
+            "reason": f"controlled runtime completed with {self.secret}",
+            "runtime": {"id": "controlled_filesystem_runtime", "executable": True},
+            "runtimeResult": {"status": "completed", "stdout": self.secret},
+            "agentRun": {"id": "agent-run-controlled"},
+            "job": {"id": "job-controlled"},
+            "evidencePackage": {"id": evidence["id"], "qaVerdict": "passed"},
+            "qaResults": qa_results,
+            "diffSummary": {},
+        }
+
+
+class _ProductOwnerRuntime:
+    def __init__(self) -> None:
+        self.run_payloads: list[dict[str, Any]] = []
+
+    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+        return {
+            "executable": True,
+            "selectedRuntimeId": preferred_runtime or "controlled_product_owner_runtime",
+            "reason": "Controlled ProductOwnerAgent runtime is executable.",
+        }
+
+    def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.run_payloads.append(payload)
+        brief = {
+            "title": "Real Product Loop E2E",
+            "summary": "Generate one file through the durable Product Loop.",
+            "problemStatement": "The delivery path must prove real git, QA, review, and approval gates.",
+            "goals": ["Create the requested file", "Preserve approval evidence"],
+            "targetUsers": ["AIDO operator"],
+            "successMetrics": ["Generated file exists in the isolated worktree"],
+            "scope": "Create src/generated.txt through the controlled runtime.",
+            "outOfScope": "Deploying or merging the generated branch.",
+        }
+        output = {
+            "status": "backlog_ready",
+            "summary": "Controlled ProductOwnerAgent backlog for the real E2E.",
+            "confidence": "high",
+            "questions": [],
+            "assumptions": [],
+            "decisions": [],
+            "productBriefPatch": brief,
+            "epics": [
+                {
+                    "title": "Durable Product Loop delivery",
+                    "description": "Deliver one auditable filesystem change through the loop.",
+                }
+            ],
+            "userStories": [
+                {
+                    "epicTitle": "Durable Product Loop delivery",
+                    "title": "Generate auditable file",
+                    "asA": "AIDO operator",
+                    "iWant": "the loop to create a generated file in an isolated worktree",
+                    "soThat": "I can review real evidence before approval",
+                    "businessValue": "high",
+                    "acceptanceCriteria": [
+                        "Given the controlled runtime, when the loop executes, then src/generated.txt is created."
+                    ],
+                }
+            ],
+            "risks": [],
+            "recommendedNextAction": "Continue to implementation.",
+        }
+        return {
+            "status": "backlog_ready",
+            "reason": "Controlled ProductOwnerAgent produced a backlog.",
+            "runtime": {"id": "controlled_product_owner_runtime", "executable": True},
+            "output": output,
+            "brief": brief,
+        }
+
+
+class _TechnicalLeadRuntime:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    def generate_agent_tasks(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        self.payloads.append(payload)
+        story = payload["userStories"][0]
+        return [
+            {
+                "storyId": story["id"],
+                "title": f"Implement {story['title']}",
+                "description": "Controlled TechnicalLead task for the real Product Loop E2E.",
+                "role": "backend_engineer",
+                "category": "implementation",
+                "priority": story["priority"],
+                "estimateHours": 1.0,
+            }
+        ]
+
+
+def test_aido_product_loop_real_git_runtime_review_approval_and_secret_hygiene(
+    owned_runtime_resources,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_bin = tmp_path / "fake-bin"
+    _write_fake_gitleaks_clean(fake_bin)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    secret = "sk-" + ("test" * 4)
+
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    _seed_ai_resource(store.connection)
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
+    headers = _auth_headers(client)
+    repo = tmp_path / "real-product-loop-repo"
+    _init_git_project(repo)
+    project = store.create_project(name="AIDO real E2E", path=repo, template_id="other")
+
+    branch_name = "codex/e2e-real-product-loop"
+    branch_response = client.post(
+        f"/api/v1/projects/{project['id']}/git/branches",
+        headers=headers,
+        json={"name": branch_name},
+    )
+    assert branch_response.status_code == 201, branch_response.text
+    assert branch_response.json()["status"] == "completed"
+    checkout_response = client.post(
+        f"/api/v1/projects/{project['id']}/git/checkout",
+        headers=headers,
+        json={"branch": branch_name},
+    )
+    assert checkout_response.status_code == 200, checkout_response.text
+    assert checkout_response.json()["currentBranch"] == branch_name
+
+    runtime = _FilesystemRuntime(store.connection, secret=secret)
+    product_owner = _ProductOwnerRuntime()
+    technical_lead = _TechnicalLeadRuntime()
+    result = ProductLoopCoordinator(store.connection, root=tmp_path).run_user_message(
+        project_id=project["id"],
+        message="Implement a real generated file through Agents / Loop.",
+        title="Real Product Loop E2E",
+        preferred_runtime="controlled_filesystem_runtime",
+        qa_commands=[
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; assert Path('src/generated.txt').read_text(encoding='utf-8').startswith('generated')",
+            ]
+        ],
+        run_metadata={
+            "entrypoint": "agents_loop",
+            "sourceBranch": branch_name,
+            "operatorNote": "meta written before execution",
+        },
+        runtime_runner=runtime,
+        git_service=GitWorkspaceService(store.connection, root=tmp_path),
+        product_owner_runner=product_owner,
+        technical_lead_runner=technical_lead,
+    )
+
+    assert result["status"] == "awaiting_approval", result
+    assert result["loop"]["state"] == "awaiting_approval"
+    assert "delivered" in result["allowedNextStates"]
+
+    durable = result["loop"]["context"]["durableRun"]
+    workspace_path = Path(durable["workspacePath"])
+    assert durable["requestMeta"]["entrypoint"] == "agents_loop"
+    assert durable["requestMeta"]["sourceBranch"] == branch_name
+    assert durable["workspaceIsolationType"] == "git_worktree"
+    assert (
+        (workspace_path / "src" / "generated.txt")
+        .read_text(encoding="utf-8")
+        .startswith("generated by controlled runtime")
+    )
+    assert (
+        run_git(["-C", str(workspace_path), "branch", "--show-current"])
+        .stdout.strip()
+        .startswith("codex/product-loop-")
+    )
+
+    review = durable["review"]
+    assert review["state"] == "captured"
+    assert review["changedFiles"] == ["src/generated.txt"]
+    assert "generated by controlled runtime" in review["patch"]
+    assert durable["runtimeResult"]["diffSummary"] == {}
+
+    gitleaks = durable["gitleaks"]
+    assert gitleaks["status"] == "completed"
+    assert gitleaks["workspaceId"] == durable["workspaceId"]
+    assert gitleaks["gitleaks"]["report"] == []
+
+    approval = durable["approval"]
+    assert approval["status"] == "available"
+    assert approval["actionRequestId"].startswith("action-")
+    overview = client.get("/api/v1/overview").json()
+    action = next(item for item in overview["actionRequests"] if item["id"] == approval["actionRequestId"])
+    assert action["status"] == "pending"
+    assert action["evidenceRefs"]
+    assert action["diffRefs"][0]["files"] == ["src/generated.txt"]
+
+    evidence_ids = durable["evidencePackageIds"]
+    persisted_evidence = [store.evidence.get_evidence_package(item) for item in evidence_ids]
+    assert any(package["qaVerdict"] == "passed" for package in persisted_evidence)
+    assert any(
+        package["diffSummary"].get("changedFiles") == ["src/generated.txt"] for package in persisted_evidence
+    )
+    assert runtime.run_payloads[0]["workspaceId"] == durable["workspaceId"]
+    assert product_owner.run_payloads[0]["projectId"] == project["id"]
+    assert technical_lead.payloads[0]["userStories"][0]["title"] == "Generate auditable file"
+
+    api_payload = {
+        "overview": overview,
+        "productLoop": client.get(f"/api/v1/projects/{project['id']}/product-loop").json(),
+    }
+    assert secret not in str(result)
+    assert secret not in str(api_payload)
+    assert secret not in "\n".join(store.connection.iterdump())
+    assert "[redacted]" in "\n".join(store.connection.iterdump())

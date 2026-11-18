@@ -15,7 +15,6 @@ local-control-center/web/
     ├── app/App.tsx
     ├── api/client.ts
     ├── api/types.ts
-    ├── components/primitives.tsx
     ├── design-system/
     ├── features/
     ├── hooks/

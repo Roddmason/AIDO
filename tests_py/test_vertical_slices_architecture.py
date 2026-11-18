@@ -255,7 +255,8 @@ def test_shared_migrations_owns_schema_bootstrap() -> None:
     migrations_source = migrations.read_text(encoding="utf-8")
 
     assert "from local_control_center.shared.migrations import initialize_platform_schema" in runtime_source
-    assert "initialize_platform_schema(self.connection)" in runtime_source
+    assert "initialize_platform_schema(connection)" in runtime_source
+    assert "with self.operation_connection() as connection:" in runtime_source
 
     schema_tokens = [
         "CREATE TABLE IF NOT EXISTS",
@@ -388,7 +389,7 @@ def test_retrieval_and_base_schema_tests_use_direct_sqlite_setup() -> None:
     schema_test = control_center_tests.split(
         "def test_sqlite_schema_contains_python_control_plane_tables",
         1,
-    )[1].split("def test_sandbox_denies_dangerous_subprocess_without_docker", 1)[0]
+    )[1].split("def test_agents_planner_is_gated_when_sdk_or_key_is_missing", 1)[0]
 
     assert "ControlPlaneFixture" not in retrieval_test
     assert "MemoryRepository" in retrieval_test

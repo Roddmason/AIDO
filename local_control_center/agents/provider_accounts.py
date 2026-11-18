@@ -5,34 +5,182 @@ they expose (capabilities and prices), point-in-time pricing snapshots, and the 
 health-check result. Credential references are validated/normalized via the resolver and
 never stored raw; error text and metadata are redacted before persistence.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.provider_catalog import provider_catalog_entry
+from local_control_center.shared.db import db_bool as _bool
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+
+
+def validate_provider_base_url(
+    value: str | None,
+    *,
+    provider_family: str = "",
+    deployment_mode: str = "custom",
+    api_family: str = "chat_completions",
+    adapter_profile: str = "auto",
+) -> str:
+    """Validate a safe absolute endpoint root before it reaches SQLite."""
+    candidate = str(value or "").strip()
+    if not candidate:
+        return candidate
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("baseUrl must be an absolute http(s) URL.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("baseUrl must not contain URL userinfo.")
+    if parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("baseUrl must not include params, query or fragment.")
+    if (
+        provider_family == "nvidia_nim"
+        and not deployment_mode.startswith("self_hosted")
+        and parsed.scheme != "https"
+    ):
+        raise ValueError("baseUrl must use https for hosted or partner NVIDIA NIM endpoints.")
+    if provider_family == "nvidia_nim":
+        path = parsed.path.rstrip("/")
+        if api_family in {"chat_completions", "embeddings"} and not path.endswith("/v1"):
+            raise ValueError("baseUrl must end in /v1 for NVIDIA chat or embeddings.")
+        if api_family == "rerank":
+            if deployment_mode.startswith("self_hosted"):
+                if not path.endswith("/v1"):
+                    raise ValueError("baseUrl must end in /v1 for self-hosted NVIDIA rerank.")
+            else:
+                marker = "/v1/retrieval/"
+                route = path.split(marker, 1)[1] if marker in path else ""
+                if len([segment for segment in route.split("/") if segment]) != 2:
+                    raise ValueError(
+                        "baseUrl must be a model-specific /v1/retrieval/{publisher}/{model} root "
+                        "for hosted NVIDIA rerank."
+                    )
+        if api_family in {"image_generation", "image_editing"}:
+            if deployment_mode.startswith("self_hosted"):
+                if not path.endswith("/v1"):
+                    raise ValueError("baseUrl must end in /v1 for self-hosted NVIDIA visual NIMs.")
+            elif adapter_profile == "nvidia_hosted_prompt_image_generation":
+                marker = "/v1/genai/"
+                route = path.removeprefix(marker) if path.startswith(marker) else ""
+                if len([segment for segment in route.split("/") if segment]) != 2:
+                    raise ValueError(
+                        "baseUrl must be a model-specific /v1/genai/{publisher}/{model} root "
+                        "for hosted NVIDIA image generation."
+                    )
+    return candidate.rstrip("/")
+
 
 PROVIDER_HEALTH_RESET_FIELDS = {
     "providerType",
     "provider_type",
     "apiFormat",
     "api_format",
+    "providerFamily",
+    "provider_family",
+    "deploymentMode",
+    "deployment_mode",
+    "apiFamily",
+    "api_family",
+    "adapterProfile",
+    "adapter_profile",
     "baseUrl",
     "base_url",
     "credentialRef",
     "credential_ref",
 }
 
+PROVIDER_ACCOUNT_COLUMNS = """
+    id, provider_id, display_name, provider_type, api_format, provider_family,
+    deployment_mode, api_family, adapter_profile, terms_mode, pricing_mode, base_url, credential_ref,
+    enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
+    provider_catalog_id, local_declaration_json, local_concurrency_limit,
+    created_at, updated_at
+"""
 
-def _bool(value: Any) -> bool:
-    return bool(int(value)) if isinstance(value, int) else bool(value)
+MAX_LOCAL_CONCURRENCY_LIMIT = 16
+LOCAL_DECLARATION_FIELDS = ("declaredBy", "declaredAt", "host")
+SERVER_ONLY_METADATA_KEYS = frozenset({"providerCatalogId"})
+PROVIDER_HEALTH_MODEL_ID_LIMIT = 20
+"""Tope de ids de modelo persistidos en un health-check; el resto solo se resume en ``modelCount``.
+
+Medido en la instalacion real: `provider_health_checks` guardaba el catalogo completo de modelos en
+cada chequeo (hasta 98 KB por fila, 148 MiB en 6.803 filas). El unico lector de la tabla
+(`ollama.api._latest_latency_for_provider`) solo necesita `latency`/`latencyMs`; la lista completa
+de modelos vigente se recalcula en caliente en cada request, nunca desde esta tabla.
+"""
+
+
+def _compact_provider_health_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Trunca la lista de modelos de un payload de salud antes de persistirlo (no muta el original)."""
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return payload
+    compact = dict(payload)
+    compact["modelCount"] = len(models)
+    compact["models"] = [str(model) for model in models[:PROVIDER_HEALTH_MODEL_ID_LIMIT]]
+    return compact
+
+
+def sanitize_client_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Quita de la metadata lo que solo el servidor puede afirmar: identidad de catálogo y localidad local.
+
+    `endpointKind="remote"` se conserva porque solo restringe (P4/R13); cualquier otro valor se descarta
+    porque declarar un endpoint local exige el endpoint auditado de declaración.
+    """
+    sanitized = {
+        key: value for key, value in dict(metadata or {}).items() if key not in SERVER_ONLY_METADATA_KEYS
+    }
+    if str(sanitized.get("endpointKind") or "").strip().lower() != "remote":
+        sanitized.pop("endpointKind", None)
+    return sanitized
+
+
+def _optional_column(row: sqlite3.Row, column: str) -> Any:
+    return row[column] if column in row.keys() else None
+
+
+def _optional_json_column(row: sqlite3.Row, column: str) -> Any:
+    raw = _optional_column(row, column)
+    return json_loads(raw, None) if raw else None
+
+
+MODEL_CATALOG_COLUMNS = """
+    id, provider_id, model, display_name, model_family, api_family, context_window,
+    max_output_tokens, supports_tools, supports_json, supports_streaming, supports_vision,
+    supports_embeddings, supports_rerank, supports_reasoning, supports_thinking,
+    supports_image_generation, supports_image_editing, effort_levels_json,
+    input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
+    reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at,
+    disabled_reason, disabled_detail
+"""
+VALIDATION_FAILED_REASON = "validation_failed"
+"""``model_catalog.disabled_reason`` de un modelo que la validación modelo por modelo descartó."""
+PRICING_SNAPSHOT_COLUMNS = """
+    id, provider_id, model, input_price_per_mtok, cached_input_price_per_mtok,
+    output_price_per_mtok, reasoning_price_per_mtok, free_tier, source_ref, effective_at,
+    metadata_json, apply_to_catalog, created_at
+"""
+
+
+def _value_or_existing(
+    body: dict[str, Any], existing: dict[str, Any] | None, field: str, default: Any
+) -> Any:
+    """Use an explicitly supplied value, otherwise preserve the stored value or create default."""
+    if field in body and body[field] is not None:
+        return body[field]
+    if existing is not None and field in existing:
+        return existing[field]
+    return default
 
 
 def credential_status(row: sqlite3.Row) -> str:
@@ -49,6 +197,12 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "displayName": row["display_name"],
         "providerType": row["provider_type"],
         "apiFormat": row["api_format"],
+        "providerFamily": row["provider_family"],
+        "deploymentMode": row["deployment_mode"],
+        "apiFamily": row["api_family"],
+        "adapterProfile": row["adapter_profile"],
+        "termsMode": row["terms_mode"],
+        "pricingMode": row["pricing_mode"],
         "baseUrl": row["base_url"],
         "credentialRef": row["credential_ref"],
         "credentialStatus": credential_status(row),
@@ -60,9 +214,22 @@ def row_to_provider_account(row: sqlite3.Row) -> dict[str, Any]:
         "metadata": redact_secrets(json_loads(row["metadata_json"], {}))
         if "metadata_json" in row.keys()
         else {},
+        "providerCatalogId": _optional_column(row, "provider_catalog_id"),
+        "localDeclaration": _optional_json_column(row, "local_declaration_json"),
+        "localConcurrencyLimit": _optional_column(row, "local_concurrency_limit"),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def provider_account_is_declared_free(account: dict[str, Any]) -> bool:
+    """Return whether zero-cost billing was explicitly and safely declared for an account."""
+    if str(account.get("pricingMode") or "unknown") != "free":
+        return False
+    if str(account.get("providerFamily") or account.get("providerId") or "") != "gemini":
+        return True
+    metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
+    return metadata.get("freeTierDeclaredByOperator") is True
 
 
 def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
@@ -73,6 +240,7 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "model": row["model"],
         "displayName": row["display_name"],
         "modelFamily": row["model_family"],
+        "apiFamily": row["api_family"],
         "contextWindow": row["context_window"],
         "maxOutputTokens": row["max_output_tokens"],
         "supportsTools": _bool(row["supports_tools"]),
@@ -83,6 +251,8 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "supportsRerank": _bool(row["supports_rerank"]),
         "supportsReasoning": _bool(row["supports_reasoning"]),
         "supportsThinking": _bool(row["supports_thinking"]),
+        "supportsImageGeneration": _bool(row["supports_image_generation"]),
+        "supportsImageEditing": _bool(row["supports_image_editing"]),
         "effortLevels": json_loads(row["effort_levels_json"], []),
         "inputPricePerMtok": row["input_price_per_mtok"],
         "cachedInputPricePerMtok": row["cached_input_price_per_mtok"],
@@ -94,6 +264,8 @@ def row_to_model_catalog(row: sqlite3.Row) -> dict[str, Any]:
         "source": row["source"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+        "disabledReason": _optional_column(row, "disabled_reason"),
+        "disabledDetail": _optional_column(row, "disabled_detail"),
     }
 
 
@@ -116,6 +288,38 @@ def row_to_pricing_snapshot(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+PROVIDER_TOMBSTONES_TABLE = "provider_account_tombstones"
+
+
+def record_provider_tombstone(connection: sqlite3.Connection, provider_id: str) -> None:
+    """Marca una cuenta borrada por el operador para que ninguna semilla de migración la resucite."""
+    connection.execute(
+        f"INSERT OR REPLACE INTO {PROVIDER_TOMBSTONES_TABLE} (provider_id, deleted_at) VALUES (?, ?)",
+        (provider_id, utc_now()),
+    )
+
+
+def clear_provider_tombstone(connection: sqlite3.Connection, provider_id: str) -> None:
+    """Retira el tombstone de una cuenta que el operador vuelve a dar de alta.
+
+    Tolera una base sin la tabla (esquema anterior a la fase 84 en fixtures parciales): sin tabla no
+    hay tombstone que retirar.
+    """
+    try:
+        connection.execute(f"DELETE FROM {PROVIDER_TOMBSTONES_TABLE} WHERE provider_id = ?", (provider_id,))
+    except sqlite3.OperationalError as error:
+        if "no such table" not in str(error):
+            raise
+
+
+def disabled_provider_ids(connection: sqlite3.Connection) -> frozenset[str]:
+    """Ids de las cuentas con el switch del operador apagado (``provider_accounts.enabled`` = 0)."""
+    return frozenset(
+        str(row[0])
+        for row in connection.execute("SELECT provider_id FROM provider_accounts WHERE enabled = 0")
+    )
+
+
 class ProviderAccountStore:
     """SQLite store for provider accounts, model catalog, pricing snapshots, and health checks."""
 
@@ -124,7 +328,9 @@ class ProviderAccountStore:
 
     def list_provider_accounts(self) -> list[dict[str, Any]]:
         """List all provider accounts ordered by provider id."""
-        rows = self.connection.execute("SELECT * FROM provider_accounts ORDER BY provider_id ASC").fetchall()
+        rows = self.connection.execute(
+            f"SELECT {PROVIDER_ACCOUNT_COLUMNS} FROM provider_accounts ORDER BY provider_id ASC"
+        ).fetchall()
         return [row_to_provider_account(row) for row in rows]
 
     def get_provider_account(self, provider_id: str) -> dict[str, Any]:
@@ -134,7 +340,12 @@ class ProviderAccountStore:
             KeyError: if no matching account exists.
         """
         row = self.connection.execute(
-            "SELECT * FROM provider_accounts WHERE provider_id = ? OR id = ?", (provider_id, provider_id)
+            f"""
+            SELECT {PROVIDER_ACCOUNT_COLUMNS}
+            FROM provider_accounts
+            WHERE provider_id = ? OR id = ?
+            """,
+            (provider_id, provider_id),
         ).fetchone()
         if not row:
             raise KeyError(f"Provider account not found: {provider_id}")
@@ -146,22 +357,61 @@ class ProviderAccountStore:
         Metadata and error text are redacted before storage.
         """
         provider_id = str(body["providerId"])
+        try:
+            existing = self.get_provider_account(provider_id)
+        except KeyError:
+            existing = None
         resolver = CredentialResolver()
         credential_ref = resolver.normalize_ref_for_storage(str(body.get("credentialRef", "") or ""))
         resolver.validate_ref(credential_ref)
-        metadata = redact_secrets(body.get("metadata") or {})
+        provider_family = _value_or_existing(body, existing, "providerFamily", provider_id)
+        deployment_mode = _value_or_existing(body, existing, "deploymentMode", "custom")
+        api_family = _value_or_existing(body, existing, "apiFamily", "chat_completions")
+        adapter_profile = _value_or_existing(body, existing, "adapterProfile", "auto")
+        terms_mode = _value_or_existing(body, existing, "termsMode", "unspecified")
+        pricing_mode = _value_or_existing(body, existing, "pricingMode", "unknown")
+        provider_type = _value_or_existing(body, existing, "providerType", "api")
+        metadata = redact_secrets(sanitize_client_metadata(body.get("metadata")))
+        base_url = validate_provider_base_url(
+            body.get("baseUrl"),
+            provider_family=provider_family,
+            deployment_mode=deployment_mode,
+            api_family=api_family,
+            adapter_profile=adapter_profile,
+        )
+        if provider_family == "nvidia_nim" and provider_type not in {"api", "gateway"}:
+            raise ValueError("NVIDIA NIM providerType must be api or gateway.")
+        if (
+            provider_family == "nvidia_nim"
+            and deployment_mode == "hosted_trial"
+            and (terms_mode != "evaluation" or pricing_mode != "unknown")
+        ):
+            raise ValueError("NVIDIA NIM hosted_trial requires termsMode evaluation and pricingMode unknown.")
+        if (
+            provider_family == "gemini"
+            and pricing_mode == "free"
+            and metadata.get("freeTierDeclaredByOperator") is not True
+        ):
+            raise ValueError("Gemini pricingMode free requires metadata.freeTierDeclaredByOperator=true.")
         now = utc_now()
         self.connection.execute(
             """
             INSERT INTO provider_accounts
-                (id, provider_id, display_name, provider_type, api_format, base_url, credential_ref,
+                (id, provider_id, display_name, provider_type, api_format, provider_family,
+                 deployment_mode, api_family, adapter_profile, terms_mode, pricing_mode, base_url, credential_ref,
                  enabled, quota_mode, health_status, last_health_check_at, last_error, metadata_json,
                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id) DO UPDATE SET
                 display_name = excluded.display_name,
                 provider_type = excluded.provider_type,
                 api_format = excluded.api_format,
+                provider_family = excluded.provider_family,
+                deployment_mode = excluded.deployment_mode,
+                api_family = excluded.api_family,
+                adapter_profile = excluded.adapter_profile,
+                terms_mode = excluded.terms_mode,
+                pricing_mode = excluded.pricing_mode,
                 base_url = excluded.base_url,
                 credential_ref = excluded.credential_ref,
                 enabled = excluded.enabled,
@@ -176,9 +426,15 @@ class ProviderAccountStore:
                 body.get("id") or provider_id,
                 provider_id,
                 body.get("displayName") or provider_id,
-                body.get("providerType", "api"),
+                provider_type,
                 body.get("apiFormat", "openai_compatible"),
-                body.get("baseUrl", ""),
+                provider_family,
+                deployment_mode,
+                api_family,
+                adapter_profile,
+                terms_mode,
+                pricing_mode,
+                base_url,
                 credential_ref,
                 1 if body.get("enabled", False) else 0,
                 body.get("quotaMode", "none"),
@@ -190,6 +446,8 @@ class ProviderAccountStore:
                 now,
             ),
         )
+        if existing is None:
+            clear_provider_tombstone(self.connection, provider_id)
         return self.get_provider_account(provider_id)
 
     def patch_provider_account(self, provider_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -202,20 +460,118 @@ class ProviderAccountStore:
             merged["healthStatus"] = "unknown"
             merged["lastHealthCheckAt"] = None
             merged["lastError"] = ""
-        return self.upsert_provider_account(merged)
+        updated = self.upsert_provider_account(merged)
+        if "enabled" in body and str(existing.get("providerType") or "") == "cli":
+            self._sync_cli_runtime_switch(str(existing["providerId"]), bool(updated["enabled"]))
+        return updated
+
+    def _sync_cli_runtime_switch(self, runtime_id: str, enabled: bool) -> None:
+        """Alinea la instalación y la cuenta nativa por defecto del CLI con el switch del operador.
+
+        El switch (``provider_accounts.enabled``) es la única autoridad por proveedor: sin esta
+        proyección, encender un CLI sembrado con ``runtime_installations.enabled = 0`` no tendría efecto
+        y no hay otra superficie que lo encienda. openhands/swe_agent siguen además gated por la
+        capability ``code_edit``. Comparte la transacción del llamador.
+        """
+        now = utc_now()
+        flag = 1 if enabled else 0
+        self.connection.execute(
+            "UPDATE runtime_installations SET enabled = ?, updated_at = ? WHERE runtime_id = ? AND enabled != ?",
+            (flag, now, runtime_id, flag),
+        )
+        self.connection.execute(
+            "UPDATE runtime_accounts SET enabled = ?, updated_at = ? "
+            "WHERE runtime_id = ? AND is_default = 1 AND enabled != ?",
+            (flag, now, runtime_id, flag),
+        )
+
+    def set_provider_catalog_id(self, provider_id: str, catalog_id: str) -> dict[str, Any]:
+        """Fija la identidad de catálogo (campo del servidor) de una cuenta existente.
+
+        La llaman el alta desde catálogo y el router de endpoints locales, nunca un payload del cliente.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si el id no pertenece al catálogo.
+        """
+        entry = provider_catalog_entry(catalog_id)
+        if entry is None:
+            raise ValueError(f"Unknown provider catalog id: {catalog_id}")
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET provider_catalog_id = ?, updated_at = ? WHERE provider_id = ?",
+            (entry.id, utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
+
+    def set_local_declaration(
+        self, provider_id: str, declaration: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        """Guarda, o retira con None, la declaración local auditada `{declaredBy, declaredAt, host}`.
+
+        La valida el endpoint auditado de declaración; aquí solo se exige la forma completa.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si falta algún campo de la declaración.
+        """
+        payload = None
+        if declaration is not None:
+            missing = [
+                field for field in LOCAL_DECLARATION_FIELDS if not str(declaration.get(field) or "").strip()
+            ]
+            if missing:
+                raise ValueError(f"Local declaration is missing: {', '.join(missing)}")
+            payload = json_dumps(
+                {field: str(declaration[field]).strip() for field in LOCAL_DECLARATION_FIELDS}
+            )
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET local_declaration_json = ?, updated_at = ? WHERE provider_id = ?",
+            (payload, utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
+
+    def set_local_concurrency_limit(self, provider_id: str, limit: int | None) -> dict[str, Any]:
+        """Fija cuántas llamadas simultáneas acepta el endpoint local; None vuelve al default de 1.
+
+        Raises:
+            KeyError: si la cuenta no existe.
+            ValueError: si el límite está fuera de 1..MAX_LOCAL_CONCURRENCY_LIMIT.
+        """
+        if limit is not None and not 1 <= int(limit) <= MAX_LOCAL_CONCURRENCY_LIMIT:
+            raise ValueError(f"localConcurrencyLimit must be between 1 and {MAX_LOCAL_CONCURRENCY_LIMIT}.")
+        account = self.get_provider_account(provider_id)
+        self.connection.execute(
+            "UPDATE provider_accounts SET local_concurrency_limit = ?, updated_at = ? WHERE provider_id = ?",
+            (None if limit is None else int(limit), utc_now(), account["providerId"]),
+        )
+        return self.get_provider_account(account["providerId"])
 
     def list_models(self, provider_id: str | None = None) -> list[dict[str, Any]]:
         """List catalog models, optionally filtered to one provider, ordered by provider then model."""
         if provider_id:
             rows = self.connection.execute(
-                "SELECT * FROM model_catalog WHERE provider_id = ? ORDER BY provider_id ASC, model ASC",
+                f"""
+                SELECT {MODEL_CATALOG_COLUMNS}
+                FROM model_catalog
+                WHERE provider_id = ?
+                ORDER BY provider_id ASC, model ASC
+                """,
                 (provider_id,),
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM model_catalog ORDER BY provider_id ASC, model ASC"
+                f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog ORDER BY provider_id ASC, model ASC"
             ).fetchall()
         return [row_to_model_catalog(row) for row in rows]
+
+    def first_enabled_model(self, provider_id: str) -> str | None:
+        """Devuelve el primer modelo habilitado del catálogo del proveedor, o ``None`` si no hay ninguno."""
+        for model in self.list_models(provider_id):
+            if model.get("enabled"):
+                return str(model.get("model"))
+        return None
 
     def get_model(self, model_id: str) -> dict[str, Any]:
         """Fetch one catalog model by id.
@@ -223,27 +579,33 @@ class ProviderAccountStore:
         Raises:
             KeyError: if no model has the given id.
         """
-        row = self.connection.execute("SELECT * FROM model_catalog WHERE id = ?", (model_id,)).fetchone()
+        row = self.connection.execute(
+            f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog WHERE id = ?", (model_id,)
+        ).fetchone()
         if not row:
             raise KeyError(f"Model not found: {model_id}")
         return row_to_model_catalog(row)
 
-    def upsert_model(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Insert or update a catalog model keyed by (providerId, model) and return the stored row."""
+    def upsert_model(
+        self, body: dict[str, Any], *, preserve_operator_enabled: bool = False
+    ) -> dict[str, Any]:
+        """Upsert a catalog model, optionally preserving operator enablement during metadata refresh."""
         model_id = str(body.get("id") or f"{body['providerId']}:{body['model']}")
         now = utc_now()
         self.connection.execute(
             """
             INSERT INTO model_catalog
-                (id, provider_id, model, display_name, model_family, context_window, max_output_tokens,
-                 supports_tools, supports_json, supports_streaming, supports_vision, supports_embeddings,
-                 supports_rerank, supports_reasoning, supports_thinking, effort_levels_json,
+                (id, provider_id, model, display_name, model_family, api_family, context_window,
+                 max_output_tokens, supports_tools, supports_json, supports_streaming, supports_vision,
+                 supports_embeddings, supports_rerank, supports_reasoning, supports_thinking,
+                 supports_image_generation, supports_image_editing, effort_levels_json,
                  input_price_per_mtok, cached_input_price_per_mtok, output_price_per_mtok,
                  reasoning_price_per_mtok, free_tier, free_tier_notes, enabled, source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider_id, model) DO UPDATE SET
                 display_name = excluded.display_name,
                 model_family = excluded.model_family,
+                api_family = excluded.api_family,
                 context_window = excluded.context_window,
                 max_output_tokens = excluded.max_output_tokens,
                 supports_tools = excluded.supports_tools,
@@ -254,6 +616,8 @@ class ProviderAccountStore:
                 supports_rerank = excluded.supports_rerank,
                 supports_reasoning = excluded.supports_reasoning,
                 supports_thinking = excluded.supports_thinking,
+                supports_image_generation = excluded.supports_image_generation,
+                supports_image_editing = excluded.supports_image_editing,
                 effort_levels_json = excluded.effort_levels_json,
                 input_price_per_mtok = excluded.input_price_per_mtok,
                 cached_input_price_per_mtok = excluded.cached_input_price_per_mtok,
@@ -261,8 +625,15 @@ class ProviderAccountStore:
                 reasoning_price_per_mtok = excluded.reasoning_price_per_mtok,
                 free_tier = excluded.free_tier,
                 free_tier_notes = excluded.free_tier_notes,
-                enabled = excluded.enabled,
-                source = excluded.source,
+                enabled = CASE
+                    WHEN ? AND model_catalog.disabled_reason = 'validation_failed' THEN 0
+                    WHEN ? AND model_catalog.source = 'operator_override' THEN model_catalog.enabled
+                    ELSE excluded.enabled END,
+                source = CASE
+                    WHEN ? AND (model_catalog.source = 'operator_override'
+                                OR model_catalog.disabled_reason = 'validation_failed')
+                        THEN model_catalog.source
+                    ELSE excluded.source END,
                 updated_at = excluded.updated_at
             """,
             (
@@ -271,6 +642,7 @@ class ProviderAccountStore:
                 body["model"],
                 body.get("displayName") or body["model"],
                 body.get("modelFamily", ""),
+                body.get("apiFamily", "chat_completions"),
                 int(body.get("contextWindow") or 0),
                 int(body.get("maxOutputTokens") or 0),
                 1 if body.get("supportsTools", False) else 0,
@@ -281,6 +653,8 @@ class ProviderAccountStore:
                 1 if body.get("supportsRerank", False) else 0,
                 1 if body.get("supportsReasoning", False) else 0,
                 1 if body.get("supportsThinking", False) else 0,
+                1 if body.get("supportsImageGeneration", False) else 0,
+                1 if body.get("supportsImageEditing", False) else 0,
                 json_dumps(body.get("effortLevels") or []),
                 body.get("inputPricePerMtok"),
                 body.get("cachedInputPricePerMtok"),
@@ -292,10 +666,18 @@ class ProviderAccountStore:
                 body.get("source", "manual"),
                 now,
                 now,
+                preserve_operator_enabled,
+                preserve_operator_enabled,
+                preserve_operator_enabled,
             ),
         )
+        self.connection.execute(
+            """UPDATE model_catalog SET disabled_reason = NULL, disabled_detail = NULL
+               WHERE provider_id = ? AND model = ? AND enabled = 1 AND disabled_reason IS NOT NULL""",
+            (body["providerId"], body["model"]),
+        )
         row = self.connection.execute(
-            "SELECT * FROM model_catalog WHERE provider_id = ? AND model = ?",
+            f"SELECT {MODEL_CATALOG_COLUMNS} FROM model_catalog WHERE provider_id = ? AND model = ?",
             (body["providerId"], body["model"]),
         ).fetchone()
         return row_to_model_catalog(row)
@@ -309,8 +691,91 @@ class ProviderAccountStore:
             "id": existing["id"],
             "providerId": existing["providerId"],
             "model": existing["model"],
+            "source": "operator_override",
         }
         return self.upsert_model(merged)
+
+    def set_models_enabled(self, provider_id: str, enabled: bool, model_ids: list[str] | None = None) -> int:
+        """Fija ``enabled`` en bloque para modelos de un proveedor y devuelve cuántas filas tocó.
+
+        Igual que ``patch_model``, marca las filas como ``operator_override`` para que un resync
+        respete la elección. ``model_ids=None`` aplica a todo el catálogo del proveedor. Corre en la
+        transacción del llamador; los ids se envían en tramos para no rozar el límite de parámetros
+        de SQLite con catálogos de miles de modelos.
+
+        Raises:
+            KeyError: algún id no pertenece al catálogo de ``provider_id`` (no se aplica nada si el
+                llamador revierte la transacción).
+        """
+        now = utc_now()
+        if model_ids is None:
+            cursor = self.connection.execute(
+                """
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?,
+                    disabled_reason = CASE WHEN ? THEN NULL ELSE disabled_reason END,
+                    disabled_detail = CASE WHEN ? THEN NULL ELSE disabled_detail END
+                WHERE provider_id = ?
+                """,
+                (1 if enabled else 0, now, enabled, enabled, provider_id),
+            )
+            return int(cursor.rowcount or 0)
+        unique_ids = list(dict.fromkeys(model_ids))
+        updated = 0
+        chunk_size = 500
+        for start in range(0, len(unique_ids), chunk_size):
+            chunk = unique_ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor = self.connection.execute(
+                f"""
+                UPDATE model_catalog SET enabled = ?, source = 'operator_override', updated_at = ?,
+                    disabled_reason = CASE WHEN ? THEN NULL ELSE disabled_reason END,
+                    disabled_detail = CASE WHEN ? THEN NULL ELSE disabled_detail END
+                WHERE provider_id = ? AND id IN ({placeholders})
+                """,
+                (1 if enabled else 0, now, enabled, enabled, provider_id, *chunk),
+            )
+            updated += int(cursor.rowcount or 0)
+        if updated != len(unique_ids):
+            raise KeyError(f"{len(unique_ids) - updated} model(s) not found for provider {provider_id}")
+        return updated
+
+    def discard_failed_models(self, provider_id: str, details: Mapping[str, str]) -> int:
+        """Deshabilita los modelos que fallaron la validación y los marca ``validation_failed``.
+
+        ``details`` va de nombre de modelo a la causa breve y redactada. Queda como elección del operador
+        (``operator_override``) para que un resync no los vuelva a habilitar; la fila nunca se borra y
+        re-habilitarla (bulk PATCH o una nueva prueba que pase) retira la marca. Corre en la transacción
+        del llamador y devuelve cuántas filas tocó.
+        """
+        now = utc_now()
+        updated = 0
+        for model, detail in details.items():
+            cursor = self.connection.execute(
+                """UPDATE model_catalog SET enabled = 0, source = 'operator_override', updated_at = ?,
+                       disabled_reason = ?, disabled_detail = ?
+                   WHERE provider_id = ? AND model = ?""",
+                (now, VALIDATION_FAILED_REASON, str(redact_secrets(detail))[:500], provider_id, model),
+            )
+            updated += int(cursor.rowcount or 0)
+        return updated
+
+    def restore_validated_models(self, provider_id: str, models: list[str]) -> int:
+        """Vuelve a habilitar los modelos descartados por validación que ahora pasaron la prueba.
+
+        Solo toca filas con ``disabled_reason = 'validation_failed'``: un modelo que el operador apagó a
+        mano sigue apagado aunque responda. Corre en la transacción del llamador.
+        """
+        now = utc_now()
+        updated = 0
+        for model in models:
+            cursor = self.connection.execute(
+                """UPDATE model_catalog SET enabled = 1, updated_at = ?, disabled_reason = NULL,
+                       disabled_detail = NULL
+                   WHERE provider_id = ? AND model = ? AND disabled_reason = ?""",
+                (now, provider_id, model, VALIDATION_FAILED_REASON),
+            )
+            updated += int(cursor.rowcount or 0)
+        return updated
 
     def list_pricing_snapshots(
         self,
@@ -329,7 +794,7 @@ class ProviderAccountStore:
             params.append(model)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.connection.execute(
-            f"SELECT * FROM pricing_snapshots {where} ORDER BY created_at DESC",
+            f"SELECT {PRICING_SNAPSHOT_COLUMNS} FROM pricing_snapshots {where} ORDER BY created_at DESC",
             tuple(params),
         ).fetchall()
         return [row_to_pricing_snapshot(row) for row in rows]
@@ -393,7 +858,8 @@ class ProviderAccountStore:
                     "reasoningPricePerMtok": snapshot["reasoningPricePerMtok"],
                     "freeTier": snapshot["freeTier"],
                     "source": f"pricing_snapshot:{snapshot_id}",
-                }
+                },
+                preserve_operator_enabled=True,
             )
         return snapshot
 
@@ -404,7 +870,7 @@ class ProviderAccountStore:
             KeyError: if no snapshot has the given id.
         """
         row = self.connection.execute(
-            "SELECT * FROM pricing_snapshots WHERE id = ?", (snapshot_id,)
+            f"SELECT {PRICING_SNAPSHOT_COLUMNS} FROM pricing_snapshots WHERE id = ?", (snapshot_id,)
         ).fetchone()
         if not row:
             raise KeyError(f"Pricing snapshot not found: {snapshot_id}")
@@ -425,12 +891,13 @@ class ProviderAccountStore:
         if not last_error and health_status != "healthy":
             last_error = str(payload.get("message") or payload.get("status") or "")
         last_error = str(redact_secrets(last_error))
+        compact_payload = _compact_provider_health_payload(redact_secrets(payload))
         self.connection.execute(
             """
             INSERT INTO provider_health_checks (id, provider_id, status, payload, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (check_id, provider_id, status, json_dumps(redact_secrets(payload)), now),
+            (check_id, provider_id, status, json_dumps(compact_payload), now),
         )
         self.patch_provider_account(
             provider_id,
@@ -440,6 +907,6 @@ class ProviderAccountStore:
             "id": check_id,
             "providerId": provider_id,
             "status": status,
-            "payload": redact_secrets(payload),
+            "payload": compact_payload,
             "createdAt": now,
         }

@@ -2,11 +2,11 @@
 
 Defines the validated shape the shell consumes: a list of per-run activity entries, each
 carrying the headline fields (agent, role, runtime, assignment, blocked reason, completed
-artifact, reviewer, duration, cost) plus collapsible low-level model/tool events and a
+artifact, reviewer, next step, duration, cost) plus collapsible low-level model/tool events and a
 developer-details block with the run's already-redacted input/output/metadata. Python keeps
 snake_case while keys travel as camelCase via ``alias``; the service emits that camelCase.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 EntryState = Literal["active", "blocked", "done"]
 CostSource = Literal["actual", "estimated"]
+NextStepSource = Literal["agent", "handoff"]
 
 
 class _Aliased(BaseModel):
@@ -51,6 +52,18 @@ class ReviewerSummary(_Aliased):
     decision: str | None = None
 
 
+class NextStep(_Aliased):
+    """The work's next action: the agent's own stated step, or a pending handoff's destination.
+
+    ``source`` says which: ``agent`` carries the agent-stated ``text``; ``handoff`` carries the
+    ``handoff_to`` agent expected to act next. Exactly one of the two payloads is populated.
+    """
+
+    source: NextStepSource
+    text: str | None = None
+    handoff_to: str | None = Field(default=None, alias="handoffTo")
+
+
 class ModelCallSummary(_Aliased):
     """One low-level model invocation: provider, model, token counts and cost."""
 
@@ -58,8 +71,8 @@ class ModelCallSummary(_Aliased):
     provider: str
     model: str
     status: str
-    prompt_tokens: int = Field(alias="promptTokens")
-    completion_tokens: int = Field(alias="completionTokens")
+    prompt_tokens: int | None = Field(alias="promptTokens")
+    completion_tokens: int | None = Field(alias="completionTokens")
     cost_usd: float | None = Field(default=None, alias="costUsd")
     created_at: str = Field(alias="createdAt")
 
@@ -103,6 +116,7 @@ class TeamActivityEntry(_Aliased):
     blocked_reason: str | None = Field(default=None, alias="blockedReason")
     completed_artifact: ArtifactSummary | None = Field(default=None, alias="completedArtifact")
     reviewer: ReviewerSummary | None = None
+    next_step: NextStep | None = Field(default=None, alias="nextStep")
     started_at: str | None = Field(default=None, alias="startedAt")
     ended_at: str | None = Field(default=None, alias="endedAt")
     duration_ms: int | None = Field(default=None, alias="durationMs")

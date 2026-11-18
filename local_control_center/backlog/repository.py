@@ -17,7 +17,7 @@ por sí mismas; las que calculan el siguiente ``sequence`` antes de insertar
 (``create_acceptance_criterion``) solo son atómicas si el caller las agrupa en una única
 ``immediate_transaction``, que además evita colisiones en ``UNIQUE(story_id, sequence)``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -44,6 +44,16 @@ IMPLEMENTATION_REVIEW_ROLES = {
 }
 ACCEPTED_HANDOFF_STATUSES = {"accepted", "resolved", "completed"}
 APPROVED_REVIEW_STATUSES = {"approved", "accepted"}
+TECHNICAL_USER_STORY_KEYS = {
+    "agentId",
+    "agentIds",
+    "agentRole",
+    "agentTask",
+    "implementationTask",
+    "role",
+    "taskRole",
+    "technicalTask",
+}
 
 
 def _as_bool(value: Any) -> bool:
@@ -104,6 +114,32 @@ def _reject_free_form_prompt(body: dict[str, Any]) -> None:
             "Agent assignments cannot collaborate through a shared free-form prompt; "
             "use inputSchema, outputSchema and canonical artifacts."
         )
+
+
+def _reject_technical_user_story_fields(body: dict[str, Any]) -> None:
+    forbidden = sorted(key for key in TECHNICAL_USER_STORY_KEYS if key in body)
+    if forbidden:
+        raise ValueError(
+            "User stories must describe user value, not agent work; "
+            f"move {', '.join(forbidden)} to agent_tasks."
+        )
+
+
+def _criteria_from_body(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("acceptanceCriteria must be a list.")
+    criteria: list[str] = []
+    for index, item in enumerate(value):
+        if isinstance(item, dict):
+            criterion = str(item.get("criterion") or "").strip()
+        else:
+            criterion = str(item or "").strip()
+        if not criterion:
+            raise ValueError(f"acceptanceCriteria[{index}] must be a non-empty string.")
+        criteria.append(criterion)
+    return criteria
 
 
 def row_to_epic(row: sqlite3.Row) -> dict[str, Any]:
@@ -232,23 +268,31 @@ def row_to_agent_assignment(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def row_to_iteration(row: sqlite3.Row) -> dict[str, Any]:
-    """Mapea una fila de ``iterations`` al dict camelCase del contrato."""
+def row_to_agent_assignment_summary(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una fila de ``agent_assignments`` con todas sus columnas salvo ``metadata``.
+
+    ``metadata`` guarda el snapshot de decisión de recursos (``resourceDecision``), que puede pesar
+    cientos de KB por asignación —medido: ~554 KB en una sola, dominado por
+    ``resourceDecision.rejected`` (historial de candidatos de runtime descartados)—. Omitir la
+    columna del ``SELECT`` evita decodificar ese JSON para consumidores que sólo necesitan el resto
+    del contrato de la asignación (el listado agregado del Workbench).
+    """
     return {
         "id": row["id"],
         "projectId": row["project_id"],
-        "briefId": row["brief_id"],
-        "title": row["title"],
-        "goal": row["goal"],
+        "taskId": row["task_id"],
+        "agentId": row["agent_id"],
+        "role": row["role"],
         "status": row["status"],
-        "storyIds": json_loads(row["story_ids"], []),
-        "workspaceStrategy": row["workspace_strategy"],
-        "qualityGates": json_loads(row["quality_gates"], []),
-        "securityGates": json_loads(row["security_gates"], []),
-        "estimatedCost": json_loads(row["estimated_cost"]),
-        "runtimes": json_loads(row["runtimes"], []),
-        "taskCount": row["task_count"],
-        "assignmentCount": row["assignment_count"],
+        "assignedBy": row["assigned_by"],
+        "assignedAt": row["assigned_at"],
+        "releasedAt": row["released_at"],
+        "inputSchema": json_loads(row["input_schema"], {}),
+        "outputSchema": json_loads(row["output_schema"], {}),
+        "canonicalArtifactId": row["canonical_artifact_id"],
+        "handoffId": row["handoff_id"],
+        "reviewRequired": _as_bool(row["review_required"]),
+        "metadata": {},
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -351,6 +395,26 @@ class BacklogRepository:
         self.connection.execute(
             """
             INSERT INTO assignment_handoffs
+                (id, project_id, assignment_id, artifact_id, from_agent_id, to_agent_id, status,
+                 review_required, blocked_reason, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, '', ?, ?, ?)
+            """,
+            (
+                handoff_id,
+                project_id,
+                assignment_id,
+                artifact_id,
+                from_agent_id,
+                to_agent_id,
+                1 if review_required else 0,
+                json_dumps(metadata or {}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO agent_handoffs
                 (id, project_id, assignment_id, artifact_id, from_agent_id, to_agent_id, status,
                  review_required, blocked_reason, metadata, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, '', ?, ?, ?)
@@ -485,35 +549,49 @@ class BacklogRepository:
         Modela valor de usuario con ``asA``/``iWant``/``soThat``; no lleva rol técnico: el trabajo
         por disciplina se descompone en ``agent_tasks``, evitando duplicar la HU por cada rol.
         """
+        _reject_technical_user_story_fields(body)
+        criteria = _criteria_from_body(body.get("acceptanceCriteria"))
+        if not criteria:
+            raise ValueError("User story requires at least one acceptance criterion.")
         story_id = f"user-story-{uuid.uuid4()}"
         timestamp = utc_now()
-        self.connection.execute(
-            """
-            INSERT INTO user_stories
-                (id, project_id, epic_id, title, as_a, i_want, so_that, description, status,
-                 priority, business_value, story_points, owner, version, metadata,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-            """,
-            (
-                story_id,
-                body["projectId"],
-                body["epicId"],
-                body["title"],
-                body.get("asA", ""),
-                body.get("iWant", ""),
-                body.get("soThat", ""),
-                body.get("description", ""),
-                body.get("status", "draft"),
-                body.get("priority", "medium"),
-                body.get("businessValue", "medium"),
-                body.get("storyPoints"),
-                body.get("owner", ""),
-                json_dumps(body.get("metadata") or {}),
-                timestamp,
-                timestamp,
-            ),
-        )
+        with self._transaction():
+            self.connection.execute(
+                """
+                INSERT INTO user_stories
+                    (id, project_id, epic_id, title, as_a, i_want, so_that, description, status,
+                     priority, business_value, story_points, owner, version, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    story_id,
+                    body["projectId"],
+                    body["epicId"],
+                    body["title"],
+                    body.get("asA", ""),
+                    body.get("iWant", ""),
+                    body.get("soThat", ""),
+                    body.get("description", ""),
+                    body.get("status", "draft"),
+                    body.get("priority", "medium"),
+                    body.get("businessValue", "medium"),
+                    body.get("storyPoints"),
+                    body.get("owner", ""),
+                    json_dumps(body.get("metadata") or {}),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            for criterion in criteria:
+                self.create_acceptance_criterion(
+                    {
+                        "projectId": body["projectId"],
+                        "storyId": story_id,
+                        "criterion": criterion,
+                        "metadata": body.get("acceptanceCriteriaMetadata") or {},
+                    }
+                )
         return self.get_user_story(story_id)
 
     def get_user_story(self, story_id: str) -> dict[str, Any]:
@@ -545,12 +623,32 @@ class BacklogRepository:
         ).fetchall()
         return [row_to_user_story(row) for row in rows]
 
+    def list_user_stories_for_output(
+        self, project_id: str, product_owner_output_id: str
+    ) -> list[dict[str, Any]]:
+        """Lista las historias emitidas por un output del PO en su orden de emisión.
+
+        El orden de emisión es el de inserción (``rowid``): ``persist_product_owner_backlog`` crea las
+        filas recorriendo ``output["userStories"]``. Es el desempate del orden de ejecución por
+        historia y la fuente de las historias del tablero (incluidas las que no tienen tareas).
+        """
+        rows = self.connection.execute(
+            """
+            SELECT * FROM user_stories
+            WHERE project_id = ? AND json_extract(metadata, '$.productOwnerOutputId') = ?
+            ORDER BY rowid ASC
+            """,
+            (project_id, product_owner_output_id),
+        ).fetchall()
+        return [row_to_user_story(row) for row in rows]
+
     def update_user_story(self, story_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una user story, incrementa su versión y devuelve el registro.
 
         Raises:
             KeyError: si la user story no existe.
         """
+        _reject_technical_user_story_fields(body)
         current = self.get_user_story(story_id)
         next_value = {**current, **body}
         timestamp = utc_now()
@@ -591,6 +689,12 @@ class BacklogRepository:
         criterion_id = f"acceptance-criterion-{uuid.uuid4()}"
         timestamp = utc_now()
         story_id = body["storyId"]
+        story = self.get_user_story(story_id)
+        if story["projectId"] != body["projectId"]:
+            raise ValueError("Acceptance criterion projectId must match its user story.")
+        criterion = str(body["criterion"]).strip()
+        if not criterion:
+            raise ValueError("Acceptance criterion requires a non-empty criterion.")
         next_sequence = self.connection.execute(
             "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM acceptance_criteria WHERE story_id = ?",
             (story_id,),
@@ -607,7 +711,7 @@ class BacklogRepository:
                 body["projectId"],
                 story_id,
                 next_sequence,
-                body["criterion"],
+                criterion,
                 body.get("status", "pending"),
                 json_dumps(body.get("metadata") or {}),
                 timestamp,
@@ -629,38 +733,24 @@ class BacklogRepository:
             raise KeyError(f"Acceptance criterion not found: {criterion_id}")
         return row_to_acceptance_criterion(row)
 
-    def list_acceptance_criteria(self, story_id: str) -> list[dict[str, Any]]:
-        """Lista los criterios de aceptación de una historia en orden estable (por ``sequence``)."""
+    def list_acceptance_criteria(
+        self, story_id: str | None = None, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista criterios de aceptación por historia y/o proyecto en orden estable."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if story_id:
+            conditions.append("story_id = ?")
+            params.append(story_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self.connection.execute(
-            "SELECT * FROM acceptance_criteria WHERE story_id = ? ORDER BY sequence ASC",
-            (story_id,),
+            f"SELECT * FROM acceptance_criteria {where} ORDER BY story_id ASC, sequence ASC",
+            params,
         ).fetchall()
         return [row_to_acceptance_criterion(row) for row in rows]
-
-    def update_acceptance_criterion(self, criterion_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre un criterio (criterion, status, metadata).
-
-        Raises:
-            KeyError: si el criterio no existe.
-        """
-        current = self.get_acceptance_criterion(criterion_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE acceptance_criteria
-            SET criterion = ?, status = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["criterion"],
-                next_value["status"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                criterion_id,
-            ),
-        )
-        return self.get_acceptance_criterion(criterion_id)
 
     def create_story_dependency(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una arista de dependencia entre dos historias y la devuelve.
@@ -672,6 +762,10 @@ class BacklogRepository:
         depends_on_story_id = body["dependsOnStoryId"]
         if story_id == depends_on_story_id:
             raise ValueError(f"Story cannot depend on itself: {story_id}")
+        story = self.get_user_story(story_id)
+        depends_on = self.get_user_story(depends_on_story_id)
+        if story["projectId"] != body["projectId"] or depends_on["projectId"] != body["projectId"]:
+            raise ValueError("Story dependency projectId must match both stories.")
         dependency_id = f"story-dependency-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -724,16 +818,15 @@ class BacklogRepository:
         ).fetchall()
         return [row_to_story_dependency(row) for row in rows]
 
-    def delete_story_dependency(self, dependency_id: str) -> None:
-        """Elimina una dependencia entre historias por id (idempotente: no falla si no existe)."""
-        self.connection.execute("DELETE FROM story_dependencies WHERE id = ?", (dependency_id,))
-
     def create_agent_task(self, body: dict[str, Any]) -> dict[str, Any]:
         """Inserta una agent task (id ``agent-task-<uuid>``, versión 1) y devuelve el registro.
 
         ``role`` captura la disciplina del trabajo técnico (frontend, backend, qa, …) a nivel de
         tarea; descomponer una historia en varias tareas con distinto rol sustituye a duplicar la HU.
         """
+        story = self.get_user_story(body["storyId"])
+        if story["projectId"] != body["projectId"]:
+            raise ValueError("Agent task projectId must match its user story.")
         task_id = f"agent-task-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -838,6 +931,10 @@ class BacklogRepository:
         depends_on_task_id = body["dependsOnTaskId"]
         if task_id == depends_on_task_id:
             raise ValueError(f"Task cannot depend on itself: {task_id}")
+        task = self.get_agent_task(task_id)
+        depends_on = self.get_agent_task(depends_on_task_id)
+        if task["projectId"] != body["projectId"] or depends_on["projectId"] != body["projectId"]:
+            raise ValueError("Task dependency projectId must match both tasks.")
         dependency_id = f"task-dependency-{uuid.uuid4()}"
         timestamp = utc_now()
         self.connection.execute(
@@ -1020,6 +1117,35 @@ class BacklogRepository:
             f"SELECT * FROM agent_assignments {where} ORDER BY created_at DESC", params
         ).fetchall()
         return [row_to_agent_assignment(row) for row in rows]
+
+    def list_agent_assignment_summaries(
+        self,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Como ``list_agent_assignments`` pero sin ``metadata`` (ver ``row_to_agent_assignment_summary``)."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if task_id:
+            conditions.append("task_id = ?")
+            params.append(task_id)
+        if agent_id:
+            conditions.append("agent_id = ?")
+            params.append(agent_id)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        columns = (
+            "id, project_id, task_id, agent_id, role, status, assigned_by, assigned_at, released_at,"
+            " input_schema, output_schema, canonical_artifact_id, handoff_id, review_required,"
+            " created_at, updated_at"
+        )
+        rows = self.connection.execute(
+            f"SELECT {columns} FROM agent_assignments {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        return [row_to_agent_assignment_summary(row) for row in rows]
 
     def update_agent_assignment(self, assignment_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una asignación (status, role, releasedAt, metadata).
@@ -1268,58 +1394,3 @@ class BacklogRepository:
         ]
         if unresolved_conflicts:
             raise ValueError(f"Assignment {assignment['id']} has unresolved conflict records.")
-
-    def create_iteration(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Inserta una iteración (id ``iteration-<uuid>``) con su plan y devuelve el registro creado."""
-        iteration_id = f"iteration-{uuid.uuid4()}"
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            INSERT INTO iterations
-                (id, project_id, brief_id, title, goal, status, story_ids, workspace_strategy,
-                 quality_gates, security_gates, estimated_cost, runtimes, task_count, assignment_count,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                iteration_id,
-                body["projectId"],
-                body["briefId"],
-                body["title"],
-                body.get("goal", ""),
-                body.get("status", "planned"),
-                json_dumps(body.get("storyIds") or []),
-                body["workspaceStrategy"],
-                json_dumps(body.get("qualityGates") or []),
-                json_dumps(body.get("securityGates") or []),
-                json_dumps(body.get("estimatedCost") or {}),
-                json_dumps(body.get("runtimes") or []),
-                int(body.get("taskCount") or 0),
-                int(body.get("assignmentCount") or 0),
-                timestamp,
-                timestamp,
-            ),
-        )
-        return self.get_iteration(iteration_id)
-
-    def get_iteration(self, iteration_id: str) -> dict[str, Any]:
-        """Recupera una iteración por id.
-
-        Raises:
-            KeyError: si no existe ninguna iteración con ese id.
-        """
-        row = self.connection.execute("SELECT * FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
-        if not row:
-            raise KeyError(f"Iteration not found: {iteration_id}")
-        return row_to_iteration(row)
-
-    def list_iterations(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista iteraciones (todas o por proyecto), la más recientemente actualizada primero."""
-        if project_id:
-            rows = self.connection.execute(
-                "SELECT * FROM iterations WHERE project_id = ? ORDER BY updated_at DESC",
-                (project_id,),
-            ).fetchall()
-        else:
-            rows = self.connection.execute("SELECT * FROM iterations ORDER BY updated_at DESC").fetchall()
-        return [row_to_iteration(row) for row in rows]

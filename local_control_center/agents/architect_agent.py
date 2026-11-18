@@ -4,7 +4,7 @@ Selecciona un runtime de modelo, le envía el diff junto a docs/tests/riesgos ac
 JSON de salida cumpla el esquema y que cada finding/risk/cambio cite refs de evidencia presentes en la
 entrada (anti-alucinación). Solo persiste ADR y riesgos tras validar; falla cerrado si la evidencia falta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,31 +14,42 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
 from local_control_center.evidence.artifacts import artifact_hashes, artifact_records_from_ids, artifact_ref
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.governance.repository import GovernanceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .architect_agent_contract import (
     ARCHITECT_AGENT_ALLOWED_TOOLS,
+    ARCHITECT_AGENT_CLI_RUNTIMES,
     ARCHITECT_AGENT_ID,
     ARCHITECT_AGENT_MODEL_RUNTIMES,
+    ARCHITECT_AGENT_REMOTE_API_RUNTIMES,
     ARCHITECT_AGENT_VERDICTS,
+    RISK_SEVERITIES,
     architect_agent_contract,
     architect_agent_readiness,
 )
+from .local_model_call_input import local_model_call_input
+from .model_output_text import json_candidate_text
 from .repository import AgentsRepository
+from .runtime_adapters.transient_output import prefer_transient_output
+from .runtime_registry import build_architect_agent_argv
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    runtime_provider_family,
+    runtime_requires_network,
+    runtime_unavailable_result,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 FAILED_VALIDATION_STATUS = "failed_validation"
-ARCHITECT_TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, FAILED_VALIDATION_STATUS, "failed"}
-RISK_SEVERITIES = {"low", "medium", "high", "critical"}
 MODEL_OUTPUT_LIMIT_CHARS = 120_000
 PROMPT_DIFF_LIMIT_CHARS = 40_000
 PROMPT_COLLECTION_LIMIT = 20
@@ -49,8 +60,12 @@ class ArchitectOutputValidationError(ValueError):
     """Se lanza cuando la salida del modelo no cumple el esquema o cita evidencia no permitida."""
 
 
-def _runtime_mode(runtime_id: str) -> str:
-    return "ollama" if runtime_id == "ollama" else "api"
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
+        return "cli"
+    if runtime_provider_family(runtime) == "ollama":
+        return "ollama"
+    return "local" if runtime.get("localModelRuntime") is True else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -64,14 +79,12 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "timedOut": bool(execution_result.get("timedOut", False)),
         "blocked": bool(execution_result.get("blocked", False)),
         "reason": execution_result.get("reason") or payload.get("decisionReason"),
-        "outputArtifactId": execution_result.get("outputArtifactId"),
+        "outputArtifactId": execution_result.get("outputArtifactId")
+        or execution_result.get("stdoutArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
         "redacted": bool(execution_result.get("redacted", False)),
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
     }
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
 
 
 def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
@@ -81,30 +94,78 @@ def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
     return text[:limit] + "\n[truncated]"
 
 
-def _bounded_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+ITEM_SERIALIZED_LIMIT_CHARS = 8_000
+"""Tope serializado por item de colección: cierra el agujero de payloads anidados vía API que el bound por-
+string no ve (un dict/lista gigante dentro de un item pasaba entero al prompt).
+"""
+
+_TEST_RESULT_PROMPT_KEYS = (
+    "id",
+    "label",
+    "command",
+    "status",
+    "exitCode",
+    "reason",
+    "stdout",
+    "stderr",
+    "evidenceRefs",
+    "evidencePackageId",
+    "outputRef",
+    "outputRefs",
+)
+"""Whitelists solo-prompt por colección: campos que el modelo usa para revisar. Los ids internos (argv,
+toolCallId, permissionDecisionId, metadata) siguen en el input_payload persistido.
+"""
+_RELEVANT_DOC_PROMPT_KEYS = ("id", "title", "content")
+_RISK_PROMPT_KEYS = ("id", "title", "description", "severity", "mitigation", "status", "evidenceRefs")
+_WORKFLOW_CONTEXT_PROMPT_KEYS = ("workflowKind", "attempt", "title")
+
+
+def _prompt_workflow_context(workflow_context: dict[str, Any]) -> dict[str, Any]:
+    """Whitelist del workflowContext para el prompt: fuera el DAG y los uuids de run/step."""
+    return {
+        key: _bounded_text(value) if isinstance(value, str) else value
+        for key, value in workflow_context.items()
+        if key in _WORKFLOW_CONTEXT_PROMPT_KEYS
+    }
+
+
+def _prompt_item_view(item: dict[str, Any], *, keys: tuple[str, ...]) -> dict[str, Any]:
+    """Proyecta un item de colección a sus campos decision-relevant, con strings acotados."""
+    return {
+        key: _bounded_text(value) if isinstance(value, str) else value
+        for key, value in item.items()
+        if key in keys
+    }
+
+
+def _bounded_items(
+    items: list[dict[str, Any]], *, keys: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
     bounded: list[dict[str, Any]] = []
     for item in items[:PROMPT_COLLECTION_LIMIT]:
-        bounded_item: dict[str, Any] = {}
-        for key, value in item.items():
-            if isinstance(value, str):
-                bounded_item[key] = _bounded_text(value)
-            else:
-                bounded_item[key] = value
+        bounded_item = (
+            _prompt_item_view(item, keys=keys)
+            if keys
+            else {
+                key: _bounded_text(value) if isinstance(value, str) else value for key, value in item.items()
+            }
+        )
+        if len(json.dumps(bounded_item, ensure_ascii=False, default=str)) > ITEM_SERIALIZED_LIMIT_CHARS:
+            compact: dict[str, Any] = {"truncated": True}
+            for key, value in bounded_item.items():
+                candidate = {**compact, key: value}
+                if len(json.dumps(candidate, ensure_ascii=False, default=str)) > ITEM_SERIALIZED_LIMIT_CHARS:
+                    continue
+                compact = candidate
+            bounded_item = compact
         bounded.append(bounded_item)
     return bounded
 
 
 def _json_object_from_text(content: str) -> dict[str, Any]:
-    candidate = content.strip()
-    if candidate.startswith("```"):
-        lines = candidate.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        candidate = "\n".join(lines).strip()
     try:
-        payload = json.loads(candidate)
+        payload = redact_secrets(json.loads(json_candidate_text(content)))
     except json.JSONDecodeError as error:
         raise ArchitectOutputValidationError("ArchitectAgent model output is not valid JSON.") from error
     if not isinstance(payload, dict):
@@ -350,20 +411,24 @@ class ArchitectAgentRunner:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _ensure_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        provider_family = runtime_provider_family(runtime)
+        model_runtime = provider_family in ARCHITECT_AGENT_MODEL_RUNTIMES
+        cli_runtime = runtime_id in ARCHITECT_AGENT_CLI_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
                 "id": ARCHITECT_AGENT_ID,
                 "name": "AIDO Architect Agent",
                 "role": "technical_lead",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "plan",
-                "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,
-                "allowedProviders": [runtime_id] if runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES else [],
-                "allowedRuntimes": [runtime_id] if runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES else [],
-                "allowRemote": runtime_id == "openai_compatible",
-                "allowCli": False,
-                "allowApi": runtime_id in ARCHITECT_AGENT_MODEL_RUNTIMES,
+                "allowedTools": ["shell"] if cli_runtime else ARCHITECT_AGENT_ALLOWED_TOOLS,
+                "allowedProviders": [runtime_id] if model_runtime else [],
+                "allowedRuntimes": [runtime_id] if model_runtime or cli_runtime else [],
+                "allowRemote": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
+                "allowCli": cli_runtime,
+                "allowApi": model_runtime,
                 "outputSchema": architect_agent_contract()["outputSchema"],
             }
         )
@@ -396,12 +461,17 @@ class ArchitectAgentRunner:
     def _messages(self, *, payload: dict[str, Any], diff_text: str) -> list[dict[str, str]]:
         output_schema = architect_agent_contract()["outputSchema"]
         review_context = {
-            "workflowContext": payload.get("workflowContext") or {},
+            "workflowContext": _prompt_workflow_context(payload.get("workflowContext") or {}),
+            **(
+                {"constitution": _bounded_text(payload.get("constitution"))}
+                if str(payload.get("constitution") or "").strip()
+                else {}
+            ),
             "diffArtifactId": payload["diffArtifactId"],
             "diff": _bounded_text(diff_text, PROMPT_DIFF_LIMIT_CHARS),
-            "relevantDocs": _bounded_items(payload.get("relevantDocs") or []),
-            "testResults": _bounded_items(payload.get("testResults") or []),
-            "riskRegister": _bounded_items(payload.get("riskRegister") or []),
+            "relevantDocs": _bounded_items(payload.get("relevantDocs") or [], keys=_RELEVANT_DOC_PROMPT_KEYS),
+            "testResults": _bounded_items(payload.get("testResults") or [], keys=_TEST_RESULT_PROMPT_KEYS),
+            "riskRegister": _bounded_items(payload.get("riskRegister") or [], keys=_RISK_PROMPT_KEYS),
             "allowedEvidenceRefs": sorted(_collect_input_evidence_refs(payload)),
         }
         return [
@@ -412,14 +482,63 @@ class ArchitectAgentRunner:
                     "Review the supplied diff against the architecture docs, test results, and risk register. "
                     "Do not invent evidence refs. Every finding, risk, required change, and recommendation must cite "
                     "allowedEvidenceRefs that are present in the input. Never approve by assumption. "
-                    "Use this JSON schema: " + json_dumps(output_schema)
+                    "Use this JSON schema: " + prompt_json_dumps(output_schema)
                 ),
             },
             {
                 "role": "user",
-                "content": json_dumps(redact_secrets(review_context)),
+                "content": prompt_json_dumps(redact_secrets(review_context)),
             },
         ]
+
+    def _execute_cli_runtime(
+        self,
+        *,
+        payload: dict[str, Any],
+        runtime: dict[str, Any],
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        broker: ToolBroker,
+        diff_text: str,
+    ) -> dict[str, Any]:
+        prompt = "\n\n".join(
+            message["content"] for message in self._messages(payload=payload, diff_text=diff_text)
+        )
+        argv = build_architect_agent_argv(
+            runtime=runtime,
+            workspace_id=workspace["id"],
+            workspace_path=workspace["path"],
+            prompt=prompt,
+            model=payload.get("model"),
+            connection=self.connection,
+        )
+        result = broker.evaluate_tool_call(
+            project_id=payload["projectId"],
+            agent_run_id=agent_run["id"],
+            agent_profile=profile,
+            job_id=job["id"],
+            trusted_operation="architect_agent_runtime",
+            tool_call={
+                "tool": "shell",
+                "argv": argv,
+                "workspaceId": workspace["id"],
+                "workspacePath": workspace["path"],
+                "path": workspace["path"],
+                "operation": "architect_agent_runtime",
+                "runtimeId": "claude_code_cli",
+                "capability": "chat",
+                "providerTransportRequired": True,
+                "networkRequired": False,
+                "secretsRequired": False,
+                "approvalGrantId": payload.get("approvalGrantId"),
+                "execute": True,
+                "captureStdoutArtifact": True,
+                "timeoutSeconds": 900,
+            },
+        )
+        return _execution_result_from_tool_call(result["toolCall"])
 
     def _execute_model_runtime(
         self,
@@ -434,8 +553,9 @@ class ArchitectAgentRunner:
         diff_text: str,
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
+        provider_family = runtime_provider_family(runtime)
         model = payload.get("model")
-        if runtime_id == "ollama":
+        if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
@@ -443,7 +563,7 @@ class ArchitectAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -451,11 +571,21 @@ class ArchitectAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {
+                    "providerId": runtime_id,
                     "model": model,
                     "messages": self._messages(payload=payload, diff_text=diff_text),
                     "temperature": 0.1,
+                    **local_model_call_input(
+                        self.connection,
+                        provider_id=runtime_id,
+                        model=model,
+                        response_schema={
+                            "name": ARCHITECT_AGENT_ID,
+                            "schema": architect_agent_contract()["outputSchema"],
+                        },
+                    ),
                 },
-                "networkRequired": runtime_id == "openai_compatible",
+                "networkRequired": runtime_requires_network(runtime, ARCHITECT_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -542,7 +672,7 @@ class ArchitectAgentRunner:
             "capabilities": [],
         }
         runtime_id = str(runtime.get("id") or "unresolved")
-        profile = self._ensure_profile(runtime_id)
+        profile = self._ensure_profile(runtime)
         workflow_context = payload.get("workflowContext") or {}
         job_result = self.jobs.create_job(
             project_id=project_id,
@@ -570,7 +700,7 @@ class ArchitectAgentRunner:
             status="running",
         )
 
-        runtime_result = _runtime_unavailable_result(readiness["reason"])
+        runtime_result = runtime_unavailable_result(readiness["reason"])
         final_status = RUNTIME_UNAVAILABLE_STATUS
         final_reason = readiness["reason"]
         output: dict[str, Any] | None = None
@@ -580,7 +710,12 @@ class ArchitectAgentRunner:
 
         if readiness["executable"]:
             broker = ToolBroker(self.connection, artifact_root=self.root)
-            runtime_result = self._execute_model_runtime(
+            execute = (
+                self._execute_cli_runtime
+                if runtime_id in ARCHITECT_AGENT_CLI_RUNTIMES
+                else self._execute_model_runtime
+            )
+            runtime_result = execute(
                 payload=payload,
                 runtime=runtime,
                 workspace=workspace,
@@ -597,10 +732,15 @@ class ArchitectAgentRunner:
                 if runtime_result.get("outputArtifactId"):
                     artifact_ids.append(str(runtime_result["outputArtifactId"]))
                 try:
-                    raw_output = self._artifact_text(
-                        runtime_result.get("outputArtifactId"),
-                        reason="ArchitectAgent model execution did not produce an output artifact.",
+                    raw_output = prefer_transient_output(
+                        runtime_result.get("toolCallId"),
+                        lambda: self._artifact_text(
+                            runtime_result.get("outputArtifactId"),
+                            reason="ArchitectAgent model execution did not produce an output artifact.",
+                        ),
                     )
+                    if len(raw_output) > MODEL_OUTPUT_LIMIT_CHARS:
+                        raise ValueError("ArchitectAgent artifact output exceeds the review size limit.")
                     parsed_output = _json_object_from_text(raw_output)
                     output = _validate_architect_output(
                         parsed_output,
@@ -765,6 +905,7 @@ class ArchitectAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": runtime_result,
+            "localRuntimeCause": runtime_result.get("localRuntimeCause"),
             "output": output,
             "architectureDecision": architecture_decision,
             "riskEntries": risk_entries,

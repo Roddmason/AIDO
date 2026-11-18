@@ -1,20 +1,14 @@
 /**
  * Left rail of the Workbench: picks the active workspace folder and lets the user switch between
  * its work sessions and recent runs, which drives what the rest of the page shows.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Bot, FolderKanban, GitBranch, History, Workflow } from 'lucide-react';
 
 import type { Overview, Project } from '../../api/types';
-import { Badge, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../lib/format';
-
-function formatTime(value: string | null | undefined, missingLabel: string) {
-	if (!value) return missingLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
+import { formatTime, shortId, toneForStatus } from '../../lib/format';
 
 /** Workspace/session/run navigator; selection is controlled by the page via the on* callbacks. */
 export function WorkbenchExplorer({
@@ -22,7 +16,6 @@ export function WorkbenchExplorer({
 	project,
 	branch,
 	sessions,
-	chats,
 	recentRuns,
 	workflows,
 	selectedSessionId,
@@ -36,8 +29,7 @@ export function WorkbenchExplorer({
 	projects: Project[];
 	project: Project | null;
 	branch: string;
-	sessions: Overview['sessions'];
-	chats: Overview['chats'];
+	sessions: Overview['threads'];
 	recentRuns: Overview['workflowRuns'];
 	workflows: Overview['workflows'];
 	selectedSessionId: string;
@@ -58,7 +50,7 @@ export function WorkbenchExplorer({
 			className="workbench-session-rail"
 			aria-label={t('app.workbench.explorer.region', 'Workspace explorer')}
 		>
-			<Surface title={t('app.workbench.workspace.title', 'Workspace folder')}>
+			<Surface>
 				<div className="workspace-context">
 					<div className="field">
 						<label htmlFor="workbench-project">
@@ -106,8 +98,8 @@ export function WorkbenchExplorer({
 				</div>
 			</Surface>
 
-			<Surface title={t('app.workbench.sessions.title', 'Work sessions')}>
-				<div className="session-list" role="list">
+			<Surface title={t('app.workbench.sessions.title', 'Project threads')}>
+				<div className="session-list">
 					<button
 						className="session-item new-session"
 						type="button"
@@ -118,14 +110,10 @@ export function WorkbenchExplorer({
 					>
 						<span>
 							<Bot aria-hidden="true" size={15} />{' '}
-							{t('app.workbench.sessions.new', 'New work session')}
+							{t('app.workbench.sessions.newThread', 'New thread')}
 						</span>
-						<small>
-							{t('app.workbench.sessions.newHint', 'Starts a chat, session and intake pipeline')}
-						</small>
 					</button>
 					{sessions.map((session) => {
-						const sessionChatCount = chats.filter((chat) => chat.sessionId === session.id).length;
 						return (
 							<button
 								key={session.id}
@@ -135,10 +123,10 @@ export function WorkbenchExplorer({
 								onClick={() => onSelectSession(session.id)}
 							>
 								<span>
-									<History aria-hidden="true" size={15} /> {session.name}
+									<History aria-hidden="true" size={15} /> {session.title}
 								</span>
 								<small>
-									{sessionChatCount} {t('app.workbench.sessions.chatCount', 'chats')} -{' '}
+									{String(session.status)} -{' '}
 									{formatTime(
 										session.updatedAt,
 										t('app.workbenchEvidence.notRecorded', 'not recorded'),
@@ -149,10 +137,10 @@ export function WorkbenchExplorer({
 					})}
 					{sessions.length ? null : (
 						<EmptyState
-							title={t('app.workbench.sessions.emptyTitle', 'No work sessions')}
+							title={t('app.workbench.sessions.emptyTitle', 'No project threads')}
 							body={t(
 								'app.workbench.sessions.emptyBody',
-								'Your first prompt will create a session for this workspace folder.',
+								'Your first prompt will create a real thread for this workspace folder.',
 							)}
 						/>
 					)}
@@ -183,7 +171,7 @@ export function WorkbenchExplorer({
 							title={t('app.workbench.recentRuns.emptyTitle', 'No runs yet')}
 							body={t(
 								'app.workbench.recentRuns.emptyBody',
-								'Governed tasks create workflow runs you can inspect here.',
+								'Autonomous intake creates workflow runs you can inspect here.',
 							)}
 						/>
 					)}

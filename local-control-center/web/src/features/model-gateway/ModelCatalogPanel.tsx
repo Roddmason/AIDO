@@ -2,10 +2,10 @@
  * Panel de solo lectura que tabula el catálogo de modelos conocidos por el Model Gateway.
  * Por modelo expone proveedor, familia, ventana de contexto, capacidades (tools/JSON/visión/razonamiento),
  * precios por millón de tokens y si está habilitado, con su origen (seed o descubrimiento de proveedor).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ModelGatewayModel } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { PanelShell } from './PanelShell';
 import { boolLabel, listLabel, text } from './utils';

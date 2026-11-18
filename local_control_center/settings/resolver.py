@@ -8,7 +8,10 @@ consumed directly by Pydantic models and the API layer. Precedence rules are:
 - **general** value (scope='general') → origin='general', inherited=True (project scope) / False (general scope)
 - **descriptor default** → origin='default', inherited=True (project scope) / False (general scope)
 
-@author Rodrigo Mason
+``assignedBy`` es un eje aparte: dice si el valor efectivo lo puso una persona (``operator``) o
+la deteccion automatica (``auto``). ``origin`` sigue diciendo de que ambito salio.
+
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from .registry import REGISTRY, SettingDescriptor
+from .registry import REGISTRY, SettingDescriptor, descriptor_for
 from .repository import UNSET, SettingsRepository
 
 
@@ -52,6 +55,11 @@ def _resolve_one(
                 value, origin, inherited = general_val, "general", True
             else:
                 value, origin, inherited = descriptor.default, "default", True
+    assigned_by = (
+        repo.get_assigned_by(descriptor.key, origin, project_id if origin == "project" else None)
+        if origin != "default"
+        else "operator"
+    )
 
     return {
         "key": descriptor.key,
@@ -60,10 +68,13 @@ def _resolve_one(
         "projectSection": descriptor.project_section,
         "type": descriptor.type,
         "enum": list(descriptor.enum) if descriptor.enum is not None else None,
+        "minimum": descriptor.minimum,
+        "maximum": descriptor.maximum,
         "value": value,
         "origin": origin,
         "inherited": inherited,
         "source": origin,
+        "assignedBy": assigned_by,
         "editableScopes": editable_scopes,
     }
 
@@ -92,3 +103,28 @@ def resolve_settings(
     ]
 
     return {"general": general, "project": project}
+
+
+def resolve_setting_value(
+    *,
+    connection: sqlite3.Connection,
+    key: str,
+    project_id: str | None,
+) -> Any:
+    """Resolve one setting's effective value for ``project_id`` under project > general > default.
+
+    The runtime consumer of a setting needs the value, not the inheritance metadata, and must not
+    re-implement the precedence rules. Returns the descriptor default for an unregistered key's
+    absence of a value, and ``None`` when the key is not registered at all.
+    """
+    descriptor = descriptor_for(key)
+    if descriptor is None:
+        return None
+    scope_view = "project" if project_id else "general"
+    resolved = _resolve_one(
+        descriptor=descriptor,
+        repo=SettingsRepository(connection),
+        project_id=project_id,
+        scope_view=scope_view,
+    )
+    return resolved["value"]

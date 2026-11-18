@@ -4,24 +4,68 @@ Define el contrato de datos de la API del gateway de modelos: records persistido
 upsert/patch (que aceptan campos extra vía GatewayFlexibleModel) y las respuestas envoltorio. Es solo
 esquema, sin lógica de negocio; los Field con alias fijan el camelCase con que viajan por HTTP.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .providers.base import ProviderHealth
+from .providers.capabilities import (
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ImageEditingRequest,
+    ImageEditingResponse,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+    RerankRequest,
+    RerankResponse,
+)
 
 BenchmarkProvenance = Literal["operator_reported", "automated_run", "release_validation"]
+DeploymentMode = Literal[
+    "custom",
+    "hosted_trial",
+    "self_hosted_development",
+    "self_hosted_enterprise",
+    "partner_paid",
+]
+ApiFamily = Literal[
+    "chat_completions",
+    "embeddings",
+    "rerank",
+    "image_generation",
+    "image_editing",
+]
+TermsMode = Literal["unspecified", "evaluation", "accepted"]
+PricingMode = Literal["unknown", "free", "configured"]
+COMPACT_ENDPOINT_ID_PATTERN = r"^[a-z0-9_.:-]{2,96}$"
 
 
 class GatewayFlexibleModel(BaseModel):
     """Base Pydantic del gateway que admite campos extra y poblar por nombre o alias."""
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class GatewayStrictModel(BaseModel):
+    """Base para políticas operativas que rechazan campos o coerciones ambiguas."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+class LocalDeclarationRecord(BaseModel):
+    """Declaración auditada de que un endpoint no loopback corre en este equipo (WSL/Docker)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    declared_by: str = Field(alias="declaredBy")
+    declared_at: str = Field(alias="declaredAt")
+    host: str
 
 
 class ProviderAccountRecord(BaseModel):
@@ -32,6 +76,12 @@ class ProviderAccountRecord(BaseModel):
     display_name: str = Field(alias="displayName")
     provider_type: str = Field(alias="providerType")
     api_format: str = Field(alias="apiFormat")
+    provider_family: str = Field(alias="providerFamily")
+    deployment_mode: DeploymentMode = Field(alias="deploymentMode")
+    api_family: ApiFamily = Field(alias="apiFamily")
+    adapter_profile: str = Field(alias="adapterProfile")
+    terms_mode: TermsMode = Field(alias="termsMode")
+    pricing_mode: PricingMode = Field(alias="pricingMode")
     base_url: str | None = Field(default=None, alias="baseUrl")
     credential_ref: str | None = Field(default=None, alias="credentialRef")
     credential_status: str = Field(alias="credentialStatus")
@@ -41,6 +91,9 @@ class ProviderAccountRecord(BaseModel):
     last_health_check_at: str | None = Field(default=None, alias="lastHealthCheckAt")
     last_error: str = Field(alias="lastError")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provider_catalog_id: str | None = Field(default=None, alias="providerCatalogId")
+    local_declaration: LocalDeclarationRecord | None = Field(default=None, alias="localDeclaration")
+    local_concurrency_limit: int | None = Field(default=None, alias="localConcurrencyLimit")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 
@@ -48,10 +101,30 @@ class ProviderAccountRecord(BaseModel):
 class ProviderAccountUpsertRequest(GatewayFlexibleModel):
     """Payload para crear o reemplazar una cuenta de proveedor."""
 
-    provider_id: str = Field(alias="providerId")
+    provider_id: str = Field(
+        alias="providerId", min_length=2, max_length=96, pattern=COMPACT_ENDPOINT_ID_PATTERN
+    )
     display_name: str | None = Field(default=None, alias="displayName")
     provider_type: str = Field(default="api", alias="providerType")
     api_format: str = Field(default="openai_compatible", alias="apiFormat")
+    provider_family: str | None = Field(
+        default=None,
+        alias="providerFamily",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    deployment_mode: DeploymentMode = Field(default="custom", alias="deploymentMode")
+    api_family: ApiFamily = Field(default="chat_completions", alias="apiFamily")
+    adapter_profile: str = Field(
+        default="auto",
+        alias="adapterProfile",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    terms_mode: TermsMode = Field(default="unspecified", alias="termsMode")
+    pricing_mode: PricingMode = Field(default="unknown", alias="pricingMode")
     base_url: str = Field(default="", alias="baseUrl")
     credential_ref: str = Field(default="", alias="credentialRef")
     enabled: bool = False
@@ -65,6 +138,24 @@ class ProviderAccountPatchRequest(GatewayFlexibleModel):
     display_name: str | None = Field(default=None, alias="displayName")
     provider_type: str | None = Field(default=None, alias="providerType")
     api_format: str | None = Field(default=None, alias="apiFormat")
+    provider_family: str | None = Field(
+        default=None,
+        alias="providerFamily",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    deployment_mode: DeploymentMode | None = Field(default=None, alias="deploymentMode")
+    api_family: ApiFamily | None = Field(default=None, alias="apiFamily")
+    adapter_profile: str | None = Field(
+        default=None,
+        alias="adapterProfile",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    terms_mode: TermsMode | None = Field(default=None, alias="termsMode")
+    pricing_mode: PricingMode | None = Field(default=None, alias="pricingMode")
     base_url: str | None = Field(default=None, alias="baseUrl")
     credential_ref: str | None = Field(default=None, alias="credentialRef")
     enabled: bool | None = None
@@ -92,6 +183,7 @@ class ModelCatalogRecord(BaseModel):
     model: str
     display_name: str = Field(alias="displayName")
     model_family: str = Field(alias="modelFamily")
+    api_family: ApiFamily = Field(alias="apiFamily")
     context_window: int = Field(alias="contextWindow")
     max_output_tokens: int = Field(alias="maxOutputTokens")
     supports_tools: bool = Field(alias="supportsTools")
@@ -102,6 +194,8 @@ class ModelCatalogRecord(BaseModel):
     supports_rerank: bool = Field(alias="supportsRerank")
     supports_reasoning: bool = Field(alias="supportsReasoning")
     supports_thinking: bool = Field(alias="supportsThinking")
+    supports_image_generation: bool = Field(alias="supportsImageGeneration")
+    supports_image_editing: bool = Field(alias="supportsImageEditing")
     effort_levels: list[str] = Field(alias="effortLevels")
     input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
     cached_input_price_per_mtok: float | None = Field(default=None, alias="cachedInputPricePerMtok")
@@ -113,15 +207,24 @@ class ModelCatalogRecord(BaseModel):
     source: str
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+    disabled_reason: Literal["validation_failed"] | None = Field(
+        default=None,
+        alias="disabledReason",
+        description="``validation_failed``: la validación modelo por modelo lo descartó (no se borra).",
+    )
+    disabled_detail: str | None = Field(default=None, alias="disabledDetail")
 
 
 class ModelCatalogUpsertRequest(GatewayFlexibleModel):
     """Payload para crear o reemplazar una entrada del catálogo de modelos."""
 
-    provider_id: str = Field(alias="providerId")
+    provider_id: str = Field(
+        alias="providerId", min_length=2, max_length=96, pattern=COMPACT_ENDPOINT_ID_PATTERN
+    )
     model: str
     display_name: str | None = Field(default=None, alias="displayName")
     model_family: str = Field(default="", alias="modelFamily")
+    api_family: ApiFamily = Field(default="chat_completions", alias="apiFamily")
     context_window: int = Field(default=0, alias="contextWindow")
     max_output_tokens: int = Field(default=0, alias="maxOutputTokens")
     supports_tools: bool = Field(default=False, alias="supportsTools")
@@ -132,6 +235,8 @@ class ModelCatalogUpsertRequest(GatewayFlexibleModel):
     supports_rerank: bool = Field(default=False, alias="supportsRerank")
     supports_reasoning: bool = Field(default=False, alias="supportsReasoning")
     supports_thinking: bool = Field(default=False, alias="supportsThinking")
+    supports_image_generation: bool = Field(default=False, alias="supportsImageGeneration")
+    supports_image_editing: bool = Field(default=False, alias="supportsImageEditing")
     effort_levels: list[str] = Field(default_factory=list, alias="effortLevels")
     input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
     cached_input_price_per_mtok: float | None = Field(default=None, alias="cachedInputPricePerMtok")
@@ -148,6 +253,7 @@ class ModelCatalogPatchRequest(GatewayFlexibleModel):
 
     display_name: str | None = Field(default=None, alias="displayName")
     model_family: str | None = Field(default=None, alias="modelFamily")
+    api_family: ApiFamily | None = Field(default=None, alias="apiFamily")
     context_window: int | None = Field(default=None, alias="contextWindow")
     max_output_tokens: int | None = Field(default=None, alias="maxOutputTokens")
     supports_tools: bool | None = Field(default=None, alias="supportsTools")
@@ -158,6 +264,8 @@ class ModelCatalogPatchRequest(GatewayFlexibleModel):
     supports_rerank: bool | None = Field(default=None, alias="supportsRerank")
     supports_reasoning: bool | None = Field(default=None, alias="supportsReasoning")
     supports_thinking: bool | None = Field(default=None, alias="supportsThinking")
+    supports_image_generation: bool | None = Field(default=None, alias="supportsImageGeneration")
+    supports_image_editing: bool | None = Field(default=None, alias="supportsImageEditing")
     effort_levels: list[str] | None = Field(default=None, alias="effortLevels")
     input_price_per_mtok: float | None = Field(default=None, alias="inputPricePerMtok")
     cached_input_price_per_mtok: float | None = Field(default=None, alias="cachedInputPricePerMtok")
@@ -179,6 +287,31 @@ class ModelCatalogListResponse(BaseModel):
     """Respuesta con el listado de modelos del catálogo."""
 
     models: list[ModelCatalogRecord]
+
+
+MAX_BULK_MODEL_IDS = 10_000
+"""Tope de ids por request masivo: cubre catálogos de gateway (OmniRoute anuncia >1000) con margen."""
+
+
+class ProviderModelsBulkPatchRequest(GatewayStrictModel):
+    """Habilita o deshabilita en bloque modelos de un proveedor (todos si ``models`` se omite)."""
+
+    enabled: bool
+    models: list[str] | None = Field(
+        default=None,
+        max_length=MAX_BULK_MODEL_IDS,
+        description="Ids del catálogo (``provider:model``) a actualizar; omitido = todo el catálogo del proveedor.",
+    )
+
+
+class ProviderModelsBulkPatchResponse(BaseModel):
+    """Resultado del cambio masivo: cuántas filas del catálogo quedaron con el flag pedido."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    provider_id: str = Field(alias="providerId")
+    enabled: bool
+    updated: int
 
 
 class PricingSnapshotRecord(BaseModel):
@@ -371,6 +504,7 @@ class RoutingPolicyResult(BaseModel):
     """Resultado de política del ruteo: si requiere aprobación y la política de costo desconocido."""
 
     requires_approval: bool = Field(alias="requiresApproval")
+    free_tier_only: bool = Field(default=False, alias="freeTierOnly")
     role_policy_id: str = Field(alias="rolePolicyId")
     max_cost_per_task_usd: float | None = Field(default=None, alias="maxCostPerTaskUsd")
     allow_unknown_cost: bool = Field(default=True, alias="allowUnknownCost")
@@ -436,12 +570,12 @@ class UsageLedgerRecord(BaseModel):
     task_id: str | None = Field(default=None, alias="taskId")
     request_id: str | None = Field(default=None, alias="requestId")
     session_id: str | None = Field(default=None, alias="sessionId")
-    input_tokens: int = Field(alias="inputTokens")
-    cached_input_tokens: int = Field(alias="cachedInputTokens")
-    output_tokens: int = Field(alias="outputTokens")
-    reasoning_tokens: int = Field(alias="reasoningTokens")
-    tool_tokens: int = Field(alias="toolTokens")
-    total_tokens: int = Field(alias="totalTokens")
+    input_tokens: int | None = Field(alias="inputTokens")
+    cached_input_tokens: int | None = Field(alias="cachedInputTokens")
+    output_tokens: int | None = Field(alias="outputTokens")
+    reasoning_tokens: int | None = Field(alias="reasoningTokens")
+    tool_tokens: int | None = Field(alias="toolTokens")
+    total_tokens: int | None = Field(alias="totalTokens")
     estimated_cost_usd: float | None = Field(default=None, alias="estimatedCostUsd")
     actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     currency: str
@@ -463,16 +597,16 @@ class UsageSummaryProvider(BaseModel):
     """Totales de uso agregados por proveedor."""
 
     provider_id: str = Field(alias="providerId")
-    total_tokens: int = Field(alias="totalTokens")
-    estimated_cost_usd: float = Field(alias="estimatedCostUsd")
+    total_tokens: int | None = Field(alias="totalTokens")
+    estimated_cost_usd: float | None = Field(alias="estimatedCostUsd")
 
 
 class UsageSummaryRecord(BaseModel):
     """Resumen de uso: totales globales de tokens y costo y su desglose por proveedor."""
 
-    total_tokens: int = Field(alias="totalTokens")
-    estimated_cost_usd: float = Field(alias="estimatedCostUsd")
-    actual_cost_usd: float = Field(alias="actualCostUsd")
+    total_tokens: int | None = Field(alias="totalTokens")
+    estimated_cost_usd: float | None = Field(alias="estimatedCostUsd")
+    actual_cost_usd: float | None = Field(default=None, alias="actualCostUsd")
     by_provider: list[UsageSummaryProvider] = Field(alias="byProvider")
 
 
@@ -535,6 +669,11 @@ class ProviderLimitRecord(BaseModel):
     monthly_requests: int | None = Field(default=None, alias="monthlyRequests")
     monthly_tokens: int | None = Field(default=None, alias="monthlyTokens")
     monthly_budget_usd: float | None = Field(default=None, alias="monthlyBudgetUsd")
+    max_cost_per_request_usd: float | None = Field(default=None, alias="maxCostPerRequestUsd")
+    max_concurrency: int | None = Field(default=None, alias="maxConcurrency")
+    window_timezone: str = Field(alias="windowTimezone")
+    enabled: bool
+    fallback_retry_after_seconds: int = Field(alias="fallbackRetryAfterSeconds")
     current_window: dict[str, Any] = Field(alias="currentWindow")
     cooldown_until: str | None = Field(default=None, alias="cooldownUntil")
     last_429_at: str | None = Field(default=None, alias="last429At")
@@ -556,21 +695,175 @@ class ProviderLimitResponse(BaseModel):
     provider_limit: ProviderLimitRecord = Field(alias="providerLimit")
 
 
-class ProviderLimitPatchRequest(GatewayFlexibleModel):
+UnknownLimitStrategy = Literal["conservative", "block", "allow"]
+
+
+class ProviderLimitUpsertRequest(GatewayStrictModel):
+    """Payload estricto para crear una política de límite por endpoint/modelo."""
+
+    provider_id: str = Field(
+        alias="providerId",
+        min_length=2,
+        max_length=96,
+        pattern=COMPACT_ENDPOINT_ID_PATTERN,
+    )
+    model: str = Field(min_length=1, max_length=256, pattern=r"^[^\r\n]+$")
+    rpm: int | None = Field(default=None, ge=1, strict=True)
+    tpm: int | None = Field(default=None, ge=1, strict=True)
+    daily_requests: int | None = Field(default=None, alias="dailyRequests", ge=1, strict=True)
+    daily_tokens: int | None = Field(default=None, alias="dailyTokens", ge=1, strict=True)
+    monthly_requests: int | None = Field(default=None, alias="monthlyRequests", ge=1, strict=True)
+    monthly_tokens: int | None = Field(default=None, alias="monthlyTokens", ge=1, strict=True)
+    monthly_budget_usd: float | None = Field(
+        default=None,
+        alias="monthlyBudgetUsd",
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    max_cost_per_request_usd: float | None = Field(
+        default=None,
+        alias="maxCostPerRequestUsd",
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    max_concurrency: int | None = Field(default=None, alias="maxConcurrency", ge=1, strict=True)
+    window_timezone: str = Field(default="UTC", alias="windowTimezone", min_length=1, max_length=64)
+    enabled: bool = Field(default=True, strict=True)
+    fallback_retry_after_seconds: int = Field(
+        default=300,
+        alias="fallbackRetryAfterSeconds",
+        ge=0,
+        le=86_400,
+        strict=True,
+    )
+    unknown_limit_strategy: UnknownLimitStrategy = Field(
+        default="conservative",
+        alias="unknownLimitStrategy",
+    )
+
+    @field_validator("window_timezone")
+    @classmethod
+    def validate_window_timezone(cls, value: str) -> str:
+        """Exige un nombre IANA resoluble por la base timezone instalada."""
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("windowTimezone must be a valid IANA timezone") from error
+        return value
+
+
+class ProviderLimitPatchRequest(GatewayStrictModel):
     """Payload para modificar parcialmente los límites de un proveedor."""
 
-    rpm: int | None = None
-    tpm: int | None = None
-    daily_requests: int | None = Field(default=None, alias="dailyRequests")
-    daily_tokens: int | None = Field(default=None, alias="dailyTokens")
-    monthly_requests: int | None = Field(default=None, alias="monthlyRequests")
-    monthly_tokens: int | None = Field(default=None, alias="monthlyTokens")
-    monthly_budget_usd: float | None = Field(default=None, alias="monthlyBudgetUsd")
-    current_window: dict[str, Any] | None = Field(default=None, alias="currentWindow")
+    rpm: int | None = Field(default=None, ge=1, strict=True)
+    tpm: int | None = Field(default=None, ge=1, strict=True)
+    daily_requests: int | None = Field(default=None, alias="dailyRequests", ge=1, strict=True)
+    daily_tokens: int | None = Field(default=None, alias="dailyTokens", ge=1, strict=True)
+    monthly_requests: int | None = Field(default=None, alias="monthlyRequests", ge=1, strict=True)
+    monthly_tokens: int | None = Field(default=None, alias="monthlyTokens", ge=1, strict=True)
+    monthly_budget_usd: float | None = Field(
+        default=None,
+        alias="monthlyBudgetUsd",
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    max_cost_per_request_usd: float | None = Field(
+        default=None,
+        alias="maxCostPerRequestUsd",
+        ge=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+    max_concurrency: int | None = Field(default=None, alias="maxConcurrency", ge=1, strict=True)
+    window_timezone: str | None = Field(
+        default=None,
+        alias="windowTimezone",
+        min_length=1,
+        max_length=64,
+    )
+    enabled: bool | None = Field(default=None, strict=True)
+    fallback_retry_after_seconds: int | None = Field(
+        default=None,
+        alias="fallbackRetryAfterSeconds",
+        ge=0,
+        le=86_400,
+        strict=True,
+    )
+    unknown_limit_strategy: UnknownLimitStrategy | None = Field(
+        default=None,
+        alias="unknownLimitStrategy",
+    )
+
+    @field_validator("window_timezone")
+    @classmethod
+    def validate_window_timezone(cls, value: str | None) -> str | None:
+        """Valida IANA cuando el campo viene incluido."""
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("windowTimezone must be a valid IANA timezone") from error
+        return value
+
+    @model_validator(mode="after")
+    def reject_null_required_policy_fields(self) -> ProviderLimitPatchRequest:
+        """Distingue omisión válida de null inválido en campos no anulables."""
+        required_fields = {
+            "window_timezone",
+            "enabled",
+            "fallback_retry_after_seconds",
+            "unknown_limit_strategy",
+        }
+        invalid = [
+            field
+            for field in required_fields
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if invalid:
+            raise ValueError(f"Fields cannot be null: {', '.join(sorted(invalid))}")
+        return self
+
+
+class ProviderLimitWindowStatus(BaseModel):
+    """Contadores normalizados de una ventana efectiva, sin mutación en lectura."""
+
+    kind: Literal["minute", "day", "month"]
+    starts_at: str = Field(alias="startsAt")
+    resets_at: str = Field(alias="resetsAt")
+    committed_requests: int = Field(alias="committedRequests")
+    reserved_requests: int = Field(alias="reservedRequests")
+    committed_tokens: int = Field(alias="committedTokens")
+    unverified_tokens: int = Field(alias="unverifiedTokens")
+    reserved_tokens: int = Field(alias="reservedTokens")
+    known_cost_usd: float = Field(alias="knownCostUsd")
+    unverified_cost_usd: float = Field(alias="unverifiedCostUsd")
+    reserved_cost_usd: float = Field(alias="reservedCostUsd")
+
+
+class ProviderLimitStatusRecord(BaseModel):
+    """Política efectiva y presión operacional para una solicitud hipotética."""
+
+    provider_id: str = Field(alias="providerId")
+    model: str
+    effective_limit_id: str | None = Field(default=None, alias="effectiveLimitId")
+    guarded: bool
+    enabled: bool
+    allowed: bool
+    reason: str
     cooldown_until: str | None = Field(default=None, alias="cooldownUntil")
-    last_429_at: str | None = Field(default=None, alias="last429At")
-    last_limit_error_at: str | None = Field(default=None, alias="lastLimitErrorAt")
-    unknown_limit_strategy: str | None = Field(default=None, alias="unknownLimitStrategy")
+    quota_pressure: float = Field(alias="quotaPressure")
+    active_leases: int = Field(alias="activeLeases")
+    windows: list[ProviderLimitWindowStatus]
+
+
+class ProviderLimitStatusResponse(BaseModel):
+    """Respuesta de status efectivo que no reserva ni liquida capacidad."""
+
+    status: ProviderLimitStatusRecord
 
 
 class BudgetRuleRecord(BaseModel):
@@ -701,6 +994,77 @@ class DiscoverModelsResponse(BaseModel):
     """Respuesta con los modelos descubiertos en un proveedor."""
 
     models: list[ModelCatalogRecord]
+    recommended_models: list[str] | None = Field(default=None, alias="recommendedModels")
+    """Modelos de la allowlist curada del gateway (``None`` si el proveedor no tiene una): la UI ofrece
+    "Seleccionar recomendados" sin preseleccionar el catálogo completo.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ProviderEmbeddingRequest(EmbeddingRequest):
+    """Typed embedding payload accepted by one configured endpoint."""
+
+
+class ProviderEmbeddingResponse(BaseModel):
+    """Response wrapper for one typed embedding execution."""
+
+    embedding: EmbeddingResponse
+
+
+class ProviderRerankRequest(RerankRequest):
+    """Typed rerank payload accepted by one configured endpoint."""
+
+
+class ProviderRerankResponse(BaseModel):
+    """Response wrapper for one typed rerank execution."""
+
+    rerank: RerankResponse
+
+
+class ProviderImageGenerationRequest(ImageGenerationRequest):
+    """Typed image-generation payload accepted by one configured endpoint."""
+
+
+class ProviderImageGenerationResponse(BaseModel):
+    """Response wrapper containing only durable generated-image references."""
+
+    image_generation: ImageGenerationResponse = Field(alias="imageGeneration")
+
+
+class ProviderImageEditingRequest(ImageEditingRequest):
+    """Typed image-edit payload accepted by one configured endpoint."""
+
+
+class ProviderImageEditingResponse(BaseModel):
+    """Response wrapper containing only durable edited-image references."""
+
+    image_editing: ImageEditingResponse = Field(alias="imageEditing")
+
+
+class TestPromptRequest(GatewayFlexibleModel):
+    """Payload para probar un proveedor con una completion corta y controlada (modelo opcional)."""
+
+    model: str | None = None
+
+
+class TestPromptRecord(BaseModel):
+    """Resultado de una prueba de prompt: éxito, latencia y una muestra redactada de la respuesta."""
+
+    provider_id: str = Field(alias="providerId")
+    model: str
+    ok: bool
+    latency_ms: int = Field(alias="latencyMs")
+    sample: str = ""
+    total_tokens: int | None = Field(default=None, alias="totalTokens")
+    usage_source: str = Field(default="unknown", alias="usageSource")
+    error: str | None = None
+
+
+class TestPromptResponse(BaseModel):
+    """Respuesta con el resultado de una prueba de prompt de proveedor."""
+
+    test: TestPromptRecord
 
 
 class ModelGatewayOverviewRecord(BaseModel):
@@ -713,9 +1077,9 @@ class ModelGatewayOverviewRecord(BaseModel):
     healthy: int
     degraded: int
     offline: int
-    total_tokens_today: int = Field(alias="totalTokensToday")
+    total_tokens_today: int | None = Field(alias="totalTokensToday")
     estimated_cost_today: float = Field(alias="estimatedCostToday")
-    actual_cost_today: float = Field(alias="actualCostToday")
+    actual_cost_today: float | None = Field(default=None, alias="actualCostToday")
     pending_model_approvals: int = Field(alias="pendingModelApprovals")
     providers_in_cooldown: int = Field(alias="providersInCooldown")
     active_cli_sessions: int = Field(alias="activeCliSessions")

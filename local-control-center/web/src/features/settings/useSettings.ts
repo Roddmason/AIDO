@@ -2,14 +2,13 @@
  * Fetches resolved settings (general and project scopes) and exposes mutate helpers
  * for setting and clearing override values. Mirrors the useTeamActivity fetch pattern:
  * AbortController on enabled, refresh token, no polling (settings are set on demand).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import type { ResolvedSetting, SettingsResponse } from '../../api/client';
 import { deleteSetting, getSettings, putSetting } from '../../api/client';
 import type { JsonValue } from '../../api/generated/openapi';
-import { useControlPlane } from '../../hooks/useControlPlane';
 
 export type { ResolvedSetting };
 
@@ -31,9 +30,23 @@ export type SettingsState = {
 };
 
 /** Loads resolved settings for both scopes while `enabled`; disabled or missing id clears state. */
-export function useSettings(projectId: string | undefined, enabled: boolean): SettingsState {
-	const { token } = useControlPlane();
-	const [data, setData] = useState<SettingsResponse | null>(null);
+/**
+ * Window event fired after a setting is written or cleared, with the key as `detail`, so surfaces
+ * that derive state from a setting outside this hook (the provider cards' inherited quota
+ * threshold) re-read it without polling.
+ */
+export const SETTING_CHANGE_EVENT = 'aido:setting-changed';
+
+function announceSettingChange(key: string) {
+	window.dispatchEvent(new CustomEvent(SETTING_CHANGE_EVENT, { detail: key }));
+}
+
+export function useSettings(
+	projectId: string | undefined,
+	enabled: boolean,
+	token: string,
+): SettingsState {
+	const [data, setData] = useState<(SettingsResponse & { projectId: string }) | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const [reloadToken, setReloadToken] = useState(0);
@@ -54,7 +67,7 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 		getSettings(projectId, controller.signal)
 			.then((result) => {
 				if (!aborted) {
-					setData(result);
+					setData({ ...result, projectId });
 					setError('');
 				}
 			})
@@ -75,6 +88,7 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 		async (key: string, scope: SettingScope, scopeId: string | null, value: JsonValue) => {
 			await putSetting(key, { scope, scopeId: scopeId ?? undefined, value }, token);
 			refresh();
+			announceSettingChange(key);
 		},
 		[token, refresh],
 	);
@@ -85,13 +99,15 @@ export function useSettings(projectId: string | undefined, enabled: boolean): Se
 			if (scopeId !== null) params.scopeId = scopeId;
 			await deleteSetting(key, params, token);
 			refresh();
+			announceSettingChange(key);
 		},
 		[token, refresh],
 	);
 
+	const currentData = data?.projectId === projectId ? data : null;
 	return {
-		general: data?.general ?? [],
-		project: data?.project ?? [],
+		general: currentData?.general ?? [],
+		project: currentData?.project ?? [],
 		loading,
 		error,
 		refresh,

@@ -1,19 +1,27 @@
 /**
  * Renders one product-loop section (questions, brief, assumptions, decisions, architecture, backlog,
- * iterations) from the live project-scoped product-loop endpoint, with loading, error and empty
+ * tasks) from the live project-scoped product-loop endpoint, with loading, error and empty
  * states. Pure presentation: the page owns the fetch (useProductLoop) and passes the data down; the
  * architecture section reuses the already-available overview architecture decisions.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
+import { CheckCircle2, PlayCircle, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { ProjectProductLoopResponse } from '../../../api/client';
 import type { Overview } from '../../../api/types';
-import { Badge, EmptyState } from '../../../components/primitives';
-import { ErrorState, Skeleton } from '../../../components/ui';
+import { Disclosure } from '../../../components/Disclosure';
+import {
+	StatusChip as Badge,
+	Button,
+	EmptyState,
+	ErrorState,
+	Skeleton,
+} from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { toneForStatus } from '../../../lib/format';
+import { StorySpecDialog } from './StorySpecDialog';
 
 /** The loop sections backed by the product-loop endpoint (or, for architecture, the overview). */
 export type ProductLoopSectionId =
@@ -22,8 +30,7 @@ export type ProductLoopSectionId =
 	| 'assumptions'
 	| 'decisions'
 	| 'architecture'
-	| 'backlog'
-	| 'iterations';
+	| 'backlog';
 
 type ProductLoopSectionProps = {
 	section: ProductLoopSectionId;
@@ -31,7 +38,19 @@ type ProductLoopSectionProps = {
 	architectureDecisions: Overview['architectureDecisions'];
 	loading: boolean;
 	error: string;
+	actions?: {
+		busy?: boolean;
+		onAidoDecide?: () => void;
+		onApproveBrief?: () => void;
+		onApproveBacklog?: () => void;
+		onStartIteration?: () => void;
+		onExpandEpic?: (epicId: string) => void;
+	};
 };
+
+type LoopState = NonNullable<ProjectProductLoopResponse>;
+type AgentTask = LoopState['tasks'][number];
+type LoopQuestion = LoopState['questions'][number];
 
 /** A labelled value block; renders nothing when the value is empty so optional fields stay quiet. */
 function Labeled({ label, children }: { label: string; children: ReactNode }) {
@@ -48,6 +67,88 @@ function valueList(items: unknown[]): string {
 	return items.map((item) => String(item)).join(' · ');
 }
 
+function metadataRecord(metadata: unknown): Record<string, unknown> {
+	return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+		? (metadata as Record<string, unknown>)
+		: {};
+}
+
+function metadataList(metadata: unknown, key: string): string[] {
+	const value = metadataRecord(metadata)[key];
+	return Array.isArray(value)
+		? value.map((item) => String(item).trim()).filter((item) => item.length > 0)
+		: [];
+}
+
+function metadataText(metadata: unknown, key: string): string {
+	const value = metadataRecord(metadata)[key];
+	return typeof value === 'string' ? value.trim() : '';
+}
+
+/** One clarification question: its options, and — once resolved — the recorded answer, so an answered
+ *  question is legible instead of an identical unanswered-looking card that invites a repeat. */
+function QuestionCard({ question }: { question: LoopQuestion }) {
+	const { t } = useI18n();
+	const options = metadataList(question.metadata, 'options');
+	const recommendation = metadataText(question.metadata, 'recommendation');
+	const defaultDecision = metadataText(question.metadata, 'defaultDecision');
+	const answer = metadataText(question.metadata, 'aidoDecision');
+	const isChosen = (option: string): boolean =>
+		answer ? option === answer : option === recommendation || option === defaultDecision;
+	return (
+		<article className="card">
+			<div className="inline">
+				<Badge tone={toneForStatus(question.status)}>{question.status}</Badge>
+				<span className="muted">{question.priority}</span>
+			</div>
+			<p className="card-body">{question.question}</p>
+			{answer ? (
+				<Labeled label={t('app.workbench.loop.questions.answer', 'Answer')}>
+					<Badge tone="ok">{answer}</Badge>
+				</Labeled>
+			) : null}
+			{options.length ? (
+				<Labeled label={t('app.workbench.loop.questions.options', 'Options')}>
+					<div className="inline">
+						{options.map((option) => (
+							<Badge key={option} tone={isChosen(option) ? 'ok' : 'info'}>
+								{option}
+							</Badge>
+						))}
+					</div>
+				</Labeled>
+			) : null}
+		</article>
+	);
+}
+
+function tasksByAgent(
+	data: LoopState,
+	storyId: string,
+): Array<{ label: string; tasks: AgentTask[] }> {
+	const groups = new Map<string, { label: string; tasks: AgentTask[] }>();
+	for (const task of data.tasks.filter((item) => item.storyId === storyId)) {
+		const assignments = data.assignments.filter((assignment) => assignment.taskId === task.id);
+		if (!assignments.length) {
+			const key = `unassigned:${task.role}`;
+			const group = groups.get(key) ?? { label: `Unassigned · ${task.role}`, tasks: [] };
+			group.tasks.push(task);
+			groups.set(key, group);
+			continue;
+		}
+		for (const assignment of assignments) {
+			const key = assignment.agentId;
+			const group = groups.get(key) ?? {
+				label: `${assignment.agentId} · ${assignment.role}`,
+				tasks: [],
+			};
+			group.tasks.push(task);
+			groups.set(key, group);
+		}
+	}
+	return [...groups.values()];
+}
+
 /** Renders the active loop section from live data, with loading/error/empty fallbacks. */
 export function ProductLoopSection({
 	section,
@@ -55,6 +156,7 @@ export function ProductLoopSection({
 	architectureDecisions,
 	loading,
 	error,
+	actions,
 }: ProductLoopSectionProps) {
 	const { t } = useI18n();
 
@@ -83,17 +185,39 @@ export function ProductLoopSection({
 				/>
 			);
 		}
+		const openQuestions = questions.filter((question) => question.status === 'open');
+		const answeredQuestions = questions.filter((question) => question.status !== 'open');
 		return (
 			<div className="stack">
-				{questions.map((question) => (
-					<article className="card" key={question.id}>
-						<div className="inline">
-							<Badge tone={toneForStatus(question.status)}>{question.status}</Badge>
-							<span className="muted">{question.priority}</span>
-						</div>
-						<p className="card-body">{question.question}</p>
-					</article>
+				<div className="inline">
+					<Button
+						disabled={!actions?.onAidoDecide || !openQuestions.length}
+						icon={<Sparkles size={16} aria-hidden="true" />}
+						loading={actions?.busy}
+						onClick={actions?.onAidoDecide}
+						variant="primary"
+					>
+						{t('app.workbench.loop.questions.aidoDecide', 'AIDO decide')}
+					</Button>
+				</div>
+				{openQuestions.map((question) => (
+					<QuestionCard key={question.id} question={question} />
 				))}
+				{answeredQuestions.length ? (
+					<Disclosure
+						headingLevel={4}
+						title={t('app.workbench.loop.questions.answered', '{count} answered').replace(
+							'{count}',
+							String(answeredQuestions.length),
+						)}
+					>
+						<div className="stack">
+							{answeredQuestions.map((question) => (
+								<QuestionCard key={question.id} question={question} />
+							))}
+						</div>
+					</Disclosure>
+				) : null}
 			</div>
 		);
 	}
@@ -116,6 +240,15 @@ export function ProductLoopSection({
 				<div className="inline">
 					<Badge tone={toneForStatus(brief.status)}>{brief.status}</Badge>
 					<strong className="card-title">{brief.title}</strong>
+					<Button
+						disabled={!actions?.onApproveBrief || brief.status === 'approved'}
+						icon={<CheckCircle2 size={16} aria-hidden="true" />}
+						loading={actions?.busy}
+						onClick={actions?.onApproveBrief}
+						variant="primary"
+					>
+						{t('app.workbench.loop.brief.approve', 'Approve brief')}
+					</Button>
 				</div>
 				{brief.summary ? <p className="card-body">{brief.summary}</p> : null}
 				{brief.problemStatement ? (
@@ -256,6 +389,7 @@ export function ProductLoopSection({
 	if (section === 'backlog') {
 		const epics = data?.epics ?? [];
 		const stories = data?.stories ?? [];
+		const acceptanceCriteria = data?.acceptanceCriteria ?? [];
 		const tasks = data?.tasks ?? [];
 		if (!epics.length && !stories.length && !tasks.length) {
 			return (
@@ -270,6 +404,25 @@ export function ProductLoopSection({
 		}
 		return (
 			<div className="stack">
+				<div className="inline">
+					<Button
+						disabled={!actions?.onApproveBacklog || !stories.length}
+						icon={<CheckCircle2 size={16} aria-hidden="true" />}
+						loading={actions?.busy}
+						onClick={actions?.onApproveBacklog}
+						variant="primary"
+					>
+						{t('app.workbench.loop.backlog.approve', 'Approve backlog')}
+					</Button>
+					<Button
+						disabled={!actions?.onStartIteration || !stories.length}
+						icon={<PlayCircle size={16} aria-hidden="true" />}
+						loading={actions?.busy}
+						onClick={actions?.onStartIteration}
+					>
+						{t('app.workbench.loop.backlog.startIteration', 'Start iteration')}
+					</Button>
+				</div>
 				{epics.length ? (
 					<Labeled label={t('app.workbench.loop.backlog.epics', 'Epics')}>
 						<div className="stack compact">
@@ -277,6 +430,15 @@ export function ProductLoopSection({
 								<div className="inline" key={epic.id}>
 									<Badge tone={toneForStatus(epic.status)}>{epic.status}</Badge>
 									<span>{epic.title}</span>
+									<span className="muted">
+										{stories.filter((story) => story.epicId === epic.id).length}{' '}
+										{t('app.workbench.loop.backlog.storyCount', 'stories')}
+									</span>
+									{actions?.onExpandEpic ? (
+										<Button disabled={actions.busy} onClick={() => actions.onExpandEpic?.(epic.id)}>
+											{t('app.workbench.loop.backlog.expandEpic', 'Expand epic')}
+										</Button>
+									) : null}
 								</div>
 							))}
 						</div>
@@ -285,34 +447,98 @@ export function ProductLoopSection({
 				{stories.length ? (
 					<Labeled label={t('app.workbench.loop.backlog.stories', 'User stories')}>
 						<div className="stack compact">
-							{stories.map((story) => (
-								<article className="card" key={story.id}>
-									<div className="inline">
-										<Badge tone={toneForStatus(story.status)}>{story.status}</Badge>
-										<strong className="card-title">{story.title}</strong>
-									</div>
-									{story.asA || story.iWant || story.soThat ? (
-										<p className="card-body">
-											{t('app.workbench.loop.story.asA', 'As a')} {story.asA};{' '}
-											{t('app.workbench.loop.story.iWant', 'I want')} {story.iWant};{' '}
-											{t('app.workbench.loop.story.soThat', 'so that')} {story.soThat}
-										</p>
-									) : null}
-								</article>
-							))}
-						</div>
-					</Labeled>
-				) : null}
-				{tasks.length ? (
-					<Labeled label={t('app.workbench.loop.backlog.tasks', 'Agent tasks')}>
-						<div className="stack compact">
-							{tasks.map((task) => (
-								<div className="inline" key={task.id}>
-									<Badge tone={toneForStatus(task.status)}>{task.status}</Badge>
-									<span className="mono">{task.role}</span>
-									<span>{task.title}</span>
-								</div>
-							))}
+							{stories.map((story) => {
+								const storyCriteria = acceptanceCriteria.filter(
+									(criterion) => criterion.storyId === story.id,
+								);
+								const agentGroups = data ? tasksByAgent(data, story.id) : [];
+								return (
+									<Disclosure
+										key={story.id}
+										title={story.title}
+										summary={
+											<span className="inline">
+												<Badge tone={toneForStatus(story.status)}>{story.status}</Badge>
+												<span className="muted">
+													{storyCriteria.length}{' '}
+													{t('app.workbench.loop.backlog.criteriaCount', 'criteria')}
+												</span>
+												<span className="muted">
+													{agentGroups.reduce((total, group) => total + group.tasks.length, 0)}{' '}
+													{t('app.workbench.loop.backlog.taskCount', 'tasks')}
+												</span>
+											</span>
+										}
+									>
+										<div className="stack compact">
+											{story.asA || story.iWant || story.soThat ? (
+												<p className="card-body">
+													{t('app.workbench.loop.story.asA', 'As a')} {story.asA};{' '}
+													{t('app.workbench.loop.story.iWant', 'I want')} {story.iWant};{' '}
+													{t('app.workbench.loop.story.soThat', 'so that')} {story.soThat}
+												</p>
+											) : null}
+											<Labeled
+												label={t(
+													'app.workbench.loop.backlog.acceptanceCriteria',
+													'Acceptance criteria',
+												)}
+											>
+												<div className="stack compact">
+													{storyCriteria.map((criterion) => (
+														<div className="inline" key={criterion.id}>
+															<Badge tone={toneForStatus(criterion.status)}>
+																{criterion.status}
+															</Badge>
+															<span>{criterion.criterion}</span>
+														</div>
+													))}
+												</div>
+											</Labeled>
+											<div className="inline">
+												<StorySpecDialog
+													projectId={story.projectId}
+													storyId={story.id}
+													storyTitle={story.title}
+												/>
+											</div>
+											<Labeled
+												label={t(
+													'app.workbench.loop.backlog.agentTasksByAgent',
+													'Agent tasks by agent',
+												)}
+											>
+												<div className="stack compact">
+													{agentGroups.length ? (
+														agentGroups.map((group) => (
+															<div className="stack compact" key={group.label}>
+																<div className="inline">
+																	<span className="mono">{group.label}</span>
+																	<Badge>{group.tasks.length}</Badge>
+																</div>
+																{group.tasks.map((task) => (
+																	<div className="inline" key={`${group.label}:${task.id}`}>
+																		<Badge tone={toneForStatus(task.status)}>{task.status}</Badge>
+																		<span className="mono">{task.role}</span>
+																		<span>{task.title}</span>
+																	</div>
+																))}
+															</div>
+														))
+													) : (
+														<span className="muted">
+															{t(
+																'app.workbench.loop.backlog.noAgentTasks',
+																'No technical tasks decomposed yet.',
+															)}
+														</span>
+													)}
+												</div>
+											</Labeled>
+										</div>
+									</Disclosure>
+								);
+							})}
 						</div>
 					</Labeled>
 				) : null}
@@ -320,33 +546,5 @@ export function ProductLoopSection({
 		);
 	}
 
-	const iterations = data?.iterations ?? [];
-	if (!iterations.length) {
-		return (
-			<EmptyState
-				title={t('app.workbench.loop.iteration.emptyTitle', 'No planned iterations')}
-				body={t(
-					'app.workbench.loop.iteration.emptyBody',
-					'Planned iterations appear here once the iteration planner runs against the approved backlog.',
-				)}
-			/>
-		);
-	}
-	return (
-		<div className="stack">
-			{iterations.map((iteration) => (
-				<article className="card" key={iteration.id}>
-					<div className="inline">
-						<Badge tone={toneForStatus(iteration.status)}>{iteration.status}</Badge>
-						<strong className="card-title">{iteration.title}</strong>
-						<span className="mono">{iteration.workspaceStrategy}</span>
-						<span className="muted">
-							{iteration.taskCount} {t('app.workbench.loop.iteration.tasksLabel', 'planned tasks')}
-						</span>
-					</div>
-					{iteration.goal ? <p className="card-body">{iteration.goal}</p> : null}
-				</article>
-			))}
-		</div>
-	);
+	return null;
 }

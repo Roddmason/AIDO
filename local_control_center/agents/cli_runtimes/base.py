@@ -3,16 +3,15 @@
 Define el ABC CliRuntime que detecta el binario, valida workspace/flags, somete cada
 ejecución a la policy y al sandbox de subprocesos, y persiste el resultado. Aquí viven
 los DTOs request/resultado y el parseo tolerante de uso de tokens desde stdout/stderr.
-Invariante: ninguna ejecución real ocurre sin gate (AIDO_ENABLE_CLI_RUNTIMES=true) y
+Invariante: ninguna ejecución real ocurre sin política SQLite que habilite el runtime y
 decisión 'allow' de la policy; los flags peligrosos se rechazan antes de construir el comando.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -22,6 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.providers.base import UsageRecord
+from local_control_center.process_supervision.context import connection_execution_scope
+from local_control_center.process_supervision.service import safe_command_summary
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy import sandbox as subprocess_sandbox
 from local_control_center.security_policy.policy_engine import evaluate_action
 from local_control_center.shared.redaction import redact_secrets
@@ -39,6 +41,12 @@ DANGEROUS_CLI_FLAGS = {
 }
 
 
+def _which_executable(executable: str) -> str | None:
+    from shutil import which
+
+    return which(executable)
+
+
 class RuntimeDetection(BaseModel):
     """Resultado de sondear si un runtime CLI está instalado, con su ruta y versión."""
 
@@ -46,6 +54,18 @@ class RuntimeDetection(BaseModel):
     status: str
     executable: str | None = None
     version: str | None = None
+    message: str = ""
+
+
+class RuntimeAuthStatus(BaseModel):
+    """Veredicto del sondeo de autenticación nativa: authenticated, unauthenticated o unknown.
+
+    ``unknown`` significa que el probe no pudo ejecutarse (binario ausente, timeout, bloqueado);
+    nunca debe degradar una validación previa. El mensaje jamás incluye identidad de la cuenta.
+    """
+
+    runtime: str
+    status: str
     message: str = ""
 
 
@@ -95,6 +115,7 @@ class RuntimeResult(BaseModel):
     return_code: int | None = Field(default=None, alias="returnCode")
     error: str | None = None
     usage: UsageRecord | None = None
+    process_evidence: dict[str, Any] = Field(default_factory=dict, alias="processEvidence")
 
 
 class CliRuntime(ABC):
@@ -106,15 +127,22 @@ class CliRuntime(ABC):
 
     runtime_id: str
     display_name: str
+    auth_status_argv: tuple[str, ...] | None = None
+    """Subcomando de solo lectura que reporta el estado de login nativo (None = sin probe)."""
+    login_hint: str = ""
+    """Instrucción accionable que se muestra cuando el CLI no está autenticado."""
+    login_command: str = ""
+    """Comando exacto de login, como dato y no dentro de una frase, para que la UI lo ofrezca copiable. Vacío
+    cuando el runtime no tiene un login interactivo: prometer un comando que no existe manda al operador a
+    un callejón sin salida.
+    """
 
     def __init__(self, *, executable: str, connection: sqlite3.Connection | None = None):
         self.executable = executable
         self.connection = connection
 
     def _which(self) -> str | None:
-        from shutil import which
-
-        return which(self.executable)
+        return _which_executable(self.executable)
 
     def _version(self, executable: str) -> str | None:
         result = subprocess_sandbox.run_version_check(argv=[executable, "--version"], timeout_seconds=5)
@@ -172,6 +200,68 @@ class CliRuntime(ABC):
         status = "healthy" if detection.status == "installed" else detection.status
         return RuntimeHealth(runtime=self.runtime_id, status=status, message=detection.message)
 
+    def validate_native_auth(self) -> RuntimeAuthStatus:
+        """Sondea el estado de login nativo del CLI con su subcomando de solo lectura.
+
+        Invariante: solo distingue unauthenticated cuando el CLI respondió de forma concluyente;
+        un probe que no pudo ejecutarse (binario ausente, timeout, bloqueado por el sandbox)
+        devuelve ``unknown`` para no degradar validaciones previas por un fallo transitorio.
+        """
+        if not self.auth_status_argv:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=f"{self.display_name} does not expose a native auth status probe.",
+            )
+        executable = self._which()
+        if not executable:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=f"{self.display_name} executable was not found for the auth probe.",
+            )
+        result = subprocess_sandbox.run_auth_status_check(
+            argv=[executable, *self.auth_status_argv], timeout_seconds=10
+        )
+        if result.get("blocked") or result.get("timedOut") or result.get("returnCode") is None:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="unknown",
+                message=str(result.get("reason") or "Auth status probe did not complete."),
+            )
+        parsed = self._parse_auth_probe(result)
+        if parsed.status == "authenticated":
+            invalidation = self._local_auth_invalidation(parsed)
+            if invalidation is not None:
+                return invalidation
+        return parsed
+
+    def _local_auth_invalidation(self, parsed: RuntimeAuthStatus) -> RuntimeAuthStatus | None:
+        """Degrada un veredicto 'authenticated' del probe ante evidencia LOCAL de credencial inválida.
+
+        Hook para subclases cuyo CLI puede reportar login válido sobre una credencial ya vencida
+        (el probe lee un token expirado en disco sin renovarlo). Devuelve un ``RuntimeAuthStatus``
+        ``unauthenticated`` solo ante evidencia concluyente (p.ej. ``expiresAt`` pasado en el
+        archivo de credenciales), o ``None`` para respetar el veredicto del probe cuando no hay
+        evidencia. Nunca produce ``unknown``: preserva el invariante "unknown nunca degrada".
+        La base es no-op; el cruce con la verdad local es responsabilidad de cada subclase.
+        """
+        return None
+
+    def _parse_auth_probe(self, result: dict[str, Any]) -> RuntimeAuthStatus:
+        """Interpreta el resultado del probe: exit 0 = autenticado; distinto = no autenticado."""
+        if result.get("returnCode") == 0:
+            return RuntimeAuthStatus(
+                runtime=self.runtime_id,
+                status="authenticated",
+                message=f"{self.display_name} native session is logged in.",
+            )
+        return RuntimeAuthStatus(
+            runtime=self.runtime_id,
+            status="unauthenticated",
+            message=self.login_hint or f"{self.display_name} native session is not logged in.",
+        )
+
     @abstractmethod
     def build_command(self, request: RuntimeRequest) -> list[str]:
         """Construye el argv del CLI tras validar workspace y flags.
@@ -181,16 +271,41 @@ class CliRuntime(ABC):
         """
         raise NotImplementedError
 
-    def run(self, request: RuntimeRequest) -> RuntimeResult:
-        """Ejecuta el CLI bajo el sandbox tras pasar validación, gate y policy; persiste el resultado.
+    @connection_execution_scope
+    def run(
+        self,
+        request: RuntimeRequest,
+        *,
+        trusted_subprocess_environment: dict[str, str] | None = None,
+        trusted_smoke_audit_id: str | None = None,
+    ) -> RuntimeResult:
+        """Ejecuta el CLI bajo el sandbox tras pasar validación, política runtime y security policy.
 
-        Invariante: solo se invoca el sandbox si el feature flag AIDO_ENABLE_CLI_RUNTIMES=true
+        Invariante: solo se invoca el sandbox si la configuración SQLite habilita este runtime
         y la policy decide 'allow'; en cualquier otro caso devuelve un resultado 'blocked' con el
         motivo. No propaga ValueError de build_command: lo captura y lo materializa como bloqueo.
         Cada decisión (deny o ejecución) queda registrada vía _record_result.
         """
         try:
             command = self.build_command(request)
+            if self.runtime_id == "codex_cli" and request.role == "product_owner":
+                from local_control_center.agents.runtime_registry import (
+                    validate_product_owner_codex_environment,
+                    validate_product_owner_runtime_argv,
+                )
+
+                isolation_error = validate_product_owner_runtime_argv(
+                    runtime_id=self.runtime_id, argv=command, workspace_path=request.workspace_path
+                )
+                isolation_error = isolation_error or validate_product_owner_codex_environment(
+                    trusted_subprocess_environment, workspace_path=request.workspace_path
+                )
+                if isolation_error:
+                    raise ValueError(isolation_error)
+            elif trusted_subprocess_environment is not None:
+                raise ValueError(
+                    "Trusted environments are reserved for the isolated ProductOwner Codex contract."
+                )
         except ValueError as error:
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
@@ -212,24 +327,30 @@ class CliRuntime(ABC):
             self._record_result(validation_request, blocked)
             return blocked
         workspace = Path(request.workspace_path).resolve(strict=False)
-        if os.environ.get("AIDO_ENABLE_CLI_RUNTIMES", "false").lower() != "true":
+        runtime_policy = self._runtime_policy_decision(request)
+        if not runtime_policy.get("allowed"):
             blocked = RuntimeResult(
-                runtime=self.runtime_id, status="blocked", command=command, error="CLI runtimes are disabled"
+                runtime=self.runtime_id,
+                status="blocked",
+                command=safe_command_summary(command),
+                error=str(runtime_policy.get("reason") or "CLI runtime is disabled by runtime policy"),
             )
             gated_request = request.model_copy(
                 update={
                     "env_policy": {
                         **request.env_policy,
-                        "runtimeGate": {
+                        "runtimePolicy": {
                             "decision": "deny",
-                            "reason": "AIDO_ENABLE_CLI_RUNTIMES=false",
+                            "reason": blocked.error,
                         },
                     }
                 }
             )
             self._record_result(gated_request, blocked)
             return blocked
-        policy = self._evaluate_policy(request, command, workspace)
+        policy = self._evaluate_policy(
+            request, command, workspace, trusted_smoke_audit_id=trusted_smoke_audit_id
+        )
         policy_request = request.model_copy(
             update={"env_policy": {**request.env_policy, "policyResult": policy}}
         )
@@ -237,7 +358,7 @@ class CliRuntime(ABC):
             blocked = RuntimeResult(
                 runtime=self.runtime_id,
                 status="blocked",
-                command=command,
+                command=safe_command_summary(command),
                 error=str(policy.get("reason") or "CLI runtime blocked by security policy"),
             )
             self._record_result(policy_request, blocked)
@@ -247,36 +368,71 @@ class CliRuntime(ABC):
             cwd=str(workspace),
             workspace_path=str(workspace),
             timeout_seconds=900,
+            environment=trusted_subprocess_environment,
         )
         status = "completed" if result.get("returnCode") == 0 else "failed"
         runtime_result = RuntimeResult(
             runtime=self.runtime_id,
             status=status,
-            command=command,
+            command=safe_command_summary(command),
             stdout=str(result.get("stdout") or ""),
             stderr=str(result.get("stderr") or ""),
             returnCode=result.get("returnCode"),
             error=result.get("reason"),
+            processEvidence={
+                key: result.get(key)
+                for key in (
+                    "managedProcessId",
+                    "resourceLeaseId",
+                    "workloadClass",
+                    "durationMs",
+                    "timedOut",
+                    "cancelled",
+                    "peakMemoryBytes",
+                    "cpuTimeSeconds",
+                    "stdoutArtifactId",
+                    "stderrArtifactId",
+                    "terminationReason",
+                    "remainingDescendantCount",
+                    "stdoutCaptureTruncated",
+                    "stderrCaptureTruncated",
+                    "stdoutSha256",
+                    "stderrSha256",
+                    "startedAt",
+                    "finishedAt",
+                    "returnCode",
+                )
+            },
         )
         completed = runtime_result.model_copy(update={"usage": self.parse_usage(runtime_result)})
         self._record_result(policy_request, completed)
         return completed
 
     def _blocked_command(self, request: RuntimeRequest) -> list[str]:
-        command = [self.executable, "<blocked>"]
-        command.extend(str(arg) for arg in request.extra_args)
-        if request.prompt:
-            command.append("<prompt>")
-        return command
+        return safe_command_summary([self.executable, "<blocked>", *request.extra_args, request.prompt])
 
     def _evaluate_policy(
         self,
         request: RuntimeRequest,
         command: list[str],
         workspace: Path,
+        *,
+        trusted_smoke_audit_id: str | None = None,
     ) -> dict[str, Any]:
+        smoke_context = {}
+        if trusted_smoke_audit_id is not None:
+            from local_control_center.agents.codex_smoke import claim_smoke_approval
+
+            smoke_context = {
+                "operation": "codex_compatibility_smoke",
+                "runtimeId": self.runtime_id,
+                "workspaceId": request.workspace_id,
+                "smokeApproved": self.runtime_id == "codex_cli"
+                and claim_smoke_approval(self.connection, trusted_smoke_audit_id, request, command),
+            }
         return evaluate_action(
             {
+                **smoke_context,
                 "tool": "shell",
                 "command": " ".join(command),
                 "path": str(workspace),
@@ -287,8 +443,34 @@ class CliRuntime(ABC):
                 "secretsRequired": bool(
                     request.env_policy.get("secrets") or request.env_policy.get("secretRefs")
                 ),
-            }
+            },
+            **(
+                {"trusted_smoke_approval": smoke_context.get("smokeApproved") is True}
+                if smoke_context
+                else {}
+            ),
         )
+
+    def _runtime_policy_decision(self, request: RuntimeRequest) -> dict[str, Any]:
+        if self.connection is None:
+            return {
+                "allowed": False,
+                "reason": "SQLite runtime policy is required for CLI execution.",
+            }
+        project_id = self._project_id_for_workspace(request)
+        return RuntimeConfigRepository(self.connection).runtime_policy_decision(
+            provider_id=self.runtime_id,
+            kind="cli",
+            project_id=project_id,
+        )
+
+    def _project_id_for_workspace(self, request: RuntimeRequest) -> str | None:
+        if self.connection is None:
+            return None
+        row = self.connection.execute(
+            "SELECT project_id FROM workspaces WHERE id = ?", (request.workspace_id,)
+        ).fetchone()
+        return str(row["project_id"]) if row else None
 
     def _record_result(self, request: RuntimeRequest, result: RuntimeResult) -> None:
         if self.connection is None:
@@ -309,6 +491,7 @@ class CliRuntime(ABC):
             stderr=result.stderr,
             error=result.error,
             usage=result.usage,
+            process_evidence=result.process_evidence,
         )
 
     def parse_usage(self, result: RuntimeResult) -> UsageRecord | None:

@@ -5,7 +5,7 @@ viene de una fuente real, sin tests fallidos, y con resultados trazados a ejecuc
 comando reales (modo de ejecución, exitCode 0, toolCall enlazado, hashes de artefacto y una
 decisión de política 'allow'). Devuelve listas de errores; no muta ni persiste evidencia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ el período de deprecación: cada variable usada emite un warning y queda marcad
 ``source=environment_override``.
 La migración es idempotente (upsert por runtime/credencial) y no almacena ni registra ningún secreto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from local_control_center.agents.credentials import preferred_credential_ref
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.credentials.manager import new_salt, secret_fingerprint
 from local_control_center.credentials.repository import CredentialRepository
@@ -155,8 +156,10 @@ def migrate_environment_config(
         )
         if provider_id:
             try:
-                provider_store.patch_provider_account(provider_id, {"credentialRef": f"env:{env_var}"})
-                report["providers"].append({"providerId": provider_id, "credentialRef": f"env:{env_var}"})
+                current = str(provider_store.get_provider_account(provider_id).get("credentialRef") or "")
+                if preferred_credential_ref(current, f"env:{env_var}") != current.strip():
+                    provider_store.patch_provider_account(provider_id, {"credentialRef": f"env:{env_var}"})
+                    report["providers"].append({"providerId": provider_id, "credentialRef": f"env:{env_var}"})
             except KeyError:
                 pass
         warning = (

@@ -8,7 +8,7 @@ each run is enriched with its assignment (matched by agent identity, because the
 delivered artifact) and review (reviewer), its model/tool calls (cost, duration inputs, low-level
 events) and the agent profile (role, runtime). It only reads; no statement here writes or commits.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -25,12 +25,16 @@ from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
 ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "awaiting_permission", "approval_required"})
-BLOCKED_RUN_STATUSES = frozenset({"blocked", "runtime_unavailable", "qa_failed"})
-DONE_RUN_STATUSES = frozenset({"completed", "approved", "evidence_ready"})
+BLOCKED_RUN_STATUSES = frozenset(
+    {"blocked", "runtime_unavailable", "qa_failed", "runtime_failed", "timed_out"}
+)
+DONE_RUN_STATUSES = frozenset({"cancelled", "completed", "approved", "evidence_ready"})
 ACTIVE_ASSIGNMENT_STATUSES = frozenset({"active", "in_progress", "running", "accepted", "proposed"})
 COMPLETED_ASSIGNMENT_STATUSES = frozenset({"released", "completed", "done"})
 COMPLETED_HANDOFF_STATUSES = frozenset({"accepted", "resolved", "completed", "approved"})
+PENDING_HANDOFF_STATUSES = frozenset({"pending"})
 KNOWN_COST_STATUSES = frozenset({"actual", "free"})
+NEXT_STEP_OUTPUT_KEYS = ("nextStep", "next_step", "nextAction")
 
 DEFAULT_RECENT_LIMIT = 12
 
@@ -166,6 +170,26 @@ def _reviewer(reviews: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _next_step(output: dict[str, Any], handoffs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Resolve the work's next action: the agent-stated step, else a pending handoff's destination.
+
+    Prefers an explicit next step the agent emitted in its (already-redacted) output, re-redacting it
+    defensively before it travels; otherwise falls back to the most recent pending handoff's target
+    agent. Returns None when the agent stated nothing and no handoff is pending, so an unknown next
+    step reads as honestly absent rather than fabricated.
+    """
+    for key in NEXT_STEP_OUTPUT_KEYS:
+        value = output.get(key)
+        if isinstance(value, str) and value.strip():
+            return {"source": "agent", "text": redact_secrets(value.strip()), "handoffTo": None}
+    for handoff in reversed(handoffs):
+        if handoff.get("status") in PENDING_HANDOFF_STATUSES:
+            target = (handoff.get("toAgentId") or "").strip()
+            if target:
+                return {"source": "handoff", "text": None, "handoffTo": target}
+    return None
+
+
 def _call_has_known_cost(call: dict[str, Any]) -> bool:
     """Report whether a model call's cost was actually measured.
 
@@ -200,8 +224,10 @@ def _model_summary(call: dict[str, Any]) -> dict[str, Any]:
         "provider": call.get("provider") or "unknown",
         "model": call.get("model") or "unknown",
         "status": call.get("status") or "unknown",
-        "promptTokens": int(call.get("promptTokens") or 0),
-        "completionTokens": int(call.get("completionTokens") or 0),
+        "promptTokens": int(call["promptTokens"]) if call.get("promptTokens") is not None else None,
+        "completionTokens": int(call["completionTokens"])
+        if call.get("completionTokens") is not None
+        else None,
         "costUsd": call.get("costUsd"),
         "createdAt": call.get("createdAt") or "",
     }
@@ -306,6 +332,7 @@ def build_team_activity(
             "blockedReason": _blocked_reason(state, handoffs, output),
             "completedArtifact": _completed_artifact(assignment, handoffs, status, artifacts_by_id),
             "reviewer": _reviewer(reviews),
+            "nextStep": _next_step(output, handoffs),
             "startedAt": run.get("createdAt"),
             "endedAt": run.get("updatedAt"),
             "durationMs": _duration_ms(run.get("createdAt"), run.get("updatedAt")),

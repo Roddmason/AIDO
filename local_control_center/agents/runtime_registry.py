@@ -5,21 +5,34 @@ DeveloperAgent runs (explicit configured argv first, otherwise the runtime's own
 builder), and exposes detection/health checks per CLI runtime. Every generated command
 stays inside the allocated workspace and never commits, pushes, or touches secrets.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import shutil
 import sqlite3
+import sys
+import tempfile
+import threading
+import time
+import uuid
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
-from .cli_runtimes.base import RuntimeRequest
+from .cli_runtimes.base import RuntimeRequest, RuntimeResult
 from .cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
 from .cli_runtimes.codex_cli import CodexCliRuntime
 from .cli_runtimes.manual import ManualRuntime
 from .cli_runtimes.openhands import OpenHandsRuntime
 from .cli_runtimes.swe_agent import SweAgentRuntime
+from .providers.base import UsageRecord
+from .response_style import developer_summary_instruction, resolve_response_style
 
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
@@ -28,9 +41,368 @@ CLI_EXECUTABLE_TOKENS = {
     "swe_agent": ("swe", "agent"),
 }
 
+PRODUCT_OWNER_CODEX_EXTRA_ARGS = [
+    "--ephemeral",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--strict-config",
+    "--config",
+    "tools.web_search=false",
+    "--config",
+    "mcp_servers={}",
+    "--config",
+    "skills.config=[]",
+    "--config",
+    "skills.include_instructions=false",
+    "--config",
+    "project_doc_max_bytes=0",
+    "--config",
+    "project_root_markers=[]",
+    "--config",
+    'shell_environment_policy.inherit="none"',
+    "--config",
+    "shell_environment_policy.experimental_use_profile=false",
+    "--config",
+    "allow_login_shell=false",
+    "--skip-git-repo-check",
+    "--disable",
+    "shell_tool",
+    "--disable",
+    "unified_exec",
+    "--disable",
+    "apps",
+    "--disable",
+    "browser_use",
+    "--disable",
+    "browser_use_external",
+    "--disable",
+    "browser_use_full_cdp_access",
+    "--disable",
+    "computer_use",
+    "--disable",
+    "image_generation",
+    "--disable",
+    "in_app_browser",
+    "--disable",
+    "goals",
+    "--disable",
+    "hooks",
+    "--disable",
+    "memories",
+    "--disable",
+    "multi_agent",
+    "--disable",
+    "plugin_sharing",
+    "--disable",
+    "plugins",
+    "--disable",
+    "shell_snapshot",
+    "--disable",
+    "skill_mcp_dependency_install",
+    "--disable",
+    "tool_call_mcp_elicitation",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "workspace_dependencies",
+]
+PRODUCT_OWNER_CLAUDE_EXTRA_ARGS = [
+    "--safe-mode",
+    "--no-session-persistence",
+    "--tools=",
+]
+
+
+def developer_codex_extra_args() -> list[str]:
+    """Isolate customizations while retaining native workspace tools and managed policy."""
+    args = ["--ephemeral", "--ignore-user-config", "--strict-config"]
+    for setting in (
+        "tools.web_search=false",
+        "mcp_servers={}",
+        "skills.config=[]",
+        "skills.include_instructions=false",
+        "project_doc_max_bytes=0",
+        "project_root_markers=[]",
+        'shell_environment_policy.inherit="core"',
+        "shell_environment_policy.experimental_use_profile=false",
+        "allow_login_shell=false",
+        "sandbox_workspace_write.network_access=false",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+    ):
+        args.extend(["--config", setting])
+    if sys.platform == "win32":
+        args.extend(["--config", 'windows.sandbox="unelevated"'])
+    for feature in (
+        "apps",
+        "browser_use",
+        "computer_use",
+        "image_generation",
+        "in_app_browser",
+        "goals",
+        "hooks",
+        "memories",
+        "multi_agent",
+        "plugins",
+        "plugin_sharing",
+        "shell_snapshot",
+        "skill_mcp_dependency_install",
+        "tool_call_mcp_elicitation",
+        "tool_suggest",
+        "workspace_dependencies",
+    ):
+        args.extend(["--disable", feature])
+    return args
+
+
+PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS = frozenset(
+    {
+        "APPDATA",
+        "COMSPEC",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LC_ALL",
+        "LOCALAPPDATA",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+        "PATH",
+        "PATHEXT",
+        "PROCESSOR_ARCHITECTURE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    }
+)
+PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS = PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS | {
+    "RUST_LOG",
+    "CODEX_HOME",
+    "OPENAI_API_KEY",
+    "OPENAI_ORG_ID",
+    "OPENAI_PROJECT_ID",
+}
+
 
 class RuntimeCommandUnavailableError(RuntimeError):
     """Raised when no safe workspace-bound command can be built for the requested runtime."""
+
+
+def _codex_source_home() -> Path:
+    configured = str(os.environ.get("CODEX_HOME") or "").strip()
+    return (
+        Path(configured).expanduser().resolve(strict=False)
+        if configured
+        else (Path.home() / ".codex").resolve(strict=False)
+    )
+
+
+def _product_owner_codex_home_root() -> Path:
+    base = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    root = Path(base) if base else Path(tempfile.gettempdir())
+    return (root / "AIDO" / "product-owner-codex-homes").resolve(strict=False)
+
+
+def _strict_descendant(path: Path, root: Path) -> bool:
+    return path != root and root in path.parents
+
+
+def _product_owner_codex_environment(runtime_home: Path, *, native_auth_copied: bool) -> dict[str, str]:
+    environment = {
+        key: value
+        for key in PRODUCT_OWNER_CODEX_ENVIRONMENT_KEYS
+        if (value := os.environ.get(key)) is not None
+    }
+    environment["CODEX_HOME"] = str(runtime_home)
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+    from local_control_center.shared.diagnostics import RUST_LOG_FILTER
+
+    context = CURRENT_EXECUTION.get()
+    if context and context.diagnostics_expires_at > time.time():
+        environment["RUST_LOG"] = RUST_LOG_FILTER
+    if not native_auth_copied:
+        for key in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
+            value = os.environ.get(key)
+            if value:
+                environment[key] = value
+    return environment
+
+
+def validate_product_owner_codex_environment(
+    environment: Any,
+    *,
+    workspace_path: str,
+) -> str | None:
+    """Validate the trusted, non-persisted environment for a ProductOwner Codex process."""
+    error = "ProductOwnerAgent Codex runtime requires a controlled, minimal subprocess environment."
+    if not isinstance(environment, dict) or not environment:
+        return error
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in environment.items()):
+        return error
+    if not set(environment).issubset(PRODUCT_OWNER_CODEX_ALLOWED_ENVIRONMENT_KEYS):
+        return error
+    if "RUST_LOG" in environment:
+        from local_control_center.process_supervision.context import CURRENT_EXECUTION
+        from local_control_center.shared.diagnostics import RUST_LOG_FILTER
+
+        context = CURRENT_EXECUTION.get()
+        if (
+            not context
+            or context.diagnostics_expires_at <= time.time()
+            or environment["RUST_LOG"] != RUST_LOG_FILTER
+        ):
+            return error
+
+    codex_home_value = environment.get("CODEX_HOME")
+    if not codex_home_value:
+        return error
+    codex_home = Path(codex_home_value).resolve(strict=False)
+    controlled_root = _product_owner_codex_home_root()
+    if not _strict_descendant(codex_home, controlled_root):
+        return error
+    if not codex_home.exists() or not codex_home.is_dir():
+        return error
+
+    workspace = Path(workspace_path).resolve(strict=False)
+    if codex_home == workspace or codex_home in workspace.parents or workspace in codex_home.parents:
+        return error
+    if any((codex_home / entry).exists() for entry in ("AGENTS.md", "config.toml", "skills", "plugins")):
+        return error
+    return None
+
+
+@contextmanager
+def isolated_product_owner_codex_environment() -> Iterator[dict[str, str]]:
+    """Yield a minimal Codex environment without operator AGENTS, skills, plugins, or config.
+
+    Native authentication is copied into the private per-run ``CODEX_HOME`` so Codex cannot mutate
+    the operator's credential file through a shared inode. The copy is mode-restricted and removed
+    with the runtime home after execution. Failure to create this boundary fails closed.
+    """
+    controlled_root = _product_owner_codex_home_root()
+    runtime_home = (controlled_root / str(uuid.uuid4())).resolve(strict=False)
+    if not _strict_descendant(runtime_home, controlled_root):
+        raise RuntimeCommandUnavailableError(
+            "ProductOwnerAgent Codex runtime home escaped its controlled root."
+        )
+    runtime_home.mkdir(parents=True, exist_ok=False)
+    native_auth_copied = False
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+    from local_control_center.process_supervision.repository import process_create_time
+
+    context = CURRENT_EXECUTION.get()
+    try:
+        _audit_codex_home(
+            context,
+            runtime_home,
+            "created",
+            {
+                "ownerPid": os.getpid(),
+                "ownerCreateTime": process_create_time(os.getpid()),
+                "executionId": context.execution_id if context else None,
+            },
+        )
+        source_auth = (_codex_source_home() / "auth.json").resolve(strict=False)
+        if source_auth.exists() and source_auth.is_file():
+            target_auth = runtime_home / "auth.json"
+            try:
+                shutil.copyfile(source_auth, target_auth)
+                target_auth.chmod(0o600)
+            except OSError as error:
+                raise RuntimeCommandUnavailableError(
+                    "ProductOwnerAgent could not isolate the Codex native authentication file."
+                ) from error
+            native_auth_copied = True
+        yield _product_owner_codex_environment(
+            runtime_home,
+            native_auth_copied=native_auth_copied,
+        )
+    finally:
+        unwinding = sys.exc_info()[0] is not None
+        try:
+            _remove_codex_home(runtime_home)
+            _audit_codex_home(context, runtime_home, "cleaned", {})
+        except OSError as error:
+            logging.getLogger(__name__).error(
+                "codex_home_cleanup_failed error_type=%s home_id=%s", type(error).__name__, runtime_home.name
+            )
+            try:
+                _audit_codex_home(
+                    context, runtime_home, "cleanup_failed", {"errorType": type(error).__name__}
+                )
+            except sqlite3.Error:
+                logging.getLogger(__name__).exception("codex_home_cleanup_audit_failed")
+            if not unwinding:
+                raise
+
+
+def _audit_codex_home(context, home: Path, suffix: str, payload: dict) -> None:
+    if context is None:
+        return
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.event_bus import EventBus
+
+    with closing(open_sqlite_connection(context.db_path)) as connection:
+        EventBus(connection).record_audit(
+            action=f"runtime.codex.home_{suffix}",
+            actor="codex_home_isolator",
+            target=str(home),
+            payload=payload,
+        )
+
+
+def _remove_codex_home(home: Path) -> None:
+    root = _product_owner_codex_home_root()
+    if (
+        home.parent != root
+        or str(uuid.UUID(home.name)) != home.name
+        or home.is_symlink()
+        or home.is_junction()
+        or home.resolve(strict=False) != home
+    ):
+        raise PermissionError("Codex temporary home ownership boundary could not be verified.")
+    if home.exists():
+        shutil.rmtree(home)
+
+
+def recover_codex_homes(connection) -> None:
+    """Recover owned homes through existing process recovery, after OS reconciliation."""
+    from local_control_center.process_supervision.recovery import identity_alive
+    from local_control_center.shared.event_bus import EventBus
+
+    rows = connection.execute("""SELECT target, payload FROM audit_events a
+        WHERE action='runtime.codex.home_created' AND NOT EXISTS
+        (SELECT 1 FROM audit_events b WHERE b.target=a.target AND b.action='runtime.codex.home_cleaned')""").fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        if identity_alive(payload["ownerPid"], payload["ownerCreateTime"]):
+            continue
+        if connection.execute(
+            "SELECT 1 FROM managed_processes WHERE execution_id=? AND (finished_at IS NULL OR released_at IS NULL)",
+            (payload.get("executionId"),),
+        ).fetchone():
+            continue
+        try:
+            _remove_codex_home(Path(row["target"]))
+        except (OSError, ValueError) as error:
+            EventBus(connection).record_audit(
+                action="runtime.codex.home_cleanup_failed",
+                actor="process_recovery",
+                target=row["target"],
+                payload={"errorType": type(error).__name__},
+            )
+            logging.getLogger(__name__).error(
+                "codex_home_recovery_blocked error_type=%s", type(error).__name__
+            )
+            continue
+        EventBus(connection).record_audit(
+            action="runtime.codex.home_cleaned",
+            actor="process_recovery",
+            target=row["target"],
+            payload={"reason": "owner_crashed; tree_reconciled"},
+        )
 
 
 def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
@@ -42,12 +414,38 @@ def issue_to_patch_prompt(*, title: str, issue_text: str) -> str:
     )
 
 
-def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) -> str:
-    """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules."""
+def developer_agent_prompt(
+    *,
+    instruction: str,
+    qa_commands: list[list[str]],
+    story_specs: str | None = None,
+    constitution: str | None = None,
+    response_style: str = "normal",
+) -> str:
+    """Build the DeveloperAgent prompt with workspace, secret, and QA-preservation rules.
+
+    When ``story_specs`` is provided, the rendered user-story spec (epic, story,
+    acceptance criteria, and role responsibilities) is included as the acceptance
+    source of truth and scopes the run to it; ``constitution`` (the rendered project constitution) is
+    prepended as binding project rules. Without either, the prompt is
+    byte-identical to the legacy form when the response style is normal. Runtime
+    callers resolve the configured style before command construction or authorization.
+    """
     qa_text = (
         "\n".join(" ".join(command) for command in qa_commands)
         if qa_commands
         else "No QA commands were provided."
+    )
+    constitution_block = f"{constitution}\n\n" if constitution else ""
+    spec_block = (
+        "User story spec (source of truth for acceptance):\n"
+        + story_specs
+        + "\n\nScope of this run: implement only what the user story spec above requires. The "
+        "instruction below is the whole request; any part of it outside this spec belongs to other "
+        "stories that run separately (some may already be done): keep their changes and do not "
+        "rewrite files this spec does not need.\n\n"
+        if story_specs
+        else ""
     )
     return (
         "You are DeveloperAgent executing real implementation work in the current workspace only.\n"
@@ -56,7 +454,9 @@ def developer_agent_prompt(*, instruction: str, qa_commands: list[list[str]]) ->
         "- Do not read, write, print, commit, push, or exfiltrate secrets or credentials.\n"
         "- Do not skip applicable tests; if QA commands are provided, preserve them as required verification.\n"
         "- Do not modify the source repository root outside this workspace.\n"
-        "- Produce a concise structured summary with changed files, tests run, blockers, and residual risks.\n\n"
+        f"{developer_summary_instruction(response_style)}\n\n"
+        f"{constitution_block}"
+        f"{spec_block}"
         f"Instruction:\n{instruction}\n\nRequired QA commands:\n{qa_text}\n"
     )
 
@@ -204,6 +604,9 @@ def build_developer_agent_argv(
     qa_commands: list[list[str]],
     agent_id: str,
     connection: sqlite3.Connection,
+    model: str | None = None,
+    story_specs: str | None = None,
+    constitution: str | None = None,
 ) -> list[str]:
     """Build the structured argv for a DeveloperAgent run (Codex or Claude Code CLI only).
 
@@ -231,18 +634,33 @@ def build_developer_agent_argv(
             "Runtime detected executable does not match the declared runtime command."
         )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
+    workspace = (
+        connection.execute("SELECT project_id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        if connection is not None
+        else None
+    )
+    response_style = resolve_response_style(
+        connection, project_id=str(workspace["project_id"]) if workspace else None
+    )
     request = RuntimeRequest.model_validate(
         {
             "runtime": runtime_id,
             "workspaceId": workspace_id,
             "workspacePath": workspace_path,
-            "prompt": developer_agent_prompt(instruction=instruction, qa_commands=qa_commands),
+            "prompt": developer_agent_prompt(
+                instruction=instruction,
+                qa_commands=qa_commands,
+                story_specs=story_specs,
+                constitution=constitution,
+                response_style=response_style,
+            ),
+            "model": model,
             "envPolicy": {
                 "permissionProfile": "dev_safe",
                 "network": False,
                 "secrets": False,
             },
-            "extraArgs": [],
+            "extraArgs": developer_codex_extra_args() if runtime_id == "codex_cli" else [],
             "role": "developer",
             "agentId": agent_id,
         }
@@ -253,15 +671,117 @@ def build_developer_agent_argv(
         raise RuntimeCommandUnavailableError(str(error)) from error
 
 
-def _explicit_product_owner_agent_argv(runtime: dict[str, Any]) -> list[str] | None:
-    argv = runtime.get("productOwnerAgentArgv")
-    if argv is None:
-        return None
-    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+def _matches_runtime_executable(runtime_id: str, executable: str) -> bool:
+    executable_name = Path(executable).name.lower()
+    required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
+    return bool(required_tokens) and all(token in executable_name for token in required_tokens)
+
+
+def build_architect_agent_argv(
+    *,
+    runtime: dict[str, Any],
+    workspace_id: str,
+    workspace_path: str,
+    prompt: str,
+    model: str | None,
+    connection: sqlite3.Connection,
+) -> list[str]:
+    """Build the existing tool-isolated read-only Claude contract for a review.
+
+    The reviewer receives the bounded diff and evidence in its prompt, not shell/file tools.
+    This does not widen the ProductOwner contract or change the default API selection.
+    """
+    if runtime.get("id") != "claude_code_cli":
+        raise RuntimeCommandUnavailableError("ArchitectAgent CLI review requires Claude Code CLI.")
+    executable = str(runtime.get("detectedCommand") or "")
+    if not _matches_runtime_executable("claude_code_cli", executable):
+        raise RuntimeCommandUnavailableError("ArchitectAgent detected executable does not match Claude CLI.")
+    request = RuntimeRequest.model_validate(
+        {
+            "runtime": "claude_code_cli",
+            "workspaceId": workspace_id,
+            "workspacePath": workspace_path,
+            "prompt": prompt,
+            "model": model,
+            "role": "technical_lead",
+            "agentId": "architect_agent",
+            "envPolicy": {"permissionProfile": "plan", "network": False, "secrets": False},
+            "extraArgs": PRODUCT_OWNER_CLAUDE_EXTRA_ARGS,
+        }
+    )
+    argv = runtime_for("claude_code_cli", connection=connection, executable=executable).build_command(request)
+    error = validate_product_owner_runtime_argv(
+        runtime_id="claude_code_cli", argv=argv, workspace_path=workspace_path
+    )
+    if error:
         raise RuntimeCommandUnavailableError(
-            "Runtime productOwnerAgentArgv must be a non-empty structured argv list."
+            "ArchitectAgent requires the canonical read-only Claude contract."
         )
-    return list(argv)
+    return argv
+
+
+def _canonical_product_owner_argv_error() -> str:
+    return "ProductOwnerAgent runtime argv must match the canonical read-only command contract."
+
+
+def validate_product_owner_runtime_argv(
+    *,
+    runtime_id: str,
+    argv: Any,
+    workspace_path: str,
+) -> str | None:
+    """Validate the exact tool-isolated, read-only CLI shape used by ProductOwnerAgent.
+
+    This is intentionally stricter than the generic restricted-subprocess allowlist. It binds the
+    executable to the declared runtime, the CLI workspace to the allocated workspace, and rejects
+    duplicate/unknown flags instead of trying to infer whether they override an earlier safe flag.
+    """
+    error = _canonical_product_owner_argv_error()
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+        return error
+    if runtime_id not in {"codex_cli", "claude_code_cli"}:
+        return error
+    if not _matches_runtime_executable(runtime_id, argv[0]):
+        return error
+
+    workspace = str(Path(workspace_path).resolve(strict=False))
+    if runtime_id == "codex_cli":
+        required_prefix = [
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            workspace,
+        ]
+        required_extra_args = PRODUCT_OWNER_CODEX_EXTRA_ARGS
+    else:
+        required_prefix = [
+            "--print",
+            "--permission-mode",
+            "plan",
+            "--add-dir",
+            workspace,
+        ]
+        required_extra_args = PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
+
+    remaining = argv[1:]
+    if remaining[: len(required_prefix)] != required_prefix:
+        return error
+    remaining = remaining[len(required_prefix) :]
+    if remaining[:1] == ["--model"]:
+        if len(remaining) < 2 or not remaining[1] or remaining[1].startswith("-"):
+            return error
+        remaining = remaining[2:]
+    if remaining[: len(required_extra_args)] != required_extra_args:
+        return error
+    remaining = remaining[len(required_extra_args) :]
+    if runtime_id == "codex_cli" and remaining[:1] == ["--json"]:
+        remaining = remaining[1:]
+    if len(remaining) != 2 or remaining[0] != "--" or not remaining[1]:
+        return error
+    return None
 
 
 def build_product_owner_agent_argv(
@@ -270,51 +790,76 @@ def build_product_owner_agent_argv(
     workspace_id: str,
     workspace_path: str,
     prompt: str,
+    model: str | None = None,
     agent_id: str,
     connection: sqlite3.Connection,
 ) -> list[str]:
     """Build the structured argv for a ProductOwnerAgent run (Codex or Claude Code CLI only).
 
-    Prefers the runtime's explicit `productOwnerAgentArgv`; otherwise validates the detected executable
-    and delegates to the runtime's command builder with the supplied analysis prompt.
+    Rejects runtime-specific argv overrides, validates the detected executable, and delegates to the
+    runtime's command builder with the supplied analysis prompt. The resulting argv is validated again
+    against the canonical read-only/tool-isolated contract before it can reach ToolBroker. Codex is
+    validado por capacidades, fingerprint y smoke del contrato; un binario nuevo falla cerrado.
 
     Raises:
         RuntimeCommandUnavailableError: if the runtime cannot produce a safe command.
     """
-    explicit = _explicit_product_owner_agent_argv(runtime)
-    if explicit is not None:
-        return explicit
+    if runtime.get("productOwnerAgentArgv") is not None:
+        raise RuntimeCommandUnavailableError(
+            "Runtime productOwnerAgentArgv overrides are not supported for ProductOwnerAgent."
+        )
     runtime_id = str(runtime.get("id") or "")
     if runtime_id not in {"codex_cli", "claude_code_cli"}:
         raise RuntimeCommandUnavailableError(
             "Runtime provider does not expose a ProductOwnerAgent CLI executor."
         )
+    if runtime_id == "codex_cli":
+        from .codex_compatibility import CodexCompatibilityService
+
+        compatibility = CodexCompatibilityService(connection).status(
+            str(runtime.get("detectedCommand") or "codex"), verify_hash=True
+        )
+        if compatibility["status"] != "compatible":
+            raise RuntimeCommandUnavailableError(
+                "Codex ProductOwner contract requires capability validation and matching smoke: "
+                + ", ".join(compatibility["blockingReasons"])
+            )
     executable = str(runtime.get("detectedCommand") or "").strip()
     if not executable:
         raise RuntimeCommandUnavailableError("Runtime status did not provide a detected executable command.")
-    executable_name = Path(executable).name.lower()
-    required_tokens = CLI_EXECUTABLE_TOKENS.get(runtime_id, ())
-    if required_tokens and not all(token in executable_name for token in required_tokens):
+    if not _matches_runtime_executable(runtime_id, executable):
         raise RuntimeCommandUnavailableError(
             "Runtime detected executable does not match the declared runtime command."
         )
     cli_runtime = runtime_for(runtime_id, connection=connection, executable=executable)
+    extra_args = (
+        PRODUCT_OWNER_CODEX_EXTRA_ARGS if runtime_id == "codex_cli" else PRODUCT_OWNER_CLAUDE_EXTRA_ARGS
+    )
     request = RuntimeRequest.model_validate(
         {
             "runtime": runtime_id,
             "workspaceId": workspace_id,
             "workspacePath": workspace_path,
             "prompt": prompt,
+            "model": model,
             "envPolicy": {"permissionProfile": "plan", "network": False, "secrets": False},
-            "extraArgs": [],
+            "extraArgs": extra_args,
             "role": "product_owner",
             "agentId": agent_id,
         }
     )
     try:
-        return cli_runtime.build_command(request)
+        command = cli_runtime.build_command(request)
     except ValueError as error:
         raise RuntimeCommandUnavailableError(str(error)) from error
+    validation_error = validate_product_owner_runtime_argv(
+        runtime_id=runtime_id,
+        argv=command,
+        workspace_path=workspace_path,
+    )
+    if validation_error:
+        raise RuntimeCommandUnavailableError(validation_error)
+    return command
 
 
 def runtime_for(
@@ -340,6 +885,75 @@ def runtime_for(
     return runtimes[runtime_id]
 
 
+def build_runtime_command(
+    runtime_id: str,
+    request: RuntimeRequest,
+    *,
+    connection: sqlite3.Connection | None = None,
+    executable: str | None = None,
+) -> list[str]:
+    """Build the argv a runtime would run, without handing out a runnable runtime.
+
+    Code outside the registry gets commands and parsers, never an instance it could `.run()` past
+    runtime selection; the same reason the registry exports the `build_*_argv` builders.
+    """
+    return runtime_for(runtime_id, connection=connection, executable=executable).build_command(request)
+
+
+def parse_runtime_usage(
+    runtime_id: str,
+    result: RuntimeResult,
+    *,
+    connection: sqlite3.Connection | None = None,
+    executable: str | None = None,
+) -> UsageRecord | None:
+    """Parse token usage from a finished runtime result with that runtime's own parser."""
+    return runtime_for(runtime_id, connection=connection, executable=executable).parse_usage(result)
+
+
+def login_command_for(runtime_id: str) -> str:
+    """Comando de login interactivo de ese runtime, o vacio si no expone uno.
+
+    Vive en el registry porque es quien conoce la clase de cada runtime: resolverlo desde fuera
+    obligaria a instanciar runtimes en codigo de producto, que es justo lo que
+    ``test_product_workflows_do_not_call_runtime_registry_directly`` prohibe.
+    """
+    classes = {
+        "codex_cli": CodexCliRuntime,
+        "claude_code_cli": ClaudeCodeCliRuntime,
+        "openhands": OpenHandsRuntime,
+        "swe_agent": SweAgentRuntime,
+        "manual": ManualRuntime,
+    }
+    runtime_class = classes.get(runtime_id)
+    return str(getattr(runtime_class, "login_command", "") or "") if runtime_class else ""
+
+
+_DETECTION_CACHE_TTL_SECONDS = 30.0
+"""La detección de un runtime CLI ejecuta `<binario> --version` por subprocess (~4 s en frío para el set
+completo en Windows) y su resultado —presencia y versión de un binario— es estable en ventanas cortas. Se
+cachea por `(runtime_id, executable)` con TTL para que el polling del shell (~cada 5 s) no repita el probe
+en cada request ni lo retenga bajo el lock global que serializa el acceso al runtime del control-plane. El
+costo real vive aquí; el rollup de estado se deriva de la BD.
+"""
+_detection_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+_detection_cache_lock = threading.Lock()
+
+_AUTH_CACHE_TTL_SECONDS = 60.0
+"""El probe de auth nativa también lanza un subprocess (`claude auth status` / `codex login status`) y su
+veredicto es estable en ventanas cortas; se cachea aparte de la detección porque solo se consulta mientras
+la cuenta no está validada y no debe repetirse en cada poll del shell.
+"""
+_auth_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+
+
+def reset_detection_cache() -> None:
+    """Vacía los cachés de detección y de auth nativa; usar entre tests para evitar fugas globales."""
+    with _detection_cache_lock:
+        _detection_cache.clear()
+        _auth_cache.clear()
+
+
 class RuntimeRegistry:
     """Detection facade over the known CLI runtimes."""
 
@@ -353,9 +967,40 @@ class RuntimeRegistry:
         return result
 
     def detect(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
-        """Detect a single runtime, optionally probing a specific executable path."""
-        return runtime_for(runtime_id, executable=executable).detect().model_dump(by_alias=True)
+        """Detect a single runtime, optionally probing a specific executable path.
+
+        Sirve la detección cacheada dentro del TTL; ante fallo de caché ejecuta el probe FUERA del
+        candado del caché (no serializa los probes entre sí) y guarda el resultado.
+        """
+        key = (runtime_id, executable)
+        now = time.monotonic()
+        with _detection_cache_lock:
+            cached = _detection_cache.get(key)
+            if cached is not None and now - cached[0] < _DETECTION_CACHE_TTL_SECONDS:
+                return dict(cached[1])
+        detection = runtime_for(runtime_id, executable=executable).detect().model_dump(by_alias=True)
+        with _detection_cache_lock:
+            _detection_cache[key] = (time.monotonic(), detection)
+        return dict(detection)
 
     def health_check(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
         """Run a runtime's safe version/health check and return its result."""
         return runtime_for(runtime_id, executable=executable).health_check().model_dump(by_alias=True)
+
+    def validate_native_auth(self, runtime_id: str, *, executable: str | None = None) -> dict[str, Any]:
+        """Sondea el estado de login nativo de un runtime CLI, con caché TTL propio.
+
+        Devuelve el payload de ``RuntimeAuthStatus`` (status authenticated/unauthenticated/unknown).
+        Cachea por ``(runtime_id, executable)`` para que el polling del shell no repita el
+        subprocess; el probe corre fuera del candado para no serializar probes entre sí.
+        """
+        key = (runtime_id, executable)
+        now = time.monotonic()
+        with _detection_cache_lock:
+            cached = _auth_cache.get(key)
+            if cached is not None and now - cached[0] < _AUTH_CACHE_TTL_SECONDS:
+                return dict(cached[1])
+        status = runtime_for(runtime_id, executable=executable).validate_native_auth().model_dump()
+        with _detection_cache_lock:
+            _auth_cache[key] = (time.monotonic(), status)
+        return dict(status)

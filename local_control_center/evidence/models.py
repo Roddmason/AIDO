@@ -4,7 +4,7 @@ Define el vocabulario tipado compartido por el API y el repositorio: tipos de ar
 de evidencia, veredictos QA y estados de test, más los modelos de entrada/salida HTTP. Los alias
 camelCase fijan la forma del JSON expuesto frente al snake_case interno de Python.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 ArtifactKind = Literal[
+    "generated_image",
     "execution_log",
     "screenshot",
     "test_report",
@@ -21,6 +22,7 @@ ArtifactKind = Literal[
     "generic_artifact",
     "git_patch",
     "git_status",
+    "git_diff",
     "security_findings",
     "model_call",
     "evidence_manifest",
@@ -35,6 +37,10 @@ ArtifactKind = Literal[
     "workspace_patch_manifest",
     "project_assessment",
     "product_owner_manifest",
+    "product_owner_output",
+    "product_brief",
+    "product_backlog",
+    "technical_plan",
 ]
 EvidenceSource = Literal[
     "operator_attested",
@@ -53,11 +59,16 @@ QAVerdict = Literal[
     "devops_risk",
     "devops_blocked",
     "security_passed",
+    "security_risk",
     "security_blocked",
     "skipped_with_reason",
+    "backlog_generated",
+    "brief_ready",
+    "blocked_pending_decisions",
 ]
 TestResultStatus = Literal[
     "passed",
+    "risk",
     "failed",
     "completed",
     "denied",

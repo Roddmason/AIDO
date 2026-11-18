@@ -4,7 +4,7 @@ Declara los esquemas I/O del agente DevOps (build/quality scripts, healthcheck D
 su veredicto, que se funda solo en archivos, comandos y artefactos. A diferencia de los demás agentes,
 no requiere runtime de modelo: sus checks deterministas son ejecutables mientras haya tools brokered.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

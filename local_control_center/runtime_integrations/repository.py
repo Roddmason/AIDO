@@ -10,17 +10,46 @@ estos métodos NO abren transacciones propias; cada ``execute`` se confirma de i
 (``upsert_installation``/``upsert_preferences``) hacen lectura-luego-escritura (SELECT + INSERT/UPDATE),
 dos sentencias que solo son atómicas si el caller las agrupa en una única ``immediate_transaction``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.agents.endpoint_locality import is_local_model_runtime
+from local_control_center.settings.registry import descriptor_for, validate_value
+from local_control_center.settings.repository import UNSET, SettingsRepository
+from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+
+GLOBAL_RUNTIME_SETTINGS = (
+    "runtime.cli.enabled",
+    "runtime.remote.enabled",
+    "runtime.local.enabled",
+    "runtime.local.maxCallSeconds",
+    "runtime.ollama.enabled",
+    "runtime.nvidia.enabled",
+)
+PROJECT_RUNTIME_SETTINGS = (
+    "project.runtime.cli.enabled",
+    "project.runtime.remote.enabled",
+    "project.runtime.allowedProviders",
+    "project.runtime.defaultMode",
+)
+ENVIRONMENT_OVERRIDE_FLAGS = ("AIDO_ENABLE_CLI_RUNTIMES", "AIDO_ENABLE_REAL_PROVIDER_CALLS")
+REMOTE_RUNTIME_KINDS = {"api", "gateway"}
+OLLAMA_RUNTIME_IDS = {"ollama", "local_ollama"}
+
+
+def is_ollama_runtime_id(provider_id: str) -> bool:
+    """Return True for the built-in Ollama ids and endpoint-scoped Ollama runtime ids."""
+    normalized = str(provider_id or "")
+    return normalized in OLLAMA_RUNTIME_IDS or normalized.startswith("ollama-")
 
 
 def row_to_runtime_installation(row: sqlite3.Row) -> dict[str, Any]:
@@ -67,9 +96,6 @@ def row_to_runtime_account(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-row_to_cli_account = row_to_runtime_account
-
-
 def row_to_runtime_preference(row: sqlite3.Row) -> dict[str, Any]:
     """Mapea una fila de ``runtime_preferences`` al dict camelCase del contrato."""
     return {
@@ -91,6 +117,203 @@ class RuntimeConfigRepository:
 
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
+
+    def set_runtime_setting(
+        self, key: str, value: Any, *, scope: str = "general", scope_id: str | None = None
+    ) -> None:
+        """Persist a registered runtime setting after validating the value against the settings registry."""
+        if key not in {*GLOBAL_RUNTIME_SETTINGS, *PROJECT_RUNTIME_SETTINGS}:
+            raise KeyError(f"Unknown runtime setting: {key}")
+        descriptor = descriptor_for(key)
+        if descriptor is None:
+            raise KeyError(f"Runtime setting is not registered: {key}")
+        if scope not in {"general", "project"}:
+            raise ValueError("Runtime settings scope must be 'general' or 'project'.")
+        if scope == "project" and not scope_id:
+            raise ValueError("Project runtime settings require scope_id.")
+        if scope == "general" and scope_id is not None:
+            raise ValueError("General runtime settings must not include scope_id.")
+        SettingsRepository(self.connection).set_value(key, scope, scope_id, validate_value(descriptor, value))
+
+    def runtime_execution_policy(self, *, project_id: str | None = None) -> dict[str, Any]:
+        """Resolve global and project runtime policy from SQLite settings.
+
+        Environment enable flags are reported only as temporary environment overrides; they do not
+        decide executability. This keeps the UI/persistent configuration authoritative while still
+        surfacing operator-local env drift.
+        """
+        settings = SettingsRepository(self.connection)
+        resolved_project_id = str(project_id or "").strip() or None
+        global_policy = {
+            "cliEnabled": self._resolved_setting(settings, "runtime.cli.enabled"),
+            "remoteEnabled": self._resolved_setting(settings, "runtime.remote.enabled"),
+            "localEnabled": self._resolved_setting(settings, "runtime.local.enabled"),
+            "ollamaEnabled": self._resolved_setting(settings, "runtime.ollama.enabled"),
+            "nvidiaEnabled": self._resolved_setting(settings, "runtime.nvidia.enabled"),
+        }
+        project_policy = {
+            "cliEnabled": self._resolved_setting(
+                settings, "project.runtime.cli.enabled", project_id=resolved_project_id
+            ),
+            "remoteEnabled": self._resolved_setting(
+                settings, "project.runtime.remote.enabled", project_id=resolved_project_id
+            ),
+            "allowedProviders": self._resolved_setting(
+                settings, "project.runtime.allowedProviders", project_id=resolved_project_id
+            ),
+            "defaultMode": self._resolved_setting(
+                settings, "project.runtime.defaultMode", project_id=resolved_project_id
+            ),
+        }
+        environment_overrides = {
+            name: {
+                "source": "environment_override",
+                "value": os.environ.get(name),
+            }
+            for name in ENVIRONMENT_OVERRIDE_FLAGS
+            if name in os.environ
+        }
+        configuration_warnings = [
+            (
+                f"{name} is set as environment_override; SQLite runtime settings remain "
+                "authoritative for execution."
+            )
+            for name in environment_overrides
+        ]
+        return {
+            "global": global_policy,
+            "project": project_policy,
+            "environmentOverrides": environment_overrides,
+            "configurationWarnings": configuration_warnings,
+        }
+
+    def runtime_policy_decision(
+        self,
+        *,
+        provider_id: str,
+        kind: str,
+        project_id: str | None = None,
+        provider_family: str | None = None,
+        account: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return whether SQLite runtime policy allows a provider kind for the project.
+
+        Una cuenta `local` elige su interruptor por localidad (`endpoint_locality`): runtime de modelo local
+        verificado ⇒ `runtime.local.enabled` (y `runtime.ollama.enabled` si es Ollama); `local` no verificada
+        (LAN sin declarar, `endpointKind=remote`) ⇒ los mismos interruptores remotos que `api`/`gateway`. Sin
+        cuenta resoluble solo los ids Ollama integrados cuentan como locales (ante la duda, remoto).
+        """
+        policy = self.runtime_execution_policy(project_id=project_id)
+        provider = str(provider_id)
+        resolved_account = account if account is not None else self._provider_account(provider)
+        family = str(provider_family or (resolved_account or {}).get("providerFamily") or provider)
+        runtime_kind = "api" if family == "nvidia_nim" else str(kind)
+        ollama = (
+            is_ollama_runtime_id(provider) or str((resolved_account or {}).get("apiFormat") or "") == "ollama"
+        )
+        local_model = runtime_kind == "local" and (
+            is_local_model_runtime(resolved_account)
+            if resolved_account is not None
+            else is_ollama_runtime_id(provider)
+        )
+        project_policy = policy["project"]
+        allowed_providers = {
+            str(item).strip() for item in project_policy.get("allowedProviders") or [] if str(item).strip()
+        }
+        if allowed_providers and provider not in allowed_providers:
+            return {
+                "allowed": False,
+                "reason": f"project.runtime.allowedProviders does not include {provider}.",
+                "policy": policy,
+            }
+        mode = str(project_policy.get("defaultMode") or "hybrid")
+        mode_reason = self._mode_block_reason(
+            provider_id=provider, kind=runtime_kind, mode=mode, local_model=local_model, ollama=ollama
+        )
+        if mode_reason:
+            return {"allowed": False, "reason": mode_reason, "policy": policy}
+
+        global_policy = policy["global"]
+        if runtime_kind == "cli":
+            if not global_policy.get("cliEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.cli.enabled is false.",
+                    "policy": policy,
+                }
+            if not project_policy.get("cliEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "project.runtime.cli.enabled is false for this project.",
+                    "policy": policy,
+                }
+        elif runtime_kind in REMOTE_RUNTIME_KINDS or (runtime_kind == "local" and not local_model):
+            if not global_policy.get("remoteEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.remote.enabled is false.",
+                    "policy": policy,
+                }
+            if family == "nvidia_nim" and not global_policy.get("nvidiaEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "runtime.nvidia.enabled is false.",
+                    "policy": policy,
+                }
+            if not project_policy.get("remoteEnabled"):
+                return {
+                    "allowed": False,
+                    "reason": "project.runtime.remote.enabled is false for this project.",
+                    "policy": policy,
+                }
+        elif local_model and not global_policy.get("localEnabled"):
+            return {"allowed": False, "reason": "runtime.local.enabled is false.", "policy": policy}
+        if ollama and not global_policy.get("ollamaEnabled"):
+            return {"allowed": False, "reason": "runtime.ollama.enabled is false.", "policy": policy}
+        return {"allowed": True, "reason": "", "policy": policy}
+
+    def _provider_account(self, provider_id: str) -> dict[str, Any] | None:
+        from local_control_center.agents.provider_accounts import ProviderAccountStore
+
+        try:
+            return ProviderAccountStore(self.connection).get_provider_account(provider_id)
+        except KeyError:
+            return None
+
+    def _resolved_setting(
+        self,
+        settings: SettingsRepository,
+        key: str,
+        *,
+        project_id: str | None = None,
+    ) -> Any:
+        descriptor = descriptor_for(key)
+        if descriptor is None:
+            raise KeyError(f"Runtime setting is not registered: {key}")
+        if project_id:
+            project_value = settings.get_value(key, "project", project_id)
+            if project_value is not UNSET:
+                return project_value
+        general_value = settings.get_value(key, "general", None)
+        if general_value is not UNSET:
+            return general_value
+        return descriptor.default
+
+    @staticmethod
+    def _mode_block_reason(*, provider_id: str, kind: str, mode: str, local_model: bool, ollama: bool) -> str:
+        if mode == "hybrid":
+            return ""
+        if mode == "cli" and kind != "cli":
+            return f"project.runtime.defaultMode=cli blocks provider {provider_id}."
+        if mode == "api" and kind not in REMOTE_RUNTIME_KINDS:
+            return f"project.runtime.defaultMode=api blocks provider {provider_id}."
+        if mode == "local" and not local_model:
+            return f"project.runtime.defaultMode=local blocks provider {provider_id}."
+        if mode == "ollama" and not ollama:
+            return f"project.runtime.defaultMode=ollama blocks provider {provider_id}."
+        if mode == "manual" and kind != "manual":
+            return f"project.runtime.defaultMode=manual blocks provider {provider_id}."
+        return ""
 
     def upsert_installation(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza la instalación de un runtime por ``runtimeId`` y la devuelve.
@@ -239,6 +462,18 @@ class RuntimeConfigRepository:
             )
         return self.get_runtime_account(account_id)
 
+    def upsert_runtime_account(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Create or update a runtime account keyed by ``runtimeId`` and ``accountLabel``."""
+        runtime_id = str(body["runtimeId"])
+        account_label = str(body["accountLabel"])
+        existing = self.connection.execute(
+            "SELECT id FROM runtime_accounts WHERE runtime_id = ? AND account_label = ?",
+            (runtime_id, account_label),
+        ).fetchone()
+        if existing:
+            return self.update_runtime_account(str(existing["id"]), body)
+        return self.create_runtime_account(body)
+
     def get_runtime_account(self, account_id: str) -> dict[str, Any]:
         """Recupera una cuenta de runtime por id.
 
@@ -269,6 +504,11 @@ class RuntimeConfigRepository:
 
     def update_runtime_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Aplica un patch sobre una cuenta de runtime; nunca toca ni persiste secretos.
+
+        Security: habilitar/deshabilitar una cuenta de runtime de edición de código (openhands/
+        swe_agent y similares) es una acción de privilegio. Esta capa es libre de efectos; cuando se
+        exponga un endpoint que cambie ``enabled``, la capa de API DEBE emitir un evento de auditoría
+        (``EventBus.record_audit``) con el estado previo/nuevo, igual que evidence/governance.
 
         Raises:
             KeyError: si la cuenta no existe.
@@ -310,21 +550,28 @@ class RuntimeConfigRepository:
             )
         return self.get_runtime_account(account_id)
 
-    def create_cli_account(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Alias compatible: usa ``create_runtime_account``."""
-        return self.create_runtime_account(body)
-
-    def get_cli_account(self, account_id: str) -> dict[str, Any]:
-        """Alias compatible: usa ``get_runtime_account``."""
-        return self.get_runtime_account(account_id)
-
-    def list_cli_accounts(self, runtime_id: str | None = None) -> list[dict[str, Any]]:
-        """Alias compatible: usa ``list_runtime_accounts``."""
-        return self.list_runtime_accounts(runtime_id)
-
-    def update_cli_account(self, account_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Alias compatible: usa ``update_runtime_account``."""
-        return self.update_runtime_account(account_id, body)
+    def record_health_check(
+        self, *, runtime_id: str, check_type: str, status: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist a runtime health-check without exposing secrets in the payload."""
+        now = utc_now()
+        check_id = f"runtime-health-{uuid.uuid4()}"
+        sanitized_payload = redact_secrets(payload)
+        self.connection.execute(
+            """
+            INSERT INTO runtime_health_checks (id, runtime_id, check_type, status, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (check_id, runtime_id, check_type, status, json_dumps(sanitized_payload), now),
+        )
+        return {
+            "id": check_id,
+            "runtimeId": runtime_id,
+            "checkType": check_type,
+            "status": status,
+            "payload": sanitized_payload,
+            "createdAt": now,
+        }
 
     def upsert_preferences(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza las preferencias de un scope (global/role/agent) y las devuelve.

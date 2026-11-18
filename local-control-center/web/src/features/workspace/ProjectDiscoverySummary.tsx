@@ -2,11 +2,11 @@
  * Presentational review-step panel for the new-workspace wizard: renders what project
  * discovery found (manifest markers present/absent and detected runtimes) for the chosen
  * folder. Stateless — all data is supplied by the caller via props.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Check, Minus } from 'lucide-react';
 
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { DetectionMarker } from './useProjectDiscovery';
 
@@ -27,12 +27,13 @@ export function ProjectDiscoverySummary({
 
 	return (
 		<>
-			<div
+			<ul
 				className="detection-grid"
 				aria-label={t('app.workspace.detection.aria', 'Detected project markers')}
+				style={{ margin: 0, padding: 0, listStyle: 'none' }}
 			>
 				{markers.map((marker) => (
-					<div
+					<li
 						key={marker.file}
 						className="card detection-card"
 						data-detected={marker.detected ? 'true' : 'false'}
@@ -51,9 +52,9 @@ export function ProjectDiscoverySummary({
 								</span>
 							)}
 						</span>
-					</div>
+					</li>
 				))}
-			</div>
+			</ul>
 
 			<div className="field">
 				<span className="field-label">
@@ -62,6 +63,7 @@ export function ProjectDiscoverySummary({
 				<div className="detection-runtimes">
 					{runtimeLabels.length ? (
 						runtimeLabels.map((label, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: render-once, never-reordered list; index disambiguates duplicate runtime labels.
 							<Badge key={`${label}-${index}`} tone="info">
 								{label}
 							</Badge>

@@ -4,10 +4,18 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "release-certify.ps1"
+_WINDOWS_ONLY = pytest.mark.skipif(
+    sys.platform != "win32", reason="release-certify.ps1 launches cmd.exe and .cmd shims"
+)
 
 
 def test_release_certification_is_opt_in_package_script_only() -> None:
@@ -19,7 +27,7 @@ def test_release_certification_is_opt_in_package_script_only() -> None:
     assert package["scripts"]["release:certify"] == (
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-certify.ps1"
     )
-    assert "release:certify" not in package["scripts"]["prestart"]
+    assert "prestart" not in package["scripts"]
     assert "release:certify" not in package["scripts"]["start"]
     assert "release:certify" not in package["scripts"]["start:py"]
     assert "release:certify" not in package["scripts"]["start:windows"]
@@ -113,6 +121,7 @@ def _release_env(bin_dir: Path) -> dict[str, str]:
     return env
 
 
+@_WINDOWS_ONLY
 def test_release_certification_report_preserves_configuration_required_smokes_and_redacts_logs(
     tmp_path: Path,
 ) -> None:
@@ -172,6 +181,7 @@ def test_release_certification_report_preserves_configuration_required_smokes_an
     }
 
 
+@_WINDOWS_ONLY
 def test_release_certification_strict_mode_fails_when_smoke_configuration_is_missing(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "strict out"
@@ -205,6 +215,92 @@ def test_release_certification_strict_mode_fails_when_smoke_configuration_is_mis
     assert payload["reason"] == "configuration_required"
 
 
+def test_release_certification_preserves_existing_receipt_before_launch(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "protected output"
+    _write_corepack_shim(bin_dir)
+    destination = output_root / "reports" / "release-certification-report.json"
+    destination.parent.mkdir(parents=True)
+    original = b'{"status":"failed","original":true}\n'
+    destination.write_bytes(original)
+    result = subprocess.run(
+        [_powershell(), "-NoProfile", "-File", str(SCRIPT), "-OutputRoot", str(output_root)],
+        cwd=ROOT,
+        env=_release_env(bin_dir),
+        capture_output=True,
+        timeout=40,
+    )
+    assert result.returncode != 0
+    assert b"release_output_collision" in result.stderr
+    assert destination.read_bytes() == original
+    assert not (output_root / "logs").exists()
+
+
+@_WINDOWS_ONLY
+def test_release_certification_concurrent_root_has_one_owner(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "concurrent output"
+    _write_corepack_shim(bin_dir)
+    barrier = Barrier(2)
+
+    def run(_):
+        barrier.wait(timeout=5)
+        return subprocess.run(
+            [_powershell(), "-NoProfile", "-File", str(SCRIPT), "-OutputRoot", str(output_root)],
+            cwd=ROOT,
+            env=_release_env(bin_dir),
+            capture_output=True,
+            timeout=40,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, range(2)))
+    assert sorted(result.returncode for result in results) == [0, 1]
+    assert b"release_output_collision" in next(result.stderr for result in results if result.returncode)
+    report = output_root / "reports" / "release-certification-report.json"
+    assert json.loads(report.read_text(encoding="utf-8-sig"))["quality"]["status"] == "passed"
+    assert not list(output_root.rglob("*.writing"))
+
+
+def test_release_certification_rejects_owner_winning_during_directory_creation(tmp_path):
+    bin_dir, output_root = tmp_path / "bin", tmp_path / "contended output"
+    _write_corepack_shim(bin_dir)
+    env = _release_env(bin_dir)
+    env["AIDO_TEST_CLAIM_ROOT"] = str(output_root)
+    env["AIDO_TEST_RELEASE_SCRIPT"] = str(SCRIPT)
+    env["AIDO_TEST_CLAIM_DONE"] = "false"
+    # Force the observed TOCTOU window: directory creation succeeds even when
+    # another publisher has obtained the destination before ownership is claimed.
+    command = r"""
+function New-Item {
+    [CmdletBinding()]
+    param([string[]]$Path, [string]$ItemType, [switch]$Force)
+    $result = Microsoft.PowerShell.Management\New-Item @PSBoundParameters
+    if ($ItemType -eq 'Directory' -and $env:AIDO_TEST_CLAIM_DONE -ne 'true') {
+        $env:AIDO_TEST_CLAIM_DONE = 'true'
+        [IO.Directory]::CreateDirectory($env:AIDO_TEST_CLAIM_ROOT) | Out-Null
+        [IO.File]::WriteAllText(
+            (Join-Path $env:AIDO_TEST_CLAIM_ROOT 'owner.txt'), 'original-owner')
+    }
+    return $result
+}
+& $env:AIDO_TEST_RELEASE_SCRIPT -OutputRoot $env:AIDO_TEST_CLAIM_ROOT
+"""
+    result = subprocess.run(
+        [_powershell(), "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        timeout=40,
+    )
+    assert (output_root / "owner.txt").is_file(), result.stdout + result.stderr
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert b"release_output_collision" in result.stderr
+    assert (output_root / "owner.txt").read_text() == "original-owner"
+    assert not (output_root / "logs").exists()
+    assert not (output_root / "reports").exists()
+    assert not list(tmp_path.glob("*.writing"))
+
+
+@_WINDOWS_ONLY
 def test_release_certification_fails_configured_smoke_that_does_not_write_report(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "configured smoke missing report"
@@ -252,6 +348,7 @@ def test_release_certification_fails_configured_smoke_that_does_not_write_report
     )
 
 
+@_WINDOWS_ONLY
 def test_release_certification_failed_quality_log_preserves_redacted_stderr(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     output_root = tmp_path / "failed quality"

@@ -4,7 +4,7 @@ Define los request/response de la API HTTP (en camelCase vía alias) y las tupla
 estados válidos para jobs, runs y action requests. `SENSITIVE_JOB_KINDS` es la lista
 canónica de kinds que fuerzan aprobación granular antes de ejecutarse.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ SENSITIVE_JOB_KINDS = {
 }
 
 
-JOB_STATUSES = {
+JobStatus = Literal[
     "queued",
+    "resource_wait",
     "running",
     "approval_required",
     "completed",
     "approved",
     "failed",
     "cancelled",
-}
-JobStatus = Literal["queued", "running", "approval_required", "completed", "approved", "failed", "cancelled"]
+]
 JobRunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 ActionRequestStatus = Literal["pending", "approved", "denied", "expired"]
 
@@ -88,6 +88,8 @@ class JobRunRecord(BaseModel):
     completed_at: str | None = Field(default=None, alias="completedAt")
     summary: str
     metadata: dict[str, Any]
+    worker_owner_id: str | None = Field(default=None, alias="workerOwnerId")
+    leader_fencing_token: int | None = Field(default=None, alias="leaderFencingToken")
 
 
 class ActionRequestRecord(BaseModel):

@@ -7,7 +7,7 @@ payload de edicion de sandbox; ante violacion lanza ``HTTPException`` (401/403 v
 422 por payload invalido, 404 si el recurso no existe). Tambien escala a riesgo de gobernanza
 toda decision deny/requires_approval/requires_human.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

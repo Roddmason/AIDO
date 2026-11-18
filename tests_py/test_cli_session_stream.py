@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from local_control_center.agents.cli_session_events import CliSessionEventStore
 from local_control_center.agents.cli_session_stream import (
@@ -12,8 +15,78 @@ from local_control_center.agents.cli_session_stream import (
     is_running,
     start_cli_session,
 )
+from local_control_center.agents.developer_agent_contract import DEVELOPER_AGENT_ID
+from local_control_center.agents.repository import AgentsRepository
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.serialization import json_loads
+from local_control_center.shared.time import utc_now
+from tests_py.operational_acceptance_support import evidence
+
+
+@pytest.fixture
+def session_completion(monkeypatch):
+    """Wait for actual finalization, including the three supervised Git evidence phases.
+
+    Five seconds was a polling detail, not a response SLO: measured finalization took
+    5.12-6.39 s while native Git executions themselves completed in 0.18-0.26 s.
+    Keep the separate timeout/cancellation assertions and the product deadlines intact.
+    """
+    from local_control_center.agents import cli_session_stream as stream
+
+    events = {}
+    lock = threading.Lock()
+    phases = []
+    original = stream._run
+
+    def completion(session_id):
+        with lock:
+            return events.setdefault(session_id, threading.Event())
+
+    def run(**kwargs):
+        started = time.monotonic()
+        try:
+            return original(**kwargs)
+        finally:
+            with closing(open_sqlite_connection(kwargs["db_path"])) as connection:
+                row = connection.execute(
+                    "SELECT status,started_at,finished_at FROM cli_sessions WHERE id=?",
+                    (kwargs["session_id"],),
+                ).fetchone()
+                evidence(
+                    "cli-session-finalization",
+                    {
+                        "sessionId": kwargs["session_id"],
+                        "durationSeconds": time.monotonic() - started,
+                        "terminal": dict(row),
+                        "events": CliSessionEventStore(connection).list_events(kwargs["session_id"]),
+                        "phases": list(phases),
+                    },
+                )
+            completion(kwargs["session_id"]).set()
+
+    def trace(name):
+        operation = getattr(stream, name)
+
+        def measured(*args, **kwargs):
+            started = time.monotonic()
+            try:
+                return operation(*args, **kwargs)
+            finally:
+                phases.append({"phase": name, "durationSeconds": time.monotonic() - started})
+
+        monkeypatch.setattr(stream, name, measured)
+
+    for name in ("_changed_files", "_capture_diff"):
+        trace(name)
+    monkeypatch.setattr(stream, "_run", run)
+
+    def wait(session_id):
+        assert completion(session_id).wait(15), f"Session did not finalize within test budget: {phases}"
+        assert not is_running(session_id)
+
+    return wait
 
 
 class _FakePipe:
@@ -38,7 +111,13 @@ class _FakePipe:
 
 class _FakePopen:
     def __init__(
-        self, stdout: list[str], stderr: list[str], return_code: int, stop: threading.Event, block: bool
+        self,
+        stdout: list[str],
+        stderr: list[str],
+        return_code: int,
+        stop: threading.Event,
+        block: bool,
+        ignore_terminate: bool,
     ):
         self.stdout = _FakePipe(stdout, stop, block)
         self.stderr = _FakePipe(stderr, stop, block)
@@ -47,6 +126,7 @@ class _FakePopen:
         self._return_code = return_code
         self._stop = stop
         self._terminated = False
+        self._ignore_terminate = ignore_terminate
 
     def poll(self) -> int | None:
         return self.returncode
@@ -57,17 +137,26 @@ class _FakePopen:
 
     def terminate(self) -> None:
         self._terminated = True
-        self._stop.set()
+        if not self._ignore_terminate:
+            self._stop.set()
 
     def kill(self) -> None:
-        self.terminate()
+        self._terminated = True
+        self._stop.set()
 
 
-def _opener(stdout: list[str], stderr: list[str], return_code: int, *, block: bool = False):
+def _opener(
+    stdout: list[str],
+    stderr: list[str],
+    return_code: int,
+    *,
+    block: bool = False,
+    ignore_terminate: bool = False,
+):
     stop = threading.Event()
 
     def opener(*, argv: Any, cwd: str | None, workspace_path: str | None) -> _FakePopen:
-        return _FakePopen(stdout, stderr, return_code, stop, block)
+        return _FakePopen(stdout, stderr, return_code, stop, block, ignore_terminate)
 
     return opener
 
@@ -87,9 +176,152 @@ def _connection(tmp_path: Path):
     return connection
 
 
-def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path) -> None:
+@pytest.fixture(autouse=True)
+def _enable_cli_runtimes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIDO_ENABLE_CLI_RUNTIMES", "true")
+
+
+def _runtime(
+    connection,
+    runtime_id: str,
+    executable: str,
+    *,
+    code_edit: bool = True,
+) -> None:
+    now = utc_now()
+    repo = RuntimeConfigRepository(connection)
+    repo.set_runtime_setting("runtime.cli.enabled", True)
+    repo.upsert_installation(
+        {
+            "runtimeId": runtime_id,
+            "kind": "cli",
+            "executablePath": executable,
+            "enabled": True,
+            "detectedVersion": f"{runtime_id} test",
+            "healthStatus": "healthy",
+            "lastValidationAt": now,
+        }
+    )
+    accounts = repo.list_runtime_accounts(runtime_id)
+    if accounts:
+        repo.update_runtime_account(
+            accounts[0]["id"],
+            {"enabled": True, "isDefault": True, "healthStatus": "healthy", "lastValidationAt": now},
+        )
+    else:
+        repo.create_runtime_account(
+            {
+                "runtimeId": runtime_id,
+                "accountLabel": f"{runtime_id} native",
+                "enabled": True,
+                "isDefault": True,
+                "healthStatus": "healthy",
+                "lastValidationAt": now,
+            }
+        )
+    if code_edit:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO runtime_capabilities
+                (id, runtime, capability, enabled, metadata, created_at, updated_at)
+            VALUES (?, ?, 'code_edit', 1, '{}', ?, ?)
+            """,
+            (f"{runtime_id}:code_edit", runtime_id, now, now),
+        )
+
+
+def _seed_runtimes(connection) -> None:
+    _runtime(connection, "codex_cli", "codex")
+    _runtime(connection, "claude_code_cli", "claude")
+    _runtime(connection, "openhands", "openhands")
+    _runtime(connection, "swe_agent", "sweagent")
+
+
+def _workspace(
+    connection,
+    tmp_path: Path,
+    *,
+    workspace_id: str = "w1",
+    project_id: str = "p1",
+    seed_runtimes: bool = True,
+) -> str:
+    now = utc_now()
+    connection.execute(
+        """
+        INSERT INTO workspaces
+            (id, project_id, task_id, owner_agent_id, path, status, isolation_type,
+             metadata, created_at, updated_at)
+        VALUES (?, ?, 'cli-session-test', 'developer_agent', ?, 'ready', 'git_worktree', '{}', ?, ?)
+        """,
+        (workspace_id, project_id, str(tmp_path.resolve(strict=False)), now, now),
+    )
+    if seed_runtimes:
+        _seed_runtimes(connection)
+    return workspace_id
+
+
+def _row(connection, session_id: str):
+    return connection.execute("SELECT * FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "untrusted",
+        "forged_payload",
+        "executes",
+        "wrong_capability",
+        "plan",
+        "other_role",
+        "environment",
+    ],
+)
+def test_streaming_authority_is_separate_from_native_developer_transport(tmp_path, change):
+    from local_control_center.agents.tool_broker import _developer_codex_boundary
+
+    profile = {"id": "developer_agent", "permissionProfile": "dev_safe", "allowCli": True}
+    call = {
+        "tool": "shell",
+        "runtimeId": "codex_cli",
+        "argv": ["codex", "exec"],
+        "authorizeOnly": True,
+        "capability": "cli_session_stream",
+    }
+    trusted = "cli_session_stream"
+    environment = None
+    if change in {"untrusted", "forged_payload"}:
+        trusted = None
+    if change == "forged_payload":
+        call["trustedOperation"] = "cli_session_stream"
+    if change == "executes":
+        call["authorizeOnly"] = False
+    if change == "wrong_capability":
+        call["capability"] = "developer_agent_runtime"
+    if change == "plan":
+        profile["permissionProfile"] = "plan"
+    if change == "other_role":
+        profile["id"] = "product_owner_agent"
+    if change == "environment":
+        environment = {"CODEX_HOME": str(tmp_path)}
+    decision = _developer_codex_boundary(
+        operation="developer_agent_runtime",
+        trusted_operation=trusted,
+        profile=profile,
+        tool_call=call,
+        workspace_path=str(tmp_path),
+        environment=environment,
+    )
+    if change == "none":
+        assert decision is None
+    else:
+        assert decision["decision"] == "deny"
+
+
+def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path, session_completion) -> None:
     connection = _connection(tmp_path)
     try:
+        _workspace(connection, tmp_path)
         result = start_cli_session(
             connection,
             db_path=tmp_path / "platform.sqlite",
@@ -103,7 +335,7 @@ def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path)
         )
         session_id = result["id"]
         assert result["status"] == "running"
-        assert _wait_until(lambda: not is_running(session_id))
+        session_completion(session_id)
 
         types = [event["type"] for event in CliSessionEventStore(connection).list_events(session_id)]
         assert types[0] == "started"
@@ -120,9 +352,47 @@ def test_streaming_session_records_lifecycle_chunks_and_finishes(tmp_path: Path)
         connection.close()
 
 
+@pytest.mark.parametrize(
+    ("runtime", "argv"),
+    [
+        ("codex_cli", ["codex", "exec"]),
+        ("claude_code_cli", ["claude", "--print", "work"]),
+        ("openhands", ["openhands", "--headless", "--json", "-t", "work"]),
+        ("swe_agent", ["sweagent", "run", "--problem_statement.text=work"]),
+    ],
+)
+def test_streaming_session_supports_all_cli_runtimes(
+    tmp_path: Path, runtime: str, argv: list[str], session_completion
+) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime=runtime,
+            executable=argv[0],
+            argv=argv,
+            process_opener=_opener(["ok\n"], [], 0),
+        )
+        session_id = result["id"]
+        session_completion(session_id)
+
+        row = _row(connection, session_id)
+        assert row["status"] == "completed"
+        started = CliSessionEventStore(connection).list_events(session_id)[0]
+        assert started["payload"]["runtime"] == runtime
+    finally:
+        connection.close()
+
+
 def test_streaming_session_can_be_cancelled(tmp_path: Path) -> None:
     connection = _connection(tmp_path)
     try:
+        _workspace(connection, tmp_path)
         result = start_cli_session(
             connection,
             db_path=tmp_path / "platform.sqlite",
@@ -143,8 +413,11 @@ def test_streaming_session_can_be_cancelled(tmp_path: Path) -> None:
 
         types = [event["type"] for event in CliSessionEventStore(connection).list_events(session_id)]
         assert types[-1] == "cancelled"
-        row = connection.execute("SELECT status FROM cli_sessions WHERE id = ?", (session_id,)).fetchone()
+        row = connection.execute(
+            "SELECT status, logs_artifact_id FROM cli_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
         assert row["status"] == "cancelled"
+        assert row["logs_artifact_id"] is not None
         assert cancel_cli_session(session_id) is False  # already finished
     finally:
         connection.close()
@@ -153,6 +426,7 @@ def test_streaming_session_can_be_cancelled(tmp_path: Path) -> None:
 def test_streaming_session_blocked_when_executable_is_denied(tmp_path: Path) -> None:
     connection = _connection(tmp_path)
     try:
+        _workspace(connection, tmp_path)
 
         def denying_opener(*, argv: Any, cwd: str | None, workspace_path: str | None):
             raise PermissionError("Executable is not allowlisted.")
@@ -164,8 +438,8 @@ def test_streaming_session_blocked_when_executable_is_denied(tmp_path: Path) -> 
             workspace_id="w1",
             workspace_path=str(tmp_path),
             runtime="codex_cli",
-            executable="nope",
-            argv=["nope"],
+            executable="codex",
+            argv=["codex", "exec"],
             process_opener=denying_opener,
         )
         session_id = result["id"]
@@ -185,6 +459,7 @@ def test_streaming_session_blocked_when_executable_is_denied(tmp_path: Path) -> 
 def test_streaming_session_caps_the_final_log_artifact_under_a_flood(tmp_path: Path) -> None:
     connection = _connection(tmp_path)
     try:
+        _workspace(connection, tmp_path)
         chunk = ("A" * 400_000) + "\n"  # ~400 KB per line; four lines is ~1.6 MB total
         result = start_cli_session(
             connection,
@@ -213,5 +488,269 @@ def test_streaming_session_caps_the_final_log_artifact_under_a_flood(tmp_path: P
         total_input = 4 * len(chunk.encode("utf-8"))
         assert len(content.encode("utf-8")) < total_input
         assert len(content.encode("utf-8")) <= _MAX_SESSION_LOG_BYTES + len(chunk.encode("utf-8")) + 100
+    finally:
+        connection.close()
+
+
+def test_streaming_session_marks_exit_one_as_runtime_failed_with_exit_code_and_evidence(
+    tmp_path: Path,
+    session_completion,
+) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="codex_cli",
+            executable="codex",
+            argv=["codex", "exec"],
+            process_opener=_opener(["partial log\n"], ["boom\n"], 1),
+        )
+        session_id = result["id"]
+        session_completion(session_id)
+
+        events = CliSessionEventStore(connection).list_events(session_id)
+        terminal = events[-1]
+        row = _row(connection, session_id)
+
+        assert terminal["type"] == "failed"
+        assert terminal["payload"]["status"] == "runtime_failed"
+        assert terminal["payload"]["exitCode"] == 1
+        assert terminal["payload"]["evidencePackageId"].startswith("evidence-")
+        assert row["status"] == "runtime_failed"
+        assert row["stdout_artifact_id"] is not None
+        assert row["stderr_artifact_id"] is not None
+        assert row["logs_artifact_id"] is not None
+        assert "exited with code 1" in row["error"]
+    finally:
+        connection.close()
+
+
+def test_streaming_session_times_out_and_preserves_partial_logs(tmp_path: Path) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="codex_cli",
+            executable="codex",
+            argv=["codex", "exec"],
+            timeout_seconds=1,
+            process_opener=_opener(["before-timeout\n"], [], 0, block=True),
+        )
+        session_id = result["id"]
+        assert _wait_until(lambda: not is_running(session_id), timeout=5)
+
+        row = _row(connection, session_id)
+        artifact = connection.execute(
+            "SELECT path FROM artifacts WHERE id = ?", (row["stdout_artifact_id"],)
+        ).fetchone()
+        content = Path(artifact["path"]).read_text(encoding="utf-8")
+        terminal = CliSessionEventStore(connection).list_events(session_id)[-1]
+
+        assert row["status"] == "timed_out"
+        assert "timed out" in row["error"]
+        assert "before-timeout" in content
+        assert terminal["type"] == "failed"
+        assert terminal["payload"]["status"] == "timed_out"
+    finally:
+        connection.close()
+
+
+def test_streaming_session_kills_timeout_that_ignores_terminate(tmp_path: Path) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="codex_cli",
+            executable="codex",
+            argv=["codex", "exec"],
+            timeout_seconds=1,
+            process_opener=_opener(["before-timeout\n"], [], 0, block=True, ignore_terminate=True),
+        )
+        session_id = result["id"]
+        assert _wait_until(lambda: not is_running(session_id), timeout=8)
+
+        row = _row(connection, session_id)
+        terminal = CliSessionEventStore(connection).list_events(session_id)[-1]
+        assert row["status"] == "timed_out"
+        assert terminal["payload"]["status"] == "timed_out"
+        assert row["logs_artifact_id"] is not None
+    finally:
+        connection.close()
+
+
+def test_streaming_session_blocks_runtime_without_code_edit_before_popen(tmp_path: Path) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path, seed_runtimes=False)
+        _runtime(connection, "openhands", "openhands", code_edit=False)
+        called = False
+
+        def opener(*, argv: Any, cwd: str | None, workspace_path: str | None):
+            nonlocal called
+            called = True
+            return _FakePopen([], [], 0, threading.Event(), False, False)
+
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="openhands",
+            executable="openhands",
+            argv=["openhands", "--headless", "--json", "-t", "work"],
+            process_opener=opener,
+        )
+        session_id = result["id"]
+        assert _wait_until(lambda: not is_running(session_id))
+
+        row = _row(connection, session_id)
+        assert called is False
+        assert row["status"] == "blocked"
+        assert "code_edit" in row["error"]
+    finally:
+        connection.close()
+
+
+def test_streaming_session_does_not_reactivate_disabled_developer_profile(tmp_path: Path) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        AgentsRepository(connection).upsert_agent_profile(
+            {
+                "id": DEVELOPER_AGENT_ID,
+                "name": "Developer Agent",
+                "role": "implementer",
+                "runtimeMode": "cli",
+                "permissionProfile": "dev_safe",
+                "allowedTools": ["shell"],
+                "allowRemote": False,
+                "allowCli": True,
+                "allowApi": False,
+                "status": "disabled",
+            }
+        )
+        called = False
+
+        def opener(*, argv: Any, cwd: str | None, workspace_path: str | None):
+            nonlocal called
+            called = True
+            return _FakePopen([], [], 0, threading.Event(), False, False)
+
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="codex_cli",
+            executable="codex",
+            argv=["codex", "exec"],
+            process_opener=opener,
+        )
+        session_id = result["id"]
+        assert _wait_until(lambda: not is_running(session_id))
+
+        row = _row(connection, session_id)
+        profile = AgentsRepository(connection).get_agent_profile(DEVELOPER_AGENT_ID)
+        assert called is False
+        assert row["status"] == "blocked"
+        assert "disabled" in row["error"]
+        assert profile["status"] == "disabled"
+    finally:
+        connection.close()
+
+
+def test_streaming_session_rejects_workspace_path_mismatch_before_popen(tmp_path: Path) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path, workspace_id="w1")
+        outside = tmp_path.parent / f"{tmp_path.name}-outside"
+        outside.mkdir()
+        called = False
+
+        def opener(*, argv: Any, cwd: str | None, workspace_path: str | None):
+            nonlocal called
+            called = True
+            return _FakePopen([], [], 0, threading.Event(), False, False)
+
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(outside),
+            runtime="codex_cli",
+            executable="codex",
+            argv=["codex", "exec"],
+            process_opener=opener,
+        )
+        session_id = result["id"]
+        assert _wait_until(lambda: not is_running(session_id))
+
+        row = _row(connection, session_id)
+        terminal = CliSessionEventStore(connection).list_events(session_id)[-1]
+        assert called is False
+        assert row["status"] == "blocked"
+        assert "workspacePath does not match" in row["error"]
+        assert terminal["payload"]["blocked"] is True
+        artifact = connection.execute(
+            "SELECT path FROM artifacts WHERE id = ?", (row["logs_artifact_id"],)
+        ).fetchone()
+        assert Path(artifact["path"]).resolve(strict=False).is_relative_to(tmp_path.resolve(strict=False))
+    finally:
+        connection.close()
+
+
+def test_streaming_session_records_toolbroker_audit_and_assigned_branch_worktree(
+    tmp_path: Path,
+    session_completion,
+) -> None:
+    connection = _connection(tmp_path)
+    try:
+        _workspace(connection, tmp_path)
+        result = start_cli_session(
+            connection,
+            db_path=tmp_path / "platform.sqlite",
+            project_id="p1",
+            workspace_id="w1",
+            workspace_path=str(tmp_path),
+            runtime="claude_code_cli",
+            executable="claude",
+            argv=["claude", "--print", "work"],
+            branch_name="codex/cli-session-hardening",
+            worktree_id="worktree-123",
+            process_opener=_opener(["ok\n"], [], 0),
+        )
+        session_id = result["id"]
+        session_completion(session_id)
+
+        row = _row(connection, session_id)
+        env_policy = json_loads(row["env_policy_json"], {})
+        events = CliSessionEventStore(connection).list_events(session_id)
+        tool_action = next(event for event in events if event["type"] == "tool_action")
+        agent_runs = AgentsRepository(connection).list_agent_runs()
+
+        assert env_policy["branch"]["name"] == "codex/cli-session-hardening"
+        assert env_policy["worktree"]["id"] == "worktree-123"
+        assert tool_action["payload"]["toolBroker"]["toolCallId"].startswith("agent-tool-call-")
+        assert tool_action["payload"]["toolBroker"]["permissionDecisionId"].startswith("permission-decision-")
+        assert tool_action["payload"]["toolBroker"]["toolCallStatus"] == "allowed"
+        assert any(run["id"] == env_policy["agentRunId"] for run in agent_runs)
     finally:
         connection.close()

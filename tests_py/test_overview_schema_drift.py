@@ -4,12 +4,13 @@ Cubre la deriva de esquema que devolvía HTTP 500 (`ResponseValidationError`) cu
 contenía artefactos `project_assessment`/`product_owner_manifest` o un perfil con rol `assessor`:
 valores que los subsistemas de assessment y product-owner escriben pero que el `response_model`
 `OverviewResponse` no listaba en sus `Literal`. Si el contrato y lo persistido vuelven a divergir,
-este test falla con el mismo 500 que veía el usuario.
+este test falla con el mismo 500 que veía el usuario. También cubre las filas `cost_usage` sin
+proyecto que el usage ledger escribía para cada llamada con costo conocido (`costUsage[].projectId`).
 """
 
 from __future__ import annotations
 
-import logging
+import json
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.projects.repository import ProjectsRepository
 
@@ -68,28 +70,69 @@ def test_overview_serializes_assessment_and_product_owner_artifacts(tmp_path: Pa
         runtime.close()
 
 
-def test_unhandled_error_is_logged_and_returns_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_overview_serializes_paid_usage_with_and_without_a_project(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Costs", path=tmp_path / "costs", template_id="other"
+        )
+        ledger = UsageLedger(runtime.connection)
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="m",
+            runtime_type="api",
+            actual_cost_usd=0.25,
+        )
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="m",
+            runtime_type="api",
+            project_id=project["id"],
+            actual_cost_usd=0.5,
+        )
+
+        response = client.get("/api/v1/overview")
+
+        assert response.status_code == 200, response.text
+        costs = {(row["projectId"], row["amountUsd"]) for row in response.json()["costUsage"]}
+        assert costs == {(None, 0.25), (project["id"], 0.5)}
+    finally:
+        runtime.close()
+
+
+def test_unhandled_error_is_logged_and_returns_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Un error no controlado debe registrar la traza (seguimiento) y responder JSON estable,
     # nunca el texto plano "Internal Server Error" que el cliente no podía parsear.
     import local_control_center.api as api_module
+    from local_control_center.shared.diagnostics import configure_diagnostics
 
     def _boom(**_kwargs):
         raise RuntimeError("forced failure for observability test")
 
     monkeypatch.setattr(api_module, "build_overview_from_connection", _boom)
+    sink = configure_diagnostics(tmp_path / "diagnostics")
     runtime, client = _client(tmp_path, raise_server_exceptions=False)
     try:
-        with caplog.at_level(logging.ERROR, logger="local_control_center.api"):
-            response = client.get("/api/v1/overview")
+        response = client.get("/api/v1/overview", headers={"X-Correlation-ID": "corr-forced-error"})
 
         assert response.status_code == 500
         assert response.headers["content-type"].startswith("application/json")
         body = response.json()
         assert body["error"] == "RuntimeError"
         assert "detail" in body
-        assert any("Unhandled error" in record.message for record in caplog.records)
-        assert any(record.exc_info for record in caplog.records)
     finally:
         runtime.close()
+        sink.close()
+    events = [
+        json.loads(line)
+        for path in sink.root.glob("diag-*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    errors = [event for event in events if event["event"] == "http.error"]
+    assert len(errors) == 1
+    error = errors[0]
+    assert error["level"] == "ERROR"
+    assert error["requestId"] == response.headers["X-Correlation-ID"] == "corr-forced-error"
+    assert error["exceptionChain"][0]["type"] == "RuntimeError"
+    assert error["exceptionChain"][0]["message"] == "forced failure for observability test"
+    assert error["exceptionChain"][0]["frames"]

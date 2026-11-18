@@ -2,24 +2,77 @@
 
 Escribe artefactos bajo `<root>/.tmp/evidence-artifacts/` con su hash SHA-256, y promueve a
 ese almacén los logs, diffs y screenshots que exceden los límites inline para no inflar la fila
-del paquete. Todo contenido textual pasa por `redact_secrets`. También limpia artefactos
+del paquete. Sanea credenciales reconocidas antes de escribir, preservando JSON y parches. También limpia artefactos
 huérfanos comparándolos contra el conjunto de rutas aún referenciadas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
-from local_control_center.shared.redaction import redact_secrets
+from local_control_center.shared.redaction import CREDENTIAL_VALUE_PATTERN, redact_secrets
 
 INLINE_PATCH_LIMIT_BYTES = 12_000
 INLINE_LOG_LIMIT_BYTES = 12_000
+_PATCH_SECRET_KEY = r"(?:[A-Za-z_][A-Za-z0-9_]*)?(?:api[_-]?key|private[_-]?key|password|passwd|pwd|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|token|authorization|x-local-control-token)"
+_PATCH_QUOTED_SECRET = re.compile(
+    r"(?P<prefix>\b"
+    + _PATCH_SECRET_KEY
+    + r"(?:\s*(?::\s*[A-Za-z_][A-Za-z0-9_.\[\]|, \t]*)?\s*=\s*|[\"']?\s*:\s*))"
+    r"(?P<quote>\"{3}|'{3}|[\"'])(?P<value>(?:\\.|(?!(?P=quote))[^\\])*)(?P=quote)",
+    re.I,
+)
+_PATCH_CONFIG_SECRET = re.compile(
+    r"(?P<prefix>\b" + _PATCH_SECRET_KEY + r"\s*[:=]\s*)(?P<value>[^\r\n]+)", re.I
+)
+
+
+def _redact_patch(content: str) -> str:
+    """Conserva referencias de código y sintaxis diff; sustituye valores de credenciales literales."""
+
+    def _replace_quoted_value(match: re.Match[str]) -> str:
+        value = match["value"]
+        if not value or re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*", value):
+            return match.group()
+        pieces: list[str] = []
+        for index, part in enumerate(value.splitlines(keepends=True)):
+            body = part.rstrip("\r\n")
+            ending = part[len(body) :]
+            prefix = body[:1] if index > 0 and body.startswith(("+", "-", " ")) else ""
+            pieces.append((prefix + "[redacted]" if body[len(prefix) :] else body) + ending)
+        return match["prefix"] + match["quote"] + "".join(pieces) + match["quote"]
+
+    content = _PATCH_QUOTED_SECRET.sub(_replace_quoted_value, content)
+    lines: list[str] = []
+    config_file = False
+    for line in content.splitlines(keepends=True):
+        if line.startswith("+++ "):
+            name = line[4:].strip().partition("\t")[0].strip('"').lower()
+            basename = name.replace("\\", "/").rsplit("/", 1)[-1]
+            config_file = basename.startswith(".env.") or name.endswith(
+                (".env", ".ini", ".cfg", ".conf", ".yaml", ".yml")
+            )
+        if config_file and line.startswith(("+", "-", " ")) and not line.startswith(("+++", "---")):
+
+            def _replace_config_value(match: re.Match[str]) -> str:
+                value = match["value"].strip()
+                if re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*", value):
+                    return match.group()
+                if value.startswith(('"', "'")):
+                    return match.group()
+                return match["prefix"] + "[redacted]"
+
+            line = _PATCH_CONFIG_SECRET.sub(_replace_config_value, line)
+        lines.append(line)
+    return CREDENTIAL_VALUE_PATTERN.sub("[redacted]", "".join(lines))
 
 
 def evidence_artifact_root(root: Path) -> Path:
@@ -39,11 +92,26 @@ def _artifact_file_entry(path: Path) -> dict[str, Any]:
 
 
 def write_text_artifact(*, root: Path, artifact_id: str, suffix: str, content: str) -> dict[str, Any]:
-    """Escribe contenido textual (UTF-8) como artefacto y devuelve su ruta, hash y tamaño."""
+    """Redacta contenido textual antes de persistirlo; calcula hash y tamaño sobre los bytes saneados."""
     artifact_dir = evidence_artifact_root(root)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{artifact_id}{suffix}"
-    content_bytes = content.encode("utf-8")
+    duplicate_keys = False
+
+    def _read_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        nonlocal duplicate_keys
+        result = dict(pairs)
+        duplicate_keys = duplicate_keys or len(result) != len(pairs)
+        return result
+
+    try:
+        parsed = json.loads(content, object_pairs_hook=_read_object)
+    except json.JSONDecodeError:
+        sanitized = _redact_patch(content) if suffix in {".patch", ".diff"} else str(redact_secrets(content))
+    else:
+        redacted = redact_secrets(parsed)
+        sanitized = content if redacted == parsed and not duplicate_keys else json.dumps(redacted, indent=2)
+    content_bytes = sanitized.encode("utf-8")
     path.write_bytes(content_bytes)
     return {
         "artifactId": artifact_id,
@@ -99,7 +167,13 @@ def artifact_hashes(artifacts: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def artifact_records_from_ids(repo: Any, artifact_ids: list[str]) -> list[dict[str, Any]]:
-    """Resuelve ids a registros de artefacto vía el repo, deduplicando y omitiendo los inexistentes."""
+    """Resuelve ids a registros de artefacto vía el repo, deduplicando y omitiendo los inexistentes.
+
+    El repo llega duck-typed desde varios agentes: si expone ``get_artifacts_by_ids`` se
+    resuelve el lote en un solo SELECT; si no (dobles de test), cae al loop id a id.
+    """
+    if hasattr(repo, "get_artifacts_by_ids"):
+        return repo.get_artifacts_by_ids(artifact_ids)
     artifacts: list[dict[str, Any]] = []
     for artifact_id in sorted({str(item) for item in artifact_ids if item}):
         try:
@@ -277,11 +351,13 @@ def promote_execution_result_outputs(
     *,
     root: Path,
     execution_result: dict[str, Any],
+    force_streams: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Redacta stdout/stderr de una ejecución y promueve a artefacto los streams demasiado grandes.
 
     Mantiene los streams cortos inline; los largos se sacan del dict y se sustituyen por
-    referencias (`<stream>ArtifactId/SizeBytes/Hash/Truncated`).
+    referencias (`<stream>ArtifactId/SizeBytes/Hash/Truncated`). `Truncated` refleja pérdida real
+    durante la captura, no el hecho de haber movido contenido completo a un artefacto.
 
     Returns:
         El resultado de ejecución ajustado y las specs de artefacto generadas, en ese orden.
@@ -295,7 +371,11 @@ def promote_execution_result_outputs(
         content = str(redact_secrets(content))
         promoted_result[stream] = content
         size = len(content.encode("utf-8"))
-        if size <= INLINE_LOG_LIMIT_BYTES:
+        capture_truncated = bool(
+            promoted_result.get(f"{stream}CaptureTruncated", False)
+            or promoted_result.get(f"{stream}Truncated", False)
+        )
+        if size <= INLINE_LOG_LIMIT_BYTES and stream not in (force_streams or set()):
             continue
         artifact_id = f"artifact-{uuid.uuid4()}"
         artifact = write_text_artifact(
@@ -307,7 +387,7 @@ def promote_execution_result_outputs(
                 f"{stream}ArtifactId": artifact_id,
                 f"{stream}SizeBytes": artifact["sizeBytes"],
                 f"{stream}Hash": artifact["hash"],
-                f"{stream}Truncated": True,
+                f"{stream}Truncated": capture_truncated,
             }
         )
         artifact_specs.append(
@@ -320,6 +400,7 @@ def promote_execution_result_outputs(
                     "sizeBytes": artifact["sizeBytes"],
                     "source": "agent_tool_execution",
                     "stream": stream,
+                    "truncated": capture_truncated,
                 },
             }
         )

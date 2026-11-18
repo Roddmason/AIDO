@@ -6,7 +6,7 @@ endpoints de escritura: crear propuesta, registrar lección, promover lección y
 desempeño. Cada escritura pasa por el guard ``require_write`` y la ejecuta un
 ``SelfImprovementCoordinator`` resuelto de forma perezosa desde ``platform``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

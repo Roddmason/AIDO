@@ -4,7 +4,7 @@ Corre los scripts de build/quality a través del broker/sandbox, inspecciona arc
 (Dockerfile, compose, CI, manifiestos) en busca de hallazgos, y opcionalmente verifica el healthcheck de
 Docker. Su veredicto se funda solo en archivos, comandos y artefactos; deja todo en un paquete de evidencia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import tomllib
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,11 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.projects.toolchain import (
+    ToolchainCommand,
+    container_image_for_command,
+    plan_workspace_commands,
+)
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.security_policy.sandbox import DockerSandbox
 from local_control_center.shared.redaction import redact_secrets
@@ -69,6 +75,9 @@ CONFIG_FILENAMES = {
 }
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 2000
+PROJECT_BUILD_SANDBOX_PROFILE = "project_build"
+"""Perfil de sandbox que monta el workspace con escritura y permite red para dependencias."""
+
 DEFAULT_BUILD_SCRIPT_CANDIDATES = ("build:control-center", "build:web", "build")
 DEFAULT_QUALITY_SCRIPTS = ("quality",)
 TOOL_VERSION_TIMEOUT_SECONDS = 20
@@ -121,6 +130,50 @@ def _resolve_executable(name: str) -> str:
         if executable:
             return executable
     return name
+
+
+def toolchain_validation_commands(workspace_path: str | Path) -> list[ToolchainCommand]:
+    """Comandos de la toolchain propia del proyecto, sin Node.
+
+    Node queda fuera a proposito: los scripts de `package.json` ya se ejecutan por el camino de
+    build/quality, y planearlos otra vez correria la misma suite dos veces por ejecucion.
+    """
+    return [command for command in plan_workspace_commands(workspace_path) if command.toolchain != "node"]
+
+
+def missing_toolchain_findings(
+    workspace_path: str | Path,
+    *,
+    available: Callable[[ToolchainCommand], bool] = lambda command: command.is_available_on_host(),
+    containerized: bool = False,
+) -> list[dict[str, Any]]:
+    """Reporta cada toolchain que el proyecto necesita y el host no tiene instalada.
+
+    Es la senal que habilita ofrecer un runtime contenerizado. Sin ella el comando fallaria con
+    el error crudo del sistema operativo, que no le dice al operador cual es su decision.
+    """
+    if containerized:
+        return []
+    findings: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for command in toolchain_validation_commands(workspace_path):
+        if command.toolchain in seen or available(command):
+            continue
+        seen.add(command.toolchain)
+        findings.append(
+            _finding(
+                check_id="toolchain_not_installed",
+                severity="medium",
+                message=(
+                    f"The project needs the '{command.toolchain}' toolchain but "
+                    f"'{command.executable}' is not installed on this host. Install it, or "
+                    "enable the containerized runtime for this project "
+                    "(project.runtime.containerized)."
+                ),
+                evidence={"toolchain": command.toolchain, "executable": command.executable},
+            )
+        )
+    return findings
 
 
 def _corepack_argv(script: str) -> list[str]:
@@ -685,7 +738,17 @@ class DevOpsAgentRunner:
         critical: bool,
         timeout_seconds: int,
         result_metadata: dict[str, Any] | None = None,
+        container_image: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
+        container = (
+            {
+                "sandbox": "docker",
+                "dockerImage": container_image,
+                "sandboxProfileId": PROJECT_BUILD_SANDBOX_PROFILE,
+            }
+            if container_image
+            else {}
+        )
         tool_result = broker.evaluate_tool_call(
             project_id=project_id,
             agent_run_id=agent_run["id"],
@@ -701,6 +764,7 @@ class DevOpsAgentRunner:
                 "operation": "devops_agent_command",
                 "execute": True,
                 "timeoutSeconds": timeout_seconds,
+                **container,
             },
         )
         return self._result_from_tool_call(
@@ -927,6 +991,93 @@ class DevOpsAgentRunner:
                 critical=True,
                 timeout_seconds=QUALITY_TIMEOUT_SECONDS,
                 result_metadata={"validationType": "build_script", "script": script},
+            )
+            results.append(result)
+            artifact_ids.extend(command_artifacts)
+        return results, artifact_ids
+
+    def _execute_toolchain_commands(
+        self,
+        *,
+        project_id: str,
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        toolchain_commands: list[ToolchainCommand],
+        index_offset: int,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Ejecuta la validacion propia del proyecto (Maven, Gradle, Go, Rust, pytest).
+
+        Sin este paso un proyecto sin `package.json` no corria ningun comando y el reporte salia
+        como saltado, que parece verificado y no lo esta. Si la toolchain no esta instalada se
+        registra saltado con motivo: `missing_toolchain_findings` ya explico la decision.
+        """
+        broker = ToolBroker(self.connection, artifact_root=self.root)
+        results: list[dict[str, Any]] = []
+        artifact_ids: list[str] = []
+        for offset, planned in enumerate(toolchain_commands):
+            index = index_offset + offset
+            metadata = {
+                "validationType": "project_toolchain",
+                "toolchain": planned.toolchain,
+                "purpose": planned.purpose,
+            }
+            image = container_image_for_command(self.connection, project_id=project_id, command=planned)
+            if image is not None:
+                result, container_artifacts = self._execute_broker_command(
+                    broker=broker,
+                    project_id=project_id,
+                    workspace=workspace,
+                    agent_run=agent_run,
+                    job=job,
+                    profile=profile,
+                    index=index,
+                    label=f"{planned.label} [container]",
+                    command=planned.policy_command,
+                    argv=list(planned.container_argv or planned.argv),
+                    critical=planned.critical,
+                    timeout_seconds=QUALITY_TIMEOUT_SECONDS,
+                    result_metadata={
+                        **metadata,
+                        "executionMode": "container",
+                        "image": image,
+                    },
+                    container_image=image,
+                )
+                results.append(result)
+                artifact_ids.extend(container_artifacts)
+                continue
+            if not planned.is_available_on_host():
+                result, skipped_artifacts = self._skipped_command_result(
+                    project_id=project_id,
+                    index=index,
+                    label=planned.label,
+                    command=planned.policy_command,
+                    argv=list(planned.argv),
+                    reason=(
+                        f"The '{planned.toolchain}' toolchain is not installed on this host: "
+                        f"'{planned.executable}' was not found."
+                    ),
+                    result_metadata=metadata,
+                )
+                results.append(result)
+                artifact_ids.extend(skipped_artifacts)
+                continue
+            result, command_artifacts = self._execute_broker_command(
+                broker=broker,
+                project_id=project_id,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+                index=index,
+                label=planned.label,
+                command=planned.policy_command,
+                argv=list(planned.argv),
+                critical=planned.critical,
+                timeout_seconds=QUALITY_TIMEOUT_SECONDS,
+                result_metadata=metadata,
             )
             results.append(result)
             artifact_ids.extend(command_artifacts)
@@ -1168,6 +1319,27 @@ class DevOpsAgentRunner:
             package_info=package_info,
             prerequisite_reason=quality_prerequisite,
         )
+        toolchain_commands = toolchain_validation_commands(workspace["path"])
+        from local_control_center.projects.toolchain import CONTAINERIZED_SETTING_KEY
+        from local_control_center.settings.resolver import resolve_setting_value
+
+        containerized = bool(
+            resolve_setting_value(
+                connection=self.connection,
+                key=CONTAINERIZED_SETTING_KEY,
+                project_id=project_id,
+            )
+        )
+        findings.extend(missing_toolchain_findings(workspace["path"], containerized=containerized))
+        toolchain_results, toolchain_artifacts = self._execute_toolchain_commands(
+            project_id=project_id,
+            workspace=workspace,
+            agent_run=agent_run,
+            job=job,
+            profile=profile,
+            toolchain_commands=toolchain_commands,
+            index_offset=len(tool_commands) + len(build_commands) + len(quality_commands),
+        )
         docker, docker_artifacts, docker_commands = self._docker_health(
             project_id=project_id,
             workspace=workspace,
@@ -1176,9 +1348,15 @@ class DevOpsAgentRunner:
             profile=profile,
             requested=bool(payload.get("dockerHealthcheck", False)),
         )
-        commands = [*tool_commands, *build_commands, *quality_commands]
+        commands = [*tool_commands, *build_commands, *quality_commands, *toolchain_results]
         commands.extend(docker_commands)
-        artifact_ids = [*tool_artifacts, *build_artifacts, *quality_artifacts, *docker_artifacts]
+        artifact_ids = [
+            *tool_artifacts,
+            *build_artifacts,
+            *quality_artifacts,
+            *toolchain_artifacts,
+            *docker_artifacts,
+        ]
         status, reason = _status_from_findings_and_commands(findings, commands)
         report_payload = {
             "status": status,

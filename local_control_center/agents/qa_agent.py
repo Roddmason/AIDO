@@ -6,13 +6,12 @@ every command to exit 0 inside the allocated workspace with captured stdout/stde
 output artifact hashes. It assembles a contract-checked evidence package; if the package
 is incomplete it downgrades the run to `blocked`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import uuid
 from pathlib import Path
@@ -27,6 +26,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.projects.toolchain import plan_workspace_commands, write_node_dependency_marker
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
@@ -71,6 +71,7 @@ def qa_agent_contract() -> dict[str, Any]:
                     },
                 },
                 "metadata": {"type": "object"},
+                "storySpecs": {"type": "string"},
             },
         },
         "outputSchema": {
@@ -122,6 +123,8 @@ def _stream_hash(execution_result: dict[str, Any], stream: str) -> str:
 def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for index, command in enumerate(commands):
+        unresolved_reason: str | None = None
+        node_install_marker: dict[str, str] | None = None
         if isinstance(command, list):
             argv = command
             label = _display_command([str(item) for item in command])
@@ -134,6 +137,14 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
             label = str(command.get("label") or "").strip()
             critical = bool(command.get("critical", True))
             timeout_seconds = _bounded_timeout(command.get("timeoutSeconds"))
+            reason = command.get("unresolvedReason")
+            unresolved_reason = str(reason).strip() or None if isinstance(reason, str) else None
+            marker = command.get("nodeInstallMarker")
+            if isinstance(marker, dict) and marker.get("manager") and marker.get("lockfileSha256"):
+                node_install_marker = {
+                    "manager": str(marker["manager"]),
+                    "lockfileSha256": str(marker["lockfileSha256"]),
+                }
         else:
             raise ValueError(f"commands[{index}] must be an object or structured argv list.")
         if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
@@ -145,53 +156,50 @@ def _normalize_commands(commands: list[Any]) -> list[dict[str, Any]]:
                 "argv": resolved_argv,
                 "critical": critical,
                 "timeoutSeconds": timeout_seconds,
+                "unresolvedReason": unresolved_reason,
+                "nodeInstallMarker": node_install_marker,
+            }
+        )
+    return normalized
+
+
+def _normalize_not_applicable_commands(commands: list[Any]) -> list[dict[str, Any]]:
+    """Valida los comandos que el llamador decidio de antemano que no aplican (con motivo).
+
+    A diferencia de `_normalize_commands`, estos nunca llegan al broker: solo necesitan un argv
+    estructurado para mostrar y un `reason` no vacio que quede visible en la evidencia. No son
+    resultados de QA (no se intentaron y no fallaron), asi que no participan del veredicto.
+    """
+    normalized: list[dict[str, Any]] = []
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            raise ValueError(f"notApplicableCommands[{index}] must be an object.")
+        argv = command.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) and item for item in argv):
+            raise ValueError(f"notApplicableCommands[{index}].argv must be a non-empty structured argv list.")
+        resolved_argv = [str(item) for item in argv]
+        reason = str(command.get("reason") or "").strip()
+        if not reason:
+            raise ValueError(f"notApplicableCommands[{index}] must include a non-empty reason.")
+        normalized.append(
+            {
+                "label": str(command.get("label") or "").strip() or _display_command(resolved_argv),
+                "argv": resolved_argv,
+                "reason": reason,
             }
         )
     return normalized
 
 
 def discover_qa_commands(workspace_path: str | Path) -> list[dict[str, Any]]:
-    """Infer QA commands from a workspace's test dirs and package.json scripts.
+    """Infiere los comandos de QA desde la toolchain que el proyecto realmente usa.
 
-    Detects Python tests (tests_py/tests) and the first matching web test/build/typecheck/
-    lint script, returning structured-argv command specs the runner can execute.
+    Delega en ``projects.toolchain``: antes esta funcion sabia de pytest y pnpm y nada mas, asi
+    que un proyecto Maven, Gradle, Go o Rust no producia ningun comando y QA se declaraba sin
+    nada que correr. El plan sale de los manifiestos del propio proyecto y prefiere su wrapper
+    versionado (`mvnw`, `gradlew`) por sobre el binario global del host.
     """
-    workspace = Path(workspace_path)
-    commands: list[dict[str, Any]] = []
-    tests_py = workspace / "tests_py"
-    tests = workspace / "tests"
-    if tests_py.exists() and tests_py.is_dir():
-        commands.append(
-            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests_py", "-q"], "critical": True}
-        )
-    elif tests.exists() and tests.is_dir():
-        commands.append(
-            {"label": "Python tests", "argv": ["uv", "run", "pytest", "tests", "-q"], "critical": True}
-        )
-
-    package_json = workspace / "package.json"
-    if package_json.exists() and package_json.is_file():
-        try:
-            scripts = (json.loads(package_json.read_text(encoding="utf-8")).get("scripts") or {}).keys()
-        except (OSError, json.JSONDecodeError):
-            scripts = []
-        script_names = {str(item) for item in scripts}
-        for label, candidates in (
-            ("Web tests", ("test:web", "test")),
-            ("Build", ("build:control-center", "build:web", "build")),
-            ("Typecheck", ("typecheck:web", "typecheck")),
-            ("Lint", ("lint:py", "lint:web", "lint")),
-        ):
-            script = next((candidate for candidate in candidates if candidate in script_names), None)
-            if script:
-                commands.append(
-                    {
-                        "label": label,
-                        "argv": ["corepack", "pnpm@10.24.0", "run", script],
-                        "critical": True,
-                    }
-                )
-    return commands
+    return [command.as_command_spec() for command in plan_workspace_commands(workspace_path)]
 
 
 def qa_verdict_allows_completion(verdict: str, results: list[dict[str, Any]]) -> bool:
@@ -374,6 +382,80 @@ class QAAgentRunner:
         result["outputRefs"] = artifact_ids
         return result, artifact_ids
 
+    def _not_applicable_result(
+        self,
+        *,
+        project_id: str,
+        command: dict[str, Any],
+        index: int,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Registra un comando que no aplica a este cambio, sin el broker y fuera del veredicto.
+
+        Usado por el gate de QA proporcional (cambios de solo documentacion): el comando nunca se
+        intenta ejecutar porque no correspondia correrlo, asi que NO es un resultado de QA (no es
+        `skipped_with_reason`, que sigue reservado a un comando que si debia correr y no pudo).
+        Queda visible con su propio artefacto con hash, igual que un comando que si paso por
+        `ToolBroker`, pero en una coleccion aparte que el veredicto ignora.
+        """
+        result: dict[str, Any] = {
+            "index": index,
+            "label": command["label"],
+            "command": _display_command(command["argv"]),
+            "argv": command["argv"],
+            "status": "not_applicable",
+            "executed": False,
+            "exitCode": None,
+            "reason": command["reason"],
+            "metadata": {
+                "operation": "qa_agent_command",
+                "decision": "not_applicable_doc_only_gate",
+                "decisionReason": command["reason"],
+            },
+        }
+        output_artifact = self._output_artifact(project_id=project_id, result=result)
+        result["outputArtifactId"] = output_artifact["id"]
+        result["artifactHashes"] = {"outputArtifactHash": output_artifact["hash"]}
+        result["outputRef"] = output_artifact["id"]
+        result["outputRefs"] = [output_artifact["id"]]
+        return result, [output_artifact["id"]]
+
+    def _unresolved_command_result(
+        self,
+        *,
+        project_id: str,
+        command: dict[str, Any],
+        index: int,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Registra un comando que si debia correr pero no de forma reproducible, sin el broker.
+
+        Usado por la provision de dependencias Node (`projects.toolchain`): sin lockfile, instalar
+        no es determinista, asi que no se intenta. A diferencia de `_not_applicable_result`, esto
+        SI es `skipped_with_reason` real y SI entra al veredicto: bloquea, igual que un comando
+        faltante generico.
+        """
+        result: dict[str, Any] = {
+            "index": index,
+            "label": command["label"],
+            "command": _display_command(command["argv"]),
+            "argv": command["argv"],
+            "critical": command["critical"],
+            "status": "skipped_with_reason",
+            "executed": False,
+            "exitCode": None,
+            "reason": command["unresolvedReason"],
+            "metadata": {
+                "operation": "qa_agent_command",
+                "decision": "unresolved_dependency_install",
+                "decisionReason": command["unresolvedReason"],
+            },
+        }
+        output_artifact = self._output_artifact(project_id=project_id, result=result)
+        result["outputArtifactId"] = output_artifact["id"]
+        result["artifactHashes"] = {"outputArtifactHash": output_artifact["hash"]}
+        result["outputRef"] = output_artifact["id"]
+        result["outputRefs"] = [output_artifact["id"]]
+        return result, [output_artifact["id"]]
+
     def run_for_context(
         self,
         *,
@@ -386,25 +468,43 @@ class QAAgentRunner:
         job_id: str | None = None,
         parent_agent_run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        story_specs: str | None = None,
+        not_applicable_commands: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Run QA commands for a context and return the verdict, results, and artifact ids.
 
         Normalizes (or discovers) commands, executes each through the broker, persists
         per-command output artifacts, and records the agent run's terminal status.
+        ``story_specs`` (el spec renderizado de las HUs bajo prueba) se persiste como
+        artefacto y contexto del run para trazar la evidencia QA a los criterios de
+        aceptacion; NO altera el veredicto, que sigue siendo por exit codes y artifacts.
+        ``not_applicable_commands`` (usado por el gate de QA proporcional de historias de solo
+        documentacion) nunca llega al broker ni entra a ``results``/al veredicto: son comandos
+        que no correspondia correr para este cambio, no comandos que debian correr y no
+        pudieron. Cada uno queda en ``notApplicableCommands`` con su propio artefacto, visible
+        en la evidencia sin afectar el calculo de ``passed``/``failed``.
         """
         workspace = self._workspace(project_id=project_id, workspace_id=workspace_id)
-        normalized = _normalize_commands(commands) if commands else discover_qa_commands(workspace["path"])
+        discovered_or_supplied = commands if commands else discover_qa_commands(workspace["path"])
+        normalized = _normalize_commands(discovered_or_supplied)
+        normalized_not_applicable = _normalize_not_applicable_commands(not_applicable_commands or [])
         profile = self._ensure_profile()
+        story_specs_text = str(story_specs or "").strip()
+        input_payload: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "commands": normalized,
+            "parentAgentRunId": parent_agent_run_id,
+            "metadata": metadata or {},
+        }
+        if story_specs_text:
+            input_payload["storySpecs"] = story_specs_text
+        if normalized_not_applicable:
+            input_payload["notApplicableCommands"] = normalized_not_applicable
         agent_run = self.agents.create_agent_run(
             project_id=project_id,
             agent_profile_id=QA_AGENT_ID,
             task_id=f"{task_id}:qa",
-            input_payload={
-                "workspaceId": workspace_id,
-                "commands": normalized,
-                "parentAgentRunId": parent_agent_run_id,
-                "metadata": metadata or {},
-            },
+            input_payload=input_payload,
             output_payload={},
             job_id=job_id,
             workflow_run_id=workflow_run_id,
@@ -416,6 +516,13 @@ class QAAgentRunner:
         artifact_ids: list[str] = []
         policy_decisions: list[dict[str, Any]] = []
         for index, command in enumerate(normalized):
+            if command["unresolvedReason"]:
+                result, command_artifacts = self._unresolved_command_result(
+                    project_id=project_id, command=command, index=index
+                )
+                results.append(result)
+                artifact_ids.extend(command_artifacts)
+                continue
             tool_result = broker.evaluate_tool_call(
                 project_id=project_id,
                 agent_run_id=agent_run["id"],
@@ -443,32 +550,85 @@ class QAAgentRunner:
             )
             results.append(result)
             artifact_ids.extend(command_artifacts)
+            marker = command["nodeInstallMarker"]
+            if marker and result["status"] == "passed":
+                write_node_dependency_marker(
+                    Path(workspace["path"]),
+                    manager=marker["manager"],
+                    lockfile_sha256=marker["lockfileSha256"],
+                )
+
+        not_applicable_commands: list[dict[str, Any]] = []
+        for offset, command in enumerate(normalized_not_applicable):
+            result, command_artifacts = self._not_applicable_result(
+                project_id=project_id,
+                command=command,
+                index=len(normalized) + offset,
+            )
+            not_applicable_commands.append(result)
+            artifact_ids.extend(command_artifacts)
+
+        story_specs_artifact_id: str | None = None
+        if story_specs_text:
+            spec_artifact_id = f"artifact-{uuid.uuid4()}"
+            spec_artifact = write_text_artifact(
+                root=self.root,
+                artifact_id=spec_artifact_id,
+                suffix=".qa-spec.md",
+                content=story_specs_text,
+            )
+            persisted_spec = self.evidence.create_artifact(
+                artifact_id=spec_artifact_id,
+                project_id=project_id,
+                evidence_package_id=None,
+                kind="test_report",
+                path=spec_artifact["path"],
+                content_hash=spec_artifact["hash"],
+                metadata={
+                    "name": "qa-story-spec.md",
+                    "source": QA_AGENT_ID,
+                    "mimeType": "text/markdown",
+                    "sizeBytes": spec_artifact["sizeBytes"],
+                    "hashAlgorithm": "sha256",
+                },
+            )
+            story_specs_artifact_id = persisted_spec["id"]
+            artifact_ids.append(story_specs_artifact_id)
 
         verdict, reason = qa_verdict_from_results(results)
         completed = qa_verdict_allows_completion(verdict, results)
+        output_payload: dict[str, Any] = {
+            "status": verdict,
+            "verdict": verdict,
+            "reason": reason,
+            "results": results,
+            "artifactIds": sorted(set(artifact_ids)),
+            "policyDecisions": policy_decisions,
+        }
+        if not_applicable_commands:
+            output_payload["notApplicableCommands"] = not_applicable_commands
+        if story_specs_artifact_id:
+            output_payload["storySpecsArtifactId"] = story_specs_artifact_id
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
             status="completed" if completed else "failed",
-            output_payload={
-                "status": verdict,
-                "verdict": verdict,
-                "reason": reason,
-                "results": results,
-                "artifactIds": sorted(set(artifact_ids)),
-                "policyDecisions": policy_decisions,
-            },
+            output_payload=output_payload,
         )
-        return {
+        response: dict[str, Any] = {
             "status": verdict,
             "verdict": verdict,
             "reason": reason,
             "workspace": workspace,
             "agentRun": agent_run,
             "results": results,
+            "notApplicableCommands": not_applicable_commands,
             "artifactIds": sorted(set(artifact_ids)),
             "policyDecisions": policy_decisions,
             "contract": qa_agent_contract(),
         }
+        if story_specs_artifact_id:
+            response["storySpecsArtifactId"] = story_specs_artifact_id
+        return response
 
     def attach_artifacts_to_evidence(self, *, evidence_id: str, artifact_ids: list[str]) -> None:
         """Attach each (deduplicated) artifact id to the given evidence package."""

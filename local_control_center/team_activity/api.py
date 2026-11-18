@@ -4,7 +4,7 @@ Exposes ``GET /api/v1/projects/{project_id}/team-activity`` which composes the a
 entries from ``build_team_activity`` over ``platform.connection``. The route is a read, so it
 is open (no ``require_write`` gate), consistent with the other overview/aggregate reads.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         "/api/v1/projects/{project_id}/team-activity",
         response_model=TeamActivityResponse,
     )
-    async def team_activity(project_id: str) -> dict[str, Any]:
+    def team_activity(project_id: str) -> dict[str, Any]:
         """Return the project's agent activity entries, in-flight work first."""
         return build_team_activity(connection=platform.connection, project_id=project_id)
 

@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
+from local_control_center.agents.architect_agent_contract import architect_agent_readiness
+from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import sqlite_text_dump
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -20,16 +26,24 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -80,6 +94,7 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
     return [
         {
             "id": "openai_compatible",
+            "providerFamily": "openai_compatible",
             "kind": "api",
             "displayName": "Controlled OpenAI-compatible runtime",
             "detected": True,
@@ -101,6 +116,18 @@ def executable_openai_runtime_status() -> list[dict[str, Any]]:
             },
         }
     ]
+
+
+def enable_openai_runtime_policy(store: ControlPlaneFixture) -> None:
+    runtime_settings = RuntimeConfigRepository(store.connection)
+    runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+    ProviderAccountStore(store.connection).patch_provider_account(
+        "openai_compatible",
+        {"enabled": True},
+    )
+    store.connection.execute(
+        "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+    )
 
 
 class ControlledArchitectProviderHandler(BaseHTTPRequestHandler):
@@ -183,7 +210,40 @@ def architect_request(
     }
 
 
+def test_architect_agent_readiness_accepts_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+    ]
+
+    readiness = architect_agent_readiness(statuses, preferred_runtime="openrouter")
+
+    assert readiness["executable"] is True
+    assert readiness["selectedRuntimeId"] == "openrouter"
+    assert readiness["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
+
+
 def test_architect_agent_without_real_runtime_returns_unavailable(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,10 +274,12 @@ def test_architect_agent_without_real_runtime_returns_unavailable(
 
 
 def test_architect_agent_valid_provider_output_persists_decision_and_risks(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-valid")
     diff_artifact = create_diff_artifact(store, project["id"])
     output = {
@@ -295,10 +357,12 @@ def test_architect_agent_valid_provider_output_persists_decision_and_risks(
 
 
 def test_architect_agent_invalid_provider_output_fails_validation_without_persistence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-invalid")
     diff_artifact = create_diff_artifact(store, project["id"])
     server, base_url = start_controlled_provider(json.dumps({"verdict": "approved"}))
@@ -330,3 +394,143 @@ def test_architect_agent_invalid_provider_output_fails_validation_without_persis
     assert body["evidencePackage"]["qaVerdict"] == "failed"
     assert store.governance.list_architecture_decisions(project["id"]) == []
     assert store.governance.list_risks(project["id"]) == []
+
+
+def test_prompt_context_projects_collections_and_caps_items() -> None:
+    """El contexto del prompt poda campos internos y acota cada item; el grounding no cambia.
+
+    workflowContext viajaba con el DAG completo y uuids internos, y cada testResult arrastraba
+    argv/toolCallId/metadata. allowedEvidenceRefs se calcula del payload crudo, así que la vista
+    del prompt no puede alterar qué refs son citables.
+    """
+    from local_control_center.agents.architect_agent import (
+        _prompt_item_view,
+        _prompt_workflow_context,
+    )
+
+    context = _prompt_workflow_context(
+        {
+            "workflowKind": "issue_to_pr",
+            "workflowRunId": "run-uuid-1",
+            "workflowStepId": "step-uuid-2",
+            "dag": [["developer", "qa"], ["security"]],
+            "attempt": 2,
+            "title": "Fix login",
+        }
+    )
+    assert context == {"workflowKind": "issue_to_pr", "attempt": 2, "title": "Fix login"}
+
+    item = _prompt_item_view(
+        {
+            "id": "qa-1",
+            "command": "pytest",
+            "status": "passed",
+            "exitCode": 0,
+            "argv": ["python", "-m", "pytest"],
+            "toolCallId": "tool-uuid-3",
+            "permissionDecisionId": "perm-uuid-4",
+            "metadata": {"internal": True},
+            "evidenceRefs": ["evidence-1"],
+        },
+        keys=("id", "command", "status", "exitCode", "evidenceRefs"),
+    )
+    assert item == {
+        "id": "qa-1",
+        "command": "pytest",
+        "status": "passed",
+        "exitCode": 0,
+        "evidenceRefs": ["evidence-1"],
+    }
+
+
+def test_bounded_items_caps_each_serialized_item() -> None:
+    """Un item con anidados gigantes no puede desbordar el prompt: se corta con marcador."""
+    from local_control_center.agents.architect_agent import ITEM_SERIALIZED_LIMIT_CHARS, _bounded_items
+
+    huge = {"id": "doc-1", "nested": {"blob": ["x" * 500] * 200}}
+    bounded = _bounded_items([huge])
+
+    import json as _json
+
+    serialized = _json.dumps(bounded[0], ensure_ascii=False)
+    assert len(serialized) <= ITEM_SERIALIZED_LIMIT_CHARS + 100
+    assert bounded[0].get("truncated") == True  # noqa: E712 - marcador literal del item
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+def test_architect_agent_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    enable_openai_runtime_policy(store)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="architect-transient")
+    diff_artifact = create_diff_artifact(store, project["id"])
+    output = {
+        "verdict": "changes_required",
+        "architectureFindings": [
+            {
+                "title": "Broker operation required",
+                "severity": "medium",
+                "description": "The diff adds an architecture review path that must stay behind ToolBroker.",
+                "evidenceRefs": [diff_artifact["id"], "test-evidence-1"],
+            }
+        ],
+        "risks": [
+            {
+                "title": "Architect model call could bypass policy",
+                "severity": "high",
+                "description": "The new agent path must not call the model provider directly.",
+                "mitigation": "Rotate the api_key = value quarterly through a ToolBroker policy operation.",
+                "evidenceRefs": [diff_artifact["id"]],
+            }
+        ],
+        "requiredChanges": [
+            {
+                "title": "Add policy operation",
+                "description": "Add a scoped policy branch and architecture tests.",
+                "evidenceRefs": [diff_artifact["id"]],
+            }
+        ],
+        "approvalRecommendation": {
+            "decision": "hold",
+            "reason": "Architecture approval should wait for policy tests.",
+            "evidenceRefs": [diff_artifact["id"]],
+        },
+        "evidenceRefs": [diff_artifact["id"], "test-evidence-1"],
+    }
+    content = f"<think>{THINK_MARKER} checking refs</think>\n```json\n{json.dumps(output)}\n```"
+    server, base_url = start_controlled_provider(content)
+    try:
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-architect-model")
+        monkeypatch.setattr(
+            "local_control_center.agents.runtime_status.RuntimeStatusService.list_provider_statuses",
+            lambda _service: executable_openai_runtime_status(),
+        )
+        response = client.post(
+            "/api/v1/agents/architect/runs",
+            headers=headers,
+            json=architect_request(project, workspace, diff_artifact),
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["output"]["verdict"] == "changes_required"
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text
+    # La salida cruda del canal transitorio se redacta tras parsear: ni la BD ni la respuesta la guardan en claro.
+    assert "api_key = value" not in sqlite_text_dump(store.connection)
+    assert "api_key = value" not in response.text
+    assert "[redacted]" in body["output"]["risks"][0]["mitigation"]

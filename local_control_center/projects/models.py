@@ -4,12 +4,12 @@ Definen el contrato HTTP (validación de entrada y forma de salida) y traducen e
 ``snake_case`` de Python y el ``camelCase`` del frontend vía alias de campo. Solo modelan
 datos: no contienen lógica de negocio ni acceso a la base.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -53,6 +53,15 @@ class DirectoryPickerResponse(BaseModel):
     status: str
     selected_path: str | None = Field(default=None, alias="selectedPath")
     reason: str | None = None
+
+
+class ProjectOpenFolderResponse(BaseModel):
+    """Resultado de abrir la carpeta registrada del proyecto en el explorador del SO."""
+
+    status: Literal["opened"]
+    project_id: str = Field(alias="projectId")
+    path: str
+    launcher: str
 
 
 class ProjectRecord(BaseModel):

@@ -2,14 +2,24 @@
  * Workbench Evidence panel: inspects an evidence package without leaving the workbench —
  * QA results, deliverable artifacts (preview/download), security findings, model/tool
  * calls and hashes. All previewed text is redacted before display.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
+import { CheckCircle2, PlayCircle, RefreshCcw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-
+import type { ProjectProductLoopResponse } from '../../../api/client';
 import { downloadEvidenceArtifact, fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
 import { Disclosure } from '../../../components/Disclosure';
-import { Badge, DataTable, Drawer, EmptyState, Surface } from '../../../components/primitives';
+import {
+	StatusChip as Badge,
+	Button,
+	DataTable,
+	Drawer,
+	EmptyState,
+	SelectField,
+	Surface,
+	TextArea,
+} from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { artifactDisplayName, artifactSizeLabel } from '../../../lib/artifacts';
 import { evidenceDiffChangedFiles, findSecurityArtifact } from '../../../lib/diff';
@@ -17,6 +27,8 @@ import { shortId, toneForStatus } from '../../../lib/format';
 import { redactVisibleText } from '../../../lib/redaction';
 
 type EvidencePackage = Overview['evidencePackages'][number];
+type ProductLoopRecord = ProjectProductLoopResponse['loops'][number];
+type AgentTask = ProjectProductLoopResponse['tasks'][number];
 type PreviewState = { open: boolean; title: string; text: string; loading: boolean; error: string };
 
 const CLOSED_PREVIEW: PreviewState = {
@@ -33,17 +45,31 @@ export function WorkbenchEvidencePanel({
 	evidencePackage,
 	testResults,
 	artifacts,
+	activeProductLoop = null,
+	tasks = [],
+	decisionBusy = false,
+	onAcceptDelivery,
+	onRequestChanges,
+	onContinueDelivery,
 }: {
 	token: string;
 	evidenceId: string;
 	evidencePackage: EvidencePackage | null;
 	testResults: Overview['testResultRecords'];
 	artifacts: Overview['artifacts'];
+	activeProductLoop?: ProductLoopRecord | null;
+	tasks?: AgentTask[];
+	decisionBusy?: boolean;
+	onAcceptDelivery?: () => void;
+	onRequestChanges?: (taskId: string, feedback: string) => void;
+	onContinueDelivery?: (feedback: string) => void;
 }) {
 	const { t } = useI18n();
 	const [preview, setPreview] = useState<PreviewState>(CLOSED_PREVIEW);
 	const [downloadingId, setDownloadingId] = useState('');
 	const [actionError, setActionError] = useState('');
+	const [selectedTaskId, setSelectedTaskId] = useState('');
+	const [decisionFeedback, setDecisionFeedback] = useState('');
 	const [securityText, setSecurityText] = useState('');
 	const [securityLoading, setSecurityLoading] = useState(false);
 	const [securityError, setSecurityError] = useState('');
@@ -62,7 +88,9 @@ export function WorkbenchEvidencePanel({
 
 	const securityArtifact = useMemo(() => findSecurityArtifact(scopedArtifacts), [scopedArtifacts]);
 	const securityPackageId = securityArtifact?.evidencePackageId ?? evidenceId;
+	const securityArtifactId = securityArtifact?.id ?? '';
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: securityArtifactId is the intended trigger; the artifacts prop is a fresh object every ~5s poll, so keying on object identity blanks+refetches findings every tick.
 	useEffect(() => {
 		setSecurityText('');
 		setSecurityError('');
@@ -92,7 +120,7 @@ export function WorkbenchEvidencePanel({
 		return () => {
 			active = false;
 		};
-	}, [securityArtifact, securityPackageId, token, t]);
+	}, [securityArtifactId, securityPackageId, token, t]);
 
 	const openPreview = async (packageId: string, artifactId: string, title: string) => {
 		setPreview({ open: true, title, text: '', loading: true, error: '' });
@@ -149,7 +177,7 @@ export function WorkbenchEvidencePanel({
 				title={t('app.workbench.evidence.noPackageTitle', 'No evidence yet')}
 				body={t(
 					'app.workbench.evidence.noPackageBody',
-					'Run a governed task to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.',
+					'Run autonomous workspace work to produce an evidence package; QA, hashes and findings appear here without leaving the workbench.',
 				)}
 			/>
 		);
@@ -158,6 +186,18 @@ export function WorkbenchEvidencePanel({
 	const changedFiles = evidenceDiffChangedFiles(evidencePackage);
 	const modelCalls = Array.isArray(evidencePackage.modelCalls) ? evidencePackage.modelCalls : [];
 	const toolCalls = Array.isArray(evidencePackage.toolCalls) ? evidencePackage.toolCalls : [];
+	const deliveryDecisionAvailable =
+		activeProductLoop?.state === 'awaiting_approval' ||
+		activeProductLoop?.state === 'awaiting_feedback';
+	const canAcceptDelivery = Boolean(
+		activeProductLoop?.state === 'awaiting_approval' && onAcceptDelivery && !decisionBusy,
+	);
+	const canRequestChanges = Boolean(
+		onRequestChanges && selectedTaskId && decisionFeedback.trim() && !decisionBusy,
+	);
+	const canContinueDelivery = Boolean(
+		activeProductLoop?.state === 'awaiting_feedback' && onContinueDelivery && !decisionBusy,
+	);
 
 	return (
 		<div className="stack">
@@ -178,6 +218,82 @@ export function WorkbenchEvidencePanel({
 					<span className="mono muted">{shortId(evidencePackage.id)}</span>
 				</div>
 			</Surface>
+
+			{deliveryDecisionAvailable ? (
+				<Surface title={t('app.workbench.evidence.deliveryDecisionTitle', 'Delivery decision')}>
+					<div className="stack">
+						<div className="inline">
+							<Badge tone={toneForStatus(activeProductLoop.state)}>{activeProductLoop.state}</Badge>
+							<span className="mono muted">{shortId(activeProductLoop.id)}</span>
+						</div>
+						<TextArea
+							label={t('app.workbench.evidence.deliveryFeedbackLabel', 'Decision note')}
+							help={t(
+								'app.workbench.evidence.deliveryFeedbackHelp',
+								'Required when requesting changes; recorded in Product Loop feedback.',
+							)}
+							value={decisionFeedback}
+							onChange={(event) => setDecisionFeedback(event.target.value)}
+							rows={3}
+						/>
+						<SelectField
+							label={t('app.workbench.evidence.deliveryTaskLabel', 'Rework target')}
+							help={t(
+								'app.workbench.evidence.deliveryTaskHelp',
+								'Select the task that should receive the requested changes.',
+							)}
+							value={selectedTaskId}
+							onChange={(event) => setSelectedTaskId(event.target.value)}
+						>
+							<option value="">
+								{t('app.workbench.evidence.deliveryTaskPlaceholder', 'Select task')}
+							</option>
+							{tasks.map((task) => (
+								<option key={task.id} value={task.id}>
+									{task.title || task.id}
+								</option>
+							))}
+						</SelectField>
+						<div className="inline">
+							<Button
+								variant="primary"
+								icon={<CheckCircle2 size={16} aria-hidden="true" />}
+								loading={decisionBusy}
+								disabled={!canAcceptDelivery}
+								onClick={onAcceptDelivery}
+							>
+								{t('app.workbench.evidence.approveDelivery', 'Approve delivery')}
+							</Button>
+							<Button
+								variant="danger"
+								icon={<RefreshCcw size={16} aria-hidden="true" />}
+								loading={decisionBusy}
+								disabled={!canRequestChanges}
+								onClick={() => onRequestChanges?.(selectedTaskId, decisionFeedback.trim())}
+							>
+								{t('app.workbench.evidence.requestChanges', 'Request changes')}
+							</Button>
+							<Button
+								variant="secondary"
+								icon={<PlayCircle size={16} aria-hidden="true" />}
+								loading={decisionBusy}
+								disabled={!canContinueDelivery}
+								onClick={() =>
+									onContinueDelivery?.(
+										decisionFeedback.trim() ||
+											t(
+												'app.workbench.evidence.continueDeliveryDefaultFeedback',
+												'Continue Product Loop after requested changes.',
+											),
+									)
+								}
+							>
+								{t('app.workbench.evidence.continueDelivery', 'Continue')}
+							</Button>
+						</div>
+					</div>
+				</Surface>
+			) : null}
 
 			<Surface title={t('app.workbench.evidence.qaTitle', 'QA results')}>
 				<DataTable
